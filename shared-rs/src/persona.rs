@@ -1,0 +1,464 @@
+//! Device personas, and deriving a core config from one.
+//!
+//! A persona is a real machine's measured configuration. A profile picks one
+//! and supplies a seed; everything the core is told is then derived from that
+//! pair, deterministically.
+//!
+//! This exists because of what measurement showed about the alternative.
+//! fingerprint-chromium derives values independently from the seed —
+//! `hardwareConcurrency` as `((seed % 13) + 4) * 2` and `deviceMemory` as a
+//! hardcoded `return 8` — so it can emit 32 cores with 8 GB of RAM, a machine
+//! that does not exist. A valid-but-impossible combination is a stronger signal
+//! than no spoofing at all, because it is positive evidence of tampering rather
+//! than merely an absence of protection.
+//!
+//! So: values that belong together travel together, in one persona, taken from
+//! one real machine.
+
+use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
+
+/// One real machine's measured configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Persona {
+    pub id: String,
+    /// Share of the real population. Personas below 0.005 are never
+    /// auto-assigned: a rare-but-real configuration still narrows the crowd.
+    pub weight: f64,
+    /// Where the numbers came from. `measured` means someone dumped them off a
+    /// physical machine.
+    #[serde(default)]
+    pub source: Option<String>,
+    pub os: PersonaOs,
+    pub gpu: PersonaGpu,
+    pub screen: PersonaScreen,
+    pub chrome_metrics: PersonaChromeMetrics,
+    pub cpu: PersonaCpu,
+    /// Spec-quantised, and measurement beats the spec: real Chrome 150 on a
+    /// 16 GB Mac reports 16, not the 8 the spec text implies.
+    pub memory_gb: u32,
+    #[serde(default)]
+    pub max_touch_points: u32,
+    pub fonts: Vec<String>,
+    pub audio: PersonaAudio,
+    #[serde(default)]
+    pub voices: Vec<String>,
+    #[serde(default)]
+    pub media_devices: Vec<PersonaMediaDevice>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersonaOs {
+    /// "Windows" | "macOS"
+    pub name: String,
+    pub version: String,
+    /// "x86_64" | "arm64"
+    pub arch: String,
+    /// The UA string template, with {CHROME_MAJOR} substituted at derive time
+    /// so a persona survives a Chromium uprev without being rewritten.
+    pub user_agent_template: String,
+    /// navigator.platform: "Win32" or "MacIntel".
+    pub platform: String,
+    /// Sec-CH-UA-Platform.
+    pub ch_platform: String,
+    pub ch_platform_version: String,
+    pub ch_architecture: String,
+    pub ch_bitness: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersonaGpu {
+    pub webgl_vendor: String,
+    pub webgl_renderer: String,
+    /// Numbers and comma-joined ranges, keyed by the GL constant name.
+    #[serde(default)]
+    pub webgl_params: BTreeMap<String, serde_json::Value>,
+    #[serde(default)]
+    pub webgl_extensions: Vec<String>,
+    #[serde(default)]
+    pub webgpu: Option<PersonaWebGpu>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersonaWebGpu {
+    pub vendor: String,
+    pub architecture: String,
+    #[serde(default)]
+    pub device: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub limits: BTreeMap<String, f64>,
+    /// Personas may only NARROW the host's feature set — see patch 0032. A
+    /// feature listed here that the host GPU lacks is a validation error, not
+    /// something the core can invent.
+    #[serde(default)]
+    pub features: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersonaScreen {
+    pub width: u32,
+    pub height: u32,
+    pub avail_width: u32,
+    pub avail_height: u32,
+    pub color_depth: u32,
+    pub device_pixel_ratio: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersonaChromeMetrics {
+    /// outerHeight - innerHeight. Differs between Windows and macOS and is
+    /// routinely measured.
+    pub outer_minus_inner_height: u32,
+    #[serde(default)]
+    pub outer_minus_inner_width: u32,
+    /// 0 on macOS (overlay scrollbars), 15-17 on Windows.
+    pub scrollbar_width: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersonaCpu {
+    pub cores: u32,
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersonaAudio {
+    pub sample_rate: u32,
+    pub base_latency: f64,
+    pub output_latency: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersonaMediaDevice {
+    /// "audioinput" | "audiooutput" | "videoinput"
+    pub kind: String,
+}
+
+/// Per-profile inputs that are not part of the persona: they come from the
+/// proxy, not from the device.
+#[derive(Debug, Clone)]
+pub struct ProfileContext {
+    /// IANA zone derived from the proxy exit IP. See docs/05 — a profile
+    /// exiting in Germany while reporting Asia/Tbilisi is the cheapest
+    /// detection in the industry.
+    pub timezone: String,
+    /// BCP-47 list, most preferred first.
+    pub languages: Vec<String>,
+    /// Chromium major version this build ships.
+    pub chrome_major: u32,
+    /// Full four-part version, for the high-entropy Client Hints.
+    pub chrome_full_version: String,
+}
+
+// ---------------------------------------------------------------------------
+// derivation
+// ---------------------------------------------------------------------------
+
+/// SplitMix64. Stateless, so the same inputs always give the same output — the
+/// property the whole design rests on.
+fn mix(mut z: u64) -> u64 {
+    z = z.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    z ^ (z >> 31)
+}
+
+/// Derives an independent sub-seed for one purpose from the profile seed.
+///
+/// Separate streams per purpose so that adding a new noised vector later does
+/// not shift the canvas fingerprint of every existing profile — which would
+/// silently re-identify every account a user has already aged.
+fn sub_seed(seed: u64, purpose: &str) -> u32 {
+    let mut h = seed;
+    for byte in purpose.as_bytes() {
+        h = mix(h ^ u64::from(*byte));
+    }
+    (mix(h) & 0x7fff_ffff) as u32
+}
+
+impl Persona {
+    /// Builds the JSON the patched core reads.
+    ///
+    /// Key paths match what components/fury reads and what
+    /// tools/detect-suite/probe.js dumps, so a capture from a real machine can
+    /// be turned into a persona and back without translation.
+    pub fn derive_core_config(&self, seed: u64, ctx: &ProfileContext) -> serde_json::Value {
+        let ua = self
+            .os
+            .user_agent_template
+            .replace("{CHROME_MAJOR}", &ctx.chrome_major.to_string());
+
+        let brands = vec![
+            "Not;A=Brand/8".to_string(),
+            format!("Chromium/{}", ctx.chrome_major),
+            format!("Google Chrome/{}", ctx.chrome_major),
+        ];
+        let full_version_list = vec![
+            "Not;A=Brand/8.0.0.0".to_string(),
+            format!("Chromium/{}", ctx.chrome_full_version),
+            format!("Google Chrome/{}", ctx.chrome_full_version),
+        ];
+
+        let mut config = serde_json::json!({
+            "schema_version": crate::FINGERPRINT_SCHEMA_VERSION,
+            "navigator": {
+                "userAgent": ua,
+                "platform": self.os.platform,
+                "languages": ctx.languages,
+                "hardwareConcurrency": self.cpu.cores,
+                "deviceMemory": self.memory_gb,
+                "maxTouchPoints": self.max_touch_points,
+            },
+            "clientHints": {
+                "brands": brands,
+                "fullVersionList": full_version_list,
+                "platform": self.os.ch_platform,
+                "platformVersion": self.os.ch_platform_version,
+                "architecture": self.os.ch_architecture,
+                "bitness": self.os.ch_bitness,
+                "model": "",
+                "mobile": false,
+                "wow64": false,
+                "fullVersion": ctx.chrome_full_version,
+            },
+            "screen": {
+                "width": self.screen.width,
+                "height": self.screen.height,
+                "availWidth": self.screen.avail_width,
+                "availHeight": self.screen.avail_height,
+                "availLeft": 0,
+                "availTop": 0,
+                "colorDepth": self.screen.color_depth,
+                "devicePixelRatio": self.screen.device_pixel_ratio,
+                "chromeHeightDelta": self.chrome_metrics.outer_minus_inner_height,
+                "chromeWidthDelta": self.chrome_metrics.outer_minus_inner_width,
+                "scrollbarWidth": self.chrome_metrics.scrollbar_width,
+            },
+            "gpu": {
+                "webglParams": {},
+                "webglExtensions": self.gpu.webgl_extensions,
+            },
+            "audio": {
+                "sampleRate": self.audio.sample_rate,
+                "baseLatency": self.audio.base_latency,
+                "outputLatency": self.audio.output_latency,
+            },
+            "fonts": self.fonts,
+            "locale": {
+                "timezone": ctx.timezone,
+                "locale": ctx.languages.first().cloned().unwrap_or_default(),
+            },
+            // Independent streams per vector: adding a new noised surface later
+            // must not shift the canvas fingerprint of existing profiles.
+            "noise": {
+                "canvasSeed": sub_seed(seed, "canvas"),
+                "audioSeed": sub_seed(seed, "audio"),
+                "clientRectsSeed": sub_seed(seed, "clientRects"),
+                "deviceIdSalt": sub_seed(seed, "deviceId"),
+            },
+        });
+
+        // WebGL params, with the vendor/renderer strings folded into the same
+        // map the core reads so there is exactly one place to look.
+        let params = config["gpu"]["webglParams"].as_object_mut().unwrap();
+        for (key, value) in &self.gpu.webgl_params {
+            params.insert(key.clone(), value.clone());
+        }
+        for key in ["VENDOR", "UNMASKED_VENDOR_WEBGL"] {
+            params.insert(key.into(), self.gpu.webgl_vendor.clone().into());
+        }
+        for key in ["RENDERER", "UNMASKED_RENDERER_WEBGL"] {
+            params.insert(key.into(), self.gpu.webgl_renderer.clone().into());
+        }
+
+        if let Some(webgpu) = &self.gpu.webgpu {
+            config["gpu"]["webgpu"] = serde_json::json!({
+                "vendor": webgpu.vendor,
+                "architecture": webgpu.architecture,
+                "device": webgpu.device,
+                "description": webgpu.description,
+                "limits": webgpu.limits,
+                "features": webgpu.features,
+            });
+        }
+
+        config
+    }
+
+    /// Internal consistency of the persona itself, before any profile is
+    /// derived from it. Catches a bad persona at authoring time rather than
+    /// when an account gets banned.
+    pub fn validate(&self) -> Result<(), Vec<String>> {
+        let mut errs = Vec::new();
+        let is_mac = self.os.name == "macOS";
+        let is_win = self.os.name == "Windows";
+
+        if !is_mac && !is_win {
+            errs.push(format!("unknown os.name {:?}", self.os.name));
+        }
+
+        let expected_platform = if is_mac { "MacIntel" } else { "Win32" };
+        if self.os.platform != expected_platform {
+            errs.push(format!(
+                "os.platform {:?} does not match os.name {:?} (expected {expected_platform:?})",
+                self.os.platform, self.os.name
+            ));
+        }
+
+        if is_mac && self.chrome_metrics.scrollbar_width != 0 {
+            errs.push("macOS uses overlay scrollbars; scrollbar_width must be 0".into());
+        }
+        if is_win && self.chrome_metrics.scrollbar_width == 0 {
+            errs.push("Windows always reserves scrollbar width".into());
+        }
+        if is_mac && self.max_touch_points != 0 {
+            errs.push("no Mac has a touchscreen; max_touch_points must be 0".into());
+        }
+
+        let r = &self.gpu.webgl_renderer;
+        if is_mac && (r.contains("Direct3D") || r.contains("D3D11")) {
+            errs.push(format!("macOS persona with a Direct3D renderer: {r}"));
+        }
+        if is_win && r.contains("Metal") {
+            errs.push(format!("Windows persona with a Metal renderer: {r}"));
+        }
+
+        if let Some(webgpu) = &self.gpu.webgpu {
+            if !r.to_lowercase().contains(&webgpu.vendor.to_lowercase()) {
+                errs.push(format!(
+                    "WebGPU vendor {:?} does not appear in the WebGL renderer {r:?}",
+                    webgpu.vendor
+                ));
+            }
+        }
+
+        if self.screen.avail_width > self.screen.width
+            || self.screen.avail_height > self.screen.height
+        {
+            errs.push("available area cannot exceed the screen".into());
+        }
+        if is_mac && self.screen.avail_height == self.screen.height {
+            errs.push("macOS always reserves the menu bar; avail_height must be < height".into());
+        }
+
+        if self.memory_gb == 0 || (self.memory_gb & (self.memory_gb - 1)) != 0 {
+            errs.push(format!(
+                "memory_gb must be a power of two (4, 8, 16 observed in the wild); got {}",
+                self.memory_gb
+            ));
+        }
+        if self.memory_gb < 4 && self.cpu.cores > 8 {
+            errs.push(format!(
+                "{} GB with {} cores is not a machine that exists",
+                self.memory_gb, self.cpu.cores
+            ));
+        }
+
+        if ![44100, 48000].contains(&self.audio.sample_rate) {
+            errs.push(format!(
+                "unusual sample rate {}; real machines report 44100 or 48000",
+                self.audio.sample_rate
+            ));
+        }
+
+        if self.fonts.is_empty() {
+            errs.push("an empty font list is itself a fingerprint".into());
+        }
+        if is_mac && self.fonts.iter().any(|f| f == "Segoe UI" || f == "Bahnschrift") {
+            errs.push("Windows-only fonts on a macOS persona".into());
+        }
+        if is_win && self.fonts.iter().any(|f| f == "Helvetica Neue" || f == "Menlo") {
+            errs.push("macOS-only fonts on a Windows persona".into());
+        }
+
+        if !(0.0..=1.0).contains(&self.weight) {
+            errs.push(format!("weight {} is not a share", self.weight));
+        }
+
+        if errs.is_empty() { Ok(()) } else { Err(errs) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn load(name: &str) -> Persona {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../shared/personas/");
+        let text = std::fs::read_to_string(format!("{path}{name}.json"))
+            .unwrap_or_else(|e| panic!("reading persona {name}: {e}"));
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("parsing persona {name}: {e}"))
+    }
+
+    fn ctx() -> ProfileContext {
+        ProfileContext {
+            timezone: "America/New_York".into(),
+            languages: vec!["en-US".into(), "en".into()],
+            chrome_major: 150,
+            chrome_full_version: "150.0.7871.187".into(),
+        }
+    }
+
+    #[test]
+    fn shipped_personas_are_internally_consistent() {
+        for name in ["macos-15-m-series-1728x1117", "windows-11-rtx4060-1920x1080"] {
+            load(name)
+                .validate()
+                .unwrap_or_else(|e| panic!("persona {name}: {e:?}"));
+        }
+    }
+
+    #[test]
+    fn derivation_is_deterministic() {
+        let p = load("windows-11-rtx4060-1920x1080");
+        assert_eq!(p.derive_core_config(42, &ctx()), p.derive_core_config(42, &ctx()));
+    }
+
+    #[test]
+    fn different_seeds_change_noise_but_not_the_device() {
+        let p = load("windows-11-rtx4060-1920x1080");
+        let a = p.derive_core_config(1, &ctx());
+        let b = p.derive_core_config(2, &ctx());
+        assert_ne!(a["noise"]["canvasSeed"], b["noise"]["canvasSeed"]);
+        // The machine is the persona's, not the seed's — two profiles on the
+        // same persona must look like two users of the same model of laptop,
+        // not like two different machines.
+        assert_eq!(a["navigator"]["hardwareConcurrency"], b["navigator"]["hardwareConcurrency"]);
+        assert_eq!(a["screen"]["width"], b["screen"]["width"]);
+        assert_eq!(a["gpu"]["webglParams"]["UNMASKED_RENDERER_WEBGL"],
+                   b["gpu"]["webglParams"]["UNMASKED_RENDERER_WEBGL"]);
+    }
+
+    #[test]
+    fn noise_streams_are_independent() {
+        // Adding a vector later must not shift an existing one, or every aged
+        // account silently changes identity on upgrade.
+        assert_ne!(sub_seed(7, "canvas"), sub_seed(7, "audio"));
+        assert_ne!(sub_seed(7, "canvas"), sub_seed(7, "clientRects"));
+    }
+
+    #[test]
+    fn derived_config_carries_the_client_hints_chrome_brand() {
+        // Phase 0 measured a clean Chromium omitting "Google Chrome" from the
+        // brand list, which is how it was told apart from real Chrome.
+        let p = load("macos-15-m-series-1728x1117");
+        let c = p.derive_core_config(1, &ctx());
+        let brands = c["clientHints"]["brands"].as_array().unwrap();
+        assert!(brands.iter().any(|b| b.as_str().unwrap().starts_with("Google Chrome/")));
+    }
+
+    #[test]
+    fn a_persona_contradicting_its_os_is_rejected() {
+        let mut p = load("macos-15-m-series-1728x1117");
+        p.chrome_metrics.scrollbar_width = 15;
+        assert!(p.validate().is_err());
+
+        let mut p = load("windows-11-rtx4060-1920x1080");
+        p.gpu.webgl_renderer = "ANGLE (Apple, ANGLE Metal Renderer: Apple M3)".into();
+        assert!(p.validate().is_err());
+    }
+}

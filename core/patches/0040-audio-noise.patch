@@ -1,0 +1,86 @@
+diff --git a/third_party/blink/renderer/modules/webaudio/audio_context.cc b/third_party/blink/renderer/modules/webaudio/audio_context.cc
+index 64cc335435..6e986a7582 100644
+--- a/third_party/blink/renderer/modules/webaudio/audio_context.cc
++++ b/third_party/blink/renderer/modules/webaudio/audio_context.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "third_party/blink/renderer/modules/webaudio/audio_context.h"
+ 
++#include "components/fury/fury_config.h"
++
+ #include <atomic>
+ 
+ #include "base/functional/callback_helpers.h"
+@@ -1159,6 +1161,18 @@ double AudioContext::outputLatency() const {
+ 
+   DeferredTaskHandler::GraphAutoLocker locker(GetDeferredTaskHandler());
+ 
++  // Hardware-derived and platform-specific, so it belongs to the persona rather
++  // than to this machine. Real values cluster tightly per OS and audio stack;
++  // shared-rs validates the pairing with sampleRate.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<double> latency =
++            config->GetDouble("audio.outputLatency")) {
++      if (*latency >= 0) {
++        return *latency;
++      }
++    }
++  }
++
+   double factor = GetOutputLatencyQuantizingFactor();
+   return std::round(output_position_.hardware_output_latency / factor) * factor;
+ }
+diff --git a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
+index fcac660801..0b25eb3da8 100644
+--- a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
++++ b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
+@@ -25,6 +25,8 @@
+ 
+ #include "third_party/blink/renderer/modules/webaudio/offline_audio_context.h"
+ 
++#include "components/fury/fury_config.h"
++
+ #include "base/metrics/histogram_functions.h"
+ #include "base/metrics/histogram_macros.h"
+ #include "media/base/audio_glitch_info.h"
+@@ -432,6 +434,40 @@ void OfflineAudioContext::FireCompletionEvent() {
+       return;
+     }
+ 
++    // The classic audio fingerprint is an OfflineAudioContext rendering an
++    // oscillator through a DynamicsCompressor and summing the output — the
++    // result differs by a few ULPs between audio stacks, and every
++    // fingerprinting library reads it.
++    //
++    // Perturbed here, once, on the finished buffer: the graph itself renders
++    // untouched, so audio a page actually plays is unaffected.
++    //
++    // Deterministic from (seed, channel, sample index), same rule as canvas: a
++    // detector renders the same graph twice and compares, and a value that
++    // moves between runs is a stronger signal than one that never moves.
++    // Amplitude is ~1e-7, far below anything audible and below the noise floor
++    // of any real converter, but it changes the sum every library computes.
++    if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++      if (std::optional<int> seed = config->GetInt("noise.audioSeed")) {
++        const uint32_t audio_seed = static_cast<uint32_t>(*seed);
++        for (unsigned channel = 0; channel < rendered_buffer->numberOfChannels();
++             ++channel) {
++          NotShared<DOMFloat32Array> data =
++              rendered_buffer->getChannelData(channel);
++          base::span<float> samples = data->AsSpan();
++          for (size_t i = 0; i < samples.size(); ++i) {
++            uint64_t h = audio_seed;
++            h = (h ^ (channel * 0x9e3779b9u)) * 0x100000001b3ULL;
++            h = (h ^ i) * 0x100000001b3ULL;
++            h ^= h >> 29;
++            // +/- one part in ten million, sign from the hash.
++            const float delta = (h & 1) ? 1.0e-7f : -1.0e-7f;
++            samples[i] += delta * static_cast<float>((h >> 1) & 0xff);
++          }
++        }
++      }
++    }
++
+     // Call the offline rendering completion event listener and resolve the
+     // promise too.
+     DispatchEvent(*OfflineAudioCompletionEvent::Create(rendered_buffer));

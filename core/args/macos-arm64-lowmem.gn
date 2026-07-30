@@ -58,7 +58,15 @@ enable_hangout_services_extension = false
 # --safebrowsing-disable-auto-update and --disable-background-networking, and no
 # Google API key is compiled in, so nothing phones home regardless.
 
-enable_widevine = false
+# Turned ON. Real Chrome accepts com.widevine.alpha and our build refused it —
+# the last failing gate check and a three-line detection.
+#
+# The CDM itself is a proprietary blob we cannot redistribute, but the support
+# code is open and the blob is already on any machine with Chrome installed.
+# Building with support lets the browser advertise and load it, which is what
+# the check measures. If the CDM is absent at runtime the behaviour is no worse
+# than today.
+enable_widevine = true
 
 enable_nacl = false
 enable_print_preview = true

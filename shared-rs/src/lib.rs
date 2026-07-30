@@ -5,9 +5,11 @@
 
 pub mod api;
 pub mod fingerprint;
+pub mod persona;
 pub mod rbac;
 
 pub use fingerprint::FingerprintConfig;
+pub use persona::{Persona, ProfileContext};
 pub use rbac::{effective, LaunchRestrictions, OrgRole, Perm, PermSet};
 
 /// Bumped when the fingerprint config schema changes in a way the core must
