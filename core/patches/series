@@ -41,6 +41,14 @@
 0013-navigator-plugins.patch
 
 # --- layout & display -------------------------------------------------------
+# Screen::GetRect() is the single choke point for width, height, availWidth,
+# availHeight, availLeft and availTop — overriding them one getter at a time
+# would allow an availWidth larger than width.
+#
+# outerHeight is DERIVED from the real innerHeight plus a configured chrome
+# height, never set outright: innerHeight is the actual viewport and page layout
+# depends on it, while outerHeight - innerHeight is the OS tell. Phase 0
+# measured 143 px on a clean build against 87 px on real Chrome.
 0020-screen-window.patch
 0021-scrollbar-width.patch
 

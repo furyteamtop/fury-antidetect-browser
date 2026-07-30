@@ -108,7 +108,7 @@ canvas стабилен.
 
 Приоритет 1 — то, что проверяют все:
 - [x] **`0010-0011` navigator + userAgentData + Client Hints — один источник правды**
-- [ ] `0020` screen/window, включая дельту `outer-inner` и ширину скроллбара
+- [x] **`0020` screen/window, включая дельту `outer-inner`** (скроллбар — отдельно, `0021`)
 - [ ] `0030` canvas noise
 - [ ] `0031` WebGL параметры и шум
 - [ ] `0080` timezone через ICU + Intl
