@@ -1,0 +1,50 @@
+# GN args — macOS arm64, first build on a 16 GB machine.
+#
+# Use this for the FIRST build. Its job is to prove the toolchain works, not to
+# produce a shippable binary. Once it succeeds, move to macos-arm64.gn.
+#
+# Why a separate file: an official build enables ThinLTO and PGO, and each LTO
+# link job can hold 8-16 GB resident. On a 16 GB machine that either OOMs or
+# swaps for hours. Discovering this after a four-hour build is a bad way to
+# spend an evening.
+
+target_os = "mac"
+target_cpu = "arm64"
+
+# --- the low-memory choices -------------------------------------------------
+# No LTO, no PGO. Costs runtime performance and binary size, saves the build.
+is_official_build = false
+is_debug = false
+symbol_level = 0
+blink_symbol_level = 0
+dcheck_always_on = false
+chrome_pgo_phase = 0
+
+# Chromium's own throttle for parallel link jobs. Even without LTO, several
+# concurrent links of a binary this size will exhaust 16 GB.
+concurrent_links = 1
+
+# --- CRITICAL for anti-detect, kept even in the trial build ------------------
+# A build without these cannot decode H.264/AAC while real Chrome can, and two
+# lines of JS tell them apart. Keeping them here means the trial build is still
+# a valid subject for the detect-suite.
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"
+
+# --- de-Google ---------------------------------------------------------------
+is_chrome_branded = false
+use_official_google_api_keys = false
+google_api_key = ""
+google_default_client_id = ""
+google_default_client_secret = ""
+enable_reporting = false
+enable_remoting = false
+safe_browsing_mode = 0
+enable_hangout_services_extension = false
+
+enable_widevine = false
+
+enable_nacl = false
+enable_print_preview = true
+
+use_lld = true
