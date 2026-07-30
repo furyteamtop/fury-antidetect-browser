@@ -68,7 +68,13 @@
 # counter, no randomness. A detector reads the canvas twice and compares, and
 # unstable noise is a stronger signal than no noise at all.
 0030-canvas-noise.patch
-0031-webgl-params.patch!
+# Intercepts once at the top of getParameter() rather than in each of its ~80
+# switch arms: patching them individually guarantees some are missed at the next
+# rebase, and one un-spoofed limit contradicts every spoofed one around it.
+# readPixels noise lives here too — spoofing the renderer string while leaving
+# the rendered pixels real would be pointless, the pixels are the harder
+# fingerprint.
+0031-webgl-params.patch!         # webgl_rendering_context_base.cc is hot!
 0032-webgpu-adapter.patch!             # WebGPU is still moving fast upstream
 0033-client-rects.patch
 

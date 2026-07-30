@@ -1,0 +1,205 @@
+diff --git a/third_party/blink/renderer/modules/BUILD.gn b/third_party/blink/renderer/modules/BUILD.gn
+index 3955d4448f..8ac269e307 100644
+--- a/third_party/blink/renderer/modules/BUILD.gn
++++ b/third_party/blink/renderer/modules/BUILD.gn
+@@ -197,6 +197,7 @@ component("modules") {
+   }
+ 
+   deps = [
++    "//components/fury",
+     ":make_modules_generated",
+     "//build:android_buildflags",
+     "//cc",
+diff --git a/third_party/blink/renderer/modules/DEPS b/third_party/blink/renderer/modules/DEPS
+index 875071014b..fe8a93bcf3 100644
+--- a/third_party/blink/renderer/modules/DEPS
++++ b/third_party/blink/renderer/modules/DEPS
+@@ -1,4 +1,6 @@
+ include_rules = [
++    "+components/fury/fury_config.h",
++    "+components/fury/fury_noise.h",
+     "+base/atomic_sequence_num.h",
+     "+base/memory/scoped_refptr.h",
+     "+base/memory/values_equivalent.h",
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index ceb4c3f606..679a0c45c7 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -25,6 +25,11 @@
+ 
+ #include "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h"
+ 
++#include "base/strings/string_number_conversions.h"
++#include "base/strings/string_split.h"
++#include "components/fury/fury_config.h"
++#include "components/fury/fury_noise.h"
++
+ #include <inttypes.h>
+ 
+ #include <memory>
+@@ -3972,10 +3977,112 @@ void WebGLRenderingContextBase::RecordANGLEImplementation() {
+                             webgl_angle_implementation);
+ }
+ 
++namespace {
++
++// Maps the GLenum a page passes to getParameter() onto the name the config uses.
++//
++// Intercepting once at the top of getParameter() rather than case by case is
++// deliberate: the switch below has around eighty arms, and patching them
++// individually would guarantee some are missed at the next rebase — and a
++// single un-spoofed limit contradicts every spoofed one around it.
++//
++// Names match what tools/detect-suite/probe.js dumps, so a persona can be
++// filled straight from a capture of a real machine.
++struct FuryGlParamName {
++  GLenum pname;
++  const char* name;
++};
++
++constexpr FuryGlParamName kFuryGlIntParams[] = {
++    {GL_MAX_TEXTURE_SIZE, "MAX_TEXTURE_SIZE"},
++    {GL_MAX_RENDERBUFFER_SIZE, "MAX_RENDERBUFFER_SIZE"},
++    {GL_MAX_CUBE_MAP_TEXTURE_SIZE, "MAX_CUBE_MAP_TEXTURE_SIZE"},
++    {GL_MAX_TEXTURE_IMAGE_UNITS, "MAX_TEXTURE_IMAGE_UNITS"},
++    {GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS, "MAX_VERTEX_TEXTURE_IMAGE_UNITS"},
++    {GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, "MAX_COMBINED_TEXTURE_IMAGE_UNITS"},
++    {GL_MAX_VERTEX_ATTRIBS, "MAX_VERTEX_ATTRIBS"},
++    {GL_MAX_VERTEX_UNIFORM_VECTORS, "MAX_VERTEX_UNIFORM_VECTORS"},
++    {GL_MAX_FRAGMENT_UNIFORM_VECTORS, "MAX_FRAGMENT_UNIFORM_VECTORS"},
++    {GL_MAX_VARYING_VECTORS, "MAX_VARYING_VECTORS"},
++    {GL_RED_BITS, "RED_BITS"},
++    {GL_GREEN_BITS, "GREEN_BITS"},
++    {GL_BLUE_BITS, "BLUE_BITS"},
++    {GL_DEPTH_BITS, "DEPTH_BITS"},
++    {GL_STENCIL_BITS, "STENCIL_BITS"},
++    {GL_SUBPIXEL_BITS, "SUBPIXEL_BITS"},
++    {GL_SAMPLE_BUFFERS, "SAMPLE_BUFFERS"},
++    {GL_SAMPLES, "SAMPLES"},
++};
++
++constexpr FuryGlParamName kFuryGlStringParams[] = {
++    {GL_VENDOR, "VENDOR"},
++    {GL_RENDERER, "RENDERER"},
++    {GL_VERSION, "VERSION"},
++    {GL_SHADING_LANGUAGE_VERSION, "SHADING_LANGUAGE_VERSION"},
++    {WebGLDebugRendererInfo::kUnmaskedVendorWebgl, "UNMASKED_VENDOR_WEBGL"},
++    {WebGLDebugRendererInfo::kUnmaskedRendererWebgl, "UNMASKED_RENDERER_WEBGL"},
++};
++
++// Reported as Float32Array, so the config stores them comma-separated.
++constexpr FuryGlParamName kFuryGlFloatArrayParams[] = {
++    {GL_ALIASED_LINE_WIDTH_RANGE, "ALIASED_LINE_WIDTH_RANGE"},
++    {GL_ALIASED_POINT_SIZE_RANGE, "ALIASED_POINT_SIZE_RANGE"},
++    {GL_MAX_VIEWPORT_DIMS, "MAX_VIEWPORT_DIMS"},
++};
++
++const char* FuryFindName(base::span<const FuryGlParamName> table, GLenum pname) {
++  for (const auto& entry : table) {
++    if (entry.pname == pname) {
++      return entry.name;
++    }
++  }
++  return nullptr;
++}
++
++}  // namespace
++
+ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+                                                     GLenum pname) {
+   if (isContextLost())
+     return ScriptValue::CreateNull(script_state->GetIsolate());
++
++  // Fury: answer from the configured GPU before consulting the real driver.
++  // MAX_VIEWPORT_DIMS and friends are as much a part of the GPU's identity as
++  // the renderer string, and a persona that changes one without the others
++  // describes a card that has never existed.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (const char* name = FuryFindName(kFuryGlStringParams, pname)) {
++      if (std::optional<std::string> value = config->GetString(
++              std::string("gpu.webglParams.") + name)) {
++        return WebGLAny(script_state, String::FromUtf8(*value));
++      }
++    }
++    if (const char* name = FuryFindName(kFuryGlIntParams, pname)) {
++      if (std::optional<int> value = config->GetInt(
++              std::string("gpu.webglParams.") + name)) {
++        return WebGLAny(script_state, *value);
++      }
++    }
++    if (const char* name = FuryFindName(kFuryGlFloatArrayParams, pname)) {
++      if (std::optional<std::string> value = config->GetString(
++              std::string("gpu.webglParams.") + name)) {
++        // Parsed with std::string rather than WTF::String: the WTF numeric
++        // helpers move between releases (M150 has no String::ToFloat), and this
++        // input comes from our own config, not from the web.
++        Vector<float> values;
++        for (const auto& token : base::SplitStringPiece(
++                 *value, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY)) {
++          double parsed = 0;
++          if (base::StringToDouble(token, &parsed)) {
++            values.push_back(static_cast<float>(parsed));
++          }
++        }
++        if (!values.empty()) {
++          return WebGLAny(script_state, DOMFloat32Array::Create(values));
++        }
++      }
++    }
++  }
+   const int kIntZero = 0;
+   switch (pname) {
+     case GL_ACTIVE_TEXTURE:
+@@ -4518,6 +4625,20 @@ WebGLRenderingContextBase::getSupportedExtensions() {
+     }
+   }
+ 
++  // The extension list is driver- and GPU-specific, so it has to move with the
++  // rest of the persona. Replaced wholesale rather than filtered: a list that is
++  // a subset of the real driver's would still describe the real driver.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<std::vector<std::string>> extensions =
++            config->GetStringList("gpu.webglExtensions")) {
++      result.clear();
++      result.reserve(static_cast<wtf_size_t>(extensions->size()));
++      for (const std::string& name : *extensions) {
++        result.push_back(String::FromUtf8(name));
++      }
++    }
++  }
++
+   return result;
+ }
+ 
+@@ -5341,6 +5462,31 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
+     }
+     ContextGL()->ReadPixels(x, y, width, height, format, type, data);
+   }
++
++  // Perturb what comes back out, by the same rules as canvas: deterministic
++  // from absolute position, so two reads of the same framebuffer agree.
++  // Spoofing the renderer string while leaving the rendered pixels untouched
++  // would be pointless — the pixels are the more expensive fingerprint and the
++  // harder one to fake convincingly.
++  //
++  // Restricted to RGBA/UNSIGNED_BYTE, the format every fingerprinting script
++  // uses. Other formats have different byte layouts and are left alone rather
++  // than corrupted; a page that reads floats gets the truth, which is a gap
++  // worth recording instead of a crash worth debugging.
++  if (data && format == GL_RGBA && type == GL_UNSIGNED_BYTE && width > 0 &&
++      height > 0) {
++    uint64_t seed = 0;
++    if (fury::GetCanvasNoiseSeed(&seed)) {
++      const size_t row_bytes = static_cast<size_t>(width) * 4;
++      fury::ApplyCanvasNoise(
++          seed,
++          // SAFETY: the caller sized this buffer for width * height RGBA
++          // pixels, which ReadPixels has just filled.
++          UNSAFE_BUFFERS(base::span(static_cast<uint8_t*>(data),
++                                    row_bytes * static_cast<size_t>(height))),
++          width, height, row_bytes, x, y);
++    }
++  }
+ }
+ 
+ void WebGLRenderingContextBase::RenderbufferStorageImpl(

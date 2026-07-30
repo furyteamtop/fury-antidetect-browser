@@ -110,7 +110,7 @@ canvas стабилен.
 - [x] **`0010-0011` navigator + userAgentData + Client Hints — один источник правды**
 - [x] **`0020` screen/window, включая дельту `outer-inner`** (скроллбар — `0021`, сделан)
 - [x] **`0030` canvas noise**
-- [ ] `0031` WebGL параметры и шум
+- [x] **`0031` WebGL параметры и шум**
 - [ ] `0080` timezone через ICU + Intl
 - [ ] `0200-0220` TLS/JA3, HTTP/2 SETTINGS, порядок заголовков
 - [ ] `0300` следы автоматизации
