@@ -39,8 +39,24 @@ google_default_client_id = ""
 google_default_client_secret = ""
 enable_reporting = false
 enable_remoting = false
-safe_browsing_mode = 0
 enable_hangout_services_extension = false
+
+# safe_browsing_mode is deliberately NOT set to 0 here.
+#
+# Measured on Chromium 150: `safe_browsing_mode = 0` leaves the build graph
+# unresolvable, because chrome/browser/feedback, chrome/test:unit_tests and
+# others keep unconditional dependencies on //components/safe_browsing targets
+# that the option removes:
+#
+#   ERROR Unresolved dependencies.
+#   //chrome/browser/feedback:feedback_impl
+#     needs //components/safe_browsing/content/browser:client_side_detection
+#
+# Removing Safe Browsing properly needs source patches — this is what
+# ungoogled-chromium does — not a GN flag. Until patch 0901 exists we keep the
+# default and suppress it at runtime: launcher.rs already passes
+# --safebrowsing-disable-auto-update and --disable-background-networking, and no
+# Google API key is compiled in, so nothing phones home regardless.
 
 enable_widevine = false
 

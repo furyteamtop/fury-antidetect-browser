@@ -26,7 +26,10 @@ google_default_client_id = ""
 google_default_client_secret = ""
 enable_reporting = false
 enable_remoting = false
-safe_browsing_mode = 0
+# safe_browsing_mode = 0   # DO NOT SET. Measured on M150: leaves the GN graph
+#                          # unresolvable (chrome/browser/feedback and others
+#                          # depend on //components/safe_browsing regardless).
+#                          # Needs source patches — see patch 0901.
 enable_hangout_services_extension = false
 
 # --- Widevine ----------------------------------------------------------------

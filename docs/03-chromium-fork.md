@@ -163,6 +163,40 @@ sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 это ещё один патч в серии, который придётся чинить каждый ребейз ради экономии
 10 ГБ диска. Не стоит.
 
+### 1a. Лицензия Xcode, первичная установка и Metal-тулчейн
+
+Установить `Xcode.app` недостаточно. Три отдельных шага, каждый требует `sudo`:
+
+```bash
+sudo xcodebuild -license accept
+sudo xcodebuild -runFirstLaunch
+sudo xcodebuild -downloadComponent MetalToolchain
+```
+
+**Почему лицензия критична.** Без принятой лицензии не работает не только
+`xcodebuild`, но и `/usr/bin/python3` — на macOS это обёртка над `xcrun`.
+Сборка Chromium целиком на python-скриптах, поэтому встаёт всё, причём с
+сообщениями, не имеющими отношения к настоящей причине.
+
+**Почему `-runFirstLaunch` отдельно.** Он ставит системные фреймворки в
+`/Library/Developer/PrivateFrameworks`. Без него `xcodebuild` не может даже
+скачивать компоненты: `-downloadComponent` падает с
+`Library not loaded: CoreSimulator`.
+
+**Почему Metal отдельно.** Начиная с Xcode 26 Metal-тулчейн не входит в
+комплект, он докачивается. Сборка падает на первом же шейдере:
+
+```
+error: cannot execute tool 'metal' due to missing Metal Toolchain
+```
+
+Важно: бинарник `metal` в тулчейне **присутствует** и `xcrun -f metal` его
+находит — проверять надо запуском (`xcrun metal --version`), а не наличием.
+
+Обойти нельзя: Chromium компилирует Metal-шейдеры для Skia и Dawn, а отключение
+Metal сменило бы графический стек, который мы как раз обязаны воспроизводить
+как у настоящего Chrome.
+
 ### 2. Разовый бутстрап depot_tools, и запускать его изнутри каталога
 
 `gn` требует `python3_bin_reldir.txt`, который появляется только после
