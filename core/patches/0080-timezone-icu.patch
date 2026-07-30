@@ -1,0 +1,51 @@
+diff --git a/third_party/blink/renderer/core/timezone/timezone_controller.cc b/third_party/blink/renderer/core/timezone/timezone_controller.cc
+index 48eb8d2fbd..0ebc3e2451 100644
+--- a/third_party/blink/renderer/core/timezone/timezone_controller.cc
++++ b/third_party/blink/renderer/core/timezone/timezone_controller.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "third_party/blink/renderer/core/timezone/timezone_controller.h"
+ 
++#include "components/fury/fury_config.h"
++
+ #include "base/feature_list.h"
+ #include "mojo/public/cpp/bindings/pending_remote.h"
+ #include "mojo/public/cpp/bindings/remote.h"
+@@ -102,6 +104,37 @@ TimeZoneController::~TimeZoneController() = default;
+ 
+ // static
+ void TimeZoneController::Init() {
++  // Applied once at renderer startup, before any page script runs.
++  //
++  // SetIcuTimeZoneAndNotifyV8 adopts the ICU default AND calls
++  // WorkerThread::CallOnAllWorkerThreads, so Intl.DateTimeFormat()
++  // .resolvedOptions().timeZone and Date.prototype.getTimezoneOffset() agree in
++  // the main frame and in every worker. A timezone spoofed on the main thread
++  // alone is a contradiction a page finds with one line inside a Worker.
++  //
++  // Recorded as override_timezone_id_ so it survives host timezone changes:
++  // OnTimeZoneChange below already declines to re-apply when an override is in
++  // effect, which is exactly the behaviour wanted here.
++  //
++  // The value must also agree with where the proxy exits — a profile leaving
++  // through Germany while reporting Asia/Tbilisi is the cheapest detection in
++  // the industry. The agent derives it from the proxy IP and refuses to launch
++  // when the two disagree; see docs/05.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<std::string> timezone =
++            config->GetString("locale.timezone")) {
++      if (!timezone->empty()) {
++        base::AutoLock locker(instance().lock_);
++        String id = String::FromUtf8(*timezone);
++        if (SetIcuTimeZoneAndNotifyV8(id)) {
++          instance().override_timezone_id_ = id;
++        } else {
++          LOG(ERROR) << "fury: invalid timezone " << *timezone;
++        }
++      }
++    }
++  }
++
+   // monitor must not use HeapMojoRemote. TimeZoneController is not managed by
+   // Oilpan. monitor is only used to bind receiver_ here and never used
+   // again.

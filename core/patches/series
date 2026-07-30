@@ -122,10 +122,33 @@
 0121-battery-network-info.patch
 
 # --- network ----------------------------------------------------------------
-0200-tls-ja3.patch!                    # boringssl + ssl_client_socket_impl.cc
-0210-http2-settings.patch!
-0220-header-order.patch
-0230-disable-quic.patch
+# NOT NEEDED FOR PARITY, and removing them from the plan is a finding rather
+# than a shortcut. Verified against M150 source on 31.07.2026:
+#
+#   SSL_set_permute_extensions(ssl_, 1)   extension order is randomised per
+#                                         connection, so real Chrome has no
+#                                         stable JA3 to match
+#   SSL_CTX_set_grease_enabled(ctx_, 1)   further per-connection variation
+#   SSL_CTX_set_cipher_list                never called — BoringSSL defaults
+#
+# Our build is the same Chromium with the same BoringSSL on the same code path,
+# so its ClientHello is already indistinguishable from Chrome 150's. Pinning a
+# JA3 per profile would make us LESS Chrome-like, not more.
+#
+# These become necessary only to impersonate a different browser or major
+# version, which is a separate goal from parity. The same argument applies
+# verbatim to HTTP/2 SETTINGS and header order.
+#
+# 0200-tls-ja3.patch
+# 0210-http2-settings.patch
+# 0220-header-order.patch
+#
+# The real network work is NOT in the core: it is QUIC and WebRTC through the
+# proxy relay (agent/src/relay.rs). Chrome uses QUIC; launcher.rs currently
+# passes --disable-quic because UDP would bypass an HTTP relay, and that is our
+# own deviation from Chrome. Closing it needs SOCKS5 UDP ASSOCIATE in the relay,
+# not a Chromium patch. See docs/05.
+0230-disable-quic.patch                # keep until the relay carries UDP
 
 # --- automation traces ------------------------------------------------------
 0300-remove-cdc-vars.patch
