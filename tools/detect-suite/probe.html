@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Fury detect-suite — probe</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; padding: 24px;
+    background: #0f1115; color: #d6dae1;
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; color: #fff; }
+  .sub { color: #7d8694; margin-bottom: 20px; font-size: 13px; }
+  .bar { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+  button {
+    background: #2563eb; color: #fff; border: 0; border-radius: 6px;
+    padding: 9px 16px; font: inherit; font-weight: 500; cursor: pointer;
+  }
+  button.ghost { background: #1c2028; color: #d6dae1; }
+  button:disabled { opacity: .45; cursor: default; }
+  .checks { display: grid; gap: 1px; background: #1c2028; border-radius: 8px; overflow: hidden; margin-bottom: 20px; }
+  .check { display: grid; grid-template-columns: 28px 1fr auto; gap: 12px; align-items: baseline;
+           padding: 11px 14px; background: #14171d; }
+  .check .verdict { font-size: 15px; text-align: center; }
+  .check .what { color: #d6dae1; }
+  .check .why { grid-column: 2 / -1; color: #7d8694; font-size: 12.5px; margin-top: 2px; }
+  .check .val { color: #9aa4b2; font-variant-numeric: tabular-nums; font-size: 13px; }
+  .pass { border-left: 3px solid #22c55e; }
+  .fail { border-left: 3px solid #ef4444; }
+  .warn { border-left: 3px solid #f59e0b; }
+  .skip { border-left: 3px solid #3f4652; }
+  pre {
+    background: #14171d; border: 1px solid #1c2028; border-radius: 8px;
+    padding: 14px; overflow: auto; max-height: 55vh;
+    font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #b8c0cc; white-space: pre; tab-size: 2;
+  }
+  .note { background: #1a1509; border: 1px solid #3d2f0a; color: #d9b872;
+          padding: 12px 14px; border-radius: 8px; margin-bottom: 20px; font-size: 13px; }
+  code { background: #1c2028; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  a { color: #60a5fa; }
+</style>
+</head>
+<body>
+
+<h1>Fury detect-suite — probe</h1>
+<div class="sub">
+  Снимает полный отпечаток и сравнивает значения между контекстами исполнения.
+  Открой эту страницу в браузере, который проверяешь: настоящем Chrome, AdsPower, Fury.
+</div>
+
+<div class="note" id="fileWarn" hidden>
+  Страница открыта по <code>file://</code>. Worker и iframe в этом режиме работают
+  с ограничениями, и кросс-контекстная проверка — главный результат — будет неполной.
+  Подними локальный сервер и открой по <code>http://localhost:8000/probe.html</code>:
+  <br><br><code>python3 -m http.server 8000</code>
+</div>
+
+<div class="bar">
+  <button id="run">Снять отпечаток</button>
+  <button id="copy" class="ghost" disabled>Скопировать JSON</button>
+  <button id="save" class="ghost" disabled>Скачать JSON</button>
+  <button id="post" class="ghost" disabled>Сохранить в baselines/</button>
+  <input id="name" placeholder="имя файла, напр. chrome-151-macos"
+         style="background:#14171d;border:1px solid #1c2028;border-radius:6px;
+                color:#d6dae1;padding:9px 12px;font:inherit;min-width:260px">
+</div>
+<div id="posted" class="sub" style="margin-top:-12px"></div>
+
+<div class="checks" id="checks"></div>
+<pre id="out">Нажми «Снять отпечаток».</pre>
+
+<script src="probe.js"></script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  let dump = null;
+
+  if (location.protocol === 'file:') $('fileWarn').hidden = false;
+
+  /* The checks that decide whether a build ships. Each returns
+   * {verdict, value, why} where verdict is pass | fail | warn | skip.
+   * These mirror the release gate in docs/07-detection-baseline.md. */
+  const CHECKS = [
+    {
+      what: 'Согласованность между контекстами исполнения',
+      why: 'Значения в main frame, Worker и iframe должны совпадать. Расхождение — самый частый способ спалиться: сайт читает navigator из Worker и видит настоящее железо.',
+      run: (d) => {
+        const c = d.crossContext;
+        return {
+          verdict: c.consistent ? 'pass' : 'fail',
+          value: c.disagreementCount === 0
+            ? 'расхождений нет'
+            : c.disagreementCount + ' расхожд.: ' + c.disagreements.map((x) => x.field).join(', '),
+        };
+      },
+    },
+    {
+      what: 'Отпечаток canvas стабилен между вызовами',
+      why: 'Два вызова toDataURL() с тем же содержимым обязаны дать один результат. Иначе сайт видит «одно устройство, разное железо» — хуже, чем отсутствие подмены.',
+      run: (d) => ({
+        verdict: d.canvas2d.stableAcrossCalls ? 'pass' : 'fail',
+        value: d.canvas2d.toDataURL,
+      }),
+    },
+    {
+      what: 'Отпечаток WebGL стабилен между вызовами',
+      why: 'То же для readPixels().',
+      run: (d) => {
+        const r = d.webgl.webgl1.render;
+        if (!r || r.__error) return { verdict: 'skip', value: 'WebGL недоступен' };
+        return { verdict: r.stableAcrossCalls ? 'pass' : 'fail', value: r.readPixels };
+      },
+    },
+    {
+      what: 'Геттеры нативные (нет следов JS-инжекта)',
+      why: 'Function.prototype.toString на геттерах navigator должен вернуть [native code]. PATCHED означает подмену через JavaScript, которую детекторы находят одной строкой.',
+      run: (d) => {
+        const v = d.engine.nativeToString || '';
+        return { verdict: /PATCHED/.test(v) ? 'fail' : 'pass', value: v };
+      },
+    },
+    {
+      what: 'Проприетарные кодеки (H.264 / AAC)',
+      why: 'Chromium без proprietary_codecs=true не умеет H.264. Настоящий Chrome умеет. Две строки JS отличают самосборный браузер от настоящего.',
+      run: (d) => ({
+        verdict: d.codecs.hasProprietaryCodecs ? 'pass' : 'fail',
+        value: d.codecs.hasProprietaryCodecs ? 'есть' : 'ОТСУТСТВУЮТ',
+      }),
+    },
+    {
+      what: 'Widevine доступен',
+      why: 'requestMediaKeySystemAccess(com.widevine.alpha) у настоящего Chrome проходит. Сборка без Widevine отвечает отказом — готовый детект. См. docs/10.',
+      run: (d) => {
+        const w = d.drm && d.drm['com.widevine.alpha'];
+        const ok = w && w.available;
+        return { verdict: ok ? 'pass' : 'fail', value: ok ? 'да' : 'нет' };
+      },
+    },
+    {
+      what: 'Permissions API согласован с Notification.permission',
+      why: 'Классическая нестыковка headless: одно API говорит denied, другое prompt. У настоящего браузера они совпадают.',
+      run: (d) => {
+        if (!d.permissions || d.permissions.__absent) return { verdict: 'skip', value: '—' };
+        return {
+          verdict: d.permissions.__consistent ? 'pass' : 'fail',
+          value: d.permissions.notifications + ' / ' + d.permissions.__notificationApi,
+        };
+      },
+    },
+    {
+      what: 'WebRTC не выдаёт реальный IP',
+      why: 'ICE-кандидаты должны показывать только mDNS .local или IP прокси. Любой другой адрес — утечка реальной сети.',
+      run: (d) => {
+        const w = d.webrtc;
+        if (!w || w.__absent || w.__timeout) return { verdict: 'skip', value: 'нет данных' };
+        const addrs = w.addresses || [];
+        const leaky = addrs.filter((a) => !/\.local$/.test(a));
+        return {
+          verdict: leaky.length === 0 ? 'pass' : 'warn',
+          value: addrs.length ? addrs.join(', ') : 'кандидатов нет',
+        };
+      },
+    },
+    {
+      what: 'document.fonts.check() ведёт себя как настоящий Chrome',
+      why: 'Проверено эмпирически: Chrome возвращает true для любого имени семейства, включая несуществующее — это не метод детекта, а вопрос «отрисуется ли». Если патч заставит check() различать шрифты, браузер перестанет совпадать с Chrome и это станет отдельным детектом.',
+      run: (d) => {
+        const v = d.fonts.fontsCheckDiscriminates;
+        if (typeof v !== 'boolean') return { verdict: 'skip', value: String(v) };
+        return {
+          verdict: v === false ? 'pass' : 'fail',
+          value: v === false
+            ? 'не различает (как Chrome) · измерением найдено ' + d.fonts.countByMeasurement
+            : 'РАЗЛИЧАЕТ — отклонение от Chrome',
+        };
+      },
+    },
+    {
+      what: 'WebGPU описывает ту же GPU, что WebGL',
+      why: 'Самый недокрытый вектор на рынке: продукт подделывает WebGL и оставляет adapter.info с настоящей видеокартой.',
+      run: (d) => {
+        if (!d.webgpu || d.webgpu.__absent || d.webgpu.__noAdapter) {
+          return { verdict: 'skip', value: 'WebGPU недоступен' };
+        }
+        const renderer = ((d.webgl.webgl1.unmasked || {}).renderer || '').toLowerCase();
+        const vendor = (d.webgpu.vendor || '').toLowerCase();
+        if (!renderer || !vendor) return { verdict: 'skip', value: 'нет данных' };
+        const ok = renderer.includes(vendor);
+        return {
+          verdict: ok ? 'pass' : 'fail',
+          value: d.webgpu.vendor + ' / ' + d.webgpu.architecture + '  vs  ' + (d.webgl.webgl1.unmasked || {}).renderer,
+        };
+      },
+    },
+    {
+      what: 'Нет переменных ChromeDriver в window',
+      why: 'cdc_-переменные означают запуск через Selenium. Fury по умолчанию должен быть чист.',
+      run: (d) => {
+        const a = d.engine.automation;
+        const found = [a.cdcVars, a.documentCdc].filter(Boolean).join(',');
+        return { verdict: found ? 'fail' : 'pass', value: found || 'чисто' };
+      },
+    },
+    {
+      what: 'navigator.webdriver === false',
+      why: 'true — прямое признание автоматизации. undefined тоже отклонение: настоящий Chrome отдаёт именно false.',
+      run: (d) => {
+        const v = d.navigator.webdriver;
+        return { verdict: v === false ? 'pass' : 'fail', value: String(v) };
+      },
+    },
+    {
+      what: 'Скроллбар соответствует заявленной ОС',
+      why: 'macOS — overlay-скроллбары (0 px), Windows — 15-17 px. Выдаёт настоящую ОС независимо от navigator.platform.',
+      run: (d) => {
+        const isMac = /Mac/.test(d.navigator.platform || '');
+        const w = d.screen.scrollbarWidth;
+        const ok = isMac ? w === 0 : w > 0;
+        return {
+          verdict: ok ? 'pass' : 'fail',
+          value: w + ' px при platform=' + d.navigator.platform,
+        };
+      },
+    },
+    {
+      what: 'Таймзона согласована между main frame и Worker',
+      why: 'Подмена таймзоны через ICU часто не доезжает до воркеров.',
+      run: (d) => {
+        const main = d.locale.timezone;
+        const w = d.contexts.worker && d.contexts.worker.timezone;
+        if (!w) return { verdict: 'skip', value: main };
+        return { verdict: main === w ? 'pass' : 'fail', value: main + ' / ' + w };
+      },
+    },
+  ];
+
+  function render(d) {
+    const box = $('checks');
+    box.innerHTML = '';
+    let failed = 0;
+
+    for (const c of CHECKS) {
+      let r;
+      try {
+        r = c.run(d);
+      } catch (e) {
+        r = { verdict: 'skip', value: 'ошибка проверки: ' + e.message };
+      }
+      if (r.verdict === 'fail') failed++;
+
+      const icon = { pass: '✓', fail: '✕', warn: '!', skip: '–' }[r.verdict];
+      const el = document.createElement('div');
+      el.className = 'check ' + r.verdict;
+      el.innerHTML =
+        '<div class="verdict">' + icon + '</div>' +
+        '<div class="what"></div>' +
+        '<div class="val"></div>' +
+        '<div class="why"></div>';
+      el.querySelector('.what').textContent = c.what;
+      el.querySelector('.val').textContent = r.value;
+      el.querySelector('.why').textContent = c.why;
+      box.appendChild(el);
+    }
+
+    const summary = document.createElement('div');
+    summary.className = 'check ' + (failed === 0 ? 'pass' : 'fail');
+    summary.innerHTML = '<div class="verdict">' + (failed === 0 ? '✓' : '✕') + '</div><div class="what"></div><div class="val"></div>';
+    summary.querySelector('.what').textContent = failed === 0
+      ? 'Все критичные проверки пройдены'
+      : 'Провалено критичных проверок: ' + failed;
+    summary.querySelector('.val').textContent = 'собрано за ' + d.__collectedInMs + ' мс';
+    box.appendChild(summary);
+  }
+
+  $('run').onclick = async () => {
+    $('run').disabled = true;
+    $('run').textContent = 'Снимаю…';
+    $('out').textContent = 'Работаю. WebRTC и аудио занимают несколько секунд.';
+    try {
+      dump = await furyProbe();
+      render(dump);
+      $('out').textContent = JSON.stringify(dump, null, 2);
+      $('copy').disabled = false;
+      $('save').disabled = false;
+      $('post').disabled = false;
+      if (!$('name').value) $('name').value = suggestName(dump);
+    } catch (e) {
+      $('out').textContent = 'Проба упала: ' + (e && e.stack ? e.stack : e);
+    }
+    $('run').disabled = false;
+    $('run').textContent = 'Снять заново';
+  };
+
+  /* Baselines are compared by name across captures, so the name has to encode
+   * what was captured: browser build and platform. */
+  function suggestName(d) {
+    const ver = ((d.clientHints && d.clientHints.uaFullVersion) || 'unknown').split('.')[0];
+    const plat = /Mac/.test(d.navigator.platform || '') ? 'macos'
+               : /Win/.test(d.navigator.platform || '') ? 'windows' : 'other';
+    const arch = (d.clientHints && d.clientHints.architecture) || 'arch';
+    return 'chrome-' + ver + '-' + plat + '-' + arch;
+  }
+
+  $('post').onclick = async () => {
+    const name = $('name').value.trim();
+    if (!name) { $('posted').textContent = 'Укажи имя файла.'; return; }
+    try {
+      const res = await fetch('/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, dump }),
+      });
+      const body = await res.json();
+      $('posted').textContent = res.ok
+        ? 'Сохранено: ' + body.saved
+        : 'Не сохранено: ' + (body.error || res.status);
+    } catch (e) {
+      // Plain http.server has no POST handler — say so instead of failing mutely.
+      $('posted').textContent =
+        'Не удалось отправить (' + e.message + '). Запусти collector.py вместо http.server.';
+    }
+  };
+
+  $('copy').onclick = async () => {
+    await navigator.clipboard.writeText(JSON.stringify(dump, null, 2));
+    $('copy').textContent = 'Скопировано';
+    setTimeout(() => ($('copy').textContent = 'Скопировать JSON'), 1500);
+  };
+
+  /* ?auto=<name> — capture and store with no human in the loop.
+   *
+   * This exists because the manual path has too many ways to go quietly wrong:
+   * a wrapped button row, a missed status line, localhost resolving to a stack
+   * the collector is not listening on. CI needs it too. */
+  (async function auto() {
+    const name = new URLSearchParams(location.search).get('auto');
+    if (!name) return;
+    document.title = 'capturing…';
+    $('posted').textContent = 'Автоматический захват: ' + name + '…';
+    try {
+      dump = await furyProbe();
+      render(dump);
+      $('out').textContent = JSON.stringify(dump, null, 2);
+      const res = await fetch('/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, dump }),
+      });
+      const body = await res.json().catch(() => ({}));
+      const ok = res.ok && body.saved;
+      $('posted').textContent = ok ? 'Сохранено: ' + body.saved
+                                   : 'Не сохранено: HTTP ' + res.status;
+      // The launcher polls for this, so the outcome must be machine-readable.
+      document.title = ok ? 'CAPTURE-OK' : 'CAPTURE-FAIL';
+    } catch (e) {
+      $('posted').textContent = 'Захват не удался: ' + e.message;
+      document.title = 'CAPTURE-FAIL';
+    }
+  })();
+
+  $('save').onclick = () => {
+    const ua = (dump.clientHints && dump.clientHints.uaFullVersion) || 'unknown';
+    const plat = (dump.navigator.platform || 'unknown').replace(/\W+/g, '');
+    const name = 'fingerprint-' + plat + '-' + ua + '.json';
+    const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+})();
+</script>
+
+</body>
+</html>

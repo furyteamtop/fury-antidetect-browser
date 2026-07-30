@@ -1,0 +1,87 @@
+# Patch series, applied in this order by core/build/apply.sh.
+#
+# One patch = one fingerprint vector. Never mix vectors in a single patch:
+# at rebase time a conflict must be localisable to a named concern.
+#
+# Numbering:
+#   0001-0009  infrastructure (config plumbing)
+#   0010-0199  JS / DOM vectors
+#   0200-0299  network layer
+#   0300-0399  automation traces
+#   0900-0999  branding, de-Googling
+#
+# Lines starting with '#' are comments; blank lines are ignored.
+# A '!' suffix marks a patch as expected-to-conflict on rebase (touches a hot
+# upstream file) so rebase.sh can warn early.
+
+# --- infrastructure ---------------------------------------------------------
+# Everything below depends on this. It carries the fingerprint config from the
+# agent into the browser process and out to EVERY renderer, worker and worklet.
+0001-fp-config-plumbing.patch
+
+# --- navigator & friends ----------------------------------------------------
+0010-navigator-basic.patch
+0011-navigator-ua-data.patch!          # user_agent.cc changes most releases
+0012-navigator-hardware.patch
+0013-navigator-plugins.patch
+
+# --- layout & display -------------------------------------------------------
+0020-screen-window.patch
+0021-scrollbar-width.patch
+
+# --- graphics ---------------------------------------------------------------
+0030-canvas-noise.patch
+0031-webgl-params.patch!
+0032-webgpu-adapter.patch!             # WebGPU is still moving fast upstream
+0033-client-rects.patch
+
+# --- audio ------------------------------------------------------------------
+0040-audio-noise.patch
+0041-speech-voices.patch
+
+# --- fonts ------------------------------------------------------------------
+# Filters at the fallback layer, not just the enumeration API — measurement
+# through canvas bypasses any list-only filter.
+0050-font-fallback-filter.patch
+
+# --- devices ----------------------------------------------------------------
+0060-media-devices.patch
+0061-media-codecs.patch
+
+# --- webrtc -----------------------------------------------------------------
+0070-webrtc-policy.patch!
+
+# --- time & locale ----------------------------------------------------------
+0080-timezone-icu.patch
+0081-intl-locale.patch
+0082-geolocation.patch
+
+# --- permissions ------------------------------------------------------------
+0090-permissions-consistency.patch
+
+# --- css --------------------------------------------------------------------
+0100-css-media-features.patch
+
+# --- storage ----------------------------------------------------------------
+# Derives the os_crypt key from the profile DEK instead of the OS keychain, so
+# a bundle is portable between machines and operating systems.
+0110-os-crypt-key.patch
+
+# --- misc js ----------------------------------------------------------------
+0120-performance-memory.patch
+0121-battery-network-info.patch
+
+# --- network ----------------------------------------------------------------
+0200-tls-ja3.patch!                    # boringssl + ssl_client_socket_impl.cc
+0210-http2-settings.patch!
+0220-header-order.patch
+0230-disable-quic.patch
+
+# --- automation traces ------------------------------------------------------
+0300-remove-cdc-vars.patch
+0301-runtime-enable-detect.patch
+0302-devtools-lock.patch               # honours LaunchRestrictions.lock_devtools
+
+# --- branding ---------------------------------------------------------------
+0900-branding.patch
+0901-disable-google-services.patch

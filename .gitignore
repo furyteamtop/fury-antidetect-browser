@@ -1,0 +1,47 @@
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# Node
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Tauri
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+
+# Chromium fork — never commit the upstream tree, only patches
+core/src/
+core/depot_tools/
+core/out/
+core/.gclient*
+core/dist/
+
+# Secrets & local config
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.mobileprovision
+secrets/
+
+# Build artifacts
+*.dmg
+*.msi
+*.exe
+*.app
+*.zip
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local data
+data/
+tmp/
+*.sqlite
+*.sqlite-*

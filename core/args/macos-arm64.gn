@@ -1,0 +1,43 @@
+# GN args — macOS arm64 release build.
+# See docs/03-chromium-fork.md for why each block is here.
+
+target_os = "mac"
+target_cpu = "arm64"
+
+is_official_build = true
+is_debug = false
+symbol_level = 0
+blink_symbol_level = 0
+dcheck_always_on = false
+
+# --- CRITICAL for anti-detect ------------------------------------------------
+# A Chromium built without these cannot decode H.264/AAC, while real Chrome can.
+# Two lines of JS (`canPlayType`, `MediaSource.isTypeSupported`) tell them apart,
+# which defeats every other patch in the tree.
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"
+
+# --- de-Google ---------------------------------------------------------------
+# Anything that phones home outside the profile's proxy is a real-IP leak.
+is_chrome_branded = false
+use_official_google_api_keys = false
+google_api_key = ""
+google_default_client_id = ""
+google_default_client_secret = ""
+enable_reporting = false
+enable_remoting = false
+safe_browsing_mode = 0
+enable_hangout_services_extension = false
+
+# --- Widevine ----------------------------------------------------------------
+# Cannot be redistributed without a licence from Google. See docs/10.
+# Patch 0061 fakes requestMediaKeySystemAccess so its absence is not detectable.
+enable_widevine = false
+
+# --- size --------------------------------------------------------------------
+enable_nacl = false
+enable_print_preview = true
+
+# --- toolchain ---------------------------------------------------------------
+use_lld = true
+chrome_pgo_phase = 1

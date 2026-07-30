@@ -1,0 +1,15 @@
+# Captured dumps are local working data, never repository content: a raw dump
+# contains the capturing machine's public IP, harvested from WebRTC ICE
+# candidates. For an anti-detect project, publishing that is the exact failure
+# the project exists to prevent.
+#
+# To commit a reference baseline, redact it first and the name must say so:
+#
+#   cargo run -p fury-detect -- redact \\
+#     baselines/chrome-150-macos-arm64.json \\
+#     baselines/chrome-150-macos-arm64-redacted.json
+#
+# Even a redacted baseline still describes the capturing machine's GPU, screen
+# and fonts — that is what makes it useful. Publish yours knowingly.
+*.json
+!*-redacted.json

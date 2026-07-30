@@ -1,0 +1,34 @@
+# GN args — Windows x64 release build.
+# See docs/03-chromium-fork.md.
+
+target_os = "win"
+target_cpu = "x64"
+
+is_official_build = true
+is_debug = false
+symbol_level = 0
+blink_symbol_level = 0
+dcheck_always_on = false
+
+# --- CRITICAL for anti-detect ------------------------------------------------
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"
+
+# --- de-Google ---------------------------------------------------------------
+is_chrome_branded = false
+use_official_google_api_keys = false
+google_api_key = ""
+google_default_client_id = ""
+google_default_client_secret = ""
+enable_reporting = false
+enable_remoting = false
+safe_browsing_mode = 0
+enable_hangout_services_extension = false
+
+enable_widevine = false
+
+enable_nacl = false
+enable_print_preview = true
+
+use_lld = true
+chrome_pgo_phase = 1

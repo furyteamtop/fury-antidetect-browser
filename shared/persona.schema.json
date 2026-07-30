@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://furybrowser.dev/schemas/persona.schema.json",
+  "title": "Device persona",
+  "description": "A real-world machine configuration. Personas are the source of truth for fingerprint generation: a profile picks one, and every spoofed value is derived from it plus the profile seed. Making values up independently produces combinations that do not exist in nature, which is a stronger signal than not spoofing at all.",
+  "type": "object",
+  "required": ["id", "weight", "os", "gpu", "screen", "chrome_metrics", "cpu", "memory_gb", "fonts", "audio"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$",
+      "description": "Stable identifier, e.g. win11-chrome-rtx4060-1080p."
+    },
+    "weight": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Share of the real population. Personas below 0.005 are never auto-assigned: a rare-but-real configuration still narrows the crowd you hide in."
+    },
+    "source": {
+      "type": "string",
+      "enum": ["measured", "telemetry", "public-dataset"],
+      "description": "Where the numbers came from. 'measured' means someone dumped them off a physical machine."
+    },
+    "os": {
+      "type": "object",
+      "required": ["name", "version", "arch"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "enum": ["Windows", "macOS"] },
+        "version": { "type": "string" },
+        "build": { "type": "string" },
+        "arch": { "enum": ["x86_64", "arm64"] }
+      }
+    },
+    "gpu": {
+      "type": "object",
+      "required": ["webgl_vendor", "webgl_renderer", "webgl_params", "webgl_extensions"],
+      "additionalProperties": false,
+      "properties": {
+        "webgl_vendor": { "type": "string" },
+        "webgl_renderer": { "type": "string" },
+        "webgl_params": {
+          "type": "object",
+          "description": "All ~80 getParameter constants. Dump them from the real machine rather than guessing; several are checked individually.",
+          "additionalProperties": true
+        },
+        "webgl_extensions": { "type": "array", "items": { "type": "string" } },
+        "webgpu": {
+          "type": "object",
+          "description": "Must describe the same physical GPU as the WebGL fields. Leaving this unset while WebGL is spoofed is a ready-made detection vector.",
+          "required": ["vendor", "architecture", "limits", "features"],
+          "additionalProperties": false,
+          "properties": {
+            "vendor": { "type": "string" },
+            "architecture": { "type": "string" },
+            "device": { "type": "string" },
+            "description": { "type": "string" },
+            "limits": { "type": "object", "additionalProperties": { "type": "number" } },
+            "features": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "screen": {
+      "type": "object",
+      "required": ["width", "height", "avail_width", "avail_height", "color_depth", "device_pixel_ratio"],
+      "additionalProperties": false,
+      "properties": {
+        "width": { "type": "integer", "minimum": 640 },
+        "height": { "type": "integer", "minimum": 480 },
+        "avail_width": { "type": "integer" },
+        "avail_height": {
+          "type": "integer",
+          "description": "Strictly less than height on macOS — the menu bar is always reserved."
+        },
+        "color_depth": { "type": "integer", "enum": [24, 30, 32] },
+        "device_pixel_ratio": { "type": "number", "minimum": 1 }
+      }
+    },
+    "chrome_metrics": {
+      "type": "object",
+      "description": "Browser chrome dimensions. Routinely measured via outerHeight - innerHeight and clientWidth vs innerWidth; wrong values contradict the claimed OS.",
+      "required": ["outer_minus_inner_height", "scrollbar_width"],
+      "additionalProperties": false,
+      "properties": {
+        "outer_minus_inner_height": { "type": "integer", "minimum": 0 },
+        "scrollbar_width": {
+          "type": "integer",
+          "description": "0 on macOS (overlay scrollbars), 15-17 on Windows."
+        }
+      }
+    },
+    "cpu": {
+      "type": "object",
+      "required": ["cores"],
+      "additionalProperties": false,
+      "properties": {
+        "cores": { "type": "integer", "minimum": 2, "maximum": 128 },
+        "model": { "type": "string" }
+      }
+    },
+    "memory_gb": {
+      "type": "integer",
+      "enum": [1, 2, 4, 8],
+      "description": "navigator.deviceMemory is quantised by spec. Report the quantised value, not the physical RAM."
+    },
+    "max_touch_points": { "type": "integer", "minimum": 0, "default": 0 },
+    "fonts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "description": "Default font set for this OS build. Windows and macOS sets barely overlap; measurement through canvas defeats any list-only filter, so this drives the fallback filter in patch 0050."
+    },
+    "audio": {
+      "type": "object",
+      "required": ["sample_rate"],
+      "additionalProperties": false,
+      "properties": {
+        "sample_rate": { "type": "integer", "enum": [44100, 48000] },
+        "base_latency": { "type": "number" },
+        "output_latency": { "type": "number" }
+      }
+    },
+    "voices": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "speechSynthesis.getVoices(). Platform-specific and frequently checked."
+    },
+    "media_devices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind"],
+        "additionalProperties": false,
+        "properties": {
+          "kind": { "enum": ["audioinput", "audiooutput", "videoinput"] },
+          "label_hint": { "type": "string" }
+        }
+      }
+    },
+    "codecs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Supported media types. A build without proprietary_codecs fails these and is identified as a self-built Chromium in two lines of JS."
+    }
+  }
+}
