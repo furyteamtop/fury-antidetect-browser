@@ -26,8 +26,17 @@
 0001-fp-config-plumbing.patch!          # content_main_runner_impl.cc moves often
 
 # --- navigator & friends ----------------------------------------------------
+# 0010 covers the Blink side plus the Accept-Language header, which is built in
+# //net from a profile preference rather than from navigator.languages —
+# measured, not assumed: patching only Blink left a profile set to en-US,en
+# still sending "Accept-Language: ru-RU,ru;q=0.9".
 0010-navigator-basic.patch
-0011-navigator-ua-data.patch!          # user_agent.cc changes most releases
+# 0011 owns user_agent_utils.cc entirely: the UA string and the Client Hints
+# must never be applied separately, or the header claims one version while JS
+# claims another. GetUserAgentMetadata() is the single source for the
+# Sec-CH-UA-* headers AND navigator.userAgentData, so the override lives there
+# and nowhere else.
+0011-navigator-ua-data.patch!          # user_agent_utils.cc changes most releases
 0012-navigator-hardware.patch          # first real consumer of 0001
 0013-navigator-plugins.patch
 

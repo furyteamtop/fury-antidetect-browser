@@ -1,0 +1,143 @@
+diff --git a/components/embedder_support/BUILD.gn b/components/embedder_support/BUILD.gn
+index 847ba42327..9d9043cc94 100644
+--- a/components/embedder_support/BUILD.gn
++++ b/components/embedder_support/BUILD.gn
+@@ -19,6 +19,7 @@ static_library("content_settings") {
+   ]
+ 
+   deps = [
++    "//components/fury",
+     "//components/content_settings/browser",
+     "//components/content_settings/core/browser",
+     "//components/content_settings/core/browser:cookie_settings",
+diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedder_support/user_agent_utils.cc
+index 608bea5cb3..737f7e518c 100644
+--- a/components/embedder_support/user_agent_utils.cc
++++ b/components/embedder_support/user_agent_utils.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "components/embedder_support/user_agent_utils.h"
+ 
++#include "components/fury/fury_config.h"
++
+ #include <stdint.h>
+ 
+ #include <array>
+@@ -463,6 +465,18 @@ std::optional<std::string> GetUserAgentFromCommandLine() {
+ }
+ 
+ std::string GetUserAgent() {
++  // The single source for both the HTTP User-Agent header and
++  // ExecutionContext::UserAgent(), which is what navigator.userAgent returns in
++  // every context — main frame, worker, worklet. Overriding here keeps them
++  // from ever disagreeing, which is the failure this patch exists to prevent.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<std::string> ua = config->GetString("navigator.userAgent")) {
++      if (!ua->empty()) {
++        return *ua;
++      }
++    }
++  }
++
+   std::optional<std::string> custom_ua = GetUserAgentFromCommandLine();
+   if (custom_ua.has_value()) {
+     return custom_ua.value();
+@@ -634,6 +648,82 @@ std::string GetPlatformForUAMetadata() {
+ #endif
+ }
+ 
++namespace {
++
++// Applies the configured Client Hints on top of the real ones.
++//
++// Called from every return path of GetUserAgentMetadata() on purpose. A page
++// that receives only the low-entropy hints must see the same brands as one
++// that calls getHighEntropyValues(), and a mismatch between those two is
++// exactly the kind of self-contradiction detectors look for.
++//
++// Brand lists are all-or-nothing: a half-replaced list would mix a spoofed
++// Chrome version with the real one.
++void ApplyFuryMetadataOverrides(blink::UserAgentMetadata& metadata) {
++  const fury::FuryConfig* config = fury::FuryConfig::Get();
++  if (!config) {
++    return;
++  }
++
++  auto set_string = [&](std::string_view path, std::string& target) {
++    if (std::optional<std::string> v = config->GetString(path)) {
++      target = *v;
++    }
++  };
++
++  set_string("clientHints.platform", metadata.platform);
++  set_string("clientHints.platformVersion", metadata.platform_version);
++  set_string("clientHints.architecture", metadata.architecture);
++  set_string("clientHints.bitness", metadata.bitness);
++  set_string("clientHints.fullVersion", metadata.full_version);
++  // Empty is a legitimate value for model on desktop, so it is set
++  // unconditionally rather than guarded on non-emptiness.
++  set_string("clientHints.model", metadata.model);
++
++  if (std::optional<bool> mobile = config->GetBool("clientHints.mobile")) {
++    metadata.mobile = *mobile;
++  }
++  if (std::optional<bool> wow64 = config->GetBool("clientHints.wow64")) {
++    metadata.wow64 = *wow64;
++  }
++
++  if (std::optional<std::vector<std::string>> form_factors =
++          config->GetStringList("clientHints.formFactors")) {
++    metadata.form_factors = *form_factors;
++  }
++
++  // Brands arrive as a flat list of "Brand/Version" pairs — flat because the
++  // config schema stays JSON-simple and the ordering, including the GREASE
++  // entry, is part of the fingerprint and must be preserved verbatim.
++  auto parse_brands = [&](std::string_view path,
++                          blink::UserAgentBrandList& target) {
++    std::optional<std::vector<std::string>> raw = config->GetStringList(path);
++    if (!raw) {
++      return;
++    }
++    blink::UserAgentBrandList parsed;
++    parsed.reserve(raw->size());
++    for (const std::string& entry : *raw) {
++      size_t slash = entry.rfind('/');
++      if (slash == std::string::npos || slash == 0 ||
++          slash + 1 == entry.size()) {
++        // Refuse the whole list rather than emit a partial one.
++        LOG(ERROR) << "fury: malformed brand entry \"" << entry << "\" at "
++                   << path;
++        return;
++      }
++      parsed.emplace_back(entry.substr(0, slash), entry.substr(slash + 1));
++    }
++    target = std::move(parsed);
++  };
++
++  parse_brands("clientHints.brands", metadata.brand_version_list);
++  parse_brands("clientHints.fullVersionList",
++               metadata.brand_full_version_list);
++}
++
++}  // namespace
++
+ blink::UserAgentMetadata GetUserAgentMetadata(bool only_low_entropy_ch) {
+   blink::UserAgentMetadata metadata;
+ 
+@@ -657,6 +747,7 @@ blink::UserAgentMetadata GetUserAgentMetadata(bool only_low_entropy_ch) {
+   }
+ 
+   if (only_low_entropy_ch) {
++    ApplyFuryMetadataOverrides(metadata);
+     return metadata;
+   }
+ 
+@@ -670,6 +761,7 @@ blink::UserAgentMetadata GetUserAgentMetadata(bool only_low_entropy_ch) {
+   metadata.bitness = GetCpuBitness();
+   metadata.wow64 = IsWoW64();
+   metadata.platform_version = GetPlatformVersion();
++  ApplyFuryMetadataOverrides(metadata);
+   return metadata;
+ }
+ 

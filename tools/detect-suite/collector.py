@@ -32,6 +32,23 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(HERE), **kwargs)
 
+    def do_GET(self):
+        # Client Hints arrive as request headers, and the whole point of patch
+        # 0011 is that they agree with what navigator.userAgentData reports in
+        # JS. Only the server side can see the headers, so record them here and
+        # let the caller compare. Low-entropy hints are sent without an
+        # Accept-CH negotiation, which is enough for the check.
+        if self.path.startswith("/probe.html"):
+            interesting = {
+                k: v for k, v in self.headers.items()
+                if k.lower().startswith("sec-ch-ua") or k.lower() == "user-agent"
+                or k.lower() == "accept-language"
+            }
+            (BASELINES / "_last_request_headers.json").write_text(
+                json.dumps(interesting, indent=2, ensure_ascii=False)
+            )
+        return super().do_GET()
+
     def do_POST(self):
         if self.path != "/save":
             self.send_error(404)
