@@ -1,0 +1,31 @@
+diff --git a/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc b/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc
+index f5c0db2d1b..7c94d7fd0c 100644
+--- a/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc
++++ b/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc
+@@ -5,10 +5,26 @@
+ #include "third_party/blink/renderer/core/frame/navigator_concurrent_hardware.h"
+ 
+ #include "base/system/sys_info.h"
++#include "components/fury/fury_config.h"
+ 
+ namespace blink {
+ 
+ unsigned NavigatorConcurrentHardware::hardwareConcurrency() const {
++  // NavigatorConcurrentHardware is the shared mixin behind both navigator.idl
++  // and worker_navigator.idl, so overriding here covers the main frame and
++  // every Worker with one change. That is the property patch 0001 exists to
++  // establish: one source of truth reachable from every execution context.
++  //
++  // With no config the real value is returned unchanged — an unconfigured
++  // build has to stay indistinguishable from stock Chromium.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<int> cores =
++            config->GetInt("navigator.hardwareConcurrency")) {
++      if (*cores > 0) {
++        return static_cast<unsigned>(*cores);
++      }
++    }
++  }
+   return static_cast<unsigned>(base::SysInfo::NumberOfProcessors());
+ }
+ 

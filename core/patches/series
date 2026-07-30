@@ -17,12 +17,18 @@
 # --- infrastructure ---------------------------------------------------------
 # Everything below depends on this. It carries the fingerprint config from the
 # agent into the browser process and out to EVERY renderer, worker and worklet.
-0001-fp-config-plumbing.patch
+#
+# Config travels in read-only shared memory; argv carries only an opaque handle,
+# via base::shared_memory::SharedMemorySwitch — the mechanism Chromium already
+# uses for field trials. Verified on M150: one value set in the JSON appears
+# identically in the main frame, a Worker and three kinds of iframe, with zero
+# cross-context disagreements.
+0001-fp-config-plumbing.patch!          # content_main_runner_impl.cc moves often
 
 # --- navigator & friends ----------------------------------------------------
 0010-navigator-basic.patch
 0011-navigator-ua-data.patch!          # user_agent.cc changes most releases
-0012-navigator-hardware.patch
+0012-navigator-hardware.patch          # first real consumer of 0001
 0013-navigator-plugins.patch
 
 # --- layout & display -------------------------------------------------------

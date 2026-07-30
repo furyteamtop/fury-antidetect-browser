@@ -1,0 +1,626 @@
+diff --git a/components/fury/BUILD.gn b/components/fury/BUILD.gn
+new file mode 100644
+index 0000000000..970c665808
+--- /dev/null
++++ b/components/fury/BUILD.gn
+@@ -0,0 +1,24 @@
++# Copyright 2026 The Fury Authors
++# Use of this source code is governed by a BSD-style license that can be
++# found in the LICENSE file.
++
++import("//build/config/features.gni")
++
++# A component rather than a source_set: this is linked from both //content and
++# //third_party/blink, and a static library duplicated into two link units
++# would give each its own copy of the process-global config — which is exactly
++# the inconsistency this whole patch exists to prevent.
++component("fury") {
++  output_name = "fury"
++
++  sources = [
++    "fury_config.cc",
++    "fury_config.h",
++    "fury_switches.cc",
++    "fury_switches.h",
++  ]
++
++  defines = [ "IS_FURY_IMPL" ]
++
++  deps = [ "//base" ]
++}
+diff --git a/components/fury/fury_config.cc b/components/fury/fury_config.cc
+new file mode 100644
+index 0000000000..1517cbc7a5
+--- /dev/null
++++ b/components/fury/fury_config.cc
+@@ -0,0 +1,237 @@
++// Copyright 2026 The Fury Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "components/fury/fury_config.h"
++
++#include <string>
++#include <utility>
++
++#include "base/json/json_reader.h"
++#include "base/logging.h"
++#include "base/memory/shared_memory_switch.h"
++#include "base/no_destructor.h"
++#include "base/posix/eintr_wrapper.h"
++#include "base/values.h"
++
++namespace fury {
++
++// Holds the parsed config. Lives entirely in this translation unit so that
++// consumers in Blink and //content never see base::Value.
++//
++// Note the M150 spelling: base::DictValue / base::ListValue, not the older
++// base::Value::Dict / base::Value::List. Worth pinning down at rebase time —
++// this is exactly the kind of rename that makes a patch apply cleanly and then
++// fail to compile.
++class FuryConfig::Storage {
++ public:
++  explicit Storage(base::DictValue dict) : dict_(std::move(dict)) {}
++
++  const base::Value* Find(std::string_view path) const {
++    return dict_.FindByDottedPath(path);
++  }
++
++ private:
++  const base::DictValue dict_;
++};
++
++namespace {
++
++// Owned for the process lifetime and never destroyed: worker threads may still
++// be reading it during shutdown, and tearing it down under them buys nothing.
++FuryConfig* g_config = nullptr;
++
++base::ReadOnlySharedMemoryRegion& GetRegionStorage() {
++  static base::NoDestructor<base::ReadOnlySharedMemoryRegion> region;
++  return *region;
++}
++
++// A config that does not fit in this is not a config, it is an accident.
++constexpr size_t kMaxConfigBytes = 4 * 1024 * 1024;
++
++std::optional<std::string> ReadAllFromFd(int fd) {
++  std::string out;
++  char buf[4096];
++  while (true) {
++    ssize_t n = HANDLE_EINTR(read(fd, buf, sizeof(buf)));
++    if (n < 0) {
++      PLOG(ERROR) << "fury: reading fingerprint config";
++      return std::nullopt;
++    }
++    if (n == 0) {
++      break;
++    }
++    if (out.size() + static_cast<size_t>(n) > kMaxConfigBytes) {
++      LOG(ERROR) << "fury: fingerprint config exceeds " << kMaxConfigBytes
++                 << " bytes";
++      return std::nullopt;
++    }
++    out.append(buf, static_cast<size_t>(n));
++  }
++  return out;
++}
++
++}  // namespace
++
++FuryConfig::FuryConfig() = default;
++FuryConfig::~FuryConfig() = default;
++
++// static
++const FuryConfig* FuryConfig::Get() {
++  return g_config;
++}
++
++// static
++const base::ReadOnlySharedMemoryRegion& FuryConfig::GetRegionForChildren() {
++  return GetRegionStorage();
++}
++
++// static
++bool FuryConfig::InitializeFromJson(std::string_view json) {
++  if (g_config) {
++    // Initialising twice would mean one process gave two different answers at
++    // two different times. Refuse loudly rather than pick one.
++    LOG(ERROR) << "fury: config already initialised";
++    return false;
++  }
++
++  // Strict RFC parsing: no trailing commas, no comments. The producer is our
++  // own agent, so anything sloppy is a bug worth failing on rather than
++  // tolerating.
++  std::optional<base::DictValue> parsed =
++      base::JSONReader::ReadDict(json, base::JSON_PARSE_RFC);
++  if (!parsed) {
++    LOG(ERROR) << "fury: fingerprint config is not a JSON object";
++    return false;
++  }
++
++  base::DictValue dict = std::move(*parsed);
++
++  std::optional<int> schema = dict.FindInt("schema_version");
++  if (!schema.has_value()) {
++    LOG(ERROR) << "fury: fingerprint config has no schema_version";
++    return false;
++  }
++  if (*schema != kSupportedSchemaVersion) {
++    // Deliberately fatal rather than best-effort: honouring some fields and
++    // ignoring others produces a profile whose spoofed values contradict its
++    // un-spoofed ones, which is a stronger signal than not spoofing at all.
++    LOG(ERROR) << "fury: fingerprint config schema " << *schema
++               << " is not supported by this build (expected "
++               << kSupportedSchemaVersion << ")";
++    return false;
++  }
++
++  auto* config = new FuryConfig();
++  config->storage_ = std::make_unique<Storage>(std::move(dict));
++  g_config = config;
++  return true;
++}
++
++// static
++bool FuryConfig::InitializeInBrowser(int fd) {
++  std::optional<std::string> json = ReadAllFromFd(fd);
++  if (!json) {
++    return false;
++  }
++  if (!InitializeFromJson(*json)) {
++    return false;
++  }
++
++  // Publish for the children. Failing here is not fatal to the browser itself,
++  // but it is fatal to consistency: renderers would run unconfigured while the
++  // browser is configured. Drop the config entirely instead of going halfway.
++  base::MappedReadOnlyRegion mapped =
++      base::ReadOnlySharedMemoryRegion::Create(json->size());
++  if (!mapped.IsValid()) {
++    LOG(ERROR) << "fury: cannot allocate shared memory for the config";
++    delete g_config;
++    g_config = nullptr;
++    return false;
++  }
++  auto span = mapped.mapping.GetMemoryAsSpan<char>();
++  std::copy(json->begin(), json->end(), span.begin());
++  GetRegionStorage() = std::move(mapped.region);
++  return true;
++}
++
++// static
++bool FuryConfig::InitializeInChild(std::string_view switch_value) {
++  auto region =
++      base::shared_memory::ReadOnlySharedMemoryRegionFrom(switch_value);
++  if (!region.has_value()) {
++    LOG(ERROR) << "fury: cannot recover the config region from the switch";
++    return false;
++  }
++
++  base::ReadOnlySharedMemoryMapping mapping = region->Map();
++  if (!mapping.IsValid()) {
++    LOG(ERROR) << "fury: cannot map the config region";
++    return false;
++  }
++
++  auto bytes = mapping.GetMemoryAsSpan<const char>();
++  return InitializeFromJson(std::string_view(bytes.data(), bytes.size()));
++}
++
++std::optional<int> FuryConfig::GetInt(std::string_view path) const {
++  const base::Value* v = storage_->Find(path);
++  return v ? v->GetIfInt() : std::nullopt;
++}
++
++std::optional<double> FuryConfig::GetDouble(std::string_view path) const {
++  const base::Value* v = storage_->Find(path);
++  if (!v) {
++    return std::nullopt;
++  }
++  // JSON does not distinguish 8 from 8.0; accept either for a double field.
++  if (std::optional<double> d = v->GetIfDouble()) {
++    return d;
++  }
++  if (std::optional<int> i = v->GetIfInt()) {
++    return static_cast<double>(*i);
++  }
++  return std::nullopt;
++}
++
++std::optional<std::string> FuryConfig::GetString(std::string_view path) const {
++  const base::Value* v = storage_->Find(path);
++  if (!v) {
++    return std::nullopt;
++  }
++  const std::string* s = v->GetIfString();
++  return s ? std::optional<std::string>(*s) : std::nullopt;
++}
++
++std::optional<bool> FuryConfig::GetBool(std::string_view path) const {
++  const base::Value* v = storage_->Find(path);
++  return v ? v->GetIfBool() : std::nullopt;
++}
++
++std::optional<std::vector<std::string>> FuryConfig::GetStringList(
++    std::string_view path) const {
++  const base::Value* v = storage_->Find(path);
++  if (!v) {
++    return std::nullopt;
++  }
++  const base::ListValue* list = v->GetIfList();
++  if (!list) {
++    return std::nullopt;
++  }
++  std::vector<std::string> out;
++  out.reserve(list->size());
++  for (const base::Value& item : *list) {
++    const std::string* s = item.GetIfString();
++    if (!s) {
++      // A list with a non-string in it means the agent and the core disagree
++      // about the schema. Treat that as absent rather than silently dropping
++      // entries: a partially applied list is a contradiction.
++      LOG(ERROR) << "fury: non-string entry in list at " << path;
++      return std::nullopt;
++    }
++    out.push_back(*s);
++  }
++  return out;
++}
++
++}  // namespace fury
+diff --git a/components/fury/fury_config.h b/components/fury/fury_config.h
+new file mode 100644
+index 0000000000..683a6c6f90
+--- /dev/null
++++ b/components/fury/fury_config.h
+@@ -0,0 +1,103 @@
++// Copyright 2026 The Fury Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef COMPONENTS_FURY_FURY_CONFIG_H_
++#define COMPONENTS_FURY_FURY_CONFIG_H_
++
++#include <memory>
++#include <optional>
++#include <string>
++#include <string_view>
++#include <vector>
++
++#include "base/component_export.h"
++#include "base/memory/read_only_shared_memory_region.h"
++
++namespace fury {
++
++// The fingerprint configuration for this browser session.
++//
++// Design constraints, in order of importance:
++//
++//  1. **Every execution context must see the same value.** A product that
++//     spoofs the main frame and forgets `new Worker(...)` looks perfect on a
++//     naive checker and is caught by CreepJS in one line. The config therefore
++//     lives in a read-only shared memory region mapped into every child
++//     process, and is reachable from any thread inside it — main thread,
++//     worker threads, worklets alike.
++//
++//  2. **Immutable after startup.** Read once, never updated. A config that
++//     could change at runtime is a channel a page could probe for the
++//     existence of the spoofing machinery.
++//
++//  3. **Never in argv.** See fury_switches.h.
++//
++// The storage format is deliberately hidden behind a pimpl. Consumers live in
++// Blink, //content and eventually //net, and none of them should have to agree
++// on a JSON library or grow an include dependency on base::Value just to read
++// an integer. It also means the on-the-wire format can change without touching
++// a single call site.
++//
++// Thread safety: the instance is initialised exactly once, before any renderer
++// thread starts, and is const afterwards. Concurrent reads need no locking, and
++// there is deliberately no setter.
++class COMPONENT_EXPORT(FURY) FuryConfig {
++ public:
++  // The schema version this build understands. The core refuses to start on a
++  // config it cannot fully interpret rather than silently ignoring fields —
++  // partial spoofing is worse than none, because the un-spoofed values then
++  // contradict the spoofed ones.
++  static constexpr int kSupportedSchemaVersion = 1;
++
++  FuryConfig(const FuryConfig&) = delete;
++  FuryConfig& operator=(const FuryConfig&) = delete;
++  ~FuryConfig();
++
++  // Returns the active config, or nullptr when the browser was started without
++  // one. Callers must treat nullptr as "behave exactly like stock Chromium":
++  // an unconfigured build has to be indistinguishable from upstream, because
++  // that is what the detect-suite measures it against.
++  static const FuryConfig* Get();
++
++  // Browser process. Reads the JSON the agent wrote to `fd`, parses it, and
++  // publishes it into a read-only shared memory region for the children.
++  // Returns false and leaves the process unconfigured on any failure.
++  static bool InitializeInBrowser(int fd);
++
++  // Child processes. `switch_value` is the opaque handle produced by
++  // base::shared_memory::SharedMemorySwitch in the browser.
++  static bool InitializeInChild(std::string_view switch_value);
++
++  // The region to hand to child processes. Invalid when unconfigured.
++  static const base::ReadOnlySharedMemoryRegion& GetRegionForChildren();
++
++  // Typed lookups by dotted path, e.g. "navigator.hardwareConcurrency".
++  //
++  // std::nullopt means the key is absent, and every caller must render that as
++  // "use the real value" — never as a zero or an empty string, which would be
++  // a fingerprint of its own.
++  std::optional<int> GetInt(std::string_view path) const;
++  std::optional<double> GetDouble(std::string_view path) const;
++  std::optional<std::string> GetString(std::string_view path) const;
++  std::optional<bool> GetBool(std::string_view path) const;
++  // Absent and empty are distinct: an empty font list is a valid instruction,
++  // an absent one means "leave the real list alone".
++  std::optional<std::vector<std::string>> GetStringList(
++      std::string_view path) const;
++
++ private:
++  class Storage;
++
++  FuryConfig();
++
++  // Parses and validates `json`. Returns false if it is malformed or declares
++  // an unsupported schema version.
++  static bool InitializeFromJson(std::string_view json);
++
++  std::unique_ptr<Storage> storage_;
++};
++
++}  // namespace fury
++
++#endif  // COMPONENTS_FURY_FURY_CONFIG_H_
+diff --git a/components/fury/fury_switches.cc b/components/fury/fury_switches.cc
+new file mode 100644
+index 0000000000..25f80d9ee6
+--- /dev/null
++++ b/components/fury/fury_switches.cc
+@@ -0,0 +1,14 @@
++// Copyright 2026 The Fury Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "components/fury/fury_switches.h"
++
++namespace fury {
++namespace switches {
++
++const char kFingerprintFd[] = "fury-fp-fd";
++const char kFingerprintHandle[] = "fury-fp-handle";
++
++}  // namespace switches
++}  // namespace fury
+diff --git a/components/fury/fury_switches.h b/components/fury/fury_switches.h
+new file mode 100644
+index 0000000000..37816cfb05
+--- /dev/null
++++ b/components/fury/fury_switches.h
+@@ -0,0 +1,32 @@
++// Copyright 2026 The Fury Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef COMPONENTS_FURY_FURY_SWITCHES_H_
++#define COMPONENTS_FURY_FURY_SWITCHES_H_
++
++#include "base/component_export.h"
++
++namespace fury {
++namespace switches {
++
++// Browser process only. The number of an inherited file descriptor the agent
++// has written the fingerprint config JSON to.
++//
++// The config never travels in argv itself: process arguments are readable by
++// any other process on the machine (`ps`, Process Explorer, and any native
++// helper an anti-fraud vendor ships), and a command line containing a profile's
++// whole spoofed persona would hand it over for free. Only the descriptor number
++// appears here.
++COMPONENT_EXPORT(FURY) extern const char kFingerprintFd[];
++
++// Child processes. Carries an opaque serialized handle to the read-only shared
++// memory region holding the config — not the config. Populated by the browser
++// via base::shared_memory::SharedMemorySwitch, the same mechanism Chromium
++// already uses for field trials and histograms.
++COMPONENT_EXPORT(FURY) extern const char kFingerprintHandle[];
++
++}  // namespace switches
++}  // namespace fury
++
++#endif  // COMPONENTS_FURY_FURY_SWITCHES_H_
+diff --git a/content/app/BUILD.gn b/content/app/BUILD.gn
+index e3c038ff40..d89cef0e31 100644
+--- a/content/app/BUILD.gn
++++ b/content/app/BUILD.gn
+@@ -77,6 +77,7 @@ source_set("content_main_runner_app") {
+ 
+   configs += extra_configs
+   deps = content_app_deps + [
++           "//components/fury",
+            "//components/power_monitor",
+            "//content/browser",
+            "//content/gpu:gpu_sources",
+diff --git a/content/app/content_main_runner_impl.cc b/content/app/content_main_runner_impl.cc
+index 338a198ece..32286fd556 100644
+--- a/content/app/content_main_runner_impl.cc
++++ b/content/app/content_main_runner_impl.cc
+@@ -57,6 +57,8 @@
+ #include "build/build_config.h"
+ #include "components/discardable_memory/service/discardable_shared_memory_manager.h"
+ #include "components/download/public/common/download_task_runner.h"
++#include "components/fury/fury_config.h"
++#include "components/fury/fury_switches.h"
+ #include "components/power_monitor/make_power_monitor_device_source.h"
+ #include "components/variations/net/variations_command_line.h"
+ #include "components/variations/variations_ids_provider.h"
+@@ -852,6 +854,12 @@ int ContentMainRunnerImpl::Initialize(ContentMainParams params) {
+   g_fds->Set(kPseudonymizationSaltDescriptor,
+              kPseudonymizationSaltDescriptor +
+                  base::GlobalDescriptors::kBaseDescriptor);
++  // Only consulted on POSIX platforms that are not Apple; macOS recovers the
++  // region through Mach port rendezvous instead. Registered unconditionally so
++  // the Linux build needs no separate patch.
++  g_fds->Set(kFuryFingerprintDescriptor,
++             kFuryFingerprintDescriptor +
++                 base::GlobalDescriptors::kBaseDescriptor);
+ #endif  // !BUILDFLAG(IS_ANDROID)
+ 
+ #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_OPENBSD)
+@@ -862,6 +870,38 @@ int ContentMainRunnerImpl::Initialize(ContentMainParams params) {
+ 
+ #endif  // !BUILDFLAG(IS_WIN)
+ 
++  // Load the Fury fingerprint config before anything can observe a value it is
++  // meant to override, and before the first child process is launched — the
++  // browser must already hold the shared memory region by then.
++  //
++  // Two distinct paths on purpose. The browser reads JSON from a descriptor the
++  // agent inherited to it; children recover a read-only mapping from an opaque
++  // handle. Neither ever carries the config in argv.
++  if (process_type.empty()) {
++    if (command_line.HasSwitch(fury::switches::kFingerprintFd)) {
++      int fd = -1;
++      if (base::StringToInt(
++              command_line.GetSwitchValueASCII(fury::switches::kFingerprintFd),
++              &fd) &&
++          fd >= 0) {
++        if (!fury::FuryConfig::InitializeInBrowser(fd)) {
++          // Refuse to run half-configured. A browser that believes it is
++          // spoofing while its renderers are not produces contexts that
++          // contradict each other, which is worse than no spoofing at all.
++          LOG(FATAL) << "fury: fingerprint config could not be loaded";
++        }
++      } else {
++        LOG(FATAL) << "fury: --" << fury::switches::kFingerprintFd
++                   << " is not a valid descriptor";
++      }
++    }
++  } else if (command_line.HasSwitch(fury::switches::kFingerprintHandle)) {
++    if (!fury::FuryConfig::InitializeInChild(command_line.GetSwitchValueASCII(
++            fury::switches::kFingerprintHandle))) {
++      LOG(FATAL) << "fury: child could not map the fingerprint config";
++    }
++  }
++
+   is_initialized_ = true;
+   TRACE_EVENT0("startup,benchmark,rail", "ContentMainRunnerImpl::Initialize");
+ 
+diff --git a/content/browser/BUILD.gn b/content/browser/BUILD.gn
+index d8b60778cd..73b50136b8 100644
+--- a/content/browser/BUILD.gn
++++ b/content/browser/BUILD.gn
+@@ -171,6 +171,7 @@ source_set("browser") {
+     "//components/ukm/debug:util",
+     "//components/url_formatter",
+     "//components/url_matcher",
++    "//components/fury",
+     "//components/variations",
+     "//components/variations/net",
+     "//components/version_info",
+diff --git a/content/browser/child_process_launcher_helper.cc b/content/browser/child_process_launcher_helper.cc
+index 08b3100781..7365d17919 100644
+--- a/content/browser/child_process_launcher_helper.cc
++++ b/content/browser/child_process_launcher_helper.cc
+@@ -22,6 +22,8 @@
+ #include "base/task/single_thread_task_runner_thread_mode.h"
+ #include "base/task/task_traits.h"
+ #include "build/build_config.h"
++#include "components/fury/fury_config.h"
++#include "components/fury/fury_switches.h"
+ #include "components/tracing/common/tracing_switches.h"
+ #include "components/variations/active_field_trials.h"
+ #include "content/browser/child_process_launcher.h"
+@@ -123,6 +125,32 @@ void PassFieldTrialSharedMemoryHandle(
+   TransferSharedMemorySwitchDescriptor(shared_memory_switch, files_to_register);
+ }
+ 
++// Update the process launch parameters to transmit the Fury fingerprint config
++// to the child process.
++//
++// The switch carries only an opaque serialized handle; the config itself lives
++// in the read-only shared memory region. That distinction is the entire point:
++// process arguments are world-readable, and a command line containing a
++// profile's spoofed persona would disclose it to anything that can run `ps`.
++//
++// Does nothing when the browser was started without a config, leaving children
++// to behave exactly like stock Chromium.
++void PassFuryConfigSharedMemoryHandle(
++    base::CommandLine& command_line,
++    base::LaunchOptions* launch_options,
++    [[maybe_unused]] FileMappedForLaunch* files_to_register) {
++  const base::ReadOnlySharedMemoryRegion& region =
++      fury::FuryConfig::GetRegionForChildren();
++  if (!region.IsValid()) {
++    return;
++  }
++  base::shared_memory::SharedMemorySwitch shared_memory_switch(
++      fury::switches::kFingerprintHandle, 'fury', kFuryFingerprintDescriptor);
++  shared_memory_switch.AddToLaunchParameters(region, &command_line,
++                                             launch_options);
++  TransferSharedMemorySwitchDescriptor(shared_memory_switch, files_to_register);
++}
++
+ void PassStartupTracingConfigSharedMemoryHandle(
+     const base::ReadOnlySharedMemoryRegion* read_only_memory_region,
+     base::CommandLine& command_line,
+@@ -327,6 +355,8 @@ void ChildProcessLauncherHelper::LaunchOnLauncherThread() {
+       *command_line(), options_ptr, files_to_register.get());
+   PassFieldTrialSharedMemoryHandle(*command_line(), options_ptr,
+                                    files_to_register.get());
++  PassFuryConfigSharedMemoryHandle(*command_line(), options_ptr,
++                                   files_to_register.get());
+   PassStartupTracingConfigSharedMemoryHandle(
+       tracing_config_memory_region_ ? &tracing_config_memory_region_->data
+                                     : nullptr,
+diff --git a/content/public/common/content_descriptors.h b/content/public/common/content_descriptors.h
+index 9542306fd8..cdb4cded31 100644
+--- a/content/public/common/content_descriptors.h
++++ b/content/public/common/content_descriptors.h
+@@ -25,6 +25,13 @@ enum {
+   kTraceOutputSharedMemoryDescriptor,
+   kPseudonymizationSaltDescriptor,
+ 
++  // Read-only shared memory holding the Fury fingerprint config. Every child
++  // process needs it: a value spoofed in the browser but not in a renderer, or
++  // in the main frame but not in a Worker, makes the contexts disagree with
++  // each other — which is a stronger detection signal than not spoofing at
++  // all. See components/fury/fury_config.h.
++  kFuryFingerprintDescriptor,
++
+   // Reserves 100 to 199 for dynamically generated IDs.
+   kContentDynamicDescriptorStart = 100,
+   kContentDynamicDescriptorMax = 199,
+diff --git a/third_party/blink/renderer/core/BUILD.gn b/third_party/blink/renderer/core/BUILD.gn
+index e84a67cee8..b0e21135e1 100644
+--- a/third_party/blink/renderer/core/BUILD.gn
++++ b/third_party/blink/renderer/core/BUILD.gn
+@@ -405,6 +405,7 @@ component("core") {
+     ":make_deprecation_info",
+     ":xml_ffi",
+     "//base",
++    "//components/fury",
+     "//components/attribution_reporting",
+     "//components/attribution_reporting:mojom_blink",
+     "//components/paint_preview/common",
+diff --git a/third_party/blink/renderer/core/DEPS b/third_party/blink/renderer/core/DEPS
+index f4684efd4b..9245785bde 100644
+--- a/third_party/blink/renderer/core/DEPS
++++ b/third_party/blink/renderer/core/DEPS
+@@ -66,6 +66,7 @@ include_rules = [
+     "+cc/trees/target_property.h",
+     "+cc/trees/ukm_manager.h",
+     "+components/subresource_filter/core/common/scoped_rule.h",
++    "+components/fury/fury_config.h",
+     "+components/attribution_reporting/features.h",
+     "+components/performance_manager/public/mojom/coordination_unit.mojom-blink.h",
+     "+components/performance_manager/public/mojom/web_memory.mojom-blink.h",
