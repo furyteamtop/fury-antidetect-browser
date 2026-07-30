@@ -68,8 +68,18 @@ cp "$ARGS_FILE" "$SRC/$OUT/args.gn"
 echo "==> gn gen $OUT"
 (cd "$SRC" && gn gen "$OUT")
 
+# J caps parallelism, which is the only way to actually bound CPU use. `nice`
+# alone just yields under contention — an idle machine still gets fully consumed,
+# which is not what someone who asked for "20%" wants. On a 10-core machine J=2
+# is ~20%.
+JOBS_ARG=""
+if [ -n "${J:-}" ]; then
+  JOBS_ARG="-j$J"
+  echo "==> limiting to $J parallel jobs"
+fi
+
 echo "==> autoninja chrome"
-(cd "$SRC" && autoninja -C "$OUT" chrome)
+(cd "$SRC" && autoninja -C "$OUT" $JOBS_ARG chrome)
 
 echo "==> Built: $SRC/$OUT"
 

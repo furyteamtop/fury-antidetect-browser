@@ -302,6 +302,23 @@ fn collapse_absent_subtrees(findings: Vec<Finding>) -> Vec<Finding> {
         .collect()
 }
 
+/// Some values are enormous — the speechSynthesis voice list alone is ~8 KB, and
+/// printing two of them buries every other finding in the report. Show enough to
+/// identify the value and say how much was cut; `flatten` prints the whole thing
+/// when the detail is actually needed.
+fn abbreviate(v: Option<&str>) -> String {
+    const LIMIT: usize = 160;
+    match v {
+        None => "<field absent>".to_string(),
+        Some(s) if s.chars().count() <= LIMIT => s.to_string(),
+        Some(s) => {
+            let head: String = s.chars().take(LIMIT).collect();
+            let cut = s.chars().count() - LIMIT;
+            format!("{head}… (+{cut} символов)")
+        }
+    }
+}
+
 fn report(findings: &[Finding], mode: Mode, a_path: &str, b_path: &str) -> Result<()> {
     let mode_name = match mode {
         Mode::Identity => "identity (same browser twice — nothing may differ)",
@@ -328,14 +345,8 @@ fn report(findings: &[Finding], mode: Mode, a_path: &str, b_path: &str) -> Resul
                 Kind::Noise => "noise",
             };
             println!("  [{label}] {}", f.path);
-            println!(
-                "      baseline  {}",
-                f.baseline.as_deref().unwrap_or("<field absent>")
-            );
-            println!(
-                "      candidate {}",
-                f.candidate.as_deref().unwrap_or("<field absent>")
-            );
+            println!("      baseline  {}", abbreviate(f.baseline.as_deref()));
+            println!("      candidate {}", abbreviate(f.candidate.as_deref()));
         }
         println!();
     }
