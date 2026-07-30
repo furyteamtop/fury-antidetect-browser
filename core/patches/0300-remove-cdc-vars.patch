@@ -1,0 +1,37 @@
+diff --git a/third_party/blink/renderer/core/frame/navigator.cc b/third_party/blink/renderer/core/frame/navigator.cc
+index 583f05f8dd..f7c56008c7 100644
+--- a/third_party/blink/renderer/core/frame/navigator.cc
++++ b/third_party/blink/renderer/core/frame/navigator.cc
+@@ -23,6 +23,8 @@
+ 
+ #include "third_party/blink/renderer/core/frame/navigator.h"
+ 
++#include "components/fury/fury_config.h"
++
+ #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
+ #include "third_party/blink/renderer/core/dom/document.h"
+ #include "third_party/blink/renderer/core/execution_context/navigator_base.h"
+@@ -98,6 +100,23 @@ bool Navigator::cookieEnabled() const {
+ }
+ 
+ bool Navigator::webdriver() const {
++  // Keeps navigator.webdriver false even while the profile is being driven over
++  // CDP.
++  //
++  // This is what makes the local automation API usable at all. Without it,
++  // attaching Puppeteer to a profile flips this to true and every page can see
++  // it — so the operator has to choose between automating an account and
++  // keeping it. Real Chrome reports exactly `false` here, and that is what a
++  // profile must keep reporting whether or not anyone is driving it.
++  //
++  // Off by default: an unconfigured build stays honest, and the detect-suite
++  // measures it against stock Chromium.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (config->GetBool("automation.hideTraces").value_or(false)) {
++      return false;
++    }
++  }
++
+   if (RuntimeEnabledFeatures::AutomationControlledEnabled())
+     return true;
+ 

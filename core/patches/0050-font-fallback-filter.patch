@@ -1,0 +1,94 @@
+diff --git a/third_party/blink/renderer/platform/fonts/font_cache.cc b/third_party/blink/renderer/platform/fonts/font_cache.cc
+index 506b181809..2ca200aed6 100644
+--- a/third_party/blink/renderer/platform/fonts/font_cache.cc
++++ b/third_party/blink/renderer/platform/fonts/font_cache.cc
+@@ -29,6 +29,12 @@
+ 
+ #include "third_party/blink/renderer/platform/fonts/font_cache.h"
+ 
++#include <set>
++#include <string>
++#include <string_view>
++
++#include "components/fury/fury_config.h"
++
+ #include <limits>
+ #include <memory>
+ 
+@@ -146,10 +152,76 @@ void FontCache::AcceptLanguagesChanged(const String& accept_languages) {
+   LayoutLocale::AcceptLanguagesChanged(accept_languages);
+ }
+ 
++namespace {
++
++// Case-insensitive set of the families this profile is allowed to resolve.
++// Built once per process from the config; empty means "no restriction".
++std::string FuryLower(std::string_view in) {
++  std::string out(in);
++  for (char& c : out) {
++    if (c >= 'A' && c <= 'Z') {
++      c = static_cast<char>(c - 'A' + 'a');
++    }
++  }
++  return out;
++}
++
++const std::set<std::string>* FuryAllowedFonts() {
++  static const std::set<std::string>* allowed = [] {
++    auto* set = new std::set<std::string>();
++    if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++      if (std::optional<std::vector<std::string>> fonts =
++              config->GetStringList("fonts")) {
++        for (const std::string& name : *fonts) {
++          set->insert(FuryLower(name));
++        }
++      }
++    }
++    return set;
++  }();
++  return allowed->empty() ? nullptr : allowed;
++}
++
++// CSS generic families are keywords, not installed fonts. Blocking them would
++// leave a page with no text at all, and they carry no fingerprint of their own.
++bool FuryIsGenericFamily(const std::string& lower) {
++  return lower == "serif" || lower == "sans-serif" || lower == "monospace" ||
++         lower == "cursive" || lower == "fantasy" || lower == "system-ui" ||
++         lower == "-webkit-body" || lower == "-webkit-standard" ||
++         lower == "ui-serif" || lower == "ui-sans-serif" ||
++         lower == "ui-monospace" || lower == "ui-rounded" ||
++         lower == "math" || lower == "emoji" || lower == "fangsong";
++}
++
++}  // namespace
++
+ const SimpleFontData* FontCache::GetFontData(
+     const FontDescription& font_description,
+     const AtomicString& family,
+     AlternateFontName altername_font_name) {
++  // Filtering happens HERE, at resolution, not at any enumeration API.
++  //
++  // Measured with the detect-suite: document.fonts.check() returns true for
++  // arbitrary family names in real Chrome — including
++  // "ThisFontDoesNotExistAnywhere12345" — so it is not a detection method and
++  // filtering it would achieve nothing. Real detection is measurement: render
++  // text in the candidate family with a known fallback and compare widths. A
++  // font that still resolves is still detected, however well the enumeration
++  // API is filtered.
++  //
++  // Returning nullptr makes Blink fall back exactly as it does on a machine
++  // where the family is genuinely absent, so measurement and enumeration agree
++  // by construction.
++  //
++  // Fonts loaded by the page itself through @font-face do not come through
++  // here, so sites keep their own typefaces.
++  if (const std::set<std::string>* allowed = FuryAllowedFonts()) {
++    const std::string lower = FuryLower(family.Utf8());
++    if (!FuryIsGenericFamily(lower) && !allowed->count(lower)) {
++      return nullptr;
++    }
++  }
++
+   if (const FontPlatformData* platform_data = GetFontPlatformData(
+           font_description,
+           FontFaceCreationParams(

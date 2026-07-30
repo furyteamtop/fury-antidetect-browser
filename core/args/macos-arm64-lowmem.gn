@@ -68,6 +68,16 @@ enable_hangout_services_extension = false
 # than today.
 enable_widevine = true
 
+# bundle_widevine_cdm defaults to false for us, because upstream gates it on
+# is_chrome_branded — and with it false the build expects the component updater
+# to fetch the CDM at runtime, which we deliberately disable (that fetch would
+# leave through the real IP, not the profile proxy).
+#
+# Set explicitly, with the blob staged from the locally installed Chrome by
+# core/build/link-widevine.sh. The CDM is never committed; see docs/10 for why
+# using a local copy and shipping one are different questions.
+bundle_widevine_cdm = true
+
 enable_nacl = false
 enable_print_preview = true
 
