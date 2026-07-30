@@ -50,6 +50,12 @@
 # depends on it, while outerHeight - innerHeight is the OS tell. Phase 0
 # measured 143 px on a clean build against 87 px on real Chrome.
 0020-screen-window.patch
+# Width and overlay mode must move together: an overlay scrollbar reserves no
+# layout space, so a configured width that layout never reserves is not a width
+# at all and the page still measures 0.
+#
+# macOS only for now. The Windows build needs the same two overrides in
+# scrollbar_theme_aura.cc / scrollbar_theme_fluent.cc.
 0021-scrollbar-width.patch
 
 # --- graphics ---------------------------------------------------------------

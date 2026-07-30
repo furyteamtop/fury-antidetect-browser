@@ -1,0 +1,54 @@
+diff --git a/third_party/blink/renderer/core/scroll/scrollbar_theme_mac.cc b/third_party/blink/renderer/core/scroll/scrollbar_theme_mac.cc
+index b3bd1d9dc2..1ff48156b2 100644
+--- a/third_party/blink/renderer/core/scroll/scrollbar_theme_mac.cc
++++ b/third_party/blink/renderer/core/scroll/scrollbar_theme_mac.cc
+@@ -25,6 +25,8 @@
+ 
+ #include "third_party/blink/renderer/core/scroll/scrollbar_theme_mac.h"
+ 
++#include "components/fury/fury_config.h"
++
+ #include <variant>
+ 
+ #include "skia/ext/skia_utils_mac.h"
+@@ -324,12 +326,40 @@ int ScrollbarThemeMac::ScrollbarThickness(
+     EScrollbarWidth scrollbar_width) const {
+   if (scrollbar_width == EScrollbarWidth::kNone)
+     return 0;
++
++  // The width a scrollbar occupies in layout gives the OS away on its own, and
++  // no amount of navigator spoofing hides it: a page measures
++  // offsetWidth - clientWidth on an overflowing element and reads ~15-17 px on
++  // Windows against 0 on macOS, where scrollbars are overlays.
++  //
++  // Scaled by scale_from_dip exactly as track_box_width is below, so the value
++  // a page measures in CSS pixels equals what was configured.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<int> width = config->GetInt("screen.scrollbarWidth")) {
++      if (*width >= 0) {
++        return static_cast<int>(*width * scale_from_dip);
++      }
++    }
++  }
++
+   const auto& painter_values =
+       GetScrollbarPainterValues(UsesOverlayScrollbars(), scrollbar_width);
+   return painter_values.track_box_width * scale_from_dip;
+ }
+ 
+ bool ScrollbarThemeMac::UsesOverlayScrollbars() const {
++  // Overlay scrollbars take no space in layout, which is precisely why macOS
++  // measures 0. Setting a non-zero width therefore has to turn them off as
++  // well — a width that layout never reserves is not a width.
++  //
++  // The two must stay in agreement: reporting a 15 px thickness while still
++  // compositing an overlay would leave the measured value at 0 and contradict
++  // the claim.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<int> width = config->GetInt("screen.scrollbarWidth")) {
++      return *width == 0;
++    }
++  }
+   return PreferOverlayScrollerStyle();
+ }
+ 
