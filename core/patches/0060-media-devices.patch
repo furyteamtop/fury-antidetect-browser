@@ -1,0 +1,56 @@
+diff --git a/third_party/blink/renderer/modules/mediastream/media_devices.cc b/third_party/blink/renderer/modules/mediastream/media_devices.cc
+index b74ee0e251..1b7cb3a498 100644
+--- a/third_party/blink/renderer/modules/mediastream/media_devices.cc
++++ b/third_party/blink/renderer/modules/mediastream/media_devices.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "third_party/blink/renderer/modules/mediastream/media_devices.h"
+ 
++#include "components/fury/fury_config.h"
++
+ #include <algorithm>
+ #include <utility>
+ 
+@@ -1482,6 +1484,42 @@ void MediaDevices::DevicesEnumerated(
+     }
+   }
+ 
++  // Narrows the list to the persona's device counts. Narrowing only, by the
++  // same rule as WebGPU features in 0032 and fonts in 0050: dropping a device
++  // is honest, because getUserMedia then fails exactly as it would on a machine
++  // without one. Advertising a camera that is not there would fail in a way no
++  // real machine fails, which is worse than the count it was meant to hide.
++  //
++  // Device IDs are already salted per origin by Chromium itself, so they are
++  // left alone — re-salting them here would only risk breaking the
++  // origin-stability real sites rely on.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    auto limit = [&](const char* key, mojom::blink::MediaDeviceType type) {
++      std::optional<int> want =
++          config->GetInt(std::string("mediaDevices.") + key);
++      if (!want || *want < 0) {
++        return;
++      }
++      int seen = 0;
++      MediaDeviceInfoVector kept;
++      kept.reserve(media_devices.size());
++      for (MediaDeviceInfo* device : media_devices) {
++        if (device->DeviceType() != type) {
++          kept.push_back(device);
++          continue;
++        }
++        if (seen < *want) {
++          kept.push_back(device);
++          ++seen;
++        }
++      }
++      media_devices = std::move(kept);
++    };
++    limit("audioInputCount", mojom::blink::MediaDeviceType::kMediaAudioInput);
++    limit("audioOutputCount", mojom::blink::MediaDeviceType::kMediaAudioOutput);
++    limit("videoInputCount", mojom::blink::MediaDeviceType::kMediaVideoInput);
++  }
++
+   ReportCompletedEnumerateDevices(result_contains_nonempty_input_device_ids);
+   result_tracker->Resolve(media_devices);
+   tracer->End();

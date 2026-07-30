@@ -121,11 +121,11 @@ canvas стабилен.
 - [x] **`0040` audio noise**
 - [x] **`0050` фильтр font fallback** — только сужение, см. [02](02-fingerprint-surface.md)
 - [ ] `0070` политика WebRTC
-- [ ] `0090` согласованность Permissions API
+- [x] **`0090` согласованность Permissions API**
 - [ ] `0100` CSS media features
 
 Приоритет 3:
-- [ ] `0060` mediaDevices с солью — не начат, список приходит из browser-процесса
+- [x] **`0060` mediaDevices** — сужение списка до счётчиков персоны
 - [ ] `0110` os_crypt ключ из DEK (нужно для переносимости бандлов)
 - [ ] speechSynthesis voices, performance.memory, stack trace format
 

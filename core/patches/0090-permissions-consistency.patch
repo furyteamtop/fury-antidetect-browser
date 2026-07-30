@@ -1,0 +1,139 @@
+diff --git a/third_party/blink/renderer/modules/notifications/notification.cc b/third_party/blink/renderer/modules/notifications/notification.cc
+index 643d833935..bae76114a8 100644
+--- a/third_party/blink/renderer/modules/notifications/notification.cc
++++ b/third_party/blink/renderer/modules/notifications/notification.cc
+@@ -30,6 +30,8 @@
+ 
+ #include "third_party/blink/renderer/modules/notifications/notification.h"
+ 
++#include "components/fury/fury_config.h"
++
+ #include <memory>
+ #include <utility>
+ 
+@@ -436,6 +438,30 @@ V8NotificationPermission Notification::permission(ExecutionContext* context) {
+   mojom::blink::PermissionStatus status =
+       NotificationManager::From(context)->GetPermissionStatus();
+ 
++  // Kept in step with permissions.query({name:"notifications"}) in patch 0090.
++  //
++  // Found by measurement, not foresight: overriding only the Permissions API
++  // produced query="denied" against Notification.permission="default" — a
++  // genuine contradiction, and precisely the headless tell the detect-suite
++  // gate was written to catch. The persona would have been shooting itself in
++  // the foot.
++  //
++  // The two APIs use different words for the same states — Permissions says
++  // prompt, Notification says default — so the mapping happens here rather than
++  // by forcing a shared literal.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<std::string> want =
++            config->GetString("permissions.notifications")) {
++      if (*want == "granted") {
++        status = mojom::blink::PermissionStatus::GRANTED;
++      } else if (*want == "denied") {
++        status = mojom::blink::PermissionStatus::DENIED;
++      } else if (*want == "prompt") {
++        status = mojom::blink::PermissionStatus::ASK;
++      }
++    }
++  }
++
+   // Permission can only be requested from top-level frames and same-origin
+   // iframes. This should be reflected in calls getting permission status.
+   //
+diff --git a/third_party/blink/renderer/modules/permissions/permissions.cc b/third_party/blink/renderer/modules/permissions/permissions.cc
+index 7dfb580705..b30141a7f2 100644
+--- a/third_party/blink/renderer/modules/permissions/permissions.cc
++++ b/third_party/blink/renderer/modules/permissions/permissions.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "third_party/blink/renderer/modules/permissions/permissions.h"
+ 
++#include "components/fury/fury_config.h"
++
+ #include <memory>
+ #include <utility>
+ 
+@@ -262,6 +264,43 @@ void Permissions::ServiceConnectionError() {
+   service_.reset();
+ }
+ 
++namespace {
++
++// Config key for a permission, or nullptr for ones a persona has no business
++// setting. Names match what the Permissions API accepts in JS and what
++// tools/detect-suite/probe.js queries, so a persona can be filled from a
++// capture.
++const char* FuryPermissionConfigKey(mojom::blink::PermissionName name) {
++  using mojom::blink::PermissionName;
++  switch (name) {
++    case PermissionName::GEOLOCATION:
++      return "geolocation";
++    case PermissionName::NOTIFICATIONS:
++      return "notifications";
++    case PermissionName::AUDIO_CAPTURE:
++      return "microphone";
++    case PermissionName::VIDEO_CAPTURE:
++      return "camera";
++    case PermissionName::MIDI:
++      return "midi";
++    case PermissionName::CLIPBOARD_READ:
++      return "clipboard-read";
++    case PermissionName::CLIPBOARD_WRITE:
++      return "clipboard-write";
++    case PermissionName::PERSISTENT_STORAGE:
++      return "persistent-storage";
++    case PermissionName::LOCAL_FONTS:
++      // Real Chrome gates queryLocalFonts() behind this, and patch 0050 makes
++      // the font list a persona property — so the permission that guards the
++      // enumeration API belongs to the persona too.
++      return "local-fonts";
++    default:
++      return nullptr;
++  }
++}
++
++}  // namespace
++
+ void Permissions::TaskComplete(
+     ScriptPromiseResolver<PermissionStatus>* resolver,
+     mojom::blink::PermissionDescriptorPtr descriptor,
+@@ -270,6 +309,37 @@ void Permissions::TaskComplete(
+       resolver->GetExecutionContext()->IsContextDestroyed())
+     return;
+ 
++  // Substitutes the state and nothing else: the listener, the PermissionStatus
++  // object and the change-event plumbing are all still the real ones, so a page
++  // that subscribes to onchange behaves exactly as it would otherwise.
++  //
++  // Note what is deliberately NOT touched — Notification.permission. It reads a
++  // different path, and phase 0 measured real Chrome reporting "prompt" from
++  // this API and "default" from that one for the same state. They use different
++  // vocabularies for identical states, and forcing them to the same literal
++  // string would create the contradiction the check exists to catch.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (const char* key = FuryPermissionConfigKey(descriptor->name)) {
++      if (std::optional<std::string> want =
++              config->GetString(std::string("permissions.") + key)) {
++        std::optional<mojom::blink::PermissionStatus> status;
++        if (*want == "granted") {
++          status = mojom::blink::PermissionStatus::GRANTED;
++        } else if (*want == "denied") {
++          status = mojom::blink::PermissionStatus::DENIED;
++        } else if (*want == "prompt") {
++          status = mojom::blink::PermissionStatus::ASK;
++        }
++        if (status) {
++          result->status = *status;
++        } else {
++          LOG(ERROR) << "fury: permissions." << key << " must be granted, "
++                     << "denied or prompt; got " << *want;
++        }
++      }
++    }
++  }
++
+   PermissionStatusListener* listener = GetOrCreatePermissionStatusListener(
+       std::move(result), std::move(descriptor));
+   if (listener)
