@@ -114,18 +114,18 @@ canvas стабилен.
 - [x] **`0080` timezone через ICU + Intl**
 - [x] **`0200-0220` — проверено: для паритета НЕ НУЖНЫ** ([02](02-fingerprint-surface.md))
 - [ ] QUIC через SOCKS5 UDP в релее — вот где настоящая сетевая работа
-- [ ] `0300` следы автоматизации
+- [x] **`0300` navigator.webdriver остаётся false под CDP**
 
 Приоритет 2 — то, что отличает от середины рынка:
 - [x] **`0032` WebGPU adapter info + limits + features**
 - [x] **`0040` audio noise**
-- [ ] `0050` фильтр font fallback (не просто список)
+- [x] **`0050` фильтр font fallback** — только сужение, см. [02](02-fingerprint-surface.md)
 - [ ] `0070` политика WebRTC
 - [ ] `0090` согласованность Permissions API
 - [ ] `0100` CSS media features
 
 Приоритет 3:
-- [ ] `0060` mediaDevices с солью
+- [ ] `0060` mediaDevices с солью — не начат, список приходит из browser-процесса
 - [ ] `0110` os_crypt ключ из DEK (нужно для переносимости бандлов)
 - [ ] speechSynthesis voices, performance.memory, stack trace format
 
