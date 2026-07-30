@@ -1,0 +1,126 @@
+diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+index f939e8dcb0..7e589e30c3 100644
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.h"
+ 
++#include "components/fury/fury_noise.h"
++
+ #include <cmath>
+ #include <cstdint>
+ #include <cstdlib>
+@@ -511,6 +513,33 @@ ImageData* BaseRenderingContext2D::getImageDataInternal(
+           snapshot->PaintImageForCurrentFrame().GetSkImageInfo().bounds();
+       DCHECK(!bounds.intersect(SkIRect::MakeXYWH(sx, sy, sw, sh)));
+     }
++
++    // Perturb the copy the caller receives, never the canvas itself. ImageData
++    // owns its pixels, so this is safe and — because the noise is a pure
++    // function of absolute position — reading the same region again produces
++    // the same bytes.
++    //
++    // (sx, sy) are the absolute canvas coordinates of this region, which is
++    // what makes getImageData(50, 50, 10, 10) agree with the same pixels read
++    // as part of a whole-canvas call.
++    //
++    // BaseRenderingContext2D backs both CanvasRenderingContext2D and
++    // OffscreenCanvasRenderingContext2D, so this covers canvas inside Workers
++    // with the same change.
++    uint64_t noise_seed = 0;
++    if (fury::GetCanvasNoiseSeed(&noise_seed)) {
++      SkPixmap noised = image_data->GetSkPixmap();
++      if (noised.writable_addr() && noised.rowBytes() > 0) {
++        fury::ApplyCanvasNoise(
++            noise_seed,
++            // SAFETY: ImageData owns this buffer; height * rowBytes is its
++            // exact size.
++            UNSAFE_BUFFERS(base::span(
++                static_cast<uint8_t*>(noised.writable_addr()),
++                noised.rowBytes() * static_cast<size_t>(noised.height()))),
++            noised.width(), noised.height(), noised.rowBytes(), sx, sy);
++      }
++    }
+   }
+ 
+   return image_data;
+diff --git a/third_party/blink/renderer/platform/graphics/image_data_buffer.cc b/third_party/blink/renderer/platform/graphics/image_data_buffer.cc
+index c76f6553e1..f8a661b9a1 100644
+--- a/third_party/blink/renderer/platform/graphics/image_data_buffer.cc
++++ b/third_party/blink/renderer/platform/graphics/image_data_buffer.cc
+@@ -32,6 +32,8 @@
+ 
+ #include "third_party/blink/renderer/platform/graphics/image_data_buffer.h"
+ 
++#include "components/fury/fury_noise.h"
++
+ #include "base/compiler_specific.h"
+ #include "base/memory/ptr_util.h"
+ #include "third_party/blink/renderer/platform/image-encoders/image_encoder_utils.h"
+@@ -110,15 +112,45 @@ std::unique_ptr<ImageDataBuffer> ImageDataBuffer::Create(
+       base::WrapUnique(new ImageDataBuffer(image));
+   if (!buffer->IsValid())
+     return nullptr;
++  buffer->ApplyFuryNoise();
+   return buffer;
+ }
+ 
++// Both toDataURL() and toBlob() encode through an ImageDataBuffer, for
++// HTMLCanvasElement and OffscreenCanvas alike, so this one place covers every
++// encoded readback. getImageData() is perturbed separately but by the SAME
++// function on the same absolute coordinates, so the two agree — a site that
++// compares a pixel from getImageData against the decoded PNG sees no
++// contradiction.
++void ImageDataBuffer::ApplyFuryNoise() {
++  uint64_t seed = 0;
++  if (!fury::GetCanvasNoiseSeed(&seed)) {
++    return;
++  }
++  if (!is_valid_ || pixmap_.rowBytes() == 0 || pixmap_.height() <= 0) {
++    return;
++  }
++
++  const size_t total = pixmap_.rowBytes() * static_cast<size_t>(pixmap_.height());
++  fury_noised_pixels_.resize(static_cast<wtf_size_t>(total));
++  // SAFETY: pixmap_ is valid and describes exactly `total` bytes.
++  UNSAFE_BUFFERS(memcpy(fury_noised_pixels_.data(), pixmap_.addr(), total));
++
++  fury::ApplyCanvasNoise(seed, base::span(fury_noised_pixels_),
++                         pixmap_.width(), pixmap_.height(), pixmap_.rowBytes(),
++                         /*origin_x=*/0, /*origin_y=*/0);
++
++  pixmap_.reset(pixmap_.info(), fury_noised_pixels_.data(),
++                pixmap_.rowBytes());
++}
++
+ std::unique_ptr<ImageDataBuffer> ImageDataBuffer::Create(
+     const SkPixmap& pixmap) {
+   std::unique_ptr<ImageDataBuffer> buffer =
+       base::WrapUnique(new ImageDataBuffer(pixmap));
+   if (!buffer->IsValid())
+     return nullptr;
++  buffer->ApplyFuryNoise();
+   return buffer;
+ }
+ 
+diff --git a/third_party/blink/renderer/platform/graphics/image_data_buffer.h b/third_party/blink/renderer/platform/graphics/image_data_buffer.h
+index 7788473df7..742549b7bd 100644
+--- a/third_party/blink/renderer/platform/graphics/image_data_buffer.h
++++ b/third_party/blink/renderer/platform/graphics/image_data_buffer.h
+@@ -65,8 +65,15 @@ class PLATFORM_EXPORT ImageDataBuffer {
+ 
+   bool IsValid() { return is_valid_; }  // Only used by Create()
+ 
++  // Applies the configured canvas noise to an owned copy, and repoints
++  // pixmap_ at it. Doing it in place would mutate the live canvas and make the
++  // perturbation cumulative — the second toDataURL() would then differ from the
++  // first, which is worse than not perturbing at all.
++  void ApplyFuryNoise();
++
+   sk_sp<SkImage> retained_image_;
+   SkPixmap pixmap_;
++  Vector<uint8_t> fury_noised_pixels_;
+   bool is_valid_ = false;
+ };
+ 

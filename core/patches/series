@@ -53,6 +53,14 @@
 0021-scrollbar-width.patch
 
 # --- graphics ---------------------------------------------------------------
+# Noise is applied at READBACK, never at drawing — the canvas keeps rendering
+# what the page asked for. getImageData() and toDataURL()/toBlob() go through
+# different code paths but call the SAME function on the same absolute
+# coordinates, so a pixel read one way matches the same pixel read the other.
+#
+# The perturbation is a pure function of (seed, absolute x, absolute y): no
+# counter, no randomness. A detector reads the canvas twice and compares, and
+# unstable noise is a stronger signal than no noise at all.
 0030-canvas-noise.patch
 0031-webgl-params.patch!
 0032-webgpu-adapter.patch!             # WebGPU is still moving fast upstream
