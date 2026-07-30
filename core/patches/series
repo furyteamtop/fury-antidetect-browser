@@ -75,6 +75,13 @@
 # the rendered pixels real would be pointless, the pixels are the harder
 # fingerprint.
 0031-webgl-params.patch!         # webgl_rendering_context_base.cc is hot!
+# Limits are driven by the same SUPPORTED_LIMITS X-macro the getters use, so a
+# limit Chromium adds upstream is covered the moment it appears in that list.
+#
+# Features may only be NARROWED, never widened: removing one is honest, because
+# requestDevice() then fails exactly as it would on hardware that lacks it.
+# Adding one would advertise a capability the driver cannot provide and fail in
+# a way no real machine fails — worse than the leak it was meant to close.
 0032-webgpu-adapter.patch!             # WebGPU is still moving fast upstream
 0033-client-rects.patch
 

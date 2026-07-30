@@ -1,0 +1,147 @@
+diff --git a/third_party/blink/renderer/modules/webgpu/gpu_adapter.cc b/third_party/blink/renderer/modules/webgpu/gpu_adapter.cc
+index 4e4ca8dcb4..d9a33a45a2 100644
+--- a/third_party/blink/renderer/modules/webgpu/gpu_adapter.cc
++++ b/third_party/blink/renderer/modules/webgpu/gpu_adapter.cc
+@@ -4,6 +4,10 @@
+ 
+ #include "third_party/blink/renderer/modules/webgpu/gpu_adapter.h"
+ 
++#include <algorithm>
++
++#include "components/fury/fury_config.h"
++
+ #include "services/metrics/public/cpp/ukm_builders.h"
+ #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+ #include "third_party/blink/renderer/bindings/core/v8/v8_object_builder.h"
+@@ -34,6 +38,18 @@ GPUSupportedFeatures* MakeFeatureNameSet(wgpu::Adapter adapter) {
+   GPUSupportedFeatures* features = MakeGarbageCollected<GPUSupportedFeatures>();
+   DCHECK(features->FeatureNameSet().empty());
+ 
++  std::optional<std::vector<std::string>> configured_features;
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    configured_features = config->GetStringList("gpu.webgpu.features");
++  }
++  const std::vector<std::string>* allowed_features =
++      configured_features ? &configured_features.value() : nullptr;
++  auto contains = [](const std::vector<std::string>& list, const String& name) {
++    std::string needle = name.Utf8();
++    return std::find(list.begin(), list.end(), needle) != list.end();
++  };
++  (void)contains;
++
+   wgpu::SupportedFeatures supported_features;
+   adapter.GetFeatures(&supported_features);
+   // SAFETY: Required from caller
+@@ -43,8 +59,21 @@ GPUSupportedFeatures* MakeFeatureNameSet(wgpu::Adapter adapter) {
+     auto feature_name_enum_optional =
+         GPUSupportedFeatures::ToV8FeatureNameEnum(f);
+     if (feature_name_enum_optional) {
+-      features->AddFeatureName(
+-          V8GPUFeatureName(feature_name_enum_optional.value()));
++      V8GPUFeatureName name(feature_name_enum_optional.value());
++      // A persona may only NARROW the feature set, never widen it.
++      //
++      // Removing a feature is safe and honest: requestDevice() asking for it
++      // then fails exactly as it would on hardware that lacks it. Adding one
++      // would not be — the adapter would advertise a capability the driver
++      // cannot provide, and the first requestDevice() that asked for it would
++      // fail in a way no real machine fails, which is worse than the leak it
++      // was meant to close.
++      //
++      // So personas must be built from a feature set the host GPU actually
++      // supports. shared-rs/src/fingerprint.rs is where that gets validated.
++      if (!allowed_features || contains(*allowed_features, name.AsString())) {
++        features->AddFeatureName(name);
++      }
+       }
+   }
+   return features;
+@@ -125,13 +154,36 @@ GPUAdapter::GPUAdapter(
+ GPUAdapterInfo* GPUAdapter::CreateAdapterInfoForAdapter() {
+   bool is_fallback_adapter = adapter_type_ == wgpu::AdapterType::CPU;
+ 
++  // adapter.info has to describe the same physical card as the WebGL renderer
++  // string patched in 0031. A build that claims an NVIDIA card in WebGL while
++  // reporting "apple" here has not hidden its GPU, it has advertised that it is
++  // lying about it — which is a stronger signal than not spoofing at all, and
++  // exactly what the detect-suite gate reports.
++  String vendor = vendor_;
++  String architecture = architecture_;
++  String device = device_;
++  String description = description_;
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    auto apply = [&](const char* path, String& target) {
++      if (std::optional<std::string> value = config->GetString(path)) {
++        target = String::FromUtf8(*value);
++      }
++    };
++    apply("gpu.webgpu.vendor", vendor);
++    apply("gpu.webgpu.architecture", architecture);
++    // device and description are legitimately empty on many real adapters, so
++    // they are applied unconditionally rather than guarded on non-emptiness.
++    apply("gpu.webgpu.device", device);
++    apply("gpu.webgpu.description", description);
++  }
++
+   GPUAdapterInfo* info;
+   if (RuntimeEnabledFeatures::WebGPUDeveloperFeaturesEnabled()) {
+     // If WebGPU developer features have been enabled then provide all available
+     // adapter info values.
+     info = MakeGarbageCollected<GPUAdapterInfo>(
+-        vendor_, architecture_, subgroup_min_size_, subgroup_max_size_,
+-        is_fallback_adapter, device_, description_, driver_,
++        vendor, architecture, subgroup_min_size_, subgroup_max_size_,
++        is_fallback_adapter, device, description, driver_,
+         FromDawnEnum(backend_type_), FromDawnEnum(adapter_type_),
+         d3d_shader_model_, vk_driver_version_, FromDawnEnum(power_preference_));
+ 
+@@ -144,7 +196,7 @@ GPUAdapterInfo* GPUAdapter::CreateAdapterInfoForAdapter() {
+     }
+   } else {
+     info = MakeGarbageCollected<GPUAdapterInfo>(
+-        vendor_, architecture_, subgroup_min_size_, subgroup_max_size_,
++        vendor, architecture, subgroup_min_size_, subgroup_max_size_,
+         is_fallback_adapter);
+   }
+ 
+diff --git a/third_party/blink/renderer/modules/webgpu/gpu_supported_limits.cc b/third_party/blink/renderer/modules/webgpu/gpu_supported_limits.cc
+index c6f066cce4..6573569fbf 100644
+--- a/third_party/blink/renderer/modules/webgpu/gpu_supported_limits.cc
++++ b/third_party/blink/renderer/modules/webgpu/gpu_supported_limits.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "third_party/blink/renderer/modules/webgpu/gpu_supported_limits.h"
+ 
++#include "components/fury/fury_config.h"
++
+ #include <algorithm>
+ 
+ #include "base/numerics/checked_math.h"
+@@ -72,6 +74,27 @@ constexpr uint64_t UndefinedLimitValue<uint64_t>() {
+ 
+ GPUSupportedLimits::GPUSupportedLimits(const ComboLimits& limits) {
+   limits.UnlinkedCopyTo(&limits_);
++
++  // Driven by the same SUPPORTED_LIMITS X-macro the getters use, so a limit
++  // Chromium adds upstream is covered here the moment it appears in that list
++  // — no separate table to fall out of date at rebase time.
++  //
++  // This is the vector docs/08 measured AdsPower leaving open: it rewrites the
++  // WebGL renderer string and leaves adapter.limits describing the real GPU, so
++  // the two disagree about what card this is. Limits are read as doubles
++  // because several are uint64_t and JSON has one numeric type; the mantissa is
++  // wide enough for every value WebGPU reports.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++#define FURY_APPLY_LIMIT(name)                                             \
++  if (std::optional<double> fury_value =                                   \
++          config->GetDouble("gpu.webgpu.limits." #name)) {                 \
++    if (*fury_value >= 0) {                                                \
++      limits_.name = static_cast<decltype(limits_.name)>(*fury_value);     \
++    }                                                                      \
++  }
++    SUPPORTED_LIMITS(FURY_APPLY_LIMIT)
++#undef FURY_APPLY_LIMIT
++  }
+ }
+ 
+ // static

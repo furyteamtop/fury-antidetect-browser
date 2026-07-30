@@ -116,7 +116,7 @@ canvas стабилен.
 - [ ] `0300` следы автоматизации
 
 Приоритет 2 — то, что отличает от середины рынка:
-- [ ] `0032` **WebGPU** adapter info + limits + features
+- [x] **`0032` WebGPU adapter info + limits + features**
 - [ ] `0040` audio noise
 - [ ] `0050` фильтр font fallback (не просто список)
 - [ ] `0070` политика WebRTC
