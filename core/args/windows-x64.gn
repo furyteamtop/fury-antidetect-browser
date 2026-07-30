@@ -28,7 +28,7 @@ enable_hangout_services_extension = false
 
 enable_widevine = false
 
-enable_nacl = false
+# enable_nacl was removed upstream by M150; setting it only produces a warning
 enable_print_preview = true
 
 use_lld = true

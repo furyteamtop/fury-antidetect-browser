@@ -78,7 +78,7 @@ enable_widevine = true
 # using a local copy and shipping one are different questions.
 bundle_widevine_cdm = true
 
-enable_nacl = false
+# enable_nacl was removed upstream by M150; setting it only produces a warning
 enable_print_preview = true
 
 use_lld = true

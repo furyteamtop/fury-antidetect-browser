@@ -131,6 +131,15 @@ canvas стабилен.
 
 **Критерий выхода:** release gate из [07](07-detection-baseline.md) зелёный по пунктам 1-9.
 
+### 31.07.2026 — gate ПОЛНОСТЬЮ ЗЕЛЁНЫЙ, 13 из 13
+
+На профиле, целиком выведенном из персоны Windows 11 / RTX 4060, запущенной на
+macOS с Apple M5. Последним закрылся Widevine ([10](10-legal-licensing.md)).
+
+Остаётся дописать векторы, которых нет в gate: `0013` plugins, `0033` clientRects,
+`0041` голоса, `0082` geolocation, `0100` CSS media features, `0110` os_crypt,
+`0120` performance.memory.
+
 ## Фаза 3 — База персон (параллельно с фазой 2, 4-6 недель)
 
 - [x] `shared/persona.schema.json`
