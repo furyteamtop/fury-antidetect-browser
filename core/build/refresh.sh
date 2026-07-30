@@ -16,9 +16,11 @@ OUT="$CORE_DIR/patches/$NAME.patch"
 # Which files does this patch own? Taken from the existing patch when present,
 # otherwise from the caller as extra arguments.
 if [ -f "$OUT" ]; then
-  mapfile -t files < <(
-    grep '^+++ b/' "$OUT" | sed 's|^+++ b/||'
-  )
+  # while-read, not mapfile: macOS bash is 3.2.
+  files=()
+  while IFS= read -r line; do
+    [ -n "$line" ] && files+=("$line")
+  done < <(grep '^+++ b/' "$OUT" | sed 's|^+++ b/||')
 elif [ $# -gt 1 ]; then
   shift
   files=("$@")

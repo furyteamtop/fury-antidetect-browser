@@ -15,6 +15,19 @@ OUT="out/$TARGET"
 
 export PATH="$CORE_DIR/depot_tools:$PATH"
 export DEPOT_TOOLS_UPDATE=0
+DEPOT_TOOLS="$CORE_DIR/depot_tools"
+
+# --- one-time depot_tools bootstrap -----------------------------------------
+# gn and friends need python3_bin_reldir.txt, which only appears after a
+# bootstrap. DEPOT_TOOLS_UPDATE=0 (kept, for reproducible builds) suppresses the
+# implicit one, so run it explicitly — and run it with cwd INSIDE depot_tools,
+# because its scripts resolve relative paths from the working directory, not
+# from their own location. Invoking it as ./depot_tools/ensure_bootstrap fails
+# with a confusing "cipd_client_version.digests: No such file" instead.
+if [ ! -f "$DEPOT_TOOLS/python3_bin_reldir.txt" ]; then
+  echo "==> Bootstrapping depot_tools (one time)"
+  (cd "$DEPOT_TOOLS" && ./ensure_bootstrap)
+fi
 
 # Prefix match, so variants like macos-arm64-lowmem resolve to the right platform.
 case "$TARGET" in

@@ -236,6 +236,16 @@ V8 берёт таймзону из ICU — надёжнее задавать ч
 | `performance.memory` (`jsHeapSizeLimit`) | зависит от deviceMemory, должно биться |
 | `Math.tan/sinh` в младших битах | различается между движками, но не между сборками Chromium — не трогаем |
 | Compute Pressure API | `blink/renderer/modules/compute_pressure/` — новый, ещё редко проверяют |
+| **`x-client-data`** | `components/variations/` — заголовок, которым Chrome сообщает Google свои A/B-группы. Отсутствие или неправильное значение отличает форк от настоящего Chrome на google-сервисах |
+| **WebAuthn platform authenticator** | `content/browser/webauth/` — `isUserVerifyingPlatformAuthenticatorAvailable()` должен отвечать в соответствии с заявленным устройством: Mac с Touch ID отвечает `true`, виртуалка `false` |
+| **`color-gamut` / HDR** | `blink/renderer/core/css/media_values.cc` — заявленный цветовой охват должен биться с моделью дисплея из персоны |
+| **Стабильность GREASE в Client Hints** | GREASE-бренд в `Sec-CH-UA` рандомизирован, но **в рамках сессии обязан быть стабилен**. Плавающее значение — отдельный признак |
+| **Ограничение максимального размера окна** | Окно нельзя развернуть больше заявленного `screen` — иначе `outerWidth > screen.width` |
+| **WebGPU при заявленном Linux** | Реальный Linux Chrome по умолчанию отдаёт WebGPU не всегда. Заявляя Linux, надо воспроизводить и это |
+
+Последние семь пунктов добавлены после разбора ShardX ([08](08-competitors.md)) —
+проект перечисляет их в списке пропатченного, и все семь проверяемы. Это тот
+случай, когда чужой changelog полезнее собственного брейншторма.
 
 ---
 

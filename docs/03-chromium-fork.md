@@ -138,6 +138,52 @@ enable_nacl = false
 Windows: `target_cpu = "x64"`.
 macOS: две сборки, `target_cpu = "arm64"` и `"x64"`, склеиваются в universal через `lipo`.
 
+## Обязательные условия до первой сборки
+
+Проверено на практике 30.07.2026 — на этих трёх вещах сборка встаёт, и лучше
+узнать о них до, а не после часа скачивания.
+
+### 1. Полный Xcode, не Command Line Tools
+
+`build/config/mac/mac_sdk.gni` вызывает `xcodebuild`, которого в Command Line
+Tools нет. `gn gen` падает так:
+
+```
+xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer
+directory '/Library/Developer/CommandLineTools' is a command line tools instance
+```
+
+Нужен `Xcode.app` (~10-15 ГБ, App Store или developer.apple.com), затем:
+
+```bash
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+```
+
+Обходной путь через патч `mac_sdk.gni` и `sdk_info.py` под CLT существует, но
+это ещё один патч в серии, который придётся чинить каждый ребейз ради экономии
+10 ГБ диска. Не стоит.
+
+### 2. Разовый бутстрап depot_tools, и запускать его изнутри каталога
+
+`gn` требует `python3_bin_reldir.txt`, который появляется только после
+бутстрапа. Мы держим `DEPOT_TOOLS_UPDATE=0` ради воспроизводимости, а это
+подавляет неявный бутстрап — значит нужен явный. **Запускать обязательно с cwd
+внутри `depot_tools`:** его скрипты резолвят относительные пути от рабочего
+каталога, а не от себя, и вызов `./depot_tools/ensure_bootstrap` падает с
+бессмысленным `cipd_client_version.digests: No such file`.
+
+`fetch.sh` и `build.sh` делают это сами.
+
+### 3. macOS поставляется с bash 3.2
+
+Не bash 4+. Нет `mapfile`, `readarray`, `declare -A`, `${var,,}`. Скрипт,
+работающий только при установленном через Homebrew bash, не работает на
+референсной платформе. Проверять так:
+
+```bash
+/bin/bash -n core/build/*.sh
+```
+
 ## Железо и время сборки
 
 | Платформа | Минимум | Реально комфортно | Время full build |

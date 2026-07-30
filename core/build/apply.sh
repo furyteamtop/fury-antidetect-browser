@@ -18,7 +18,11 @@ CHECK_ONLY=0
 [ -d "$SRC" ] || { echo "!! No source tree. Run fetch.sh first." >&2; exit 1; }
 
 # Read the series file: strip comments, blank lines and the '!' hot-file marker.
-mapfile -t series < <(
+# while-read, not mapfile: macOS ships bash 3.2 and has no mapfile/readarray.
+series=()
+while IFS= read -r line; do
+  [ -n "$line" ] && series+=("$line")
+done < <(
   sed -e 's/#.*$//' -e 's/!$//' -e 's/[[:space:]]*$//' "$PATCHES/series" \
     | grep -v '^$'
 )
