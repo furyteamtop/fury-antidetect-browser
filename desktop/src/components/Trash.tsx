@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Profile } from "../api";
 import { useI18n } from "../i18n";
+import { useAsk } from "./Ask";
 
 /** Deleted profiles, and the two things you can do with one.
  *
@@ -12,18 +13,36 @@ export function Trash({ onChanged }: { onChanged: () => void }) {
   const { t } = useI18n();
   const [rows, setRows] = useState<Profile[]>([]);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { ask, dialog } = useAsk();
 
   const load = useCallback(async () => {
-    setRows(await api.trash());
+    // An empty trash and an unreachable one look identical unless the failure
+    // is shown. This one hid a deserialisation error for a whole release.
+    try {
+      setRows(await api.trash());
+      setError(null);
+    } catch (e) {
+      setError((e as Error).message);
+    }
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  if (error) {
+    return (
+      <div className="notice warnBar" role="status">
+        {error}
+      </div>
+    );
+  }
+
   if (rows.length === 0) {
     return (
       <div className="tableWrap">
+        {dialog}
         <p className="empty pad">{t("trash.empty")}</p>
       </div>
     );
@@ -31,6 +50,7 @@ export function Trash({ onChanged }: { onChanged: () => void }) {
 
   return (
     <>
+      {dialog}
       <p className="hint" style={{ marginTop: 0, marginBottom: "var(--s-3)" }}>
         {t("trash.hint")}
       </p>
@@ -75,7 +95,13 @@ export function Trash({ onChanged }: { onChanged: () => void }) {
                       className="danger"
                       disabled={busy}
                       onClick={async () => {
-                        if (!confirm(t("trash.confirmPurge", { name: p.name }))) return;
+                        const go = await ask({
+                          title: t("trash.purge"),
+                          detail: t("trash.confirmPurge", { name: p.name }),
+                          confirmLabel: t("ui.deleteForGood"),
+                          danger: true,
+                        });
+                        if (go === null) return;
                         setBusy(true);
                         await api.purgeProfile(p.id);
                         await load();

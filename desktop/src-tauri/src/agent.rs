@@ -65,6 +65,11 @@ pub struct LocalProfile {
     pub fp_seed: i64,
     pub group_name: Option<String>,
     pub proxy: Option<LocalProxy>,
+    /// Absent from the trash listing, where nothing is running by definition.
+    /// Declared as a plain `bool` at first, and a missing plain field is a hard
+    /// serde error — so every trash response failed to parse and the view
+    /// reported an empty trash instead of a broken one.
+    #[serde(default)]
     pub running: bool,
     pub last_opened_at: Option<String>,
 }

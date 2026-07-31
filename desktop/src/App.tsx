@@ -3,6 +3,7 @@ import { useI18n } from "./i18n";
 import { api, ApiError, type Me, type Profile, type Project, type Shell } from "./api";
 import { Login } from "./components/Login";
 import { ProfileDialog } from "./components/ProfileDialog";
+import { useAsk } from "./components/Ask";
 import { CommandPalette, type Command } from "./components/CommandPalette";
 import { ProfileTable } from "./components/ProfileTable";
 import { Trash } from "./components/Trash";
@@ -33,6 +34,7 @@ export function App() {
   // the right theme rather than a flash of the wrong one.
   useTheme();
   const { t } = useI18n();
+  const { ask, dialog: askDialog } = useAsk();
 
   useEffect(() => {
     void api.shell().then(setShell);
@@ -208,6 +210,7 @@ export function App() {
 
   return (
     <div className="app">
+      {askDialog}
       <Sidebar
         projects={projects}
         active={active}
@@ -218,7 +221,11 @@ export function App() {
         onView={setView}
         onSettings={() => setSettingsOpen(true)}
         onNewProject={async () => {
-          const name = prompt(t("app.projectName"))?.trim();
+          const name = await ask({
+            title: t("app.newProject"),
+            placeholder: t("app.projectName"),
+            confirmLabel: t("ui.create"),
+          });
           if (!name) return;
           await api.createProject(name);
           await load();
@@ -296,7 +303,13 @@ export function App() {
                   className="ghost"
                   disabled={busy || closable.length > 0}
                   onClick={async () => {
-                    if (!confirm(t("bar.confirmDeleteMany", { n: chosen.length }))) return;
+                    const go = await ask({
+                      title: t("bar.deleteSelected", { n: chosen.length }),
+                      detail: t("bar.confirmDeleteMany", { n: chosen.length }),
+                      confirmLabel: t("ui.delete"),
+                      danger: true,
+                    });
+                    if (go === null) return;
                     setBusy(true);
                     for (const p of chosen) await api.deleteProfile(p.id);
                     setSelected(new Set());
@@ -347,7 +360,13 @@ export function App() {
               onDelete={
                 local
                   ? async (p) => {
-                      if (!confirm(t("row.confirmDelete", { name: p.name }))) return;
+                      const go = await ask({
+                        title: t("row.delete"),
+                        detail: t("row.confirmDelete", { name: p.name }),
+                        confirmLabel: t("ui.delete"),
+                        danger: true,
+                      });
+                      if (go === null) return;
                       await api.deleteProfile(p.id);
                       await refreshProfiles();
                     }

@@ -385,7 +385,22 @@ impl Agent {
                 }))
             }
 
-            "profiles.trash" => Ok(serde_json::to_value(self.store.deleted_profiles().await?)?),
+            "profiles.trash" => {
+                // Carries `running: false` explicitly. Nothing in the trash can
+                // be open, but the shell reads one shape for both listings, and
+                // a field that is merely usually absent is a field that breaks
+                // something later.
+                let rows = self.store.deleted_profiles().await?;
+                let out: Vec<serde_json::Value> = rows
+                    .into_iter()
+                    .map(|p| {
+                        let mut v = serde_json::to_value(&p).unwrap_or_default();
+                        v["running"] = json!(false);
+                        v
+                    })
+                    .collect();
+                Ok(serde_json::to_value(out)?)
+            }
             "profiles.restore" => {
                 self.store.restore_profile(&str_param(&params, "id")?).await?;
                 Ok(json!({}))
