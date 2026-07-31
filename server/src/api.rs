@@ -35,9 +35,23 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/v1/auth/enroll", post(complete_enrollment))
         .route("/v1/auth/enroll/{code}", get(peek_enrollment))
         .route("/v1/me", get(whoami))
-        .route("/v1/projects", get(list_projects))
+        .route("/v1/projects", get(list_projects).post(create_project))
+        .route(
+            "/v1/projects/{project_id}",
+            axum::routing::patch(rename_project).delete(delete_project),
+        )
         .route("/v1/projects/{project_id}/profiles", get(list_profiles))
-        .route("/v1/projects/{project_id}/grants", post(grant_access))
+        .route(
+            "/v1/projects/{project_id}/grants",
+            get(list_grants).post(grant_access),
+        )
+        .route(
+            "/v1/projects/{project_id}/grants/{user_id}",
+            axum::routing::delete(revoke_access),
+        )
+        .route("/v1/org/members", get(list_members))
+        .route("/v1/org/invitations", post(create_invitation))
+        .route("/v1/org/members/{user_id}/key", post(hand_over_key))
         .route("/v1/profiles/{profile_id}/lock", post(acquire_lock))
         .route("/v1/profiles/{profile_id}/lock/heartbeat", post(heartbeat))
         .route("/v1/profiles/{profile_id}/unlock", post(release_lock))
@@ -433,6 +447,141 @@ async fn list_projects(
     ))
 }
 
+#[derive(Deserialize)]
+pub struct ProjectRequest {
+    name: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    color: Option<String>,
+}
+
+/// Make a project.
+///
+/// Owners and admins only. A project is the unit access is granted over, so the
+/// right to create one is the right to create a container whose membership you
+/// then decide — which is an administrative act, not an operator's.
+async fn create_project(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+    Json(req): Json<ProjectRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    use fury_shared::rbac::OrgRole;
+    if !matches!(caller.role, OrgRole::Owner | OrgRole::Admin) {
+        return Err(ApiError::Denied(Perm::ManageAccess));
+    }
+    let name = req.name.trim();
+    if name.is_empty() {
+        return Err(ApiError::BadRequest("a project needs a name".into()));
+    }
+
+    let id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO projects (id, org_id, name, description, color, created_by) \
+         VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(id)
+    .bind(caller.org_id)
+    .bind(name)
+    .bind(&req.description)
+    .bind(&req.color)
+    .bind(caller.user_id)
+    .execute(&state.db)
+    .await?;
+
+    audit(&state, &caller, "project.create", Some(id), json!({ "name": name })).await?;
+    Ok(Json(json!({ "id": id })))
+}
+
+async fn rename_project(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+    Path(project_id): Path<Uuid>,
+    Json(req): Json<ProjectRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    rbac_guard::require(&state.db, caller.user_id, project_id, Perm::ManageAccess).await?;
+    let name = req.name.trim();
+    if name.is_empty() {
+        return Err(ApiError::BadRequest("a project needs a name".into()));
+    }
+
+    sqlx::query(
+        "UPDATE projects SET name = $1, description = $2, color = $3 \
+         WHERE id = $4 AND org_id = $5 AND deleted_at IS NULL",
+    )
+    .bind(name)
+    .bind(&req.description)
+    .bind(&req.color)
+    .bind(project_id)
+    .bind(caller.org_id)
+    .execute(&state.db)
+    .await?;
+
+    audit(&state, &caller, "project.rename", Some(project_id), json!({ "name": name })).await?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// Soft-delete, with its profiles.
+///
+/// The same rule the local store follows: a project that disappears while its
+/// profiles stay visible somewhere else is a lie, and a project whose deletion
+/// destroys a warmed account outright is a disaster. Both go to the same
+/// deleted state, in one transaction, and both come back together.
+///
+/// Refused while anything inside is open. A profile whose browser is running
+/// will push a bundle when it closes, and pushing into a deleted project is a
+/// write nobody can find afterwards.
+async fn delete_project(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+    Path(project_id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    use fury_shared::rbac::OrgRole;
+    if !matches!(caller.role, OrgRole::Owner | OrgRole::Admin) {
+        return Err(ApiError::Denied(Perm::ManageAccess));
+    }
+
+    let mut tx = state.db.begin().await?;
+
+    let open: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM profile_locks l JOIN profiles p ON p.id = l.profile_id \
+         WHERE p.project_id = $1 AND l.expires_at > now()",
+    )
+    .bind(project_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if open > 0 {
+        return Err(ApiError::Conflict(format!(
+            "{open} profile(s) in this project are open right now. Close them first"
+        )));
+    }
+
+    let profiles: i64 = sqlx::query_scalar(
+        "UPDATE profiles SET deleted_at = now() \
+         WHERE project_id = $1 AND deleted_at IS NULL RETURNING 1",
+    )
+    .bind(project_id)
+    .fetch_all(&mut *tx)
+    .await
+    .map(|r: Vec<i64>| r.len() as i64)?;
+
+    let updated = sqlx::query(
+        "UPDATE projects SET deleted_at = now() \
+         WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL",
+    )
+    .bind(project_id)
+    .bind(caller.org_id)
+    .execute(&mut *tx)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(ApiError::NotFound);
+    }
+
+    tx.commit().await?;
+    audit(&state, &caller, "project.delete", Some(project_id), json!({ "profiles": profiles })).await?;
+    Ok(Json(json!({ "deleted": true, "profiles": profiles })))
+}
+
 async fn list_profiles(
     State(state): State<Arc<AppState>>,
     caller: Caller,
@@ -594,9 +743,13 @@ async fn grant_access(
     let requested = PermSet::from_iter(req.permissions.iter().copied());
     let capped = requested.intersect(fury_shared::rbac::role_ceiling(role));
 
+    // $5::timestamptz, not $5. The expiry arrives as an RFC 3339 string — the
+    // same shape this API hands out — and Postgres will not coerce text into a
+    // timestamptz in a parameter position. Without the cast every grant failed
+    // with a 500, which is to say access could not be given to anybody at all.
     sqlx::query(
         "INSERT INTO project_grants (project_id, user_id, permissions, granted_by, expires_at) \
-         VALUES ($1, $2, $3, $4, $5) \
+         VALUES ($1, $2, $3, $4, $5::timestamptz) \
          ON CONFLICT (project_id, user_id) DO UPDATE \
          SET permissions = EXCLUDED.permissions, granted_by = EXCLUDED.granted_by, \
              granted_at = now(), expires_at = EXCLUDED.expires_at",
@@ -614,6 +767,288 @@ async fn grant_access(
         .await?;
 
     Ok(Json(json!({ "granted": capped.to_vec() })))
+}
+
+/// Who can reach this project, and with what.
+///
+/// Owners and admins reach every project implicitly and have no grant row, so
+/// they are listed separately rather than omitted — a screen that showed only
+/// the rows would read as "nobody else can see this", which is false.
+async fn list_grants(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+    Path(project_id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    rbac_guard::require(&state.db, caller.user_id, project_id, Perm::ManageAccess).await?;
+
+    let rows: Vec<(Uuid, String, String, i64, Option<String>)> = sqlx::query_as(
+        &format!(
+        "SELECT u.id, u.email, m.role::text, g.permissions, {} \
+         FROM project_grants g \
+         JOIN users u ON u.id = g.user_id \
+         JOIN projects p ON p.id = g.project_id \
+         JOIN org_members m ON m.user_id = u.id AND m.org_id = p.org_id \
+         WHERE g.project_id = $1 \
+         ORDER BY u.email",
+        rfc3339("g.expires_at"),
+    ))
+    .bind(project_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let implicit: Vec<(Uuid, String, String)> = sqlx::query_as(
+        "SELECT u.id, u.email, m.role::text \
+         FROM org_members m \
+         JOIN users u ON u.id = m.user_id \
+         JOIN projects p ON p.org_id = m.org_id \
+         WHERE p.id = $1 AND m.role IN ('owner', 'admin') \
+         ORDER BY u.email",
+    )
+    .bind(project_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(json!({
+        "granted": rows.iter().map(|(id, email, role, perms, expires)| json!({
+            "user_id": id,
+            "email": email,
+            "role": role,
+            "permissions": PermSet(*perms).to_vec(),
+            "expires_at": expires,
+        })).collect::<Vec<_>>(),
+        "implicit": implicit.iter().map(|(id, email, role)| json!({
+            "user_id": id, "email": email, "role": role,
+        })).collect::<Vec<_>>(),
+    })))
+}
+
+/// Take a project away from someone.
+///
+/// Deleting the grant is immediate and total: permissions are resolved per
+/// request, never cached in a token, which is the reason sessions are opaque
+/// and revocable in the first place (auth.rs). What it does not do is reach
+/// into bundles they already downloaded — the honest boundary of any system
+/// where work happens on the operator's own machine.
+async fn revoke_access(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+    Path((project_id, user_id)): Path<(Uuid, Uuid)>,
+) -> ApiResult<Json<serde_json::Value>> {
+    rbac_guard::require(&state.db, caller.user_id, project_id, Perm::ManageAccess).await?;
+
+    sqlx::query("DELETE FROM project_grants WHERE project_id = $1 AND user_id = $2")
+        .bind(project_id)
+        .bind(user_id)
+        .execute(&state.db)
+        .await?;
+
+    // Any lock they hold goes too. Otherwise a revoked operator's browser keeps
+    // a profile marked in-use for as long as its heartbeat runs, and the team
+    // cannot open a profile they no longer have any right to.
+    sqlx::query(
+        "DELETE FROM profile_locks l USING profiles p \
+         WHERE l.profile_id = p.id AND p.project_id = $1 AND l.user_id = $2",
+    )
+    .bind(project_id)
+    .bind(user_id)
+    .execute(&state.db)
+    .await?;
+
+    audit(&state, &caller, "access.revoke", Some(project_id), json!({ "target": user_id })).await?;
+    Ok(Json(json!({ "revoked": true })))
+}
+
+// ---------------------------------------------------------------------------
+// the organisation
+// ---------------------------------------------------------------------------
+
+/// Everyone in the organisation, and whether they can actually decrypt anything.
+///
+/// `has_key` is the distinction that matters and the one nothing else surfaces:
+/// enrolling makes an account, but until someone wraps the organisation key to
+/// that person's public key they can sign in, see the team, and open nothing.
+/// `public_key` is here because wrapping it is the client's job — the server
+/// has never held the key it would need.
+async fn list_members(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+) -> ApiResult<Json<serde_json::Value>> {
+    let rows: Vec<(Uuid, String, String, Vec<u8>, Option<Vec<u8>>, String)> =
+        sqlx::query_as(&format!(
+            "SELECT u.id, u.email, m.role::text, u.public_key, m.wrapped_ork, {} \
+             FROM org_members m JOIN users u ON u.id = m.user_id \
+             WHERE m.org_id = $1 AND u.disabled_at IS NULL \
+             ORDER BY m.joined_at",
+            rfc3339("m.joined_at"),
+        ))
+        .bind(caller.org_id)
+        .fetch_all(&state.db)
+        .await?;
+
+    use base64::Engine;
+    let b64 = |v: &[u8]| base64::engine::general_purpose::STANDARD.encode(v);
+
+    // Pending invitations are part of the picture: an owner who cannot see that
+    // they already invited someone issues a second code and wonders why.
+    let pending: Vec<(String, String, String)> = sqlx::query_as(&format!(
+        "SELECT email, role::text, {} FROM enrollments \
+         WHERE org_id = $1 AND used_at IS NULL AND expires_at > now() ORDER BY created_at",
+        rfc3339("expires_at"),
+    ))
+    .bind(caller.org_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(json!({
+        "members": rows.iter().map(|(id, email, role, pk, ork, joined)| json!({
+            "user_id": id,
+            "email": email,
+            "role": role,
+            "public_key": b64(pk),
+            "has_key": ork.is_some(),
+            "joined_at": joined,
+            "is_you": *id == caller.user_id,
+        })).collect::<Vec<_>>(),
+        "invited": pending.iter().map(|(email, role, expires)| json!({
+            "email": email, "role": role, "expires_at": expires,
+        })).collect::<Vec<_>>(),
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct InviteRequest {
+    email: String,
+    role: String,
+}
+
+/// Invite someone, from the application rather than from a shell on the server.
+///
+/// The command-line form still exists and is the only way to create the first
+/// owner — there is nobody to invite them. Everything after that happens here,
+/// because asking an operator to ssh into a box to add a colleague is asking
+/// them not to.
+async fn create_invitation(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+    Json(req): Json<InviteRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    use fury_shared::rbac::OrgRole;
+    if !matches!(caller.role, OrgRole::Owner | OrgRole::Admin) {
+        return Err(ApiError::Denied(Perm::ManageAccess));
+    }
+    let role = auth::parse_role(&req.role)
+        .ok_or_else(|| ApiError::BadRequest("unknown role".into()))?;
+    // One owner per organisation: the key hierarchy has no story for two, and a
+    // second would be a person nobody can remove.
+    if matches!(role, OrgRole::Owner) {
+        return Err(ApiError::BadRequest(
+            "an organisation has one owner. Invite as admin for the same reach".into(),
+        ));
+    }
+    // An admin cannot mint another admin: it would let anyone who reaches one
+    // admin account grant themselves a second, and removing the first would no
+    // longer remove the access.
+    if matches!(caller.role, OrgRole::Admin) && matches!(role, OrgRole::Admin) {
+        return Err(ApiError::Denied(Perm::ManageAccess));
+    }
+
+    let email = req.email.trim();
+    if !email.contains('@') || email.len() < 3 {
+        return Err(ApiError::BadRequest("that is not an email address".into()));
+    }
+
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM users u JOIN org_members m ON m.user_id = u.id \
+         WHERE u.email = $1 AND m.org_id = $2)",
+    )
+    .bind(email)
+    .bind(caller.org_id)
+    .fetch_one(&state.db)
+    .await?;
+    if exists {
+        return Err(ApiError::BadRequest(format!("{email} is already in this team")));
+    }
+
+    let code = crate::enroll::issue(
+        &state.db,
+        email,
+        crate::enroll::Org::Existing(caller.org_id),
+        &req.role,
+    )
+    .await
+    .map_err(ApiError::Internal)?;
+
+    audit(&state, &caller, "member.invite", None, json!({ "email": email, "role": req.role })).await?;
+
+    // Shown once. The row holds a hash, so this is the only time it exists.
+    Ok(Json(json!({
+        "code": code,
+        "expires_in_hours": crate::enroll::TTL_HOURS,
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct HandOverRequest {
+    /// The organisation key, sealed to this member's public key by a client
+    /// that holds it. base64.
+    wrapped_ork: String,
+}
+
+/// Let a member in.
+///
+/// The second half of an invitation, and the half that cannot happen on the
+/// server: the organisation key is sealed to the member's public key by someone
+/// who already holds it, on their own machine. Until this runs, the member has
+/// an account and no ability to decrypt a single profile.
+async fn hand_over_key(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+    Path(user_id): Path<Uuid>,
+    Json(req): Json<HandOverRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    use fury_shared::rbac::OrgRole;
+    if !matches!(caller.role, OrgRole::Owner | OrgRole::Admin) {
+        return Err(ApiError::Denied(Perm::ManageAccess));
+    }
+
+    use base64::Engine;
+    let wrapped = base64::engine::general_purpose::STANDARD
+        .decode(&req.wrapped_ork)
+        .map_err(|_| ApiError::BadRequest("wrapped_ork is not base64".into()))?;
+    // 32 ephemeral public key + 24 nonce + 32 payload + 16 tag. Shorter cannot
+    // be a sealed key, and storing one would fail on the member's machine at
+    // sign-in with nothing to point at.
+    if wrapped.len() < 104 {
+        return Err(ApiError::BadRequest(
+            "that is not a sealed organisation key".into(),
+        ));
+    }
+
+    // Scoped to the caller's own organisation, and to the generation in force.
+    // Without the org clause an admin of one team could write a key into
+    // another team's membership row.
+    let generation: i32 = sqlx::query_scalar("SELECT ork_generation FROM organizations WHERE id = $1")
+        .bind(caller.org_id)
+        .fetch_one(&state.db)
+        .await?;
+
+    let updated = sqlx::query(
+        "UPDATE org_members SET wrapped_ork = $1, ork_generation = $2 \
+         WHERE org_id = $3 AND user_id = $4",
+    )
+    .bind(&wrapped)
+    .bind(generation)
+    .bind(caller.org_id)
+    .bind(user_id)
+    .execute(&state.db)
+    .await?;
+
+    if updated.rows_affected() == 0 {
+        return Err(ApiError::NotFound);
+    }
+
+    audit(&state, &caller, "member.key", None, json!({ "target": user_id })).await?;
+    Ok(Json(json!({ "ok": true })))
 }
 
 // ---------------------------------------------------------------------------
@@ -743,10 +1178,38 @@ async fn acquire_lock(
 // cannot open, and a digest *of the ciphertext* so it can verify what it holds
 // without being able to read it.
 
-fn bundle_root() -> std::path::PathBuf {
+pub fn bundle_root() -> std::path::PathBuf {
     std::env::var("FURY_BUNDLE_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::path::PathBuf::from("/var/lib/fury/bundles"))
+}
+
+/// Checked once, at startup.
+///
+/// The alternative is finding out at the first upload, which is the first time
+/// someone closes a browser after a full working session — the worst possible
+/// moment to discover that the directory is missing or read-only, because the
+/// answer arrives as a 500 and the operator's next question is where their
+/// afternoon went.
+pub fn check_bundle_root() -> anyhow::Result<std::path::PathBuf> {
+    let dir = bundle_root();
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        anyhow::anyhow!(
+            "cannot create the bundle directory {} ({e}). Create it and give this process \
+             ownership, or set FURY_BUNDLE_DIR somewhere writable",
+            dir.display()
+        )
+    })?;
+
+    let probe = dir.join(".writable");
+    std::fs::write(&probe, b"").map_err(|e| {
+        anyhow::anyhow!(
+            "the bundle directory {} exists but is not writable ({e})",
+            dir.display()
+        )
+    })?;
+    let _ = std::fs::remove_file(&probe);
+    Ok(dir)
 }
 
 /// Upload a new version.
@@ -786,6 +1249,34 @@ async fn upload_bundle(
     let base_version: i32 = header("x-fury-base-version")
         .and_then(|v| v.parse().ok())
         .ok_or_else(|| ApiError::BadRequest("missing x-fury-base-version".into()))?;
+
+    // Holding the lock is what authorises an upload — the permission only says
+    // this person may work on the profile at all.
+    //
+    // Without this check the version test is the only guard, and it does not
+    // guard the case that matters: while Alice has the profile open, Bob (who
+    // also has Launch) can pull the current version, upload anything at all,
+    // and Alice's whole session is refused at 409 when she closes her browser.
+    // Her cookies are still on her disk, which is a recovery, not an outcome.
+    // The token rather than the user id, so that a second machine signed in as
+    // the same person cannot upload over the machine actually running it.
+    let lock_token = header("x-fury-lock-token")
+        .ok_or_else(|| ApiError::BadRequest("missing x-fury-lock-token".into()))?;
+    let holds_lock: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM profile_locks \
+         WHERE profile_id = $1 AND token_hash = $2 AND expires_at > now())",
+    )
+    .bind(profile_id)
+    .bind(auth::hash_token(&lock_token))
+    .fetch_one(&state.db)
+    .await?;
+    if !holds_lock {
+        return Err(ApiError::Conflict(
+            "this profile is not locked by you — it may have been taken over, or the lock \
+             lapsed while the browser was running. Nothing was overwritten"
+                .into(),
+        ));
+    }
 
     // Verified before anything is written. A truncated upload that is recorded
     // as a version is a profile that restores broken, and the operator finds
@@ -870,8 +1361,20 @@ async fn download_bundle(
     .await?;
 
     let (version, key, wrapped) = row.ok_or(ApiError::NotFound)?;
-    let bytes = std::fs::read(bundle_root().join(&key))
-        .map_err(|e| ApiError::Internal(e.into()))?;
+    let path = bundle_root().join(&key);
+    // The row and the bytes are in different places, so they can disagree: a
+    // restore that brought back the database but not the disk, or a server
+    // started with a different FURY_BUNDLE_DIR than the one that wrote them.
+    // Both happen, and "No such file or directory" with no path in it is a
+    // 500 that tells the operator nothing about which of the two it was.
+    let bytes = std::fs::read(&path).map_err(|e| {
+        ApiError::Internal(anyhow::anyhow!(
+            "the database has version {version} of this profile but its bundle is not at {} ({e}). \
+             Either FURY_BUNDLE_DIR points somewhere other than where it was written, or the \
+             bundle directory was not restored with the database",
+            path.display()
+        ))
+    })?;
 
     use axum::response::IntoResponse;
     let mut response = bytes.into_response();
@@ -919,12 +1422,29 @@ async fn release_lock(
     State(state): State<Arc<AppState>>,
     caller: Caller,
     Path(profile_id): Path<Uuid>,
+    Json(body): Json<serde_json::Value>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    sqlx::query("DELETE FROM profile_locks WHERE profile_id = $1 AND user_id = $2")
+    // Matched on the token, like the heartbeat, and not on the user alone.
+    //
+    // One person signed in on two machines is the ordinary case here — a laptop
+    // and a desktop — and deleting by user id meant closing a profile on one of
+    // them released the lock held by the other, where the browser was still
+    // running and still writing cookies. The next colleague to ask would be
+    // handed a profile that was in use.
+    let token = body
+        .get("lock_token")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::BadRequest("lock_token is required".into()))?;
+
+    sqlx::query("DELETE FROM profile_locks WHERE profile_id = $1 AND token_hash = $2")
         .bind(profile_id)
-        .bind(caller.user_id)
+        .bind(auth::hash_token(token))
         .execute(&state.db)
         .await?;
+
+    // No error when nothing was deleted: the caller asked not to be holding
+    // this profile, and after a force-release or a lapse they already are not.
+    // Failing here would leave a client unable to tidy up after itself.
     audit(&state, &caller, "profile.stop", Some(profile_id), json!({})).await?;
     Ok(Json(json!({ "ok": true })))
 }

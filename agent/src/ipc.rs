@@ -48,6 +48,10 @@ struct Running {
     /// the version that was pulled, so the upload can refuse to clobber someone
     /// who saved in between.
     server: Option<(crate::sync::Server, i32)>,
+    /// Proof that this machine is the one running the browser. The server
+    /// requires it on upload, so it has to outlive the heartbeat that also
+    /// uses it — the push happens after the browser is already gone.
+    lock_token: Option<String>,
     /// Renews the lock while the browser runs. Aborted on stop — a lock kept
     /// alive after the browser closed is a profile nobody else can open.
     heartbeat: Option<tokio::task::JoinHandle<()>>,
@@ -651,6 +655,7 @@ impl Agent {
                 relay_port,
                 relay: relay_task,
                 server: server.map(|s| (s, pulled_version)),
+                lock_token,
                 heartbeat,
             },
         );
@@ -698,9 +703,22 @@ impl Agent {
 
         let mut pushed = serde_json::Value::Null;
         if let Some((srv, base)) = entry.server.take() {
+            // A server launch always carries a lock; the pair is set together at
+            // launch. Refusing here rather than uploading without one keeps the
+            // impossible case from becoming an unauthenticated write.
+            let token = entry.lock_token.take().ok_or_else(|| {
+                anyhow::anyhow!("this profile was launched against a server without a lock")
+            })?;
             let sealed = crate::bundle::pack(&paths::profile_dir(profile_id), self.store.vault())?;
             let version = srv
-                .push_bundle(profile_id, &sealed.bytes, &sealed.wrapped_key, &sealed.sha256, base)
+                .push_bundle(
+                    profile_id,
+                    &sealed.bytes,
+                    &sealed.wrapped_key,
+                    &sealed.sha256,
+                    base,
+                    &token,
+                )
                 .await?;
             pushed = serde_json::json!(version);
         }

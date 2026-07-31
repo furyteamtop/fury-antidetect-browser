@@ -721,11 +721,19 @@ pub async fn stop(state: State<'_, AppState>, profile_id: String) -> R<serde_jso
         return Ok(crate::agent::call("profile.stop", serde_json::json!({ "id": profile_id })).await?);
     }
 
+    // The token proves this machine is the holder. Without one there is nothing
+    // to release: a lock this process never took belongs to somebody else, and
+    // possibly to this same person on another machine with a browser open.
+    let token = state.locks.lock().unwrap().get(&profile_id).cloned();
+    let Some(token) = token else {
+        return Ok(serde_json::json!({ "stopped": false }));
+    };
+
     let _: serde_json::Value = state
         .call(
             reqwest::Method::POST,
             &format!("/v1/profiles/{profile_id}/unlock"),
-            Body::None,
+            Body::Json(serde_json::json!({ "lock_token": token })),
             true,
         )
         .await?;

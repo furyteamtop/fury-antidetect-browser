@@ -65,6 +65,10 @@ impl Server {
     }
 
     /// Push a new version, refusing to clobber someone else's.
+    ///
+    /// The lock token goes with it. The session says who this is; the lock says
+    /// this machine is the one running the browser, and only that machine may
+    /// write what the browser produced.
     pub async fn push_bundle(
         &self,
         profile_id: &str,
@@ -72,6 +76,7 @@ impl Server {
         wrapped_key: &str,
         sha256: &str,
         base_version: i32,
+        lock_token: &str,
     ) -> anyhow::Result<i32> {
         let res = Self::client()?
             .post(format!("{}/v1/profiles/{profile_id}/bundle", self.url))
@@ -79,6 +84,7 @@ impl Server {
             .header("x-fury-sha256", sha256)
             .header("x-fury-wrapped-key", wrapped_key)
             .header("x-fury-base-version", base_version.to_string())
+            .header("x-fury-lock-token", lock_token)
             .body(bytes.to_vec())
             .send()
             .await?;

@@ -47,6 +47,10 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| "127.0.0.1:8080".to_string())
         .parse()?;
 
+    // Before the socket, not at the first upload.
+    let bundles = api::check_bundle_root()?;
+    tracing::info!(dir = %bundles.display(), "bundles");
+
     let db = connect().await?;
     sqlx::migrate!("./migrations").run(&db).await?;
 
