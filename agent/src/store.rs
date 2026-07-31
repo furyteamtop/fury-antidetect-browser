@@ -254,13 +254,44 @@ impl Store {
         Ok(())
     }
 
+    /// Hide a project, and send its profiles to the trash with it.
+    ///
+    /// The profiles have to go somewhere visible. Hiding only the project left
+    /// them in the database and out of every list — not deleted, not in the
+    /// trash, simply unreachable, which is the worst of the three outcomes and
+    /// is what this did at first. A profile holds a warmed account; if it is
+    /// going away it must be somewhere the operator can get it back from.
     pub async fn delete_project(&self, id: &str) -> anyhow::Result<()> {
+        let mut tx = self.pool.begin().await?;
+        // One transaction: a project hidden without its profiles following, or
+        // profiles trashed while their project stays, are both states nothing
+        // else in the app knows how to render.
+        sqlx::query("UPDATE profiles SET deleted_at = ? WHERE project_id = ? AND deleted_at IS NULL")
+            .bind(now())
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("UPDATE projects SET deleted_at = ? WHERE id = ?")
             .bind(now())
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
         Ok(())
+    }
+
+    /// How many profiles a project would take with it.
+    ///
+    /// Asked before the confirmation is shown, so the dialog can name the
+    /// number instead of saying "and its profiles" — the difference between a
+    /// warning someone reads and one they click through.
+    pub async fn project_profile_count(&self, id: &str) -> anyhow::Result<i64> {
+        Ok(sqlx::query_scalar(
+            "SELECT count(*) FROM profiles WHERE project_id = ? AND deleted_at IS NULL",
+        )
+        .bind(id)
+        .fetch_one(&self.pool)
+        .await?)
     }
 
     /// The project a fresh installation starts in, created on demand.
@@ -463,11 +494,25 @@ impl Store {
         Ok(rows.into_iter().map(row_to_profile).collect())
     }
 
+    /// Bring a profile back — and its project, if that went too.
+    ///
+    /// Without this, restoring a profile whose project was deleted puts it back
+    /// into a project nothing lists, which is exactly the invisible state the
+    /// trash exists to avoid.
     pub async fn restore_profile(&self, id: &str) -> anyhow::Result<()> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "UPDATE projects SET deleted_at = NULL
+             WHERE id = (SELECT project_id FROM profiles WHERE id = ?)",
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query("UPDATE profiles SET deleted_at = NULL WHERE id = ?")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -722,6 +767,38 @@ mod tests {
         p.group_name = Some("   ".into());
         s.upsert_profile(&p).await.unwrap();
         assert_eq!(s.profile(&p.id).await.unwrap().unwrap().group_name, None);
+    }
+
+    #[tokio::test]
+    async fn deleting_a_project_puts_its_profiles_in_the_trash_not_nowhere() {
+        // The bug this replaces: the project was hidden and the profiles were
+        // left untouched, so they were in neither list — present in the
+        // database and unreachable from the application.
+        let s = store().await;
+        let project = s.default_project().await.unwrap();
+        s.upsert_profile(&blank(&project, "warmed")).await.unwrap();
+
+        assert_eq!(s.project_profile_count(&project).await.unwrap(), 1);
+        s.delete_project(&project).await.unwrap();
+
+        assert!(s.projects().await.unwrap().is_empty());
+        let trashed = s.deleted_profiles().await.unwrap();
+        assert_eq!(trashed.len(), 1, "the profile vanished instead of being trashed");
+        assert_eq!(trashed[0].name, "warmed");
+    }
+
+    #[tokio::test]
+    async fn restoring_a_profile_brings_its_project_back_too() {
+        let s = store().await;
+        let project = s.default_project().await.unwrap();
+        let id = s.upsert_profile(&blank(&project, "warmed")).await.unwrap();
+        s.delete_project(&project).await.unwrap();
+
+        s.restore_profile(&id).await.unwrap();
+        // Otherwise it would come back into a project nothing lists — the same
+        // invisible state, reached from the other direction.
+        assert_eq!(s.projects().await.unwrap().len(), 1);
+        assert_eq!(s.profiles(&project).await.unwrap().len(), 1);
     }
 
     #[tokio::test]

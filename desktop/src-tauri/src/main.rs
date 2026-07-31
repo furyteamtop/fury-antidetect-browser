@@ -104,6 +104,8 @@ fn main() {
             commands::trash,
             commands::restore_profile,
             commands::purge_profile,
+            commands::rename_project,
+            commands::delete_project,
             commands::create_project,
         ])
         .run(tauri::generate_context!())

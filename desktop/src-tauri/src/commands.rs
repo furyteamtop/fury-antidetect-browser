@@ -733,6 +733,16 @@ pub async fn purge_profile(id: String) -> R<serde_json::Value> {
 }
 
 #[tauri::command]
+pub async fn rename_project(id: String, name: String) -> R<serde_json::Value> {
+    Ok(crate::agent::call("projects.rename", serde_json::json!({ "id": id, "name": name })).await?)
+}
+
+#[tauri::command]
+pub async fn delete_project(id: String) -> R<serde_json::Value> {
+    Ok(crate::agent::call("projects.delete", serde_json::json!({ "id": id })).await?)
+}
+
+#[tauri::command]
 pub async fn create_project(name: String) -> R<serde_json::Value> {
     Ok(crate::agent::call("projects.create", serde_json::json!({ "name": name })).await?)
 }

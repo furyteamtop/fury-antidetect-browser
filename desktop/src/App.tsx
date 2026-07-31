@@ -6,6 +6,7 @@ import { ProfileDialog } from "./components/ProfileDialog";
 import { useAsk } from "./components/Ask";
 import { CommandPalette, type Command } from "./components/CommandPalette";
 import { ProfileTable } from "./components/ProfileTable";
+import { Proxies } from "./components/Proxies";
 import { Trash } from "./components/Trash";
 import { ServerSetup } from "./components/ServerSetup";
 import { Settings } from "./components/Settings";
@@ -287,6 +288,34 @@ export function App() {
         onView={setView}
         onNewProfile={() => setEditing(null)}
         onSettings={() => setSettingsOpen(true)}
+        onRenameProject={async (p) => {
+          const name = await ask({
+            title: t("proj.rename"),
+            placeholder: t("proj.newName"),
+            initial: p.name,
+            confirmLabel: t("ui.save"),
+          });
+          if (!name) return;
+          await api.renameProject(p.id, name);
+          await load();
+        }}
+        onDeleteProject={async (p) => {
+          const go = await ask({
+            title: t("proj.delete"),
+            // Naming the number is the difference between a warning someone
+            // reads and one they click through.
+            detail:
+              p.profile_count > 0
+                ? t("proj.confirmDelete", { name: p.name, n: p.profile_count })
+                : t("proj.confirmDeleteEmpty", { name: p.name }),
+            confirmLabel: t("ui.delete"),
+            danger: true,
+          });
+          if (go === null) return;
+          await api.deleteProject(p.id);
+          setActive(null);
+          await load();
+        }}
         onNewProject={async () => {
           const name = await ask({
             title: t("app.newProject"),
@@ -436,6 +465,8 @@ export function App() {
         {/* No project selected is not the same as a project with no profiles,
             and saying the latter to someone who has been granted nothing sends
             them looking for a profile list that was never theirs. */}
+        {view === "proxies" && <Proxies profiles={profiles} />}
+
         {view === "trash" && (
           <Trash
             onChanged={async () => {
@@ -445,7 +476,7 @@ export function App() {
           />
         )}
 
-        {(view === "profiles" || view === "groups" || view === "proxies") && active && (
+        {(view === "profiles" || view === "groups") && active && (
           <div className="tableWrap">
             <ProfileTable
               profiles={shown}

@@ -1,4 +1,5 @@
 import { useI18n } from "../i18n";
+import { useState } from "react";
 import type { Me, Project, Shell } from "../api";
 
 export type View = "profiles" | "groups" | "proxies" | "trash";
@@ -10,6 +11,8 @@ export function Sidebar({
   me,
   onSelect,
   onNewProject,
+  onRenameProject,
+  onDeleteProject,
   onNewProfile,
   view,
   onView,
@@ -22,6 +25,8 @@ export function Sidebar({
   me: Me | null;
   onSelect: (p: Project) => void;
   onNewProject: () => void;
+  onRenameProject: (p: Project) => void;
+  onDeleteProject: (p: Project) => void;
   view: View;
   onView: (v: View) => void;
   onNewProfile: () => void;
@@ -30,6 +35,7 @@ export function Sidebar({
 }) {
   const { t } = useI18n();
   const local = shell.mode === "local";
+  const [menu, setMenu] = useState<string | null>(null);
   return (
     <aside className="sidebar">
       <div className="brand">Fury</div>
@@ -64,17 +70,46 @@ export function Sidebar({
         )}
         {projects.length === 0 && <div className="empty">{t("app.nothingShared")}</div>}
         {projects.map((p) => (
-          <button
-            key={p.id}
-            className={p.id === active?.id && view === "profiles" ? "nav active" : "nav"}
-            onClick={() => {
-              onSelect(p);
-              onView("profiles");
-            }}
-          >
-            <span>{p.name}</span>
-            <span className="count">{p.profile_count}</span>
-          </button>
+          <div key={p.id} className="projectRow">
+            <button
+              className={p.id === active?.id && view === "profiles" ? "nav active" : "nav"}
+              onClick={() => {
+                onSelect(p);
+                onView("profiles");
+              }}
+              // Right-click is where renaming and deleting live: a row that
+              // grows two buttons on hover moves the thing being aimed at.
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu(menu === p.id ? null : p.id);
+              }}
+            >
+              <span className="ellipsis">{p.name}</span>
+              <span className="count">{p.profile_count}</span>
+            </button>
+            {menu === p.id && (
+              <div className="projectMenu">
+                <button
+                  className="ghost"
+                  onClick={() => {
+                    setMenu(null);
+                    onRenameProject(p);
+                  }}
+                >
+                  {t("proj.rename")}
+                </button>
+                <button
+                  className="ghost"
+                  onClick={() => {
+                    setMenu(null);
+                    onDeleteProject(p);
+                  }}
+                >
+                  {t("proj.delete")}
+                </button>
+              </div>
+            )}
+          </div>
         ))}
       </nav>
 

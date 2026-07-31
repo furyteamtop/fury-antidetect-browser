@@ -360,6 +360,9 @@ export const api = {
   trash: (): Promise<Profile[]> => cmd<Profile[]>("trash"),
   restoreProfile: (id: string): Promise<unknown> => cmd("restore_profile", { id }),
   purgeProfile: (id: string): Promise<unknown> => cmd("purge_profile", { id }),
+  renameProject: (id: string, name: string): Promise<unknown> =>
+    cmd("rename_project", { id, name }),
+  deleteProject: (id: string): Promise<unknown> => cmd("delete_project", { id }),
   createProject: (name: string): Promise<{ id: string }> =>
     cmd<{ id: string }>("create_project", { name }),
 };

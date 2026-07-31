@@ -933,3 +933,31 @@ select option {
   flex-direction: column;
   align-items: flex-start;
 }
+
+.projectRow {
+  position: relative;
+}
+
+/* Right-click menu. Anchored to the row rather than the pointer, so it cannot
+   open half off the sidebar. */
+.projectMenu {
+  position: absolute;
+  left: var(--s-2);
+  right: var(--s-2);
+  top: 100%;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: var(--s-1);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  background: var(--raised);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.projectMenu button {
+  justify-content: flex-start;
+  text-align: left;
+  padding: 6px var(--s-2);
+}
