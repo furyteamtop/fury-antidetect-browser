@@ -201,8 +201,13 @@ impl Agent {
                 // than as an opaque transport error thirty seconds later.
                 tracing::info!(?upstream, "checking proxy");
 
-                let endpoint = std::env::var("FURY_IP_CHECK")
-                    .unwrap_or_else(|_| "https://ipinfo.io/json".to_string());
+                let endpoint = params
+                    .get("checker_url")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.trim().is_empty())
+                    .map(str::to_string)
+                    .or_else(|| std::env::var("FURY_IP_CHECK").ok())
+                    .unwrap_or_else(|| "https://ipinfo.io/json".to_string());
 
                 let client = reqwest::Client::builder()
                     .proxy(reqwest::Proxy::all(&url)?)
@@ -237,6 +242,42 @@ impl Agent {
                     "org": body.get("org"),
                     "ms": started.elapsed().as_millis() as u64,
                 }))
+            }
+
+            // Ask the provider for a new exit.
+            //
+            // Rotating residential and mobile proxies are sold with a link that
+            // does this, and an operator who has to leave the app to curl it
+            // will forget to — then wonder why two profiles share an IP. The
+            // request goes out *through* the proxy being rotated, because
+            // providers key rotation to the session that asks.
+            "proxies.rotate" => {
+                let id = str_param(&params, "id")?;
+                let proxy = self
+                    .store
+                    .proxies()
+                    .await?
+                    .into_iter()
+                    .find(|p| p.id == id)
+                    .ok_or_else(|| anyhow::anyhow!("no such proxy"))?;
+
+                let rotate = proxy
+                    .rotate_url
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("this proxy has no rotation link")
+                    })?;
+
+                let client = reqwest::Client::builder()
+                    .proxy(reqwest::Proxy::all(&proxy.url())?)
+                    .timeout(std::time::Duration::from_secs(30))
+                    .build()?;
+
+                match client.get(rotate).send().await {
+                    Ok(res) => Ok(json!({ "ok": res.status().is_success(), "status": res.status().as_u16() })),
+                    Err(e) => Ok(json!({ "ok": false, "error": format!("Rotation failed: {e}") })),
+                }
             }
 
             "proxies.delete" => {

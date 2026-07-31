@@ -37,6 +37,13 @@ const en = {
   "bar.newProfile": "New profile",
   "bar.search": "Search by name, tag or proxy",
   "bar.addProxy": "Add proxy",
+  "bar.openSelected": "Open {n}",
+  "bar.closeSelected": "Close {n}",
+  "bar.deleteSelected": "Delete {n}",
+  "bar.selected": "{n} selected",
+  "bar.clearSelection": "Clear",
+  "bar.confirmDeleteMany": "Delete {n} profiles? They go to the trash, not away.",
+  "bar.openingMany": "Opening one at a time — a browser needs a moment to settle before the next one starts.",
   "bar.refresh": "Refresh",
 
   // table
@@ -126,6 +133,14 @@ const en = {
   "px.checkHint":
     "Asks a geo service through this proxy — the exit IP is something only the far end can report. Point FURY_IP_CHECK at your own if you would rather not tell a third party.",
   "px.setTimezone": "Set the profile's time zone to {tz} to match where it actually leaves.",
+  "px.rotate": "Rotation link",
+  "px.rotateHint": "Opening this link makes the provider hand out a new exit. Usually sold with mobile and rotating residential proxies; it normally embeds an API key, so treat it like a password.",
+  "px.rotateNow": "Rotate now",
+  "px.rotating": "Rotating…",
+  "px.rotated": "The provider accepted it. Check again to see the new exit.",
+  "px.checker": "IP checker",
+  "px.checkerDefault": "default (ipinfo.io)",
+  "px.checkerHint": "Leave empty unless you would rather not tell ipinfo.io that this proxy exists. Any URL returning JSON with ip, country, city and timezone will do.",
   "px.add": "Add",
 
   // settings
@@ -200,6 +215,13 @@ const ru: Record<Key, string> = {
   "bar.newProfile": "Новый профиль",
   "bar.search": "Поиск по имени, метке или прокси",
   "bar.addProxy": "Добавить прокси",
+  "bar.openSelected": "Открыть: {n}",
+  "bar.closeSelected": "Закрыть: {n}",
+  "bar.deleteSelected": "Удалить: {n}",
+  "bar.selected": "выбрано: {n}",
+  "bar.clearSelection": "Снять",
+  "bar.confirmDeleteMany": "Удалить профилей: {n}? Они уйдут в корзину, не насовсем.",
+  "bar.openingMany": "Открываю по одному — браузеру нужно время устояться, прежде чем стартует следующий.",
   "bar.refresh": "Обновить",
 
   "col.name": "Имя",
@@ -286,6 +308,14 @@ const ru: Record<Key, string> = {
   "px.checkHint":
     "Спрашивает гео-сервис через этот прокси — внешний IP может сообщить только дальний конец. Укажите свой в FURY_IP_CHECK, если не хотите сообщать о прокси третьей стороне.",
   "px.setTimezone": "Поставьте профилю часовой пояс {tz}, чтобы совпадал с реальным выходом.",
+  "px.rotate": "Ссылка ротации",
+  "px.rotateHint": "Открытие этой ссылки заставляет провайдера выдать новый выход. Обычно идёт с мобильными и ротационными резидентными прокси; как правило содержит API-ключ, так что обращайтесь с ней как с паролем.",
+  "px.rotateNow": "Сменить IP",
+  "px.rotating": "Меняю…",
+  "px.rotated": "Провайдер принял запрос. Проверьте ещё раз, чтобы увидеть новый выход.",
+  "px.checker": "IP-чекер",
+  "px.checkerDefault": "по умолчанию (ipinfo.io)",
+  "px.checkerHint": "Оставьте пустым, если не против сообщить ipinfo.io о существовании этого прокси. Подойдёт любой URL, отдающий JSON с полями ip, country, city и timezone.",
   "px.add": "Добавить",
 
   "set.title": "Настройки",

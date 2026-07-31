@@ -17,6 +17,9 @@ export function ProfileTable({
   onStop,
   onEdit,
   onDelete,
+  selected,
+  onToggle,
+  onToggleAll,
 }: {
   profiles: Profile[];
   me: Me | null;
@@ -29,6 +32,9 @@ export function ProfileTable({
    *  live, and that screen does not exist yet. */
   onEdit?: (p: Profile) => void;
   onDelete?: (p: Profile) => void;
+  selected: Set<string>;
+  onToggle: (id: string) => void;
+  onToggleAll: () => void;
 }) {
   const { t } = useI18n();
   if (profiles.length === 0) {
@@ -39,6 +45,19 @@ export function ProfileTable({
     <table className="grid">
       <thead>
         <tr>
+          <th className="checkCol">
+            <input
+              type="checkbox"
+              aria-label="select all"
+              checked={selected.size > 0 && selected.size === profiles.length}
+              // Neither on nor off: some rows are picked. Without this the box
+              // reads as "nothing selected" while a bulk action is armed.
+              ref={(el) => {
+                if (el) el.indeterminate = selected.size > 0 && selected.size < profiles.length;
+              }}
+              onChange={onToggleAll}
+            />
+          </th>
           <th>{t("col.name")}</th>
           <th>{t("col.persona")}</th>
           <th>{t("col.proxy")}</th>
@@ -63,7 +82,15 @@ export function ProfileTable({
           const open = local ? p.running : mine;
 
           return (
-            <tr key={p.id}>
+            <tr key={p.id} className={selected.has(p.id) ? "picked" : undefined}>
+              <td className="checkCol">
+                <input
+                  type="checkbox"
+                  aria-label={p.name}
+                  checked={selected.has(p.id)}
+                  onChange={() => onToggle(p.id)}
+                />
+              </td>
               <td>
                 <div className="name">{p.name}</div>
                 {p.tags.length > 0 && (
@@ -105,6 +132,7 @@ export function ProfileTable({
                 {p.last_opened_at ? new Date(p.last_opened_at).toLocaleString() : t("row.never")}
               </td>
               <td className="actions">
+                <div>
                 {!open && !locked && canLaunch && (
                   <button disabled={busy} onClick={() => onLaunch(p)}>
                     {t("row.open")}
@@ -133,6 +161,7 @@ export function ProfileTable({
                     {t("row.delete")}
                   </button>
                 )}
+                </div>
               </td>
             </tr>
           );

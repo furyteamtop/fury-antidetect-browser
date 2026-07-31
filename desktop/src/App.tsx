@@ -24,6 +24,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<Profile | null | undefined>(undefined);
   const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [proxyOpen, setProxyOpen] = useState(false);
   // Applied at the root before anything renders, so the first paint is already
@@ -123,6 +124,49 @@ export function App() {
     }
   };
 
+  const shown = matching(profiles, query);
+
+  const toggle = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  const toggleAll = () =>
+    setSelected((prev) =>
+      // Everything visible, not everything that exists: a search is narrowing
+      // on purpose, and selecting rows nobody can see is how bulk deletes go
+      // wrong.
+      prev.size === shown.length ? new Set() : new Set(shown.map((p) => p.id)),
+    );
+
+  const chosen = shown.filter((p) => selected.has(p.id));
+  const openable = chosen.filter((p) => !p.running);
+  const closable = chosen.filter((p) => p.running);
+
+  /** One at a time, deliberately.
+   *
+   *  Each launch expands a profile directory, brings up a relay and starts a
+   *  browser; ten of those at once turns a laptop into a space heater and makes
+   *  every one of them slower. Sequential also means a failure stops the run
+   *  instead of burying itself in nine others. */
+  const openMany = async () => {
+    setBusy(true);
+    setError(t("bar.openingMany"));
+    try {
+      for (const p of openable) {
+        await api.launch(p.id);
+        await refreshProfiles();
+      }
+      setError(null);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onStop = async (profile: Profile) => {
     setBusy(true);
     try {
@@ -193,6 +237,50 @@ export function App() {
               onChange={(e) => setQuery(e.target.value)}
             />
             <div className="spacer" />
+            {chosen.length > 0 && (
+              <div className="bulk">
+                <span className="muted small">
+                  {t("bar.selected", { n: chosen.length })}
+                </span>
+                {openable.length > 0 && (
+                  <button disabled={busy} onClick={openMany}>
+                    {t("bar.openSelected", { n: openable.length })}
+                  </button>
+                )}
+                {closable.length > 0 && (
+                  <button
+                    className="ghost"
+                    disabled={busy}
+                    onClick={async () => {
+                      setBusy(true);
+                      for (const p of closable) await api.stop(p.id);
+                      await refreshProfiles();
+                      setBusy(false);
+                    }}
+                  >
+                    {t("bar.closeSelected", { n: closable.length })}
+                  </button>
+                )}
+                <button
+                  className="ghost"
+                  disabled={busy || closable.length > 0}
+                  onClick={async () => {
+                    if (!confirm(t("bar.confirmDeleteMany", { n: chosen.length }))) return;
+                    setBusy(true);
+                    for (const p of chosen) await api.deleteProfile(p.id);
+                    setSelected(new Set());
+                    await load();
+                    await refreshProfiles();
+                    setBusy(false);
+                  }}
+                >
+                  {t("bar.deleteSelected", { n: chosen.length })}
+                </button>
+                <button className="ghost" onClick={() => setSelected(new Set())}>
+                  {t("bar.clearSelection")}
+                </button>
+              </div>
+            )}
             <button className="ghost" onClick={() => setProxyOpen(true)}>
               {t("bar.addProxy")}
             </button>
@@ -208,7 +296,10 @@ export function App() {
         {active && (
           <div className="tableWrap">
             <ProfileTable
-              profiles={matching(profiles, query)}
+              profiles={shown}
+              selected={selected}
+              onToggle={toggle}
+              onToggleAll={toggleAll}
               me={me}
               thisMachine={shell.machine_name}
               local={local}

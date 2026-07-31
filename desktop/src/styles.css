@@ -330,11 +330,20 @@ textarea {
   font-size: 11px;
 }
 
-.actions {
+/* The cell stays a table cell. Putting `display: flex` on a <td> takes it out
+   of table layout, so it no longer shares the row's height — which showed up as
+   a dark rectangle hanging below the row on hover, because `tr:hover td` painted
+   a background onto a box that was the wrong size. The flex box goes inside. */
+td.actions > div {
   display: flex;
   gap: var(--s-1);
   align-items: center;
   justify-content: flex-end;
+}
+
+td.actions {
+  white-space: nowrap;
+  text-align: right;
 }
 
 /* ---- state ------------------------------------------------------------- */
@@ -757,4 +766,33 @@ input::placeholder {
   margin: 0 0 var(--s-3);
   color: var(--text-dim);
   font-size: 12px;
+}
+
+/* ---- selection --------------------------------------------------------- */
+
+.checkCol {
+  width: 34px;
+  padding-right: 0 !important;
+}
+
+.checkCol input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.grid tbody tr.picked td {
+  background: var(--accent-dim);
+}
+
+/* The bulk bar replaces the toolbar's right side rather than appearing above
+   it: a strip that pushes the table down would move every row under the
+   cursor at the exact moment someone is aiming at one. */
+.bulk {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
 }

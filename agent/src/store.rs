@@ -45,6 +45,17 @@ pub struct Proxy {
     pub password: Option<String>,
     pub last_country: Option<String>,
     pub last_ip: Option<String>,
+    /// A URL that makes the provider hand out a new exit IP.
+    ///
+    /// Mobile and rotating residential proxies are sold this way, and an
+    /// operator who has to leave the app to curl a link will forget to. Stored
+    /// with the proxy because it usually embeds an API key — which is also why
+    /// a team server will have to encrypt it rather than show it around.
+    #[serde(default)]
+    pub rotate_url: Option<String>,
+    /// Where to ask what the exit looks like. `None` uses the default.
+    #[serde(default)]
+    pub checker_url: Option<String>,
 }
 
 impl Proxy {
@@ -125,6 +136,8 @@ impl Store {
                 port          INTEGER NOT NULL,
                 username      TEXT,
                 password      TEXT,
+                rotate_url    TEXT,
+                checker_url   TEXT,
                 last_ip       TEXT,
                 last_country  TEXT,
                 checked_at    TEXT,
@@ -155,10 +168,24 @@ impl Store {
             );
 
             CREATE INDEX IF NOT EXISTS profiles_by_project ON profiles(project_id);
+
+            -- Added after the first release of the schema. SQLite has no
+            -- IF NOT EXISTS for columns, so these run through a separate path
+            -- below; see add_column().
             "#,
         )
         .execute(&self.pool)
         .await?;
+
+        // Columns added after the first schema shipped. SQLite cannot express
+        // "add if absent", and a failed ADD COLUMN on an existing column is the
+        // expected case rather than an error worth surfacing.
+        for stmt in [
+            "ALTER TABLE proxies ADD COLUMN rotate_url TEXT",
+            "ALTER TABLE proxies ADD COLUMN checker_url TEXT",
+        ] {
+            let _ = sqlx::query(stmt).execute(&self.pool).await;
+        }
         Ok(())
     }
 
@@ -242,7 +269,8 @@ impl Store {
 
     pub async fn proxies(&self) -> anyhow::Result<Vec<Proxy>> {
         let rows = sqlx::query(
-            "SELECT id, name, kind, host, port, username, password, last_country, last_ip
+            "SELECT id, name, kind, host, port, username, password, last_country, last_ip,
+                    rotate_url, checker_url
              FROM proxies WHERE deleted_at IS NULL ORDER BY name",
         )
         .fetch_all(&self.pool)
@@ -253,12 +281,14 @@ impl Store {
     pub async fn upsert_proxy(&self, p: &Proxy) -> anyhow::Result<String> {
         let id = if p.id.is_empty() { new_id() } else { p.id.clone() };
         sqlx::query(
-            "INSERT INTO proxies (id, name, kind, host, port, username, password, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            "INSERT INTO proxies
+                (id, name, kind, host, port, username, password, rotate_url, checker_url, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name, kind = excluded.kind, host = excluded.host,
                 port = excluded.port, username = excluded.username,
-                password = excluded.password, deleted_at = NULL",
+                password = excluded.password, rotate_url = excluded.rotate_url,
+                checker_url = excluded.checker_url, deleted_at = NULL",
         )
         .bind(&id)
         .bind(&p.name)
@@ -267,6 +297,8 @@ impl Store {
         .bind(p.port as i64)
         .bind(&p.username)
         .bind(&p.password)
+        .bind(&p.rotate_url)
+        .bind(&p.checker_url)
         .bind(now())
         .execute(&self.pool)
         .await?;
@@ -328,6 +360,10 @@ impl Store {
                     password: r.get("px_pass"),
                     last_country: r.get("px_country"),
                     last_ip: r.get("px_ip"),
+                    // Not selected in the profile join: a rotation link usually
+                    // embeds an API key, and the profile list has no use for it.
+                    rotate_url: None,
+                    checker_url: None,
                 }),
             })
             .collect())
@@ -426,6 +462,8 @@ fn row_to_proxy(r: &sqlx::sqlite::SqliteRow) -> Proxy {
         password: r.get("password"),
         last_country: r.get("last_country"),
         last_ip: r.get("last_ip"),
+        rotate_url: r.get("rotate_url"),
+        checker_url: r.get("checker_url"),
     }
 }
 
@@ -538,6 +576,8 @@ mod tests {
                 password: None,
                 last_country: None,
                 last_ip: None,
+                rotate_url: None,
+                checker_url: None,
             })
             .await
             .unwrap();
@@ -553,6 +593,8 @@ mod tests {
             password: None,
             last_country: None,
             last_ip: None,
+            rotate_url: None,
+            checker_url: None,
         });
         p.id = s.upsert_profile(&p).await.unwrap();
         s.delete_proxy(&proxy_id).await.unwrap();
@@ -587,6 +629,8 @@ mod tests {
             password: None,
             last_country: None,
             last_ip: None,
+            rotate_url: None,
+            checker_url: None,
         };
         assert_eq!(anon.url(), "socks5://h:1080");
 

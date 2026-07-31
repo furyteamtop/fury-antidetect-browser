@@ -636,8 +636,17 @@ pub async fn save_proxy(proxy: serde_json::Value) -> R<serde_json::Value> {
 }
 
 #[tauri::command]
-pub async fn check_proxy(url: String) -> R<serde_json::Value> {
-    Ok(crate::agent::call("proxies.check", serde_json::json!({ "url": url })).await?)
+pub async fn check_proxy(url: String, checker_url: Option<String>) -> R<serde_json::Value> {
+    Ok(crate::agent::call(
+        "proxies.check",
+        serde_json::json!({ "url": url, "checker_url": checker_url }),
+    )
+    .await?)
+}
+
+#[tauri::command]
+pub async fn rotate_proxy(id: String) -> R<serde_json::Value> {
+    Ok(crate::agent::call("proxies.rotate", serde_json::json!({ "id": id })).await?)
 }
 
 #[tauri::command]

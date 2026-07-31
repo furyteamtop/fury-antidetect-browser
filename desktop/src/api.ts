@@ -101,6 +101,10 @@ export interface LocalProxy {
   password: string | null;
   last_country: string | null;
   last_ip: string | null;
+  /** Provider link that hands out a new exit IP. */
+  rotate_url: string | null;
+  /** Where to ask what the exit looks like; null uses the default. */
+  checker_url: string | null;
 }
 
 export interface Me {
@@ -336,10 +340,12 @@ export const api = {
   saveProxy: (proxy: Partial<LocalProxy>): Promise<{ id: string }> =>
     cmd<{ id: string }>("save_proxy", { proxy }),
   deleteProxy: (id: string): Promise<unknown> => cmd("delete_proxy", { id }),
-  checkProxy: (url: string): Promise<{
+  checkProxy: (url: string, checkerUrl?: string | null): Promise<{
     ok: boolean; error?: string; ip?: string; country?: string;
     city?: string; timezone?: string; org?: string; ms?: number;
-  }> => cmd("check_proxy", { url }),
+  }> => cmd("check_proxy", { url, checkerUrl: checkerUrl || null }),
+  rotateProxy: (id: string): Promise<{ ok: boolean; error?: string }> =>
+    cmd("rotate_proxy", { id }),
   saveProfile: (profile: unknown): Promise<{ id: string }> =>
     cmd<{ id: string }>("save_profile", { profile }),
   deleteProfile: (id: string): Promise<unknown> => cmd("delete_profile", { id }),

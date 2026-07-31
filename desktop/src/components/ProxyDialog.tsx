@@ -39,7 +39,10 @@ export function ProxyDialog({
   const [port, setPort] = useState(String(editing?.port ?? ""));
   const [username, setUsername] = useState(editing?.username ?? "");
   const [password, setPassword] = useState(editing?.password ?? "");
+  const [rotateUrl, setRotateUrl] = useState(editing?.rotate_url ?? "");
+  const [checkerUrl, setCheckerUrl] = useState(editing?.checker_url ?? "");
   const [check, setCheck] = useState<CheckResult | null>(null);
+  const [rotated, setRotated] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { t } = useI18n();
@@ -56,7 +59,7 @@ export function ProxyDialog({
     setCheck(null);
     setError(null);
     try {
-      setCheck(await api.checkProxy(url()));
+      setCheck(await api.checkProxy(url(), checkerUrl));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -78,6 +81,8 @@ export function ProxyDialog({
         password: password || null,
         last_country: check?.country ?? editing?.last_country ?? null,
         last_ip: check?.ip ?? editing?.last_ip ?? null,
+        rotate_url: rotateUrl.trim() || null,
+        checker_url: checkerUrl.trim() || null,
       });
       onSaved();
     } catch (e) {
@@ -158,6 +163,59 @@ export function ProxyDialog({
               <p className="hint">
                 {t("px.labelHint")}
               </p>
+            </div>
+          </div>
+
+          <div className="field">
+            <label htmlFor="x-rotate">{t("px.rotate")}</label>
+            <div>
+              <div className="row">
+                <input
+                  id="x-rotate"
+                  value={rotateUrl}
+                  placeholder="https://provider.example/rotate?key=…"
+                  autoComplete="off"
+                  onChange={(e) => setRotateUrl(e.target.value)}
+                />
+                {/* Only for a proxy that already exists: rotation goes out
+                    through the proxy itself, so there has to be a saved one to
+                    go through. */}
+                {editing && (
+                  <button
+                    disabled={busy || !rotateUrl.trim()}
+                    onClick={async () => {
+                      setBusy(true);
+                      setRotated(null);
+                      try {
+                        const r = await api.rotateProxy(editing.id);
+                        setRotated(r.ok ? t("px.rotated") : (r.error ?? ""));
+                      } catch (e) {
+                        setRotated((e as Error).message);
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    {busy ? t("px.rotating") : t("px.rotateNow")}
+                  </button>
+                )}
+              </div>
+              {rotated && <p className="hint">{rotated}</p>}
+              <p className="hint">{t("px.rotateHint")}</p>
+            </div>
+          </div>
+
+          <div className="field">
+            <label htmlFor="x-checker">{t("px.checker")}</label>
+            <div>
+              <input
+                id="x-checker"
+                value={checkerUrl}
+                placeholder={t("px.checkerDefault")}
+                autoComplete="off"
+                onChange={(e) => setCheckerUrl(e.target.value)}
+              />
+              <p className="hint">{t("px.checkerHint")}</p>
             </div>
           </div>
 
