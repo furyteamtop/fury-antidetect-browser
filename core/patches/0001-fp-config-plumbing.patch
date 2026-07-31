@@ -384,10 +384,10 @@ index 0000000000..683a6c6f90
 +#endif  // COMPONENTS_FURY_FURY_CONFIG_H_
 diff --git a/components/fury/fury_noise.cc b/components/fury/fury_noise.cc
 new file mode 100644
-index 0000000000..e3e53f1899
+index 0000000000..9b71de3fda
 --- /dev/null
 +++ b/components/fury/fury_noise.cc
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,135 @@
 +// Copyright 2026 The Fury Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -431,6 +431,34 @@ index 0000000000..e3e53f1899
 +  }
 +  *out_seed = static_cast<uint64_t>(static_cast<uint32_t>(*seed));
 +  return true;
++}
++
++bool GetClientRectsNoiseSeed(uint64_t* out_seed) {
++  const FuryConfig* config = FuryConfig::Get();
++  if (!config) {
++    return false;
++  }
++  std::optional<int> seed = config->GetInt("noise.clientRectsSeed");
++  if (!seed.has_value()) {
++    return false;
++  }
++  *out_seed = static_cast<uint64_t>(static_cast<uint32_t>(*seed));
++  return true;
++}
++
++double PerturbRectValue(uint64_t seed, double value) {
++  if (value == 0.0) {
++    // A zero rect means the element is not laid out. Nudging it would turn
++    // "absent" into "present at a strange position".
++    return value;
++  }
++  // Quantised before hashing so that values differing only in the noise we
++  // ourselves added map to the same offset — otherwise perturbing an already
++  // perturbed rect would compound.
++  const int64_t quantised = static_cast<int64_t>(value * 1000.0);
++  const uint64_t h = Mix(seed ^ static_cast<uint64_t>(quantised));
++  const double offset = static_cast<double>(h & 0x3ff) / 1024.0 * 0.0009;
++  return value + ((h >> 10) & 1 ? offset : -offset);
 +}
 +
 +void ApplyCanvasNoise(uint64_t seed,
@@ -497,10 +525,10 @@ index 0000000000..e3e53f1899
 +}  // namespace fury
 diff --git a/components/fury/fury_noise.h b/components/fury/fury_noise.h
 new file mode 100644
-index 0000000000..4a91ea4df1
+index 0000000000..cd235cc77c
 --- /dev/null
 +++ b/components/fury/fury_noise.h
-@@ -0,0 +1,60 @@
+@@ -0,0 +1,73 @@
 +// Copyright 2026 The Fury Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -557,6 +585,19 @@ index 0000000000..4a91ea4df1
 +// untouched in that case: an unconfigured build has to stay bit-identical to
 +// stock Chromium.
 +COMPONENT_EXPORT(FURY) bool GetCanvasNoiseSeed(uint64_t* out_seed);
++
++// Seed for getClientRects()/getBoundingClientRect() perturbation, if configured.
++COMPONENT_EXPORT(FURY) bool GetClientRectsNoiseSeed(uint64_t* out_seed);
++
++// A sub-pixel offset derived from the value being perturbed.
++//
++// Derived from the value itself, not from a counter: measuring the same element
++// twice must give the same answer, or a detector that calls
++// getBoundingClientRect() in a loop sees geometry that drifts. Magnitude is
++// under a thousandth of a pixel — invisible to layout, but these numbers are
++// reported to ~15 significant digits and every fingerprinting library hashes
++// them.
++COMPONENT_EXPORT(FURY) double PerturbRectValue(uint64_t seed, double value);
 +
 +}  // namespace fury
 +
@@ -806,6 +847,29 @@ index f4684efd4b..533991a7fc 100644
      "+components/attribution_reporting/features.h",
      "+components/performance_manager/public/mojom/coordination_unit.mojom-blink.h",
      "+components/performance_manager/public/mojom/web_memory.mojom-blink.h",
+diff --git a/third_party/blink/renderer/modules/BUILD.gn b/third_party/blink/renderer/modules/BUILD.gn
+index 3955d4448f..8ac269e307 100644
+--- a/third_party/blink/renderer/modules/BUILD.gn
++++ b/third_party/blink/renderer/modules/BUILD.gn
+@@ -197,6 +197,7 @@ component("modules") {
+   }
+ 
+   deps = [
++    "//components/fury",
+     ":make_modules_generated",
+     "//build:android_buildflags",
+     "//cc",
+diff --git a/third_party/blink/renderer/modules/DEPS b/third_party/blink/renderer/modules/DEPS
+index 875071014b..fe8a93bcf3 100644
+--- a/third_party/blink/renderer/modules/DEPS
++++ b/third_party/blink/renderer/modules/DEPS
+@@ -1,4 +1,6 @@
+ include_rules = [
++    "+components/fury/fury_config.h",
++    "+components/fury/fury_noise.h",
+     "+base/atomic_sequence_num.h",
+     "+base/memory/scoped_refptr.h",
+     "+base/memory/values_equivalent.h",
 diff --git a/third_party/blink/renderer/platform/BUILD.gn b/third_party/blink/renderer/platform/BUILD.gn
 index ac8478a059..4d0122d4a2 100644
 --- a/third_party/blink/renderer/platform/BUILD.gn

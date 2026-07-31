@@ -136,9 +136,8 @@ canvas стабилен.
 На профиле, целиком выведенном из персоны Windows 11 / RTX 4060, запущенной на
 macOS с Apple M5. Последним закрылся Widevine ([10](10-legal-licensing.md)).
 
-Остаётся дописать векторы, которых нет в gate: `0013` plugins, `0033` clientRects,
-`0041` голоса, `0082` geolocation, `0100` CSS media features, `0110` os_crypt,
-`0120` performance.memory.
+Сделаны и векторы вне gate: **`0033` clientRects, `0041` голоса, `0120` performance.memory**.
+Остаются `0013` plugins, `0082` geolocation, `0100` CSS media features, `0110` os_crypt.
 
 ## Фаза 3 — База персон (параллельно с фазой 2, 4-6 недель)
 

@@ -1,0 +1,33 @@
+diff --git a/third_party/blink/renderer/core/timing/memory_info.cc b/third_party/blink/renderer/core/timing/memory_info.cc
+index b17ada56e6..fd320f4f13 100644
+--- a/third_party/blink/renderer/core/timing/memory_info.cc
++++ b/third_party/blink/renderer/core/timing/memory_info.cc
+@@ -30,6 +30,8 @@
+ 
+ #include "third_party/blink/renderer/core/timing/memory_info.h"
+ 
++#include "components/fury/fury_config.h"
++
+ #include <limits>
+ 
+ #include "base/time/default_tick_clock.h"
+@@ -172,6 +174,19 @@ MemoryInfo::MemoryInfo(Precision precision) {
+   // The values must have been computed, so totalJSHeapSize must be greater than
+   // 0.
+   DCHECK_GT(totalJSHeapSize(), 0u);
++
++  // jsHeapSizeLimit comes from the physical machine, so it contradicts a
++  // spoofed navigator.deviceMemory if left alone. Only the limit is overridden:
++  // used and total heap describe what this page is actually doing, and faking
++  // those would put a page at odds with its own allocation behaviour.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<double> limit =
++            config->GetDouble("engine.jsHeapSizeLimit")) {
++      if (*limit > 0) {
++        info_.js_heap_size_limit = static_cast<size_t>(*limit);
++      }
++    }
++  }
+ }
+ 
+ // static

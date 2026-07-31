@@ -1,0 +1,80 @@
+diff --git a/third_party/blink/renderer/modules/speech/speech_synthesis.cc b/third_party/blink/renderer/modules/speech/speech_synthesis.cc
+index 891a81543b..64fd0cf807 100644
+--- a/third_party/blink/renderer/modules/speech/speech_synthesis.cc
++++ b/third_party/blink/renderer/modules/speech/speech_synthesis.cc
+@@ -25,6 +25,10 @@
+ 
+ #include "third_party/blink/renderer/modules/speech/speech_synthesis.h"
+ 
++#include <algorithm>
++
++#include "components/fury/fury_config.h"
++
+ #include <tuple>
+ 
+ #include "build/build_config.h"
+@@ -95,6 +99,52 @@ void SpeechSynthesis::OnSetVoiceList(
+ const HeapVector<Member<SpeechSynthesisVoice>>& SpeechSynthesis::getVoices() {
+   // Kick off initialization here to ensure voice list gets populated.
+   std::ignore = TryEnsureMojomSynthesis();
++
++  // The voice list is strongly platform-specific — Windows ships "Microsoft …"
++  // voices, macOS an entirely different set — and phase 0 measured a 19-voice
++  // gap between a clean Chromium and real Chrome on the same machine. It has to
++  // move with the persona.
++  //
++  // Narrowing only, like fonts (0050), WebGPU features (0032) and devices
++  // (0060): a voice can be hidden, but one that is not installed cannot be
++  // synthesised, and advertising it would make speak() fail in a way no real
++  // machine fails.
++  //
++  // Applied once: voice_list_ is repopulated asynchronously by the platform, so
++  // re-filtering on every call would keep discarding voices that arrive later.
++  if (!fury_voices_filtered_ && !voice_list_.empty()) {
++    if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++      if (std::optional<std::vector<std::string>> allowed =
++              config->GetStringList("speech.voices")) {
++        fury_voices_filtered_ = true;
++        HeapVector<Member<SpeechSynthesisVoice>> kept;
++        kept.reserve(voice_list_.size());
++        for (const auto& voice : voice_list_) {
++          const std::string name = voice->name().Utf8();
++          if (std::find(allowed->begin(), allowed->end(), name) !=
++              allowed->end()) {
++            kept.push_back(voice);
++          }
++        }
++        // An empty voice list is itself a fingerprint — no real desktop
++        // reports zero voices — so a filter that matches nothing is treated as
++        // a broken persona rather than obeyed.
++        //
++        // Found immediately in testing: macOS localises voice names, so a
++        // persona listing "Alex" and "Samantha" matched none of the installed
++        // "Альберт" and "Саманта" and narrowed the list to zero. Persona voice
++        // lists must be captured in the same UI locale the profile runs in.
++        if (kept.empty()) {
++          LOG(ERROR) << "fury: speech.voices matched none of the "
++                     << voice_list_.size() << " installed voices — ignoring. "
++                     << "Voice names are localised; capture them in the "
++                     << "profile's own locale.";
++        } else {
++          voice_list_.swap(kept);
++        }
++      }
++    }
++  }
+   return voice_list_;
+ }
+ 
+diff --git a/third_party/blink/renderer/modules/speech/speech_synthesis.h b/third_party/blink/renderer/modules/speech/speech_synthesis.h
+index 0199d00326..917e2030c8 100644
+--- a/third_party/blink/renderer/modules/speech/speech_synthesis.h
++++ b/third_party/blink/renderer/modules/speech/speech_synthesis.h
+@@ -133,6 +133,7 @@ class MODULES_EXPORT SpeechSynthesis final
+       receiver_;
+   HeapMojoRemote<mojom::blink::SpeechSynthesis> mojom_synthesis_;
+   HeapVector<Member<SpeechSynthesisVoice>> voice_list_;
++  bool fury_voices_filtered_ = false;
+   HeapDeque<Member<SpeechSynthesisUtterance>> utterance_queue_;
+   bool is_paused_ = false;
+ 

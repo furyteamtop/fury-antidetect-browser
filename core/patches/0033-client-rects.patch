@@ -1,0 +1,52 @@
+diff --git a/third_party/blink/renderer/core/dom/element.cc b/third_party/blink/renderer/core/dom/element.cc
+index 19def24e3d..a7d2a1a449 100644
+--- a/third_party/blink/renderer/core/dom/element.cc
++++ b/third_party/blink/renderer/core/dom/element.cc
+@@ -26,6 +26,8 @@
+ 
+ #include "third_party/blink/renderer/core/dom/element.h"
+ 
++#include "components/fury/fury_noise.h"
++
+ #include <algorithm>
+ #include <bitset>
+ #include <limits>
+@@ -3464,6 +3466,20 @@ Vector<gfx::RectF> Element::GetClientRectsNoAdjustment() {
+   for (auto& quad : quads) {
+     result.emplace_back(quad.BoundingBox());
+   }
++
++  // getClientRects() and getBoundingClientRect() both read through here, so one
++  // override keeps them agreeing. Sub-pixel and derived from the value itself,
++  // so the same element measured twice gives the same answer — a detector that
++  // loops over getBoundingClientRect() must not see geometry drift.
++  uint64_t seed = 0;
++  if (fury::GetClientRectsNoiseSeed(&seed)) {
++    for (auto& rect : result) {
++      rect.SetRect(fury::PerturbRectValue(seed, rect.x()),
++                   fury::PerturbRectValue(seed, rect.y()),
++                   fury::PerturbRectValue(seed, rect.width()),
++                   fury::PerturbRectValue(seed, rect.height()));
++    }
++  }
+   return result;
+ }
+ 
+@@ -3487,6 +3503,17 @@ gfx::RectF Element::GetBoundingClientRectNoLifecycleUpdate() const {
+     return result;
+   }
+ 
++  // Same perturbation as getClientRects above: this path does not go through
++  // GetClientRectsNoAdjustment, and leaving it unperturbed would let a page
++  // compare the two and see one lying.
++  uint64_t fury_seed = 0;
++  if (fury::GetClientRectsNoiseSeed(&fury_seed)) {
++    result.SetRect(fury::PerturbRectValue(fury_seed, result.x()),
++                   fury::PerturbRectValue(fury_seed, result.y()),
++                   fury::PerturbRectValue(fury_seed, result.width()),
++                   fury::PerturbRectValue(fury_seed, result.height()));
++  }
++
+   LayoutObject* element_layout_object = GetLayoutObject();
+   DCHECK(element_layout_object);
+   GetDocument().AdjustRectForScrollAndAbsoluteZoom(result,

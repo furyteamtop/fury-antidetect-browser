@@ -273,7 +273,7 @@ V8 берёт таймзону из ICU — надёжнее задавать ч
 
 | Вектор | Где |
 |---|---|
-| `speechSynthesis.getVoices()` | `blink/renderer/modules/speech/` — список голосов платформо-зависим, очень заметен |
+| `speechSynthesis.getVoices()` | `blink/renderer/modules/speech/` — список платформо-зависим, очень заметен. **Имена локализованы:** на macOS с русским интерфейсом это «Саманта», а не «Samantha». Список персоны надо снимать в той же локали, в которой профиль работает, иначе фильтр не совпадёт ни с чем. Патч 0041 отказывается сузить список до пустого — ноль голосов сам по себе аномалия |
 | Формат stack trace, `Error.captureStackTrace` | `v8/src/execution/messages.cc` |
 | `performance.now()` precision и clamping | `blink/renderer/core/timing/performance.cc` |
 | `performance.memory` (`jsHeapSizeLimit`) | зависит от deviceMemory, должно биться |
