@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useI18n } from "../i18n";
 import { api, type Shell } from "../api";
 
 /** First run. Fury is self-hosted, so there is no address to default to — the
@@ -9,6 +10,7 @@ export function ServerSetup({ onDone }: { onDone: (shell: Shell) => void }) {
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { t } = useI18n();
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,21 +28,21 @@ export function ServerSetup({ onDone }: { onDone: (shell: Shell) => void }) {
   return (
     <form className="login" onSubmit={submit}>
       <h1>Fury</h1>
-      <p className="muted center">Where is your Fury server?</p>
+      <p className="muted center">{t("srv.where")}</p>
       <input
         type="text"
-        placeholder="fury.example.com"
+        placeholder={t("srv.placeholder")}
         value={url}
         autoFocus
         spellCheck={false}
         onChange={(e) => setUrl(e.target.value)}
       />
       <p className="muted small center">
-        https:// is assumed unless you say otherwise.
+        {t("srv.httpsAssumed")}
       </p>
       {error && <p className="error">{error}</p>}
       <button type="submit" disabled={busy || !url.trim()}>
-        {busy ? "Checking…" : "Connect"}
+        {busy ? t("srv.checking") : t("srv.connect")}
       </button>
     </form>
   );

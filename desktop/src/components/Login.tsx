@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useI18n } from "../i18n";
 import { api } from "../api";
 
 export function Login({ onSuccess }: { onSuccess: () => void }) {
@@ -6,6 +7,7 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { t } = useI18n();
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,7 +20,7 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
       // The server answers identically for an unknown address and a wrong
       // password, so this message must not distinguish them either — saying
       // "no such user" here would undo that.
-      setError("Wrong email or password.");
+      setError(t("auth.wrong"));
     } finally {
       setBusy(false);
     }
@@ -29,20 +31,20 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
       <h1>Fury</h1>
       <input
         type="email"
-        placeholder="you@example.com"
+        placeholder={t("auth.email")}
         value={email}
         autoFocus
         onChange={(e) => setEmail(e.target.value)}
       />
       <input
         type="password"
-        placeholder="Password"
+        placeholder={t("auth.password")}
         value={password}
         onChange={(e) => setPassword(e.target.value)}
       />
       {error && <p className="error">{error}</p>}
       <button type="submit" disabled={busy || !email || !password}>
-        {busy ? "Signing in…" : "Sign in"}
+        {busy ? t("auth.signingIn") : t("auth.signIn")}
       </button>
     </form>
   );

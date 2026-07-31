@@ -1,3 +1,4 @@
+import { useI18n } from "../i18n";
 import type { Me, Profile } from "../api";
 
 /** Every row's controls follow the permissions the SERVER resolved. Hiding a
@@ -29,19 +30,20 @@ export function ProfileTable({
   onEdit?: (p: Profile) => void;
   onDelete?: (p: Profile) => void;
 }) {
+  const { t } = useI18n();
   if (profiles.length === 0) {
-    return <p className="empty pad">No profiles in this project yet.</p>;
+    return <p className="empty pad">{t("row.emptyProject")}</p>;
   }
 
   return (
     <table className="grid">
       <thead>
         <tr>
-          <th>Name</th>
-          <th>Persona</th>
-          <th>Proxy</th>
-          <th>Status</th>
-          <th>Last opened</th>
+          <th>{t("col.name")}</th>
+          <th>{t("col.persona")}</th>
+          <th>{t("col.proxy")}</th>
+          <th>{t("col.status")}</th>
+          <th>{t("col.lastOpened")}</th>
           <th />
         </tr>
       </thead>
@@ -78,57 +80,57 @@ export function ProfileTable({
                       {/* The server masks the host for anyone without
                           reveal_secrets; say so, or a masked value reads like a
                           bug rather than a boundary. */}
-                      {!canReveal && " · masked"}
+                      {!canReveal && ` · ${t("row.masked")}`}
                     </div>
                   </>
                 ) : (
                   // Not cosmetic: the agent refuses to launch without one,
                   // because everything the core does goes through the relay.
-                  <span className="warn">No proxy</span>
+                  <span className="warn">{t("row.noProxy")}</span>
                 )}
               </td>
               <td>
-                {open && <span className="state mineLock">Open</span>}
+                {open && <span className="state mineLock">{t("row.open")}</span>}
                 {!open && locked && (
                   <span className="state lock">
-                    In use — {p.lock!.user_email} on {p.lock!.machine_name}
+                    {t("row.inUse", { who: p.lock!.user_email, machine: p.lock!.machine_name })}
                   </span>
                 )}
-                {!open && !locked && <span className="state free">Idle</span>}
+                {!open && !locked && <span className="state free">{t("row.idle")}</span>}
               </td>
               <td className="muted small">
                 {/* docs/12: the metric that matters to someone running accounts
                     is which profiles have gone stale. A profile untouched for
                     two months behaves differently from a live one. */}
-                {p.last_opened_at ? new Date(p.last_opened_at).toLocaleString() : "never"}
+                {p.last_opened_at ? new Date(p.last_opened_at).toLocaleString() : t("row.never")}
               </td>
               <td className="actions">
                 {!open && !locked && canLaunch && (
                   <button disabled={busy} onClick={() => onLaunch(p)}>
-                    Open
+                    {t("row.open")}
                   </button>
                 )}
                 {open && (
                   <button className="ghost" disabled={busy} onClick={() => onStop(p)}>
-                    Close
+                    {t("row.close")}
                   </button>
                 )}
                 {!open && locked && canForce && (
                   <button className="danger" disabled={busy} onClick={() => onLaunch(p, true)}>
-                    Take over
+                    {t("row.takeOver")}
                   </button>
                 )}
                 {!open && locked && !canForce && (
-                  <span className="muted small">Ask them to close it</span>
+                  <span className="muted small">{t("row.askThem")}</span>
                 )}
                 {onEdit && (
                   <button className="ghost" disabled={busy} onClick={() => onEdit(p)}>
-                    Edit
+                    {t("row.edit")}
                   </button>
                 )}
                 {onDelete && (
                   <button className="ghost" disabled={busy || open} onClick={() => onDelete(p)}>
-                    Delete
+                    {t("row.delete")}
                   </button>
                 )}
               </td>

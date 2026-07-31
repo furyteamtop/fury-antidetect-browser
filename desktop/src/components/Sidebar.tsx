@@ -1,3 +1,4 @@
+import { useI18n } from "../i18n";
 import type { Me, Project, Shell } from "../api";
 
 export function Sidebar({
@@ -19,6 +20,7 @@ export function Sidebar({
   onSettings: () => void;
   onSignOut: () => void;
 }) {
+  const { t } = useI18n();
   const local = shell.mode === "local";
   return (
     <aside className="sidebar">
@@ -26,14 +28,14 @@ export function Sidebar({
 
       <nav>
         <div className="section">
-          Projects
+          {t("app.projects")}
           {local && (
-            <button className="linky" onClick={onNewProject} title="New project">
+            <button className="linky" onClick={onNewProject} title={t("app.newProject")}>
               +
             </button>
           )}
         </div>
-        {projects.length === 0 && <div className="empty">Nothing shared with you</div>}
+        {projects.length === 0 && <div className="empty">{t("app.nothingShared")}</div>}
         {projects.map((p) => (
           <button
             key={p.id}
@@ -53,20 +55,20 @@ export function Sidebar({
             surfaces much later. */}
         {me && <div className="who ellipsis">{me.email}</div>}
         <div className="muted small ellipsis" title={shell.server_url ?? ""}>
-          {local ? "Working locally · no account" : shell.server_url}
+          {local ? t("app.workingLocally") : shell.server_url}
         </div>
         <div className="muted small ellipsis" title={shell.machine_name}>
           {shell.machine_name}
-          {!shell.native && " · browser dev"}
+          {!shell.native && ` · ${t("app.browserDev")}`}
         </div>
         <button className="ghost" onClick={onSettings}>
-          Settings
+          {t("app.settings")}
         </button>
         {/* Nothing to sign out of when there is no server. Offering it anyway
             would imply an account exists somewhere. */}
         {!local && (
           <button className="ghost" onClick={onSignOut}>
-            Sign out
+            {t("app.signOut")}
           </button>
         )}
       </div>

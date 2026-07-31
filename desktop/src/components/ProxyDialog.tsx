@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useI18n } from "../i18n";
 import { api, type LocalProxy } from "../api";
 
 const KINDS = ["socks5", "http", "https"] as const;
@@ -41,6 +42,7 @@ export function ProxyDialog({
   const [check, setCheck] = useState<CheckResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { t } = useI18n();
 
   const complete = host.trim() !== "" && Number(port) > 0;
 
@@ -89,12 +91,12 @@ export function ProxyDialog({
     <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ height: "auto", maxHeight: "88vh" }} role="dialog" aria-modal="true">
         <div className="modalHead">
-          <h2>{editing ? "Edit proxy" : "New proxy"}</h2>
+          <h2>{editing ? t("px.edit") : t("px.new")}</h2>
         </div>
 
         <div className="form" style={{ paddingTop: "var(--s-5)" }}>
           <div className="field">
-            <label>Type</label>
+            <label>{t("px.type")}</label>
             <div className="segmented">
               {KINDS.map((k) => (
                 <button key={k} aria-pressed={kind === k} onClick={() => setKind(k)}>
@@ -105,7 +107,7 @@ export function ProxyDialog({
           </div>
 
           <div className="field">
-            <label htmlFor="x-host">Address</label>
+            <label htmlFor="x-host">{t("px.address")}</label>
             <div className="row">
               <input
                 id="x-host"
@@ -125,18 +127,18 @@ export function ProxyDialog({
           </div>
 
           <div className="field">
-            <label htmlFor="x-user">Credentials</label>
+            <label htmlFor="x-user">{t("px.credentials")}</label>
             <div className="row">
               <input
                 id="x-user"
                 value={username}
-                placeholder="user (optional)"
+                placeholder={t("px.user")}
                 autoComplete="off"
                 onChange={(e) => setUsername(e.target.value)}
               />
               <input
                 value={password}
-                placeholder="password"
+                placeholder={t("px.password")}
                 type="password"
                 autoComplete="off"
                 onChange={(e) => setPassword(e.target.value)}
@@ -145,7 +147,7 @@ export function ProxyDialog({
           </div>
 
           <div className="field">
-            <label htmlFor="x-name">Label</label>
+            <label htmlFor="x-name">{t("px.label")}</label>
             <div>
               <input
                 id="x-name"
@@ -154,16 +156,16 @@ export function ProxyDialog({
                 onChange={(e) => setName(e.target.value)}
               />
               <p className="hint">
-                What you will see in the profile list. Defaults to the address.
+                {t("px.labelHint")}
               </p>
             </div>
           </div>
 
           <div className="field">
-            <label>Check</label>
+            <label>{t("px.check")}</label>
             <div>
               <button disabled={busy || !complete} onClick={runCheck}>
-                {busy ? "Checking…" : "Where does this come out?"}
+                {busy ? t("px.checking") : t("px.checkButton")}
               </button>
               {check && (
                 <div
@@ -190,14 +192,11 @@ export function ProxyDialog({
                 {/* Said plainly because it is the only outbound call the agent
                     makes on its own behalf, and an operator checking a proxy
                     should know they are telling someone it exists. */}
-                Asks a geo service through this proxy — the exit IP is something
-                only the far end can report. Point <code>FURY_IP_CHECK</code> at your
-                own if you would rather not tell a third party.
+                {t("px.checkHint")}
               </p>
               {check?.ok && check.timezone && (
                 <p className="hint">
-                  Set the profile's time zone to <strong>{check.timezone}</strong> to
-                  match where it actually leaves.
+                  {t("px.setTimezone", { tz: check.timezone })}
                 </p>
               )}
             </div>
@@ -208,10 +207,10 @@ export function ProxyDialog({
           {error && <span className="error">{error}</span>}
           <div className="spacer" />
           <button className="ghost" onClick={onClose}>
-            Cancel
+            {t("ui.cancel")}
           </button>
           <button className="primary" disabled={busy || !complete} onClick={save}>
-            {editing ? "Save" : "Add"}
+            {editing ? t("ui.save") : t("px.add")}
           </button>
         </div>
       </div>

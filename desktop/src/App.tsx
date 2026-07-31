@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useI18n } from "./i18n";
 import { api, ApiError, type Me, type Profile, type Project, type Shell } from "./api";
 import { Login } from "./components/Login";
 import { ProfileDialog } from "./components/ProfileDialog";
@@ -28,6 +29,7 @@ export function App() {
   // Applied at the root before anything renders, so the first paint is already
   // the right theme rather than a flash of the wrong one.
   useTheme();
+  const { t } = useI18n();
 
   useEffect(() => {
     void api.shell().then(setShell);
@@ -143,7 +145,7 @@ export function App() {
         onSelect={setActive}
         onSettings={() => setSettingsOpen(true)}
         onNewProject={async () => {
-          const name = prompt("Project name")?.trim();
+          const name = prompt(t("app.projectName"))?.trim();
           if (!name) return;
           await api.createProject(name);
           await load();
@@ -158,16 +160,15 @@ export function App() {
       />
       <main className="main">
         <header className="head">
-          <h1>{active?.name ?? "No projects"}</h1>
+          <h1>{active?.name ?? t("app.noProjects")}</h1>
           <span className="muted">
-            {active ? `${profiles.length} profiles` : "Nothing here yet"}
+            {active ? t("app.profileCount", { n: profiles.length }) : t("app.nothingYet")}
           </span>
         </header>
 
         {local && !shell.agent_ready && (
           <div className="notice warnBar" role="status">
-            The local agent is not running, so nothing can be launched. It normally
-            starts on its own — if this persists, run <code>fury-agent serve</code>.
+            {t("app.agentDown")}
           </div>
         )}
 
@@ -175,7 +176,7 @@ export function App() {
           <div className="notice" role="status">
             {error}
             <button className="ghost" onClick={() => setError(null)}>
-              Dismiss
+              {t("app.dismiss")}
             </button>
           </div>
         )}
@@ -183,20 +184,20 @@ export function App() {
         {active && local && (
           <div className="toolbar">
             <button className="primary" onClick={() => setEditing(null)}>
-              New profile
+              {t("bar.newProfile")}
             </button>
             <input
               className="search"
-              placeholder="Search by name, tag or proxy"
+              placeholder={t("bar.search")}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
             <div className="spacer" />
             <button className="ghost" onClick={() => setProxyOpen(true)}>
-              Add proxy
+              {t("bar.addProxy")}
             </button>
             <button className="ghost" onClick={() => void refreshProfiles()}>
-              Refresh
+              {t("bar.refresh")}
             </button>
           </div>
         )}
@@ -218,7 +219,7 @@ export function App() {
               onDelete={
                 local
                   ? async (p) => {
-                      if (!confirm(`Delete "${p.name}"? It goes to the trash, not away.`)) return;
+                      if (!confirm(t("row.confirmDelete", { name: p.name }))) return;
                       await api.deleteProfile(p.id);
                       await refreshProfiles();
                     }

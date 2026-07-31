@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
+import { useI18n } from "../i18n";
 import { api, type LocalProxy, type Persona, type Preview, type Profile } from "../api";
 
 const TABS = ["General", "Proxy", "Device", "Advanced"] as const;
+const TAB_KEYS = {
+  General: "pd.tabGeneral",
+  Proxy: "pd.tabProxy",
+  Device: "pd.tabDevice",
+  Advanced: "pd.tabAdvanced",
+} as const;
 type Tab = (typeof TABS)[number];
 
 /** Creating or editing a profile.
@@ -26,6 +33,7 @@ export function ProfileDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { t } = useI18n();
   const [tab, setTab] = useState<Tab>("General");
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [proxies, setProxies] = useState<LocalProxy[]>([]);
@@ -105,19 +113,19 @@ export function ProfileDialog({
     <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" role="dialog" aria-modal="true">
         <div className="modalHead">
-          <h2>{editing ? "Edit profile" : "New profile"}</h2>
+          <h2>{editing ? t("pd.edit") : t("pd.new")}</h2>
         </div>
 
         <div className="tabs" role="tablist">
-          {TABS.map((t) => (
+          {TABS.map((tb) => (
             <button
-              key={t}
+              key={tb}
               className="tab"
               role="tab"
-              aria-selected={t === tab}
-              onClick={() => setTab(t)}
+              aria-selected={tb === tab}
+              onClick={() => setTab(tb)}
             >
-              {t}
+              {t(TAB_KEYS[tb])}
             </button>
           ))}
         </div>
@@ -127,7 +135,7 @@ export function ProfileDialog({
             {tab === "General" && (
               <>
                 <div className="field">
-                  <label htmlFor="p-name">Name</label>
+                  <label htmlFor="p-name">{t("pd.name")}</label>
                   <div>
                     <input
                       id="p-name"
@@ -139,7 +147,7 @@ export function ProfileDialog({
                   </div>
                 </div>
                 <div className="field">
-                  <label htmlFor="p-tags">Tags</label>
+                  <label htmlFor="p-tags">{t("pd.tags")}</label>
                   <div>
                     <input
                       id="p-tags"
@@ -147,11 +155,11 @@ export function ProfileDialog({
                       placeholder="de, marketplace"
                       onChange={(e) => setTags(e.target.value)}
                     />
-                    <p className="hint">Comma separated.</p>
+                    <p className="hint">{t("pd.tagsHint")}</p>
                   </div>
                 </div>
                 <div className="field">
-                  <label htmlFor="p-urls">Open on start</label>
+                  <label htmlFor="p-urls">{t("pd.startUrls")}</label>
                   <div>
                     <textarea
                       id="p-urls"
@@ -160,11 +168,11 @@ export function ProfileDialog({
                       placeholder={"https://example.com\nhttps://another.example"}
                       onChange={(e) => setStartUrls(e.target.value)}
                     />
-                    <p className="hint">One per line.</p>
+                    <p className="hint">{t("pd.startUrlsHint")}</p>
                   </div>
                 </div>
                 <div className="field">
-                  <label htmlFor="p-notes">Notes</label>
+                  <label htmlFor="p-notes">{t("pd.notes")}</label>
                   <div>
                     <textarea
                       id="p-notes"
@@ -180,14 +188,14 @@ export function ProfileDialog({
             {tab === "Proxy" && (
               <>
                 <div className="field">
-                  <label htmlFor="p-proxy">Proxy</label>
+                  <label htmlFor="p-proxy">{t("pd.proxy")}</label>
                   <div>
                     <select
                       id="p-proxy"
                       value={proxyId}
                       onChange={(e) => setProxyId(e.target.value)}
                     >
-                      <option value="">— none —</option>
+                      <option value="">{t("pd.proxyNone")}</option>
                       {proxies.map((p) => (
                         <option key={p.id} value={p.id}>
                           {p.name} · {p.kind}://{p.host}:{p.port}
@@ -200,15 +208,14 @@ export function ProfileDialog({
                         address. */}
                     {!proxyId && (
                       <p className="hint">
-                        A profile without a proxy cannot be opened — everything the
-                        browser does goes through one.
+                        {t("pd.proxyRequired")}
                       </p>
                     )}
                   </div>
                 </div>
                 {proxy && (
                   <div className="field">
-                    <label>Exit</label>
+                    <label>{t("pd.exit")}</label>
                     <div className="mono muted">
                       {proxy.host}:{proxy.port}
                       {proxy.last_country ? ` · ${proxy.last_country}` : ""}
@@ -221,7 +228,7 @@ export function ProfileDialog({
             {tab === "Device" && (
               <>
                 <div className="field">
-                  <label>Machine</label>
+                  <label>{t("pd.machine")}</label>
                   <div>
                     {personas.map((p) => (
                       <button
@@ -235,15 +242,13 @@ export function ProfileDialog({
                         </div>
                         <div className="muted small ellipsis">{p.gpu}</div>
                         <div className="muted small">
-                          {(p.weight * 100).toFixed(1)}% of real machines
-                          {p.source === "measured" ? " · measured" : ""}
+                          {t("pd.share", { pct: (p.weight * 100).toFixed(1) })}
+                          {p.source === "measured" ? ` · ${t("pd.measured")}` : ""}
                         </div>
                       </button>
                     ))}
                     <p className="hint">
-                      One real machine's measured configuration, taken whole. Picking
-                      a user agent and a GPU separately is how profiles end up
-                      describing devices that do not exist.
+                      {t("pd.machineHint")}
                     </p>
                   </div>
                 </div>
@@ -253,7 +258,7 @@ export function ProfileDialog({
             {tab === "Advanced" && (
               <>
                 <div className="field">
-                  <label htmlFor="p-tz">Time zone</label>
+                  <label htmlFor="p-tz">{t("pd.timezone")}</label>
                   <div>
                     <input
                       id="p-tz"
@@ -261,14 +266,12 @@ export function ProfileDialog({
                       onChange={(e) => setTimezone(e.target.value)}
                     />
                     <p className="hint">
-                      Must match where the proxy actually exits. A profile leaving in
-                      Germany while reporting Asia/Tbilisi is the cheapest detection
-                      there is.
+                      {t("pd.timezoneHint")}
                     </p>
                   </div>
                 </div>
                 <div className="field">
-                  <label htmlFor="p-lang">Languages</label>
+                  <label htmlFor="p-lang">{t("pd.languages")}</label>
                   <div>
                     <input
                       id="p-lang"
@@ -276,19 +279,15 @@ export function ProfileDialog({
                       onChange={(e) => setLanguages(e.target.value)}
                     />
                     <p className="hint">
-                      Most preferred first. Also becomes the Accept-Language header —
-                      the two cannot disagree.
+                      {t("pd.languagesHint")}
                     </p>
                   </div>
                 </div>
                 <div className="field">
-                  <label>Noise</label>
+                  <label>{t("pd.noise")}</label>
                   <div>
                     <div className="muted small">
-                      Canvas, audio and element geometry are perturbed with a seed of
-                      this profile's own. There is no switch to turn it off: an
-                      un-noised canvas is byte-identical to the host machine, which is
-                      what makes several commercial browsers trivially linkable.
+                      {t("pd.noiseHint")}
                     </div>
                   </div>
                 </div>
@@ -297,46 +296,46 @@ export function ProfileDialog({
           </div>
 
           <aside className="overview">
-            <h3>What it will claim</h3>
+            <h3>{t("pd.overview")}</h3>
             {preview ? (
               <>
                 <dl className="kv">
-                  <dt>Platform</dt>
+                  <dt>{t("pd.ovPlatform")}</dt>
                   <dd>{preview.platform}</dd>
-                  <dt>User agent</dt>
+                  <dt>{t("pd.ovUserAgent")}</dt>
                   <dd className="mono small">{preview.user_agent}</dd>
-                  <dt>Screen</dt>
+                  <dt>{t("pd.ovScreen")}</dt>
                   <dd>{preview.screen}</dd>
-                  <dt>GPU</dt>
+                  <dt>{t("pd.ovGpu")}</dt>
                   <dd className="small">{preview.gpu_renderer}</dd>
-                  <dt>CPU · RAM</dt>
+                  <dt>{t("pd.ovCpuRam")}</dt>
                   <dd>
-                    {preview.hardware_concurrency} cores · {preview.device_memory} GB
+                    {t("pd.ovCores", { n: preview.hardware_concurrency, gb: preview.device_memory })}
                   </dd>
-                  <dt>Time zone</dt>
+                  <dt>{t("pd.ovTimezone")}</dt>
                   <dd>{preview.timezone}</dd>
-                  <dt>Languages</dt>
+                  <dt>{t("pd.ovLanguages")}</dt>
                   <dd>{preview.languages.join(", ")}</dd>
-                  <dt>Client Hints</dt>
+                  <dt>{t("pd.ovClientHints")}</dt>
                   <dd>{preview.client_hints_platform}</dd>
-                  <dt>Fonts</dt>
+                  <dt>{t("pd.ovFonts")}</dt>
                   <dd>{preview.fonts}</dd>
-                  <dt>Noise</dt>
+                  <dt>{t("pd.ovNoise")}</dt>
                   <dd>
                     {[
-                      preview.noise.canvas && "canvas",
-                      preview.noise.audio && "audio",
-                      preview.noise.client_rects && "geometry",
+                      preview.noise.canvas && t("pd.noiseCanvas"),
+                      preview.noise.audio && t("pd.noiseAudio"),
+                      preview.noise.client_rects && t("pd.noiseGeometry"),
                     ]
                       .filter(Boolean)
-                      .join(", ") || "none"}
+                      .join(", ") || t("pd.noiseNone")}
                   </dd>
                 </dl>
 
                 <div style={{ marginTop: "var(--s-4)" }}>
                   {problems.length === 0 ? (
                     <div className="verdict good">
-                      Consistent — nothing here contradicts anything else.
+                      {t("pd.consistent")}
                     </div>
                   ) : (
                     <div className="verdict bad">
@@ -348,7 +347,7 @@ export function ProfileDialog({
                 </div>
               </>
             ) : (
-              <p className="muted small">Choose a machine to see what it reports.</p>
+              <p className="muted small">{t("pd.pickMachine")}</p>
             )}
           </aside>
         </div>
@@ -357,14 +356,14 @@ export function ProfileDialog({
           {error && <span className="error">{error}</span>}
           <div className="spacer" />
           <button className="ghost" onClick={onClose}>
-            Cancel
+            {t("ui.cancel")}
           </button>
           <button
             className="primary"
             disabled={busy || !personaId || problems.length > 0}
             onClick={save}
           >
-            {busy ? "Saving…" : editing ? "Save" : "Create"}
+            {busy ? t("ui.saving") : editing ? t("ui.save") : t("ui.create")}
           </button>
         </div>
       </div>
