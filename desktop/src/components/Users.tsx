@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Perm, type Project } from "../api";
 import { useI18n } from "../i18n";
+import { useAsk } from "./Ask";
 
 type Members = Awaited<ReturnType<typeof api.orgMembers>>;
 type Grants = Awaited<ReturnType<typeof api.grants>>;
@@ -35,6 +36,7 @@ export function Users({
   onConnect: () => void;
 }) {
   const { t, say } = useI18n();
+  const { ask, dialog } = useAsk();
   const [team, setTeam] = useState<Members | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -107,6 +109,7 @@ export function Users({
 
   return (
     <div className="teamPane">
+      {dialog}
       {error && <p className="error">{error}</p>}
 
       <h2 className="sectionTitle">{t("team.people")}</h2>
@@ -169,6 +172,24 @@ export function Users({
                       }
                     >
                       {t("team.grant")}
+                    </button>
+                  )}
+                  {!m.is_you && (
+                    <button
+                      className="danger"
+                      disabled={busy}
+                      onClick={async () => {
+                        const go = await ask({
+                          title: t("team.remove"),
+                          detail: t("team.confirmRemove", { email: m.email }),
+                          confirmLabel: t("team.remove"),
+                          danger: true,
+                        });
+                        if (go === null) return;
+                        await run(() => api.removeMember(m.user_id));
+                      }}
+                    >
+                      {t("team.remove")}
                     </button>
                   )}
                   {project && granted.has(m.user_id) && (
@@ -260,6 +281,24 @@ export function Users({
       </h2>
       <button className="ghost" onClick={onSignOut}>
         {t("app.signOut")}
+      </button>
+      <p className="hint" style={{ maxWidth: 620, marginTop: "var(--s-3)" }}>
+        {t("team.rotateHint")}
+      </p>
+      <button
+        className="ghost"
+        disabled={busy}
+        onClick={async () => {
+          const go = await ask({
+            title: t("team.rotate"),
+            detail: t("team.confirmRotate"),
+            confirmLabel: t("team.rotate"),
+          });
+          if (go === null) return;
+          await run(() => api.removeMember(null));
+        }}
+      >
+        {t("team.rotate")}
       </button>
 
       {team.invited.length > 0 && (

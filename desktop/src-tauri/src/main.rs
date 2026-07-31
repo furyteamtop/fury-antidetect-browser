@@ -101,6 +101,7 @@ fn main() {
             commands::grants,
             commands::grant_access,
             commands::revoke_access,
+            commands::remove_member,
             commands::launch,
             commands::stop,
             commands::personas,

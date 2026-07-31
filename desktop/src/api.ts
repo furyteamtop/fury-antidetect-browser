@@ -399,6 +399,11 @@ export const api = {
   revokeAccess: (projectId: string, userId: string): Promise<unknown> =>
     cmd("revoke_access", { projectId, userId }),
 
+  /** Remove a member and replace the organisation key. Pass null to rotate
+   *  without removing anyone — after a lost laptop, say. */
+  removeMember: (userId: string | null): Promise<{ generation: number }> =>
+    cmd("remove_member", { userId }),
+
   /** Ask the release feed whether there is a newer build. It never installs:
    *  see src-tauri/update.rs for why that waits on signed releases. */
   checkUpdate: (): Promise<{

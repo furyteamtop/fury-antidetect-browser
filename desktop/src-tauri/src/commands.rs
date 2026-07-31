@@ -956,6 +956,86 @@ pub async fn hand_over_key(
         .await
 }
 
+/// Remove a member, and replace the organisation key so it means something.
+///
+/// Every step that needs the key happens here. The server hands over public
+/// keys and wrapped data keys, this process opens and re-wraps them, and the
+/// results go back in one request that either lands whole or not at all.
+///
+/// What this cannot do, and the interface must not pretend otherwise: reach
+/// what the removed person already downloaded. Bundles they opened are on their
+/// machine. Rotation stops them opening anything from now on, which is the part
+/// that is actually achievable.
+#[tauri::command]
+pub async fn remove_member(
+    state: State<'_, AppState>,
+    user_id: Option<String>,
+) -> R<serde_json::Value> {
+    let old = state.org_key.lock().unwrap().ok_or_else(|| {
+        ApiErr::coded(
+            "err.noOrgKeyGive",
+            "You do not hold the organisation key on this machine, so you cannot rotate it.",
+        )
+    })?;
+
+    let material: serde_json::Value = state
+        .call(reqwest::Method::GET, "/v1/org/rotation", Body::None, true)
+        .await?;
+
+    let generation = material.get("generation").and_then(|v| v.as_i64()).unwrap_or(0);
+    let new_key = fury_shared::keys::new_org_key();
+
+    // Sealed to everyone who stays. A member left out of this list is a member
+    // locked out of the organisation, and nothing later can repair it except
+    // another rotation.
+    let mut members = Vec::new();
+    for m in material.get("members").and_then(|v| v.as_array()).into_iter().flatten() {
+        let id = m.get("user_id").and_then(|v| v.as_str()).unwrap_or_default();
+        if Some(id.to_string()) == user_id {
+            continue;
+        }
+        let pk = m.get("public_key").and_then(|v| v.as_str()).unwrap_or_default();
+        members.push(serde_json::json!({
+            "user_id": id,
+            "wrapped_ork": crypto::wrap_for_member(&new_key, pk)
+                .map_err(|e| ApiErr::local(format!("Could not seal the new key for {id}: {e}")))?,
+        }));
+    }
+
+    // Every proxy's data key moves to the new organisation key. The credentials
+    // themselves are untouched — they are sealed under the data key, which does
+    // not change, so nothing has to be decrypted and re-encrypted here.
+    let mut proxies = Vec::new();
+    for x in material.get("proxies").and_then(|v| v.as_array()).into_iter().flatten() {
+        let id = x.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+        let Some(wrapped) = x.get("wrapped_dek").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let rewrapped = crypto::rewrap_data_key(&old, &new_key, wrapped)
+            .map_err(|e| ApiErr::local(format!("Could not re-wrap the key for proxy {id}: {e}")))?;
+        proxies.push(serde_json::json!({ "id": id, "wrapped_dek": rewrapped }));
+    }
+
+    let out: serde_json::Value = state
+        .call(
+            reqwest::Method::POST,
+            "/v1/org/rotation",
+            Body::Json(serde_json::json!({
+                "remove_user_id": user_id,
+                "members": members,
+                "proxies": proxies,
+                "generation": generation,
+            })),
+            true,
+        )
+        .await?;
+
+    // Only after the server accepted it. Adopting the new key on a rotation
+    // that was refused would leave this machine unable to open anything.
+    *state.org_key.lock().unwrap() = Some(new_key);
+    Ok(out)
+}
+
 #[tauri::command]
 pub async fn grants(state: State<'_, AppState>, project_id: String) -> R<serde_json::Value> {
     state

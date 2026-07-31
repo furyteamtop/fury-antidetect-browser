@@ -65,6 +65,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/v1/org/members", get(list_members))
         .route("/v1/org/invitations", post(create_invitation))
         .route("/v1/org/members/{user_id}/key", post(hand_over_key))
+        .route("/v1/org/rotation", get(rotation_material).post(rotate_org_key))
         .route("/v1/profiles/{profile_id}/lock", post(acquire_lock))
         .route("/v1/profiles/{profile_id}/lock/heartbeat", post(heartbeat))
         .route("/v1/profiles/{profile_id}/unlock", post(release_lock))
@@ -1653,6 +1654,235 @@ async fn hand_over_key(
 
     audit(&state, &caller, "member.key", None, json!({ "target": user_id })).await?;
     Ok(Json(json!({ "ok": true })))
+}
+
+/// Everything a client needs to compute a new organisation key.
+///
+/// Only the material, never a decision: the public keys the new key must be
+/// sealed to, and the wrapped data keys that must be re-wrapped under it. The
+/// server cannot open any of it and does not try.
+async fn rotation_material(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+) -> ApiResult<Json<serde_json::Value>> {
+    use fury_shared::rbac::OrgRole;
+    if !matches!(caller.role, OrgRole::Owner | OrgRole::Admin) {
+        return Err(ApiError::Denied(Perm::ManageAccess));
+    }
+
+    use base64::Engine;
+    let b64 = |v: &[u8]| base64::engine::general_purpose::STANDARD.encode(v);
+    let hex = |v: &[u8]| v.iter().map(|b| format!("{b:02x}")).collect::<String>();
+
+    let members: Vec<(Uuid, String, Vec<u8>)> = sqlx::query_as(
+        "SELECT u.id, u.email, u.public_key FROM org_members m \
+         JOIN users u ON u.id = m.user_id \
+         WHERE m.org_id = $1 AND u.disabled_at IS NULL",
+    )
+    .bind(caller.org_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let proxies: Vec<(Uuid, Option<Vec<u8>>)> = sqlx::query_as(
+        "SELECT id, wrapped_dek FROM proxies WHERE org_id = $1 AND deleted_at IS NULL",
+    )
+    .bind(caller.org_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let generation: i32 = sqlx::query_scalar("SELECT ork_generation FROM organizations WHERE id = $1")
+        .bind(caller.org_id)
+        .fetch_one(&state.db)
+        .await?;
+
+    Ok(Json(json!({
+        "generation": generation,
+        "members": members.iter().map(|(id, email, pk)| json!({
+            "user_id": id, "email": email, "public_key": b64(pk),
+        })).collect::<Vec<_>>(),
+        // A proxy with no stored key has nothing to re-wrap; it is listed so
+        // the client can report it rather than silently leaving it behind.
+        "proxies": proxies.iter().map(|(id, dek)| json!({
+            "id": id, "wrapped_dek": dek.as_deref().map(hex),
+        })).collect::<Vec<_>>(),
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct RotateRequest {
+    /// Whose membership this rotation is retiring. `None` rotates without
+    /// removing anyone — after a laptop is lost, say.
+    #[serde(default)]
+    remove_user_id: Option<Uuid>,
+    /// The new key, sealed to every member who stays. Must be all of them.
+    members: Vec<RotatedMember>,
+    /// Every proxy data key, re-wrapped under the new organisation key.
+    proxies: Vec<RotatedProxy>,
+    /// The generation this was computed against, so two administrators
+    /// rotating at once cannot half-apply each other's work.
+    generation: i32,
+}
+
+#[derive(Deserialize)]
+pub struct RotatedMember {
+    user_id: Uuid,
+    wrapped_ork: String,
+}
+
+#[derive(Deserialize)]
+pub struct RotatedProxy {
+    id: Uuid,
+    wrapped_dek: String,
+}
+
+/// Replace the organisation key.
+///
+/// This is what makes removing somebody mean anything. A member who leaves
+/// keeps whatever they already downloaded — that is unavoidable, the work
+/// happened on their machine — but without rotation they also keep a key that
+/// opens everything the team does *afterwards*, which is not a leak, it is
+/// continued access. Deleting a grant while leaving the key in their hands is
+/// the security equivalent of changing the sign on the door.
+///
+/// Everything lands in one transaction. A half-rotated organisation is one
+/// where some proxies open under the old key and some under the new, and no
+/// single member can read all of them.
+async fn rotate_org_key(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+    Json(req): Json<RotateRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    use fury_shared::rbac::OrgRole;
+    if !matches!(caller.role, OrgRole::Owner | OrgRole::Admin) {
+        return Err(ApiError::Denied(Perm::ManageAccess));
+    }
+    if req.remove_user_id == Some(caller.user_id) {
+        return Err(ApiError::BadRequest(
+            "you cannot remove yourself — the organisation would have nobody who can rotate the \
+             key again"
+                .into(),
+        ));
+    }
+
+    let mut tx = state.db.begin().await?;
+
+    // Locked for the duration, so a second administrator rotating at the same
+    // moment waits rather than interleaving.
+    let generation: i32 = sqlx::query_scalar(
+        "SELECT ork_generation FROM organizations WHERE id = $1 FOR UPDATE",
+    )
+    .bind(caller.org_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if generation != req.generation {
+        return Err(ApiError::Conflict(format!(
+            "this was computed against generation {} but the organisation is at {generation} — \
+             somebody else rotated in between. Start again",
+            req.generation
+        )));
+    }
+
+    if let Some(gone) = req.remove_user_id {
+        let removed = sqlx::query("DELETE FROM org_members WHERE org_id = $1 AND user_id = $2")
+            .bind(caller.org_id)
+            .bind(gone)
+            .execute(&mut *tx)
+            .await?;
+        if removed.rows_affected() == 0 {
+            return Err(ApiError::NotFound);
+        }
+        // Their grants and their sessions go with them. Leaving a live session
+        // would let a removed member keep working until it expired.
+        sqlx::query("DELETE FROM project_grants WHERE user_id = $1")
+            .bind(gone)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM sessions WHERE user_id = $1")
+            .bind(gone)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM profile_locks WHERE user_id = $1")
+            .bind(gone)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    // Every remaining member must be covered. One left out is one who can no
+    // longer decrypt anything, discovered later and unfixable without another
+    // rotation.
+    let remaining: Vec<(Uuid,)> = sqlx::query_as(
+        "SELECT user_id FROM org_members WHERE org_id = $1",
+    )
+    .bind(caller.org_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    let supplied: std::collections::HashSet<Uuid> =
+        req.members.iter().map(|m| m.user_id).collect();
+    for (user_id,) in &remaining {
+        if !supplied.contains(user_id) {
+            return Err(ApiError::BadRequest(format!(
+                "no new key was supplied for member {user_id}; they would be locked out"
+            )));
+        }
+    }
+
+    let next = generation + 1;
+    for m in &req.members {
+        let wrapped = unhex_or_b64("wrapped_ork", &m.wrapped_ork)?;
+        if wrapped.len() < 104 {
+            return Err(ApiError::BadRequest(
+                "that is not a sealed organisation key".into(),
+            ));
+        }
+        sqlx::query(
+            "UPDATE org_members SET wrapped_ork = $1, ork_generation = $2 \
+             WHERE org_id = $3 AND user_id = $4",
+        )
+        .bind(&wrapped)
+        .bind(next)
+        .bind(caller.org_id)
+        .bind(m.user_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    for x in &req.proxies {
+        let wrapped = unhex("wrapped_dek", &x.wrapped_dek)?;
+        if wrapped.len() < 40 {
+            return Err(ApiError::BadRequest("that is not a wrapped data key".into()));
+        }
+        sqlx::query("UPDATE proxies SET wrapped_dek = $1 WHERE id = $2 AND org_id = $3")
+            .bind(&wrapped)
+            .bind(x.id)
+            .bind(caller.org_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    sqlx::query("UPDATE organizations SET ork_generation = $1 WHERE id = $2")
+        .bind(next)
+        .bind(caller.org_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+
+    audit(&state, &caller, "org.rotate", None,
+          json!({ "removed": req.remove_user_id, "generation": next })).await?;
+    Ok(Json(json!({ "generation": next, "removed": req.remove_user_id })))
+}
+
+/// Accepts hex, or base64 — `hand_over_key` established base64 for a sealed
+/// organisation key and the proxy endpoints hex for everything else. Rather
+/// than pick one and break the other, this takes either.
+fn unhex_or_b64(what: &str, v: &str) -> Result<Vec<u8>, ApiError> {
+    if v.len() % 2 == 0 && v.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return unhex(what, v);
+    }
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD
+        .decode(v)
+        .map_err(|_| ApiError::BadRequest(format!("{what} is neither hex nor base64")))
 }
 
 // ---------------------------------------------------------------------------

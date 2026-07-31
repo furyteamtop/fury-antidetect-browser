@@ -137,11 +137,36 @@ pub fn profile_key(org_key: &[u8; 32], profile_id: &str) -> [u8; 32] {
     keys::subkey(org_key, "fury-profile-v1", profile_id)
 }
 
+/// Move a data key from one organisation key to another.
+///
+/// The payload it protects is never touched. That is the whole reason the
+/// credentials sit under a per-proxy data key rather than under the
+/// organisation key directly: rotating means re-wrapping a handful of 32-byte
+/// keys, not decrypting and re-encrypting every secret the team owns.
+pub fn rewrap_data_key(old: &[u8; 32], new: &[u8; 32], wrapped_hex: &str) -> anyhow::Result<String> {
+    let wrapped = unhex("wrapped_dek", wrapped_hex)?;
+    let dek = keys::unwrap(old, &wrapped)?;
+    Ok(hex(&keys::wrap(new, &dek)))
+}
+
+fn hex(v: &[u8]) -> String {
+    v.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn unhex(what: &str, v: &str) -> anyhow::Result<Vec<u8>> {
+    if v.len() % 2 != 0 || !v.bytes().all(|b| b.is_ascii_hexdigit()) {
+        anyhow::bail!("{what} is not hex");
+    }
+    (0..v.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&v[i..i + 2], 16).map_err(Into::into))
+        .collect()
+}
+
 /// Hand the organisation key to somebody else.
 ///
 /// Used when an admin admits a member who has enrolled and published a public
 /// key. The result is stored by the server, which cannot open it.
-#[allow(dead_code)] // Reached once the member-approval screen lands.
 pub fn wrap_for_member(org_key: &[u8; 32], member_public_key: &str) -> anyhow::Result<String> {
     let pk = key32("the member's public key", unb64("public_key", member_public_key)?)?;
     Ok(b64(&keys::seal_to(&pk, org_key)?))
@@ -232,6 +257,30 @@ mod tests {
             &wrapped_dek
         )
         .is_err());
+    }
+
+    #[test]
+    fn rotating_moves_a_data_key_without_touching_what_it_protects() {
+        let old = fury_shared::keys::new_org_key();
+        let new = fury_shared::keys::new_org_key();
+        let creds = fury_shared::api::ProxyCredentials {
+            username: Some("bob".into()),
+            password: Some("s3cr3t".into()),
+        };
+        let (credentials_enc, wrapped_dek) = seal_proxy_credentials(&old, &creds).unwrap();
+
+        let hex_dek = hex(&wrapped_dek);
+        let rotated = unhex("x", &rewrap_data_key(&old, &new, &hex_dek).unwrap()).unwrap();
+
+        // The credentials blob never moved, and it still opens — under the new
+        // organisation key, and no longer under the old one.
+        let back = open_proxy_credentials(&new, &credentials_enc, &rotated).unwrap();
+        assert_eq!(back.password.as_deref(), Some("s3cr3t"));
+        assert!(open_proxy_credentials(&old, &credentials_enc, &rotated).is_err());
+
+        // And the member who left keeps a key that opens nothing new: the old
+        // wrapping is still theirs, and it is no longer what the server holds.
+        assert_ne!(rotated, wrapped_dek);
     }
 
     #[test]
