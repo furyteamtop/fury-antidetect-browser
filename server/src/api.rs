@@ -39,6 +39,10 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/v1/profiles/{profile_id}/lock", post(acquire_lock))
         .route("/v1/profiles/{profile_id}/lock/heartbeat", post(heartbeat))
         .route("/v1/profiles/{profile_id}/unlock", post(release_lock))
+        .route(
+            "/v1/profiles/{profile_id}/bundle",
+            post(upload_bundle).get(download_bundle),
+        )
 }
 
 // ---------------------------------------------------------------------------
@@ -461,6 +465,162 @@ async fn acquire_lock(
         expires_at: expires_at.to_string(),
         restrictions,
     }))
+}
+
+// ---------------------------------------------------------------------------
+// bundles
+// ---------------------------------------------------------------------------
+//
+// Bytes go through the server for now. docs/01 says it should not proxy them,
+// and for a public host that is right — presigned URLs into object storage, so
+// the server stays small and the bandwidth bill lands where the storage is. For
+// one team on one box, a directory is the honest answer: it works, it backs up
+// with the rest of the machine, and it does not require standing up MinIO to
+// share a profile with three colleagues.
+//
+// What the server never has is a key. It stores ciphertext, the wrapped key it
+// cannot open, and a digest *of the ciphertext* so it can verify what it holds
+// without being able to read it.
+
+fn bundle_root() -> std::path::PathBuf {
+    std::env::var("FURY_BUNDLE_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("/var/lib/fury/bundles"))
+}
+
+/// Upload a new version.
+///
+/// The version the client based its work on comes in a header, and a mismatch
+/// is a 409 rather than an overwrite. That check is the whole point: two people
+/// with the same profile open produce two bundles, and silently keeping the
+/// later one loses whatever the first did — which for a warmed account can be
+/// weeks of work.
+async fn upload_bundle(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+    Path(profile_id): Path<Uuid>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> ApiResult<Json<serde_json::Value>> {
+    let perms = rbac_guard::permissions_for_profile(&state.db, caller.user_id, profile_id).await?;
+    if perms == PermSet::NONE {
+        return Err(ApiError::NotFound);
+    }
+    // Uploading is what launching a profile leads to, so it is gated by the
+    // same right rather than one of its own: anyone who may open a profile is
+    // necessarily allowed to change it, and a separate permission would only
+    // produce operators who can work but cannot save.
+    if !perms.has(Perm::Launch) {
+        return Err(ApiError::Denied(Perm::Launch));
+    }
+
+    let header = |name: &str| -> Option<String> {
+        headers.get(name).and_then(|v| v.to_str().ok()).map(str::to_string)
+    };
+
+    let wrapped_key = header("x-fury-wrapped-key")
+        .ok_or_else(|| ApiError::BadRequest("missing x-fury-wrapped-key".into()))?;
+    let sha256 = header("x-fury-sha256")
+        .ok_or_else(|| ApiError::BadRequest("missing x-fury-sha256".into()))?;
+    let base_version: i32 = header("x-fury-base-version")
+        .and_then(|v| v.parse().ok())
+        .ok_or_else(|| ApiError::BadRequest("missing x-fury-base-version".into()))?;
+
+    // Verified before anything is written. A truncated upload that is recorded
+    // as a version is a profile that restores broken, and the operator finds
+    // out on the machine that needed it.
+    {
+        use sha2::{Digest, Sha256};
+        let actual: String = Sha256::digest(&body).iter().map(|b| format!("{b:02x}")).collect();
+        if actual != sha256 {
+            return Err(ApiError::BadRequest(
+                "the body does not match the digest it was sent with".into(),
+            ));
+        }
+    }
+
+    let current: i32 = sqlx::query_scalar("SELECT current_version FROM profiles WHERE id = $1")
+        .bind(profile_id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    if base_version != current {
+        return Err(ApiError::Conflict(format!(
+            "this is based on version {base_version}, but the profile is at {current} —              someone else uploaded in between"
+        )));
+    }
+
+    let version = current + 1;
+    let dir = bundle_root().join(profile_id.to_string());
+    std::fs::create_dir_all(&dir).map_err(|e| ApiError::Internal(e.into()))?;
+    let key = format!("{profile_id}/{version}.bundle");
+    std::fs::write(bundle_root().join(&key), &body).map_err(|e| ApiError::Internal(e.into()))?;
+
+    let mut tx = state.db.begin().await?;
+    sqlx::query(
+        "INSERT INTO bundles (id, profile_id, version, kind, s3_key, size_bytes, sha256,
+                              wrapped_dek, uploaded_by)
+         VALUES ($1, $2, $3, 'snapshot', $4, $5, $6, $7, $8)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(profile_id)
+    .bind(version)
+    .bind(&key)
+    .bind(body.len() as i64)
+    .bind(sha256.as_bytes())
+    .bind(wrapped_key.as_bytes())
+    .bind(caller.user_id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("UPDATE profiles SET current_version = $2 WHERE id = $1")
+        .bind(profile_id)
+        .bind(version)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+
+    audit(&state, &caller, "bundle.upload", Some(profile_id),
+          json!({ "version": version, "bytes": body.len() })).await?;
+
+    Ok(Json(json!({ "version": version })))
+}
+
+/// Fetch the current version.
+async fn download_bundle(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+    Path(profile_id): Path<Uuid>,
+) -> Result<axum::response::Response, ApiError> {
+    let perms = rbac_guard::permissions_for_profile(&state.db, caller.user_id, profile_id).await?;
+    if perms == PermSet::NONE {
+        return Err(ApiError::NotFound);
+    }
+    if !perms.has(Perm::Launch) {
+        return Err(ApiError::Denied(Perm::Launch));
+    }
+
+    let row: Option<(i32, String, Vec<u8>)> = sqlx::query_as(
+        "SELECT version, s3_key, wrapped_dek FROM bundles
+         WHERE profile_id = $1 ORDER BY version DESC LIMIT 1",
+    )
+    .bind(profile_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    let (version, key, wrapped) = row.ok_or(ApiError::NotFound)?;
+    let bytes = std::fs::read(bundle_root().join(&key))
+        .map_err(|e| ApiError::Internal(e.into()))?;
+
+    use axum::response::IntoResponse;
+    let mut response = bytes.into_response();
+    let headers = response.headers_mut();
+    headers.insert("x-fury-version", version.to_string().parse().unwrap());
+    headers.insert(
+        "x-fury-wrapped-key",
+        String::from_utf8_lossy(&wrapped).parse().unwrap(),
+    );
+    Ok(response)
 }
 
 async fn heartbeat(
