@@ -1520,9 +1520,23 @@ pub async fn move_profiles(
     project_id: Option<String>,
 ) -> R<serde_json::Value> {
     if mode_of(&state) != "local" {
-        return Err(ApiErr::local(
-            "Moving a profile between projects needs a server endpoint that does not exist yet.",
-        ));
+        // On a server a profile always belongs to a project, because the
+        // project is what carries access to it. "Out of every project" is a
+        // local idea and there is nothing sensible for it to mean here.
+        let Some(project_id) = project_id else {
+            return Err(ApiErr::coded(
+                "err.teamProfileNeedsProject",
+                "A team profile has to live in a project — that is what carries access to it.",
+            ));
+        };
+        return state
+            .call(
+                reqwest::Method::POST,
+                "/v1/profiles/move",
+                Body::Json(serde_json::json!({ "ids": ids, "project_id": project_id })),
+                true,
+            )
+            .await;
     }
     Ok(crate::agent::call(
         "profiles.move",

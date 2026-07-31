@@ -49,6 +49,7 @@ pub fn routes() -> Router<Arc<AppState>> {
             axum::routing::delete(revoke_access),
         )
         .route("/v1/profiles", get(list_all_profiles))
+        .route("/v1/profiles/move", post(move_profiles))
         .route("/v1/profiles/trash", get(list_trash))
         .route("/v1/profiles/{profile_id}/restore", post(restore_profile))
         .route("/v1/profiles/{profile_id}/purge", axum::routing::delete(purge_profile))
@@ -1506,6 +1507,87 @@ async fn delete_profile(
 
     audit(&state, &caller, "profile.delete", Some(profile_id), json!({})).await?;
     Ok(Json(json!({ "deleted": true })))
+}
+
+#[derive(Deserialize)]
+pub struct MoveRequest {
+    ids: Vec<Uuid>,
+    /// Where they land. Required: on a server a profile always belongs to a
+    /// project, because the project is what carries access to it — a profile
+    /// outside every project would be one nobody has any stated right to open.
+    project_id: Uuid,
+}
+
+/// Move profiles into another project.
+///
+/// Two permissions, not one, and they are on different projects. Taking a
+/// profile out of a project removes it from everyone who could reach it there,
+/// which is `delete_profile` on the source; putting it into another makes it
+/// reachable by everyone who can reach that one, which is `create_profile` on
+/// the destination. Checking only the destination would let anyone who can
+/// create a profile anywhere quietly move somebody else's work into a project
+/// only they can see.
+async fn move_profiles(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+    Json(req): Json<MoveRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    if req.ids.is_empty() {
+        return Ok(Json(json!({ "moved": 0 })));
+    }
+    rbac_guard::require(&state.db, caller.user_id, req.project_id, Perm::CreateProfile).await?;
+
+    let mut tx = state.db.begin().await?;
+    let mut moved = 0;
+
+    for id in &req.ids {
+        let row: Option<(Uuid, bool)> = sqlx::query_as(
+            "SELECT f.project_id, \
+                    EXISTS(SELECT 1 FROM profile_locks l \
+                            WHERE l.profile_id = f.id AND l.expires_at > now()) \
+             FROM profiles f \
+             WHERE f.id = $1 AND f.org_id = $2 AND f.deleted_at IS NULL",
+        )
+        .bind(id)
+        .bind(caller.org_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let Some((from, open)) = row else {
+            return Err(ApiError::NotFound);
+        };
+        if from == req.project_id {
+            continue;
+        }
+        if open {
+            // Mid-session, the set of people who can reach this profile would
+            // change under the person using it — and the bundle they push on
+            // close would land in a project they were never granted.
+            return Err(ApiError::Conflict(
+                "one of these profiles is open right now. Close it first".into(),
+            ));
+        }
+
+        // Resolved against the source project each time rather than once: a
+        // selection can span projects, and a caller with rights on one of them
+        // must not carry those rights to the rest.
+        let perms = rbac_guard::permissions_for(&state.db, caller.user_id, from).await?;
+        if !perms.has(Perm::DeleteProfile) {
+            return Err(ApiError::Denied(Perm::DeleteProfile));
+        }
+
+        sqlx::query("UPDATE profiles SET project_id = $1 WHERE id = $2")
+            .bind(req.project_id)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        moved += 1;
+    }
+
+    tx.commit().await?;
+    audit(&state, &caller, "profile.move", Some(req.project_id),
+          json!({ "profiles": req.ids, "moved": moved })).await?;
+    Ok(Json(json!({ "moved": moved })))
 }
 
 /// Deleted profiles the caller may see.

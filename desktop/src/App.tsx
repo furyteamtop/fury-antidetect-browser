@@ -521,7 +521,7 @@ export function App() {
                 >
                   {t("bar.deleteSelected", { n: chosen.length })}
                 </button>
-                {local && (
+                {projects.length > 0 && (
                   <select
                     style={{ width: "auto" }}
                     value=""
@@ -554,7 +554,9 @@ export function App() {
                         {p.name}
                       </option>
                     ))}
-                    <option value={"\u0000none"}>{t("bar.moveOut")}</option>
+                    {/* Local only: on a server a profile always belongs to a
+                        project, because the project is what carries access. */}
+                    {local && <option value={"\u0000none"}>{t("bar.moveOut")}</option>}
                   </select>
                 )}
                 <button className="ghost" onClick={() => setSelected(new Set())}>
