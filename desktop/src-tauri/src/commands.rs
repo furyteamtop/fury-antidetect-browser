@@ -688,14 +688,26 @@ struct LockGrant {
     lock_token: String,
     expires_at: String,
     restrictions: serde_json::Value,
+    spec: fury_shared::api::LaunchSpec,
 }
 
 /// Open a profile.
 ///
-/// In local mode this actually launches a browser. In team mode it still only
-/// takes the lock — the agent does not yet know how to fetch a bundle from a
-/// server, so saying anything else would be a lie the operator discovers by
-/// waiting for a window that never appears.
+/// Local mode goes straight to the agent. Team mode takes the lock, which is
+/// also what hands back everything needed to launch, opens the proxy
+/// credentials here — where the organisation key lives and nowhere else — and
+/// passes the assembled profile down the socket.
+///
+/// The agent is never given the organisation key. It receives one profile, with
+/// one proxy's credentials in the clear, exactly as it would in local mode. A
+/// compromised agent is then a compromised profile rather than a compromised
+/// team.
+///
+/// Worth being plain about, because the interface must not imply otherwise:
+/// anyone with `launch` ends up able to recover that proxy password. The relay
+/// runs on their machine and needs the plaintext to dial. `reveal_secrets` is a
+/// real control against someone who may only *see* a profile, and not against
+/// someone who may open it.
 #[tauri::command]
 pub async fn launch(
     state: State<'_, AppState>,
@@ -726,14 +738,105 @@ pub async fn launch(
         .locks
         .lock()
         .unwrap()
-        .insert(profile_id, grant.lock_token);
+        .insert(profile_id.clone(), grant.lock_token.clone());
+
+    // From here a failure has to release the lock. Leaving one behind on a
+    // profile that never opened is the thing locks are supposed to prevent,
+    // arrived at from the wrong direction — a colleague waiting ninety seconds
+    // for a browser that does not exist.
+    let launched = launch_from_spec(&state, &profile_id, &grant).await;
+    if launched.is_err() {
+        let _: R<serde_json::Value> = state
+            .call(
+                reqwest::Method::POST,
+                &format!("/v1/profiles/{profile_id}/unlock"),
+                Body::Json(serde_json::json!({ "lock_token": grant.lock_token })),
+                true,
+            )
+            .await;
+        state.locks.lock().unwrap().remove(&profile_id);
+    }
+    let out = launched?;
 
     Ok(serde_json::json!({
-        "launched": false,
+        "launched": true,
+        "pid": out.get("pid"),
         "expires_at": grant.expires_at,
         "restrictions": grant.restrictions,
-        "renewed": false,
     }))
+}
+
+/// Turn a launch spec into a running browser.
+async fn launch_from_spec(
+    state: &AppState,
+    profile_id: &str,
+    grant: &LockGrant,
+) -> R<serde_json::Value> {
+    let spec = &grant.spec;
+
+    let org_key = state
+        .org_key
+        .lock()
+        .unwrap()
+        .ok_or_else(|| {
+            ApiErr::local(
+                "This machine does not hold the organisation key yet. An owner or admin has to                  hand it over before anything here can be decrypted — until then you can see the                  team and open nothing.",
+            )
+        })?;
+
+    let credentials = crypto::open_proxy_credentials(
+        &org_key,
+        &spec.proxy.credentials_enc,
+        &spec.proxy.wrapped_dek,
+    )
+    .map_err(|e| ApiErr::local(format!("Could not open this proxy's credentials: {e}")))?;
+
+    let seed = fury_shared::persona::seed::from_hex(&spec.fp_seed).ok_or_else(|| {
+        ApiErr::local("The server sent a fingerprint seed this version cannot read.")
+    })?;
+
+    // Shaped exactly like a local profile, because from the agent's side that
+    // is what it is: one profile to run, with one proxy to run it through.
+    let profile = serde_json::json!({
+        "id": spec.profile_id.to_string(),
+        "project_id": null,
+        "name": spec.name,
+        "notes": "",
+        "tags": [],
+        "persona_id": spec.persona_id,
+        "fp_seed": fury_shared::persona::seed::to_i64(seed),
+        "proxy": {
+            "id": spec.proxy.id.to_string(),
+            "name": "",
+            "kind": spec.proxy.kind,
+            "host": spec.proxy.host,
+            "port": spec.proxy.port,
+            "username": credentials.username,
+            "password": credentials.password,
+            "last_country": null,
+            "last_ip": null,
+            "rotate_url": null,
+            "checker_url": null,
+        },
+        "timezone": spec.timezone,
+        "languages": spec.languages,
+        "start_urls": spec.start_urls,
+        "last_opened_at": null,
+    });
+
+    let server = state.server_url()?;
+    let token = state.session.token().ok_or_else(unauthenticated)?;
+
+    Ok(crate::agent::call(
+        "profile.launch",
+        serde_json::json!({
+            "id": spec.profile_id.to_string(),
+            "profile": profile,
+            "server": { "url": server, "token": token },
+            "lock_token": grant.lock_token,
+        }),
+    )
+    .await?)
 }
 
 #[tauri::command]

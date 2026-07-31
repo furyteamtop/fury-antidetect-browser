@@ -155,24 +155,15 @@ export function App() {
     setError(null);
     try {
       const res = await api.launch(profile.id, force);
-      if (!res.launched) {
-        // Team mode: all that happened was taking the lock. Saying "opening…"
-        // would leave the operator waiting for a window that is not coming.
-        //
-        // The agent can pull and push bundles now. What is still missing is the
-        // server handing over what a launch needs — persona, seed and the proxy
-        // credentials, which are stored encrypted under the organisation key.
-        const applied = Object.entries(res.restrictions ?? {})
-          .filter(([, on]) => on)
-          .map(([k]) => k);
-        setError(
-          `Lock taken; it lapses at ${
-            res.expires_at ? new Date(res.expires_at).toLocaleTimeString() : "soon"
-          } and nothing is renewing it yet. Profiles from a server cannot be launched ` +
-            `yet — the server has no endpoint that hands the agent a profile's proxy ` +
-            `credentials. Restrictions it would apply: ` +
-            `${applied.length ? applied.join(", ") : "none"}.`,
-        );
+      // Restrictions are the technical half of "an operator cannot take the
+      // data home", and they are applied silently. Saying which ones landed is
+      // the difference between a browser that behaves oddly and one whose
+      // limits were explained.
+      const applied = Object.entries(res.restrictions ?? {})
+        .filter(([, on]) => on)
+        .map(([k]) => k);
+      if (applied.length > 0) {
+        setNotice(t("app.launchRestricted", { list: applied.join(", ") }));
       }
       await refreshProfiles();
     } catch (e) {

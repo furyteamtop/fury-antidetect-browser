@@ -282,7 +282,7 @@ function About({ shell }: { shell: Shell }) {
         <h2>{t("about.author")}</h2>
         <dl className="kv">
           <dt>{t("about.madeBy")}</dt>
-          <dd>Богдан Шаповалов</dd>
+          <dd>Bogdan Shapovalov</dd>
           <dt>{t("about.source")}</dt>
           <dd>
             <a href="https://github.com/fury-browser/fury" target="_blank" rel="noreferrer">

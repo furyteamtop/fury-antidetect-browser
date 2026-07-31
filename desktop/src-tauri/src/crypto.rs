@@ -98,6 +98,45 @@ pub fn unlock_org_key(
     Ok(Some(key32("the organisation key", ork)?))
 }
 
+/// Open a proxy's credentials.
+///
+/// Two layers, and the reason is membership: the credentials are sealed under a
+/// per-proxy data key, and only that key is wrapped under the organisation key.
+/// Rotating the organisation key — which is what removing someone from the team
+/// requires — then means re-wrapping one small key per proxy rather than
+/// re-encrypting every secret the team owns.
+pub fn open_proxy_credentials(
+    org_key: &[u8; 32],
+    credentials_enc: &[u8],
+    wrapped_dek: &[u8],
+) -> anyhow::Result<fury_shared::api::ProxyCredentials> {
+    let dek = key32("the proxy data key", keys::unwrap(org_key, wrapped_dek)?)?;
+    let plain = keys::unwrap(&dek, credentials_enc)?;
+    Ok(serde_json::from_slice(&plain)?)
+}
+
+/// Seal a proxy's credentials for storage on the server.
+#[allow(dead_code)] // Reached once the team-mode proxy form lands.
+pub fn seal_proxy_credentials(
+    org_key: &[u8; 32],
+    credentials: &fury_shared::api::ProxyCredentials,
+) -> anyhow::Result<(Vec<u8>, Vec<u8>)> {
+    // A fresh data key per proxy, so two proxies sharing a password do not
+    // produce related ciphertext, and revoking one reveals nothing about
+    // another.
+    let dek = keys::new_org_key();
+    let plain = serde_json::to_vec(credentials)?;
+    Ok((keys::wrap(&dek, &plain), keys::wrap(org_key, &dek)))
+}
+
+/// The key the agent is given for one profile's bundle.
+///
+/// Not the organisation key. See `fury_shared::keys::subkey`.
+#[allow(dead_code)] // Reached when bundle sealing moves onto the org key.
+pub fn profile_key(org_key: &[u8; 32], profile_id: &str) -> [u8; 32] {
+    keys::subkey(org_key, "fury-profile-v1", profile_id)
+}
+
 /// Hand the organisation key to somebody else.
 ///
 /// Used when an admin admits a member who has enrolled and published a public
@@ -164,6 +203,42 @@ mod tests {
         .unwrap();
 
         assert_eq!(got, owner.org_key, "the member did not end up with the org's key");
+    }
+
+    #[test]
+    fn proxy_credentials_survive_the_round_trip_and_travel_sealed() {
+        let ork = fury_shared::keys::new_org_key();
+        let creds = fury_shared::api::ProxyCredentials {
+            username: Some("bob".into()),
+            password: Some("s3cr3t-proxy-password".into()),
+        };
+        let (credentials_enc, wrapped_dek) = seal_proxy_credentials(&ork, &creds).unwrap();
+
+        let back = open_proxy_credentials(&ork, &credentials_enc, &wrapped_dek).unwrap();
+        assert_eq!(back.username.as_deref(), Some("bob"));
+        assert_eq!(back.password.as_deref(), Some("s3cr3t-proxy-password"));
+
+        // What the server stores must carry neither the password nor the key
+        // that opens it.
+        for blob in [&credentials_enc, &wrapped_dek] {
+            assert!(!blob.windows(6).any(|w| w == b"s3cr3t"), "the password is in the clear");
+            assert!(!blob.windows(32).any(|w| w == ork), "the organisation key travelled");
+        }
+
+        // Another organisation gets nothing.
+        assert!(open_proxy_credentials(
+            &fury_shared::keys::new_org_key(),
+            &credentials_enc,
+            &wrapped_dek
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn one_profiles_key_does_not_open_another() {
+        let ork = fury_shared::keys::new_org_key();
+        assert_ne!(profile_key(&ork, "profile-a"), profile_key(&ork, "profile-b"));
+        assert_ne!(profile_key(&ork, "profile-a"), ork);
     }
 
     #[test]

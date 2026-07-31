@@ -530,7 +530,14 @@ impl Agent {
                     .get("lock_token")
                     .and_then(|v| v.as_str())
                     .map(str::to_string);
-                self.launch(&str_param(&params, "id")?, server, lock_token).await
+                // Present for a team profile, whose record lives on the
+                // server rather than in this machine's store.
+                let inline: Option<Profile> = params
+                    .get("profile")
+                    .cloned()
+                    .map(serde_json::from_value)
+                    .transpose()?;
+                self.launch(&str_param(&params, "id")?, server, lock_token, inline).await
             }
             "profile.stop" => self.stop(&str_param(&params, "id")?).await,
 
@@ -543,6 +550,7 @@ impl Agent {
         profile_id: &str,
         server: Option<crate::sync::Server>,
         lock_token: Option<String>,
+        inline: Option<Profile>,
     ) -> anyhow::Result<serde_json::Value> {
         {
             let mut running = self.running.lock().await;
@@ -561,11 +569,23 @@ impl Agent {
             }
         }
 
-        let profile = self
-            .store
-            .profile(profile_id)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("no such profile"))?;
+        // A team profile does not exist in this machine's store — it lives on
+        // the server, and the shell has already fetched it, opened the proxy
+        // credentials with the organisation key, and handed the result down.
+        //
+        // The shell does that unsealing, not the agent, and deliberately: the
+        // organisation key opens every proxy and every profile in the team, and
+        // this is the process that runs a browser executing other people's
+        // JavaScript all day. It gets the one profile it was asked for.
+        let from_server = inline.is_some();
+        let profile = match inline {
+            Some(p) => p,
+            None => self
+                .store
+                .profile(profile_id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("no such profile"))?,
+        };
 
         let proxy = profile.proxy.as_ref().ok_or_else(|| {
             anyhow::anyhow!(
@@ -649,7 +669,12 @@ impl Agent {
         })?;
 
         let pid = child.id();
-        self.store.touch_opened(&profile.id).await?;
+        // Only for a profile this machine owns. A team profile's last-opened
+        // time belongs to the server, which already records the launch in its
+        // audit log when the lock is taken.
+        if !from_server {
+            self.store.touch_opened(&profile.id).await?;
+        }
 
         let heartbeat = match (server.as_ref(), lock_token.as_ref()) {
             (Some(srv), Some(token)) => Some(crate::sync::keep_alive(
