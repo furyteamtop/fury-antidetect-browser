@@ -908,3 +908,28 @@ select option {
 .field select {
   min-width: 160px;
 }
+
+/* An icon-only control still needs a target the size of a finger, so the box is
+   larger than the glyph and the glyph is centred in it. */
+.iconBtn {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.iconBtn:hover:not(:disabled) {
+  background: var(--hover);
+  border-color: transparent;
+  color: var(--text);
+}
+
+.foot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}

@@ -223,19 +223,10 @@ export function App() {
     { id: "act:trash", label: t("cmd.trash"), run: () => setView("trash") },
   ];
 
-  return (
-    <div className="app">
-      {askDialog}
-      <Sidebar
-        projects={projects}
-        active={active}
-        shell={shell}
-        me={me}
-        onSelect={setActive}
-        view={view}
-        onView={setView}
-        onNewProfile={() => setEditing(null)}
-        onExport={async () => {
+
+  // Lives here rather than in Settings because it needs the active project, the
+  // ask() dialog and the notice bar — all of which belong to this screen.
+  const exportProject = async () => {
           if (!active) return;
           const path = await ask({
             title: t("ex.exportTitle"),
@@ -258,8 +249,9 @@ export function App() {
           } catch (e) {
             setError((e as Error).message);
           }
-        }}
-        onImport={async () => {
+  };
+
+  const importProject = async () => {
           const path = await ask({
             title: t("ex.importTitle"),
             detail: t("ex.importDetail"),
@@ -280,7 +272,20 @@ export function App() {
           } catch (e) {
             setError((e as Error).message);
           }
-        }}
+  };
+
+  return (
+    <div className="app">
+      {askDialog}
+      <Sidebar
+        projects={projects}
+        active={active}
+        shell={shell}
+        me={me}
+        onSelect={setActive}
+        view={view}
+        onView={setView}
+        onNewProfile={() => setEditing(null)}
         onSettings={() => setSettingsOpen(true)}
         onNewProject={async () => {
           const name = await ask({
@@ -498,7 +503,14 @@ export function App() {
         )}
 
         {settingsOpen && (
-          <Settings shell={shell} onChanged={setShell} onClose={() => setSettingsOpen(false)} />
+          <Settings
+            shell={shell}
+            hasProject={active !== null}
+            onExport={exportProject}
+            onImport={importProject}
+            onChanged={setShell}
+            onClose={() => setSettingsOpen(false)}
+          />
         )}
 
         {editing !== undefined && active && (

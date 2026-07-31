@@ -198,9 +198,16 @@ pub async fn import_project(
     }
 
     let manifest = manifest.ok_or_else(|| anyhow::anyhow!("the archive has no manifest"))?;
-    let project_id = store
-        .create_project(&manifest.project_name, "")
-        .await?;
+    // Marked, because an import lands beside the project it came from as often
+    // as not — and two identical names in a sidebar is a question the operator
+    // has to answer by clicking.
+    let taken: Vec<String> = store.projects().await?.into_iter().map(|p| p.name).collect();
+    let name = if taken.contains(&manifest.project_name) {
+        format!("{} (imported)", manifest.project_name)
+    } else {
+        manifest.project_name.clone()
+    };
+    let project_id = store.create_project(&name, "").await?;
 
     // Proxies first: a profile references one, so it has to exist. Ids are
     // remapped, because the receiving machine may already have a proxy under
@@ -350,6 +357,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count, 1);
+        // Landing beside the project it came from, so the name has to say so.
+        let names: Vec<String> = s.projects().await.unwrap().into_iter().map(|p| p.name).collect();
+        assert!(names.iter().any(|n| n.ends_with("(imported)")), "{names:?}");
 
         let restored = s.profiles(&new_project).await.unwrap();
         assert_eq!(restored.len(), 1);

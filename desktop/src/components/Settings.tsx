@@ -10,10 +10,16 @@ import { type Theme, themes, useTheme } from "../theme";
  *  it out would force a choice on someone it does not fit. */
 export function Settings({
   shell,
+  hasProject,
+  onExport,
+  onImport,
   onChanged,
   onClose,
 }: {
   shell: Shell;
+  hasProject: boolean;
+  onExport: () => void;
+  onImport: () => void;
   onChanged: (s: Shell) => void;
   onClose: () => void;
 }) {
@@ -123,6 +129,32 @@ export function Settings({
               </>
             )}
           </div>
+
+          {shell.mode === "local" && (
+            <div className="settingsGroup">
+              <h2>{t("set.transfer")}</h2>
+              <p>{t("set.transferHint")}</p>
+              <div className="row">
+                <button
+                  disabled={!hasProject}
+                  onClick={() => {
+                    onClose();
+                    onExport();
+                  }}
+                >
+                  {t("nav.export")}
+                </button>
+                <button
+                  onClick={() => {
+                    onClose();
+                    onImport();
+                  }}
+                >
+                  {t("nav.import")}
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="settingsGroup">
             <h2>{t("set.thisMachine")}</h2>
