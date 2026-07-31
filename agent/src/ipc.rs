@@ -300,8 +300,10 @@ impl Agent {
             }
 
             "profiles.list" => {
-                let project = str_param(&params, "project_id")?;
-                let mut profiles = self.store.profiles(&project).await?;
+                // No project_id means every profile on this machine. That is
+                // the Profiles view and the ordinary case; a project narrows it.
+                let project = params.get("project_id").and_then(|v| v.as_str());
+                let mut profiles = self.store.profiles(project).await?;
                 let running = self.running.lock().await;
                 // The list is the only place the shell learns what is open, so
                 // the answer has to come from the supervisor rather than from a
@@ -319,6 +321,16 @@ impl Agent {
             "profiles.upsert" => {
                 let profile: Profile = serde_json::from_value(params)?;
                 Ok(json!({ "id": self.store.upsert_profile(&profile).await? }))
+            }
+            "profiles.move" => {
+                let ids: Vec<String> = params
+                    .get("ids")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .ok_or_else(|| anyhow::anyhow!("missing parameter \"ids\""))?;
+                // Absent or null means "out of every project", which is a
+                // destination like any other, not a missing argument.
+                let project = params.get("project_id").and_then(|v| v.as_str());
+                Ok(json!({ "moved": self.store.move_profiles(&ids, project).await? }))
             }
             "profiles.delete" => {
                 self.store.delete_profile(&str_param(&params, "id")?).await?;
@@ -413,7 +425,7 @@ impl Agent {
                 // half-written database that restores as a logged-out account.
                 {
                     let running = self.running.lock().await;
-                    let live = self.store.profiles(&id).await?;
+                    let live = self.store.profiles(Some(&id)).await?;
                     if live.iter().any(|p| running.contains_key(&p.id)) {
                         anyhow::bail!(
                             "close the profiles in this project first — a browser writes its \

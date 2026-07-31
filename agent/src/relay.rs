@@ -30,10 +30,27 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Credentials {
     pub username: String,
     pub password: String,
+}
+
+/// Derived `Debug` printed the password. Three `tracing::info!(?upstream, …)`
+/// call sites — one on every proxy check and one on every launch — put a
+/// customer's proxy password into the agent log in cleartext, where it outlives
+/// the session, gets copied into bug reports, and is read by anything that
+/// ships logs anywhere.
+///
+/// The username stays: telling two accounts on one provider apart is the reason
+/// to look at this at all.
+impl std::fmt::Debug for Credentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Credentials")
+            .field("username", &self.username)
+            .field("password", &"…")
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -565,6 +582,23 @@ v.textContent=problems.length?problems.join(" · "):"Consistent — the platform
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_proxy_password_never_reaches_a_log_line() {
+        // Every launch and every proxy check logs the upstream at INFO. The
+        // derived Debug put the password in that line.
+        let up = Upstream::Socks5 {
+            host: "exit.example".into(),
+            port: 1080,
+            auth: Some(Credentials {
+                username: "bob".into(),
+                password: "s3cr3t-proxy-password".into(),
+            }),
+        };
+        let printed = format!("{up:?}");
+        assert!(!printed.contains("s3cr3t"), "the password is in the log: {printed}");
+        assert!(printed.contains("bob"), "the username is what tells two accounts apart");
+    }
 
     #[test]
     fn parses_connect_target() {

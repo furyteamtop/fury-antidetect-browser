@@ -23,7 +23,7 @@ export function Sidebar({
   active: Project | null;
   shell: Shell;
   me: Me | null;
-  onSelect: (p: Project) => void;
+  onSelect: (p: Project | null) => void;
   onNewProject: () => void;
   onRenameProject: (p: Project) => void;
   onDeleteProject: (p: Project) => void;
@@ -54,8 +54,18 @@ export function Sidebar({
             {(["profiles", "proxies", "trash"] as const).map((v) => (
               <button
                 key={v}
-                className={view === v ? "nav active" : "nav"}
-                onClick={() => onView(v)}
+                // Profiles is only "the current section" when no project is
+                // filtering it. With one chosen, the highlight belongs on the
+                // project — otherwise two rows claim to be where you are.
+                className={
+                  view === v && !(v === "profiles" && active) ? "nav active" : "nav"
+                }
+                onClick={() => {
+                  // Choosing Profiles clears the filter. It is the master list:
+                  // every profile on this machine, whatever project it is in.
+                  if (v === "profiles") onSelect(null);
+                  onView(v);
+                }}
               >
                 <span>{t(`nav.${v}` as never)}</span>
               </button>

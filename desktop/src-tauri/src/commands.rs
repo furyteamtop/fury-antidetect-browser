@@ -204,6 +204,8 @@ pub struct Shell {
     pub mode: &'static str,
     /// Whether the local daemon answered. Nothing can be launched without it.
     pub agent_ready: bool,
+    /// This build, for the About panel and for any bug report that follows it.
+    pub version: &'static str,
 }
 
 fn mode_of(state: &AppState) -> &'static str {
@@ -229,6 +231,7 @@ pub async fn shell_state(state: State<'_, AppState>) -> Result<Shell, ApiErr> {
         native: true,
         mode,
         agent_ready,
+        version: env!("CARGO_PKG_VERSION"),
     })
 }
 
@@ -517,7 +520,9 @@ pub struct UiProxy {
 #[derive(Serialize)]
 pub struct UiProfile {
     pub id: String,
-    pub project_id: String,
+    pub project_id: Option<String>,
+    /// Where it is filed, for the flat list to show without a request per row.
+    pub project_name: Option<String>,
     pub name: String,
     pub tags: Vec<String>,
     pub persona_id: String,
@@ -575,11 +580,18 @@ pub async fn projects(state: State<'_, AppState>) -> R<Vec<UiProject>> {
 }
 
 #[tauri::command]
-pub async fn profiles(state: State<'_, AppState>, project_id: String) -> R<Vec<UiProfile>> {
+/// `project_id` absent means every profile on this machine — the Profiles view.
+pub async fn profiles(
+    state: State<'_, AppState>,
+    project_id: Option<String>,
+) -> R<Vec<UiProfile>> {
     if mode_of(&state) == "local" {
         let local: Vec<crate::agent::LocalProfile> = crate::agent::call(
             "profiles.list",
-            serde_json::json!({ "project_id": project_id }),
+            match &project_id {
+                Some(id) => serde_json::json!({ "project_id": id }),
+                None => serde_json::json!({}),
+            },
         )
         .await?;
         return Ok(local
@@ -598,6 +610,7 @@ pub async fn profiles(state: State<'_, AppState>, project_id: String) -> R<Vec<U
                 last_opened_at: p.last_opened_at,
                 id: p.id,
                 project_id: p.project_id,
+                project_name: p.project_name,
                 name: p.name,
                 tags: p.tags,
                 persona_id: p.persona_id,
@@ -606,6 +619,13 @@ pub async fn profiles(state: State<'_, AppState>, project_id: String) -> R<Vec<U
             .collect());
     }
 
+    // The server has no "every profile" listing yet — profiles are reachable
+    // only through the project they belong to. Rather than invent one client
+    // side by fanning out over every project, team mode keeps asking per
+    // project until that endpoint exists.
+    let Some(project_id) = project_id else {
+        return Ok(Vec::new());
+    };
     let remote: Vec<ProfileSummary> = state
         .call(
             reqwest::Method::GET,
@@ -618,7 +638,8 @@ pub async fn profiles(state: State<'_, AppState>, project_id: String) -> R<Vec<U
         .into_iter()
         .map(|p| UiProfile {
             id: p.id.to_string(),
-            project_id: p.project_id.to_string(),
+            project_id: Some(p.project_id.to_string()),
+            project_name: None,
             name: p.name,
             tags: p.tags,
             persona_id: p.persona_id,
@@ -841,12 +862,32 @@ pub async fn trash() -> R<Vec<UiProfile>> {
             last_opened_at: p.last_opened_at,
             id: p.id,
             project_id: p.project_id,
+            project_name: p.project_name,
             name: p.name,
             tags: p.tags,
             persona_id: p.persona_id,
             fp_seed: p.fp_seed,
         })
         .collect())
+}
+
+/// Put profiles into a project, or take them out of every project.
+#[tauri::command]
+pub async fn move_profiles(
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+    project_id: Option<String>,
+) -> R<serde_json::Value> {
+    if mode_of(&state) != "local" {
+        return Err(ApiErr::local(
+            "Moving a profile between projects needs a server endpoint that does not exist yet.",
+        ));
+    }
+    Ok(crate::agent::call(
+        "profiles.move",
+        serde_json::json!({ "ids": ids, "project_id": project_id }),
+    )
+    .await?)
 }
 
 #[tauri::command]

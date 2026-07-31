@@ -49,7 +49,12 @@ export interface LockInfo {
 
 export interface Profile {
   id: string;
-  project_id: string;
+  /** Null when the profile is in no project. Profiles is the master list —
+   *  every profile on this machine — and a project is a grouping a profile can
+   *  be put into or taken out of without ever being at risk. */
+  project_id: string | null;
+  /** Where it is filed, so the flat list can show it without a call per row. */
+  project_name: string | null;
   name: string;
   tags: string[];
   persona_id: string;
@@ -123,6 +128,8 @@ export interface Shell {
   /** "local" needs no account at all; "team" is a server someone chose. */
   mode: "local" | "team";
   agent_ready: boolean;
+  /** This build, for the About panel and for any bug report that follows. */
+  version: string;
 }
 
 /** Note what is absent: the lock token. It authorises overwriting a bundle,
@@ -263,6 +270,7 @@ export const api = {
     return Promise.resolve({
       mode: "team" as const,
       agent_ready: false,
+      version: "dev",
       // Vite proxies /v1, so in this mode the address is fixed by the dev
       // config rather than chosen by the operator.
       server_url: "http://127.0.0.1:8901 (vite proxy)",
@@ -338,10 +346,41 @@ export const api = {
   projects: (): Promise<Project[]> =>
     isDesktop ? cmd<Project[]>("projects") : http<Project[]>("/v1/projects"),
 
-  profiles: (projectId: string): Promise<Profile[]> =>
+  /** Every profile when `projectId` is omitted — which is the Profiles view,
+   *  and the ordinary case. Passing one narrows it. */
+  profiles: (projectId?: string): Promise<Profile[]> =>
     isDesktop
-      ? cmd<Profile[]>("profiles", { projectId })
-      : http<Profile[]>(`/v1/projects/${projectId}/profiles`),
+      ? cmd<Profile[]>("profiles", { projectId: projectId ?? null })
+      : projectId
+        ? http<Profile[]>(`/v1/projects/${projectId}/profiles`)
+        : Promise.resolve([]),
+
+  /** Ask the release feed whether there is a newer build. It never installs:
+   *  see src-tauri/update.rs for why that waits on signed releases. */
+  checkUpdate: (): Promise<{
+    current: string;
+    latest: string | null;
+    url: string | null;
+    notes: string | null;
+    status: "current" | "available" | "unpublished" | "unreachable";
+    message: string | null;
+  }> =>
+    isDesktop
+      ? cmd("check_update")
+      : Promise.resolve({
+          current: "dev",
+          latest: null,
+          url: null,
+          notes: null,
+          status: "unreachable" as const,
+          message: "Update checks are desktop-only.",
+        }),
+
+  /** Move profiles into a project, or out of every project with `null`. */
+  moveProfiles: (ids: string[], projectId: string | null): Promise<{ moved: number }> =>
+    isDesktop
+      ? cmd<{ moved: number }>("move_profiles", { ids, projectId })
+      : Promise.reject(new ApiError(0, "Moving profiles is desktop-only for now.")),
 
   launch: (profileId: string, force = false): Promise<LaunchResult> =>
     isDesktop

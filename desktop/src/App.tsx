@@ -72,11 +72,12 @@ export function App() {
     try {
       const list = await api.projects();
       setProjects(list);
-      // Open straight into a project: the list of profiles is the application,
-      // and any screen between launching and it is friction (docs/12).
-      setActive((current) =>
-        current ? (list.find((p) => p.id === current.id) ?? list[0] ?? null) : (list[0] ?? null),
-      );
+      // The app opens on every profile, not on whichever project happened to
+      // sort first. A project is a filter the operator chooses; choosing one
+      // for them hides the rest of their work behind a click they did not know
+      // they had to make. A project that disappears while selected drops the
+      // filter rather than jumping to another one.
+      setActive((current) => (current ? (list.find((p) => p.id === current.id) ?? null) : null));
       // Identity only exists with a server.
       setMe(local ? null : await api.me());
     } catch (e) {
@@ -90,7 +91,7 @@ export function App() {
   }, [ready, load]);
 
   const refreshProfiles = useCallback(async () => {
-    if (!active || !ready) {
+    if (!ready) {
       setProfiles([]);
       return;
     }
@@ -99,7 +100,13 @@ export function App() {
       // created, deleted or restored — including from another window or from
       // the agent directly. Refreshing only the rows left the sidebar showing a
       // number the table contradicted.
-      const [rows, list] = await Promise.all([api.profiles(active.id), api.projects()]);
+      // No project selected means every profile on this machine. That is the
+      // Profiles view: the master list an operator actually works from, with a
+      // project as a filter over it rather than the only way in.
+      const [rows, list] = await Promise.all([
+        api.profiles(active?.id),
+        api.projects(),
+      ]);
       setProfiles(rows);
       setProjects(list);
     } catch (e) {
@@ -359,11 +366,15 @@ export function App() {
       />
       <main className="main">
         <header className="head">
-          <h1>{view === "trash" ? t("trash.title") : (active?.name ?? t("app.noProjects"))}</h1>
+          <h1>
+            {view === "trash"
+              ? t("trash.title")
+              : view === "proxies"
+                ? t("nav.proxies")
+                : (active?.name ?? t("nav.profiles"))}
+          </h1>
           {view === "profiles" && (
-            <span className="muted">
-              {active ? t("app.profileCount", { n: profiles.length }) : t("app.nothingYet")}
-            </span>
+            <span className="muted">{t("app.profileCount", { n: profiles.length })}</span>
           )}
         </header>
 
@@ -391,11 +402,11 @@ export function App() {
           </div>
         )}
 
-        {active && local && view === "profiles" && (
+        {local && view === "profiles" && (
           <div className="toolbar">
-            <button className="primary" onClick={() => setEditing(null)}>
-              {t("bar.newProfile")}
-            </button>
+            {/* No "New profile" here. It is the first thing in the sidebar,
+                permanently, and a second copy of the primary action a few
+                pixels away is two places to look for one decision. */}
             <input
               className="search"
               placeholder={t("bar.search")}
@@ -470,6 +481,42 @@ export function App() {
                 >
                   {t("bar.deleteSelected", { n: chosen.length })}
                 </button>
+                {local && (
+                  <select
+                    style={{ width: "auto" }}
+                    value=""
+                    disabled={busy}
+                    onChange={async (e) => {
+                      const to = e.target.value;
+                      if (to === "") return;
+                      setBusy(true);
+                      try {
+                        // "\u0000none" rather than "" for out-of-every-project:
+                        // an empty value is the placeholder, and the two must
+                        // not be the same string or picking one does nothing.
+                        await api.moveProfiles(
+                          chosen.map((p) => p.id),
+                          to === "\u0000none" ? null : to,
+                        );
+                        setSelected(new Set());
+                        await load();
+                        await refreshProfiles();
+                      } catch (err) {
+                        setError((err as Error).message);
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    <option value="">{t("bar.moveTo")}</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                    <option value={"\u0000none"}>{t("bar.moveOut")}</option>
+                  </select>
+                )}
                 <button className="ghost" onClick={() => setSelected(new Set())}>
                   {t("bar.clearSelection")}
                 </button>
@@ -495,10 +542,11 @@ export function App() {
           />
         )}
 
-        {view === "profiles" && active && (
+        {view === "profiles" && (
           <div className="tableWrap">
             <ProfileTable
               profiles={shown}
+              showProject={active === null}
               selected={selected}
               onToggle={toggle}
               onToggleAll={toggleAll}
@@ -567,9 +615,9 @@ export function App() {
           />
         )}
 
-        {editing !== undefined && active && (
+        {editing !== undefined && (
           <ProfileDialog
-            projectId={active.id}
+            projectId={active?.id ?? null}
             editing={editing}
             onClose={() => setEditing(undefined)}
             onSaved={async () => {

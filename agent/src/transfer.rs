@@ -68,7 +68,7 @@ pub async fn export_project(
         .find(|p| p.id == project_id)
         .ok_or_else(|| anyhow::anyhow!("no such project"))?;
 
-    let profiles = store.profiles(project_id).await?;
+    let profiles = store.profiles(Some(project_id)).await?;
     let used: Vec<Proxy> = {
         let ids: Vec<String> = profiles
             .iter()
@@ -224,7 +224,7 @@ pub async fn import_project(
     for profile in &manifest.profiles {
         let mut fresh = profile.clone();
         fresh.id = String::new();
-        fresh.project_id = project_id.clone();
+        fresh.project_id = Some(project_id.clone());
         fresh.proxy = profile.proxy.as_ref().and_then(|x| {
             proxy_ids.get(&x.id).map(|id| Proxy {
                 id: id.clone(),
@@ -291,7 +291,8 @@ mod tests {
     fn profile(project: &str, name: &str) -> Profile {
         Profile {
             id: String::new(),
-            project_id: project.into(),
+            project_id: Some(project.into()),
+            project_name: None,
             name: name.into(),
             notes: String::new(),
             tags: vec!["de".into()],
@@ -361,7 +362,7 @@ mod tests {
         let names: Vec<String> = s.projects().await.unwrap().into_iter().map(|p| p.name).collect();
         assert!(names.iter().any(|n| n.ends_with("(imported)")), "{names:?}");
 
-        let restored = s.profiles(&new_project).await.unwrap();
+        let restored = s.profiles(Some(&new_project)).await.unwrap();
         assert_eq!(restored.len(), 1);
         let r = &restored[0];
         assert_eq!(r.name, "Shop DE");

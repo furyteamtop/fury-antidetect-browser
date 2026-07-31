@@ -20,6 +20,7 @@ export function ProfileTable({
   selected,
   onToggle,
   onToggleAll,
+  showProject,
 }: {
   profiles: Profile[];
   me: Me | null;
@@ -35,6 +36,9 @@ export function ProfileTable({
   selected: Set<string>;
   onToggle: (id: string) => void;
   onToggleAll: () => void;
+  /** Shown when the list spans projects — inside one, the column would repeat
+   *  the same value on every row. */
+  showProject: boolean;
 }) {
   const { t } = useI18n();
   if (profiles.length === 0) {
@@ -59,6 +63,9 @@ export function ProfileTable({
             />
           </th>
           <th>{t("col.name")}</th>
+          {/* Only when the list spans projects. Inside one project the column
+              would repeat the same value on every row. */}
+          {showProject && <th>{t("col.project")}</th>}
           <th>{t("col.persona")}</th>
           <th>{t("col.proxy")}</th>
           <th>{t("col.status")}</th>
@@ -97,6 +104,11 @@ export function ProfileTable({
                   <div className="tags">{p.tags.map((t) => <span key={t}>{t}</span>)}</div>
                 )}
               </td>
+              {showProject && (
+                <td className="muted">
+                  {p.project_name ?? <span className="dim">{t("col.noProject")}</span>}
+                </td>
+              )}
               <td className="mono muted">{p.persona_id}</td>
               <td>
                 {p.proxy ? (

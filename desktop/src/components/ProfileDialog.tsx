@@ -28,7 +28,9 @@ export function ProfileDialog({
   onClose,
   onSaved,
 }: {
-  projectId: string;
+  /** Null when Profiles is unfiltered: a new profile then belongs to no
+   *  project, which is a place it can live. It can be filed later. */
+  projectId: string | null;
   editing: Profile | null;
   onClose: () => void;
   onSaved: () => void;
@@ -122,7 +124,10 @@ export function ProfileDialog({
 
       await api.saveProfile({
         id: editing?.id ?? "",
-        project_id: projectId,
+        // An existing profile keeps where it is filed; only a new one takes
+        // the project currently being viewed. Editing a profile from the flat
+        // list would otherwise move it out of its project.
+        project_id: editing ? editing.project_id : projectId,
         name: name.trim() || "Untitled",
         notes,
         tags: splitList(tags),

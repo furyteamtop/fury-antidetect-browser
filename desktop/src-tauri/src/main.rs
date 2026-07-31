@@ -15,6 +15,7 @@ mod commands;
 mod crypto;
 mod session;
 mod settings;
+mod update;
 
 use std::sync::Mutex;
 use std::time::Duration;
@@ -92,6 +93,8 @@ fn main() {
             commands::me,
             commands::projects,
             commands::profiles,
+            commands::move_profiles,
+            update::check_update,
             commands::launch,
             commands::stop,
             commands::personas,

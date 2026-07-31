@@ -58,7 +58,13 @@ pub struct LocalProxy {
 #[derive(Debug, serde::Deserialize)]
 pub struct LocalProfile {
     pub id: String,
-    pub project_id: String,
+    /// Absent when the profile is in no project — which is an ordinary state,
+    /// not an error: the Profiles list is every profile, and a project is a
+    /// grouping one can be moved out of.
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub project_name: Option<String>,
     pub name: String,
     pub tags: Vec<String>,
     pub persona_id: String,

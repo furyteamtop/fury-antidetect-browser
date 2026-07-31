@@ -76,7 +76,14 @@ impl Proxy {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Profile {
     pub id: String,
-    pub project_id: String,
+    /// `None` when the profile is in no project. The Profiles list is the
+    /// master list — every profile, whatever it is filed under — and a project
+    /// is a grouping the profile can be put into or taken out of.
+    pub project_id: Option<String>,
+    /// Filled in by the listing so the flat view can show where a profile is
+    /// filed without a second request per row. Not stored.
+    #[serde(default)]
+    pub project_name: Option<String>,
     pub name: String,
     pub notes: String,
     pub tags: Vec<String>,
@@ -168,7 +175,12 @@ impl Store {
 
             CREATE TABLE IF NOT EXISTS profiles (
                 id             TEXT PRIMARY KEY,
-                project_id     TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                -- Nullable, and SET NULL rather than CASCADE. A project is a
+                -- way of grouping profiles, not the thing that owns them: the
+                -- profile is the asset, and deleting a folder must never be a
+                -- way to lose a warmed account. NULL means "not in a project",
+                -- which the Profiles list shows like any other.
+                project_id     TEXT REFERENCES projects(id) ON DELETE SET NULL,
                 name           TEXT NOT NULL,
                 notes          TEXT NOT NULL DEFAULT '',
                 tags           TEXT NOT NULL DEFAULT '[]',
@@ -212,6 +224,74 @@ impl Store {
         ] {
             let _ = sqlx::query(stmt).execute(&self.pool).await;
         }
+
+        self.allow_profiles_without_a_project().await?;
+        Ok(())
+    }
+
+    /// Relax `profiles.project_id` to nullable on databases that predate it.
+    ///
+    /// SQLite cannot alter a column constraint, so this is the documented
+    /// twelve-step rebuild — and it is worth the risk exactly once, because the
+    /// alternative is that deleting a project keeps taking its profiles with
+    /// it. Columns are named explicitly: a database from before the groups
+    /// removal still carries `group_name`, and `INSERT INTO ... SELECT *` would
+    /// line the columns up wrongly and quietly move data between fields.
+    ///
+    /// Idempotent — it inspects the existing schema and returns immediately
+    /// once the column is already nullable, which is every start after the
+    /// first.
+    async fn allow_profiles_without_a_project(&self) -> anyhow::Result<()> {
+        let notnull: Option<i64> = sqlx::query_scalar(
+            "SELECT \"notnull\" FROM pragma_table_info('profiles') WHERE name = 'project_id'",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        if notnull != Some(1) {
+            return Ok(());
+        }
+
+        tracing::info!("migrating: a profile may now live outside a project");
+        // Foreign keys off for the swap, and the whole thing in one
+        // transaction: a database left holding profiles_new and no profiles is
+        // an application that will not start again.
+        sqlx::raw_sql("PRAGMA foreign_keys = OFF").execute(&self.pool).await?;
+        let result = sqlx::raw_sql(
+            r#"
+            BEGIN;
+            CREATE TABLE profiles_new (
+                id             TEXT PRIMARY KEY,
+                project_id     TEXT REFERENCES projects(id) ON DELETE SET NULL,
+                name           TEXT NOT NULL,
+                notes          TEXT NOT NULL DEFAULT '',
+                tags           TEXT NOT NULL DEFAULT '[]',
+                persona_id     TEXT NOT NULL,
+                fp_seed        INTEGER NOT NULL,
+                proxy_id       TEXT REFERENCES proxies(id) ON DELETE SET NULL,
+                timezone       TEXT,
+                languages      TEXT,
+                start_urls     TEXT NOT NULL DEFAULT '[]',
+                last_opened_at TEXT,
+                created_at     TEXT NOT NULL,
+                deleted_at     TEXT
+            );
+            INSERT INTO profiles_new
+                (id, project_id, name, notes, tags, persona_id, fp_seed, proxy_id,
+                 timezone, languages, start_urls, last_opened_at, created_at, deleted_at)
+            SELECT
+                 id, project_id, name, notes, tags, persona_id, fp_seed, proxy_id,
+                 timezone, languages, start_urls, last_opened_at, created_at, deleted_at
+            FROM profiles;
+            DROP TABLE profiles;
+            ALTER TABLE profiles_new RENAME TO profiles;
+            CREATE INDEX IF NOT EXISTS profiles_by_project ON profiles(project_id);
+            COMMIT;
+            "#,
+        )
+        .execute(&self.pool)
+        .await;
+        sqlx::raw_sql("PRAGMA foreign_keys = ON").execute(&self.pool).await?;
+        result?;
         Ok(())
     }
 
@@ -262,30 +342,30 @@ impl Store {
         Ok(())
     }
 
-    /// Hide a project, and send its profiles to the trash with it.
+    /// Hide a project. Its profiles stay.
     ///
-    /// The profiles have to go somewhere visible. Hiding only the project left
-    /// them in the database and out of every list — not deleted, not in the
-    /// trash, simply unreachable, which is the worst of the three outcomes and
-    /// is what this did at first. A profile holds a warmed account; if it is
-    /// going away it must be somewhere the operator can get it back from.
-    pub async fn delete_project(&self, id: &str) -> anyhow::Result<()> {
+    /// This deleted them too, once, and that was wrong in the way that only
+    /// becomes obvious when you say it out loud: a project is a folder, and
+    /// deleting a folder is not a reason to destroy what was filed in it. The
+    /// profile is the asset — months of a warmed account — and it survives
+    /// every organisational decision made about it. They become profiles in no
+    /// project, which the Profiles list shows exactly like the rest.
+    pub async fn delete_project(&self, id: &str) -> anyhow::Result<u64> {
         let mut tx = self.pool.begin().await?;
-        // One transaction: a project hidden without its profiles following, or
-        // profiles trashed while their project stays, are both states nothing
-        // else in the app knows how to render.
-        sqlx::query("UPDATE profiles SET deleted_at = ? WHERE project_id = ? AND deleted_at IS NULL")
-            .bind(now())
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
+        let detached = sqlx::query(
+            "UPDATE profiles SET project_id = NULL WHERE project_id = ? AND deleted_at IS NULL",
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
         sqlx::query("UPDATE projects SET deleted_at = ? WHERE id = ?")
             .bind(now())
             .bind(id)
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
-        Ok(())
+        Ok(detached)
     }
 
     /// How many profiles a project would take with it.
@@ -402,16 +482,24 @@ impl Store {
     // profiles
     // -----------------------------------------------------------------------
 
-    pub async fn profiles(&self, project_id: &str) -> anyhow::Result<Vec<Profile>> {
+    /// Every profile, or one project's.
+    ///
+    /// `None` is the Profiles view and the default one: the flat list of
+    /// everything on this machine, which is what an operator actually works
+    /// from. Filtering by project is a narrowing of it, not the other way
+    /// round.
+    pub async fn profiles(&self, project_id: Option<&str>) -> anyhow::Result<Vec<Profile>> {
         let rows = sqlx::query(
             "SELECT f.id, f.project_id, f.name, f.notes, f.tags, f.persona_id, f.fp_seed,
                     f.timezone, f.languages, f.start_urls, f.last_opened_at,
+                    p.name AS project_name,
                     x.id AS px_id, x.name AS px_name, x.kind AS px_kind, x.host AS px_host,
                     x.port AS px_port, x.username AS px_user, x.password AS px_pass,
                     x.last_country AS px_country, x.last_ip AS px_ip
              FROM profiles f
+             LEFT JOIN projects p ON p.id = f.project_id AND p.deleted_at IS NULL
              LEFT JOIN proxies x ON x.id = f.proxy_id AND x.deleted_at IS NULL
-             WHERE f.project_id = ? AND f.deleted_at IS NULL
+             WHERE (?1 IS NULL OR f.project_id = ?1) AND f.deleted_at IS NULL
              ORDER BY f.name",
         )
         .bind(project_id)
@@ -421,17 +509,36 @@ impl Store {
         Ok(rows.into_iter().map(row_to_profile).collect())
     }
 
+    /// Put profiles into a project, or take them out of one with `None`.
+    ///
+    /// Bulk, because the operation an operator actually performs is "these six
+    /// go to the German shop", never one at a time.
+    pub async fn move_profiles(
+        &self,
+        ids: &[String],
+        project_id: Option<&str>,
+    ) -> anyhow::Result<u64> {
+        let mut moved = 0;
+        let mut tx = self.pool.begin().await?;
+        for id in ids {
+            moved += sqlx::query(
+                "UPDATE profiles SET project_id = ? WHERE id = ? AND deleted_at IS NULL",
+            )
+            .bind(project_id)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+        }
+        tx.commit().await?;
+        Ok(moved)
+    }
+
     pub async fn profile(&self, id: &str) -> anyhow::Result<Option<Profile>> {
-        let project: Option<String> =
-            sqlx::query_scalar("SELECT project_id FROM profiles WHERE id = ? AND deleted_at IS NULL")
-                .bind(id)
-                .fetch_optional(&self.pool)
-                .await?;
-        let Some(project) = project else {
-            return Ok(None);
-        };
+        // Straight at the profile. It used to find the project first and list
+        // it, which stopped working the moment a profile could have no project.
         Ok(self
-            .profiles(&project)
+            .profiles(None)
             .await?
             .into_iter()
             .find(|p| p.id == id))
@@ -440,6 +547,7 @@ impl Store {
     /// Insert or update. `fp_seed` is only assigned on creation — changing it
     /// would silently give an existing profile a different fingerprint, which is
     /// the one thing a warmed account must never do.
+    #[allow(clippy::needless_lifetimes)]
     pub async fn upsert_profile(&self, p: &Profile) -> anyhow::Result<String> {
         let id = if p.id.is_empty() { new_id() } else { p.id.clone() };
         let seed = if p.fp_seed == 0 { random_seed() } else { p.fp_seed };
@@ -517,20 +625,23 @@ impl Store {
     /// Without this, restoring a profile whose project was deleted puts it back
     /// into a project nothing lists, which is exactly the invisible state the
     /// trash exists to avoid.
+    /// Bring a profile back.
+    ///
+    /// It used to un-delete the parent project too, because deleting a project
+    /// trashed its profiles and restoring one otherwise put it somewhere
+    /// invisible. Projects no longer take profiles with them, so that is gone —
+    /// and a profile whose project was deleted meanwhile comes back to no
+    /// project, which is a place the Profiles list shows.
     pub async fn restore_profile(&self, id: &str) -> anyhow::Result<()> {
-        let mut tx = self.pool.begin().await?;
         sqlx::query(
-            "UPDATE projects SET deleted_at = NULL
-             WHERE id = (SELECT project_id FROM profiles WHERE id = ?)",
+            "UPDATE profiles SET deleted_at = NULL,
+                    project_id = (SELECT p.id FROM projects p
+                                   WHERE p.id = profiles.project_id AND p.deleted_at IS NULL)
+             WHERE id = ?",
         )
         .bind(id)
-        .execute(&mut *tx)
+        .execute(&self.pool)
         .await?;
-        sqlx::query("UPDATE profiles SET deleted_at = NULL WHERE id = ?")
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
-        tx.commit().await?;
         Ok(())
     }
 
@@ -569,6 +680,7 @@ fn row_to_profile(r: sqlx::sqlite::SqliteRow) -> Profile {
     Profile {
         id: r.get("id"),
         project_id: r.get("project_id"),
+        project_name: r.try_get("project_name").unwrap_or(None),
         name: r.get("name"),
         notes: r.get("notes"),
         tags: from_json_array(r.get("tags")),
@@ -670,7 +782,8 @@ mod tests {
     fn blank(project: &str, name: &str) -> Profile {
         Profile {
             id: String::new(),
-            project_id: project.into(),
+            project_id: Some(project.into()),
+            project_name: None,
             name: name.into(),
             notes: String::new(),
             tags: vec![],
@@ -701,7 +814,7 @@ mod tests {
         s.upsert_profile(&blank(&project, "a")).await.unwrap();
         s.upsert_profile(&blank(&project, "b")).await.unwrap();
 
-        let all = s.profiles(&project).await.unwrap();
+        let all = s.profiles(Some(&project)).await.unwrap();
         assert_eq!(all.len(), 2);
         assert_ne!(all[0].fp_seed, all[1].fp_seed, "two profiles shared a seed");
         assert!(all.iter().all(|p| p.fp_seed > 0));
@@ -762,7 +875,7 @@ mod tests {
         p.id = s.upsert_profile(&p).await.unwrap();
         s.delete_proxy(&proxy_id).await.unwrap();
 
-        let after = s.profiles(&project).await.unwrap();
+        let after = s.profiles(Some(&project)).await.unwrap();
         assert_eq!(after.len(), 1, "the profile went with the proxy");
         assert!(after[0].proxy.is_none());
     }
@@ -774,42 +887,82 @@ mod tests {
         let id = s.upsert_profile(&blank(&project, "shop")).await.unwrap();
         s.delete_profile(&id).await.unwrap();
 
-        assert!(s.profiles(&project).await.unwrap().is_empty());
+        assert!(s.profiles(Some(&project)).await.unwrap().is_empty());
         assert!(s.profile(&id).await.unwrap().is_none());
         // Still recoverable — that is what the trash in docs/12 restores from.
         assert!(s.deleted_profile_exists(&id).await.unwrap());
     }
 
     #[tokio::test]
-    async fn deleting_a_project_puts_its_profiles_in_the_trash_not_nowhere() {
-        // The bug this replaces: the project was hidden and the profiles were
-        // left untouched, so they were in neither list — present in the
-        // database and unreachable from the application.
+    async fn deleting_a_project_keeps_its_profiles() {
+        // Two wrong answers preceded this one. First the project was hidden and
+        // the profiles left pointing at it, so they appeared in no list at all.
+        // Then they were trashed along with it — visible, but a folder had
+        // become a way to destroy months of warmed accounts. Neither is right:
+        // the profile is the asset and it outlives every filing decision.
         let s = store().await;
         let project = s.default_project().await.unwrap();
         s.upsert_profile(&blank(&project, "warmed")).await.unwrap();
 
-        assert_eq!(s.project_profile_count(&project).await.unwrap(), 1);
-        s.delete_project(&project).await.unwrap();
-
+        assert_eq!(s.delete_project(&project).await.unwrap(), 1, "nothing was detached");
         assert!(s.projects().await.unwrap().is_empty());
-        let trashed = s.deleted_profiles().await.unwrap();
-        assert_eq!(trashed.len(), 1, "the profile vanished instead of being trashed");
-        assert_eq!(trashed[0].name, "warmed");
+        assert!(s.deleted_profiles().await.unwrap().is_empty(), "the profile went to the trash");
+
+        let all = s.profiles(None).await.unwrap();
+        assert_eq!(all.len(), 1, "the profile disappeared with its project");
+        assert_eq!(all[0].name, "warmed");
+        assert_eq!(all[0].project_id, None, "still filed under a deleted project");
     }
 
     #[tokio::test]
-    async fn restoring_a_profile_brings_its_project_back_too() {
+    async fn profiles_lists_every_project_at_once() {
+        let s = store().await;
+        let a = s.create_project("Shops", "").await.unwrap();
+        let b = s.create_project("Ads", "").await.unwrap();
+        s.upsert_profile(&blank(&a, "etsy")).await.unwrap();
+        s.upsert_profile(&blank(&b, "meta")).await.unwrap();
+
+        let all = s.profiles(None).await.unwrap();
+        assert_eq!(all.len(), 2, "the flat list is the master list");
+        // And it says where each one is filed, so the view can show it without
+        // a request per row.
+        let names: Vec<_> = all.iter().map(|p| p.project_name.as_deref()).collect();
+        assert!(names.contains(&Some("Shops")) && names.contains(&Some("Ads")));
+
+        assert_eq!(s.profiles(Some(&a)).await.unwrap().len(), 1, "a project narrows it");
+    }
+
+    #[tokio::test]
+    async fn profiles_move_between_projects_and_out_of_them() {
+        let s = store().await;
+        let a = s.create_project("Shops", "").await.unwrap();
+        let b = s.create_project("Ads", "").await.unwrap();
+        let id = s.upsert_profile(&blank(&a, "etsy")).await.unwrap();
+
+        assert_eq!(s.move_profiles(&[id.clone()], Some(&b)).await.unwrap(), 1);
+        assert_eq!(s.profile(&id).await.unwrap().unwrap().project_id, Some(b.clone()));
+
+        assert_eq!(s.move_profiles(&[id.clone()], None).await.unwrap(), 1);
+        assert_eq!(s.profile(&id).await.unwrap().unwrap().project_id, None);
+        // Out of every project is still in the Profiles list.
+        assert_eq!(s.profiles(None).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_restored_profile_whose_project_went_away_lands_in_no_project() {
         let s = store().await;
         let project = s.default_project().await.unwrap();
         let id = s.upsert_profile(&blank(&project, "warmed")).await.unwrap();
-        s.delete_project(&project).await.unwrap();
 
+        s.delete_profile(&id).await.unwrap();
+        s.delete_project(&project).await.unwrap();
         s.restore_profile(&id).await.unwrap();
-        // Otherwise it would come back into a project nothing lists — the same
-        // invisible state, reached from the other direction.
-        assert_eq!(s.projects().await.unwrap().len(), 1);
-        assert_eq!(s.profiles(&project).await.unwrap().len(), 1);
+
+        // Not into a project nothing lists, which is the invisible state
+        // reached from the other direction.
+        let back = s.profile(&id).await.unwrap().unwrap();
+        assert_eq!(back.project_id, None);
+        assert_eq!(s.profiles(None).await.unwrap().len(), 1);
     }
 
     #[tokio::test]

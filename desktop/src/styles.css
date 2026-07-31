@@ -748,12 +748,48 @@ input::placeholder {
 
 /* ---- settings ---------------------------------------------------------- */
 
+/* The scrolling element is full width so its scrollbar sits against the right
+   edge of the dialog. Constraining the scroller itself put the bar 620px in,
+   floating in the middle of the panel. The reading measure belongs on the
+   content. */
 .settings {
-  max-width: 620px;
+  max-width: none;
 }
 
 .settingsGroup {
   margin-bottom: var(--s-6);
+  max-width: 620px;
+}
+
+/* ---- settings tabs ------------------------------------------------------ */
+
+.tabs {
+  display: flex;
+  gap: var(--s-1);
+  padding: 0 var(--s-5);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.tabs button {
+  padding: var(--s-2) var(--s-3);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tabs button:hover {
+  color: var(--text);
+  background: none;
+}
+
+.tabs button[aria-selected="true"] {
+  color: var(--text);
+  border-bottom-color: var(--accent);
 }
 
 .settingsGroup h2 {
