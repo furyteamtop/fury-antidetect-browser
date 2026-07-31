@@ -61,6 +61,9 @@ export interface Profile {
   /** Zero in team mode — the server never exposes a seed. */
   fp_seed: number;
   proxy: ProxySummary | null;
+  /** Null means "follow the proxy's exit", resolved at launch. */
+  timezone: string | null;
+  languages: string[] | null;
   lock: LockInfo | null;
   permissions: Perm[];
   /** Local mode only: the agent knows what it launched. In team mode a
@@ -455,8 +458,10 @@ export const api = {
   preview: (spec: {
     persona_id: string;
     fp_seed: number;
-    timezone: string;
-    languages: string[];
+    /** Null follows the exit; the caller passes what it knows of it so the
+     *  panel shows what the launch will claim, not what the field contains. */
+    timezone: string | null;
+    languages: string[] | null;
   }): Promise<Preview> => cmd<Preview>("preview", { spec }),
   proxies: (): Promise<LocalProxy[]> => cmd<LocalProxy[]>("proxies"),
   saveProxy: (proxy: Partial<LocalProxy>): Promise<{ id: string }> =>

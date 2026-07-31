@@ -268,12 +268,28 @@ impl Persona {
         for (key, value) in &self.gpu.webgl_params {
             params.insert(key.clone(), value.clone());
         }
-        for key in ["VENDOR", "UNMASKED_VENDOR_WEBGL"] {
-            params.insert(key.into(), self.gpu.webgl_vendor.clone().into());
-        }
-        for key in ["RENDERER", "UNMASKED_RENDERER_WEBGL"] {
-            params.insert(key.into(), self.gpu.webgl_renderer.clone().into());
-        }
+        // VENDOR and RENDERER are Blink constants, not driver strings.
+        //
+        // Every real Chrome answers "WebKit" and "WebKit WebGL" here, on every
+        // GPU and both platforms — verified against the captures in
+        // tools/detect-suite/baselines: real Chrome, clean Chromium and even a
+        // competitor all report exactly this. Writing the persona's driver
+        // string into them made the pair equal to UNMASKED_*, which no real
+        // browser ever produces. That is not a fingerprint that failed to
+        // spoof; it is positive evidence of tampering, on a zero-false-positive
+        // equality check that every commercial collector runs.
+        //
+        // The driver strings belong in the UNMASKED_* pair and nowhere else.
+        params.insert("VENDOR".into(), WEBGL_VENDOR_CONSTANT.into());
+        params.insert("RENDERER".into(), WEBGL_RENDERER_CONSTANT.into());
+        params.insert(
+            "UNMASKED_VENDOR_WEBGL".into(),
+            self.gpu.webgl_vendor.clone().into(),
+        );
+        params.insert(
+            "UNMASKED_RENDERER_WEBGL".into(),
+            self.gpu.webgl_renderer.clone().into(),
+        );
 
         if let Some(webgpu) = &self.gpu.webgpu {
             config["gpu"]["webgpu"] = serde_json::json!({
@@ -396,6 +412,11 @@ impl Persona {
 ///
 /// So it is pinned here, in the crate all three depend on: **eight bytes, big
 /// endian, sixteen lowercase hex characters on the wire.**
+/// What `gl.getParameter(gl.VENDOR)` returns in every real Chrome.
+pub const WEBGL_VENDOR_CONSTANT: &str = "WebKit";
+/// And `gl.getParameter(gl.RENDERER)`.
+pub const WEBGL_RENDERER_CONSTANT: &str = "WebKit WebGL";
+
 pub mod seed {
     /// The wire form: sixteen lowercase hex characters.
     pub fn to_hex(seed: u64) -> String {
@@ -510,6 +531,27 @@ mod tests {
             crate::fingerprint::check_core_config(&sample).is_err(),
             "FingerprintConfig must not pass as a core config — if it now does, \
              the two shapes have converged and the launcher comment is stale"
+        );
+    }
+
+    #[test]
+    fn webgl_vendor_is_the_chrome_constant_not_the_driver() {
+        // The check a collector runs is equality against a known constant, and
+        // the tell is VENDOR == UNMASKED_VENDOR_WEBGL — a pair no real browser
+        // ever produces.
+        let p = load("windows-11-rtx4060-1920x1080");
+        let c = p.derive_core_config(7, &ctx());
+        let params = &c["gpu"]["webglParams"];
+
+        assert_eq!(params["VENDOR"], "WebKit");
+        assert_eq!(params["RENDERER"], "WebKit WebGL");
+        assert_ne!(
+            params["VENDOR"], params["UNMASKED_VENDOR_WEBGL"],
+            "VENDOR still carries the driver string"
+        );
+        assert!(
+            params["UNMASKED_RENDERER_WEBGL"].as_str().unwrap().contains("ANGLE"),
+            "the driver string was lost instead of moved"
         );
     }
 

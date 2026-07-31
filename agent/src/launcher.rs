@@ -69,6 +69,19 @@ pub fn build_args(spec: &LaunchSpec) -> Vec<String> {
         "--safebrowsing-disable-auto-update".to_string(),
         // QUIC would carry UDP straight past an HTTP relay.
         "--disable-quic".to_string(),
+        // WebRTC gathers ICE candidates on its own sockets, not through the
+        // proxy, so a page opening a peer connection reads the machine's real
+        // address — past the relay, past everything. It does double damage:
+        // it identifies the proxy as a proxy, and every profile on this machine
+        // reports the same address, which clusters accounts that were the whole
+        // point of keeping apart.
+        //
+        // `disable_non_proxied_udp` keeps the mDNS host candidate Chrome
+        // already invents (`*.local`, no real address in it) and refuses the
+        // rest, so the candidate shape stays the one a real browser produces.
+        // Switch name from content_switches.cc, policy string from
+        // webrtc_ip_handling_policy.cc, both in the vendored tree.
+        "--force-webrtc-ip-handling-policy=disable_non_proxied_udp".to_string(),
     ];
 
     if spec.restrictions.lock_devtools {
@@ -258,6 +271,11 @@ mod tests {
 
         assert!(args.iter().any(|a| a == "--proxy-server=http://127.0.0.1:41000"));
         assert!(args.iter().any(|a| a == "--disable-quic"));
+        // The other UDP path out. Without it a page reads the real address
+        // through ICE, and every profile on the machine reports the same one.
+        assert!(args
+            .iter()
+            .any(|a| a == "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"));
         assert!(!args.iter().any(|a| a.contains("--no-proxy-server")));
     }
 

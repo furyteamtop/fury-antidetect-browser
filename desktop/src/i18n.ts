@@ -175,10 +175,10 @@ const en = {
   "pd.measured": "measured",
   "pd.timezone": "Time zone",
   "pd.timezoneHint":
-    "Must match where the proxy actually exits. A profile leaving in Germany while reporting Asia/Tbilisi is the cheapest detection there is.",
+    "Leave empty to follow the proxy's exit — resolved at launch, so it can never disagree with the address the traffic comes from.",
   "pd.languages": "Languages",
   "pd.languagesHint":
-    "Most preferred first. Also becomes the Accept-Language header — the two cannot disagree.",
+    "Leave empty for the persona's own languages. This is what a site reads as navigator.languages and sends as Accept-Language.",
   "pd.noise": "Noise",
   "pd.noiseHint":
     "Canvas, audio and element geometry are perturbed with a seed of this profile's own. There is no switch to turn it off: an un-noised canvas is byte-identical to the host machine, which is what makes several commercial browsers trivially linkable.",
@@ -487,10 +487,10 @@ const ru: Record<Key, string> = {
   "pd.measured": "измерено",
   "pd.timezone": "Часовой пояс",
   "pd.timezoneHint":
-    "Должен совпадать с тем, где прокси реально выходит. Профиль, выходящий в Германии и сообщающий Asia/Tbilisi, — самая дешёвая детекция в отрасли.",
+    "Оставьте пустым, чтобы следовать за выходом прокси — определяется при запуске и потому не может разойтись с адресом, с которого идёт трафик.",
   "pd.languages": "Языки",
   "pd.languagesHint":
-    "Самый предпочитаемый первым. Из этого же строится заголовок Accept-Language — расходиться они не могут.",
+    "Оставьте пустым — возьмутся языки самой персоны. Это то, что сайт читает как navigator.languages и отправляет в Accept-Language.",
   "pd.noise": "Шум",
   "pd.noiseHint":
     "Canvas, звук и геометрия элементов зашумляются сидом самого профиля. Выключателя нет: незашумлённый canvas байт-в-байт совпадает с хостом, и именно поэтому профили нескольких коммерческих браузеров связываются между собой в одну строку.",

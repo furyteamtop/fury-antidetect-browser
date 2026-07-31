@@ -75,6 +75,10 @@ pub struct LocalProfile {
     /// serde error — so every trash response failed to parse and the view
     /// reported an empty trash instead of a broken one.
     #[serde(default)]
+    pub timezone: Option<String>,
+    #[serde(default)]
+    pub languages: Option<Vec<String>>,
+    #[serde(default)]
     pub running: bool,
     pub last_opened_at: Option<String>,
 }

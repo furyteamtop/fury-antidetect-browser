@@ -614,6 +614,11 @@ pub struct UiProfile {
     /// interface may invent one.
     pub fp_seed: i64,
     pub proxy: Option<UiProxy>,
+    /// `None` means "follow the proxy's exit", resolved by the agent at launch.
+    /// Carried here because the edit dialog round-trips it — without these two
+    /// fields, opening a profile and pressing save silently reset both.
+    pub timezone: Option<String>,
+    pub languages: Option<Vec<String>>,
     pub permissions: Vec<String>,
     pub lock: Option<serde_json::Value>,
     /// Only ever true in local mode today: the agent knows what it launched.
@@ -699,6 +704,8 @@ pub async fn profiles(
                 tags: p.tags,
                 persona_id: p.persona_id,
                 fp_seed: p.fp_seed,
+                timezone: p.timezone,
+                languages: p.languages,
             })
             .collect());
     }
@@ -718,6 +725,10 @@ pub async fn profiles(
             id: p.id.to_string(),
             project_id: Some(p.project_id.to_string()),
             project_name: Some(p.project_name),
+            // The listing does not carry them; the edit dialog fetches what it
+            // needs when it opens.
+            timezone: None,
+            languages: None,
             name: p.name,
             tags: p.tags,
             persona_id: p.persona_id,
@@ -1489,6 +1500,8 @@ pub async fn trash(state: State<'_, AppState>) -> R<Vec<UiProfile>> {
             tags: p.tags,
             persona_id: p.persona_id,
             fp_seed: p.fp_seed,
+            timezone: p.timezone,
+            languages: p.languages,
         })
         .collect())
 }

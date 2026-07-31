@@ -65,8 +65,12 @@ export function ProfileDialog({
   const [tags, setTags] = useState((editing?.tags ?? []).join(", "));
   const [personaId, setPersonaId] = useState(editing?.persona_id ?? "");
   const [proxyId, setProxyId] = useState(editing?.proxy?.id ?? "");
-  const [timezone, setTimezone] = useState("Europe/Berlin");
-  const [languages, setLanguages] = useState("de-DE, de, en-US, en");
+  // Empty means "follow the proxy's exit", which is what the agent resolves at
+  // launch. Pre-filling Europe/Berlin made every profile ever created claim
+  // Berlin — including the ones going out through São Paulo — and made the
+  // follow-the-exit path unreachable, because the field was never empty.
+  const [timezone, setTimezone] = useState(editing?.timezone ?? "");
+  const [languages, setLanguages] = useState((editing?.languages ?? []).join(", "));
   const [startUrls, setStartUrls] = useState("");
   const [notes, setNotes] = useState("");
 
@@ -87,15 +91,18 @@ export function ProfileDialog({
       .preview({
         persona_id: personaId,
         fp_seed: editing?.fp_seed ?? 0,
-        timezone,
-        languages: splitList(languages),
+        // An empty field follows the exit, and the preview has to say what the
+        // launch will claim rather than what the field contains. When the proxy
+        // has been checked, that is its zone.
+        timezone: timezone.trim() || pxCheck?.timezone || null,
+        languages: languages.trim() ? splitList(languages) : null,
       })
       .then((p) => !cancelled && setPreview(p))
       .catch(() => !cancelled && setPreview(null));
     return () => {
       cancelled = true;
     };
-  }, [personaId, timezone, languages, editing?.fp_seed]);
+  }, [personaId, timezone, languages, pxCheck?.timezone, editing?.fp_seed]);
 
   const problems = preview?.problems ?? [];
 
@@ -137,8 +144,8 @@ export function ProfileDialog({
         // different fingerprint, which is the one thing it must never do.
         fp_seed: editing?.fp_seed ?? 0,
         proxy: useProxyId ? { id: useProxyId } : null,
-        timezone,
-        languages: splitList(languages),
+        timezone: timezone.trim() || null,
+        languages: languages.trim() ? splitList(languages) : null,
         start_urls: splitList(startUrls, "\n"),
         last_opened_at: null,
       });
@@ -334,7 +341,7 @@ export function ProfileDialog({
                         {/* The exit's zone is what the profile has to agree
                             with, so the check offers it rather than leaving the
                             operator to copy it across two tabs. */}
-                        {pxCheck?.ok && pxCheck.timezone && pxCheck.timezone !== timezone && (
+                        {pxCheck?.ok && pxCheck.timezone && timezone && pxCheck.timezone !== timezone && (
                           <p className="hint">
                             {t("px.setTimezone", { tz: pxCheck.timezone })}{" "}
                             <button
