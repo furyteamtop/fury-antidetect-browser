@@ -110,7 +110,7 @@ TTL, window size, MSS, порядок TCP-опций (p0f). **Из браузе�
 | `deviceMemory` | `blink/renderer/core/frame/navigator_device_memory.cc` |
 | `maxTouchPoints` | `blink/renderer/core/frame/navigator.cc` |
 | `languages`, `language` | `blink/renderer/core/frame/navigator_language.cc` |
-| `plugins`, `mimeTypes`, `pdfViewerEnabled` | `blink/renderer/modules/plugins/dom_plugin_array.cc` |
+| `plugins`, `mimeTypes`, `pdfViewerEnabled` | **Патч не нужен.** Измерено 31.07.2026: наша сборка отдаёт те же 5 записей и те же строки, что настоящий Chrome 150. С Chrome 94 список захардкожен и одинаков на всех установках, то есть энтропии на машину не несёт вовсе. Подмена сделала бы нас **отличными** от Chrome |
 | `webdriver` | `blink/renderer/core/frame/navigator_automation_information.cc` |
 | `connection` (NetworkInformation) | `blink/renderer/modules/netinfo/` |
 | `storage.estimate()` | `blink/renderer/modules/quota/` — квота должна биться с deviceMemory |

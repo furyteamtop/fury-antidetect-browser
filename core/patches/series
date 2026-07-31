@@ -38,7 +38,12 @@
 # and nowhere else.
 0011-navigator-ua-data.patch!          # user_agent_utils.cc changes most releases
 0012-navigator-hardware.patch          # first real consumer of 0001
-0013-navigator-plugins.patch
+# NOT NEEDED. Measured 31.07.2026: our build's navigator.plugins and
+# navigator.mimeTypes are byte-identical to real Chrome 150's — 5 entries, same
+# strings. Since Chrome 94 the list is hardcoded and the same on every install,
+# so it carries no per-machine entropy at all. Patching it would make us DIFFER
+# from Chrome, which is the opposite of the goal.
+# 0013-navigator-plugins.patch
 
 # --- layout & display -------------------------------------------------------
 # Screen::GetRect() is the single choke point for width, height, availWidth,
@@ -108,7 +113,10 @@
 # --- time & locale ----------------------------------------------------------
 0080-timezone-icu.patch
 0081-intl-locale.patch
-0082-geolocation.patch
+# Blocked on investigation: third_party/blink/renderer/modules/geolocation/ does
+# not exist in M150 and the API has moved. Find it before writing anything —
+# guessing at a location is how a patch applies cleanly and does nothing.
+# 0082-geolocation.patch
 
 # --- permissions ------------------------------------------------------------
 # Touches TWO files, and they must never be split. Overriding only the
@@ -118,12 +126,22 @@
 0090-permissions-consistency.patch
 
 # --- css --------------------------------------------------------------------
-0100-css-media-features.patch
+# NOT NEEDED FOR PARITY. Measured: zero differences across all 21 media
+# features we probe. prefers-color-scheme is genuinely per-user and would let
+# two profiles on one machine be correlated — but it carries about one bit, and
+# spending a patch plus its rebase cost on one bit is the wrong trade while
+# higher-entropy vectors remain. Revisit if a persona ever needs to claim a
+# light-mode desktop from a dark-mode host.
+# 0100-css-media-features.patch
 
 # --- storage ----------------------------------------------------------------
 # Derives the os_crypt key from the profile DEK instead of the OS keychain, so
 # a bundle is portable between machines and operating systems.
-0110-os-crypt-key.patch
+# Blocked on the same kind of investigation: components/os_crypt/sync/ is gone
+# in M150, only components/os_crypt/common/os_crypt_switches.h remains. This one
+# is not a fingerprint vector at all — it makes profile bundles portable between
+# machines (docs/06) — so it belongs with the sync work rather than here.
+# 0110-os-crypt-key.patch
 
 # --- misc js ----------------------------------------------------------------
 0120-performance-memory.patch
