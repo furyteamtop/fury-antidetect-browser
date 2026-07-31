@@ -2,21 +2,26 @@ import type { Me, Profile } from "../api";
 
 /** Every row's controls follow the permissions the SERVER resolved. Hiding a
  *  button is presentation, not protection — the server refuses regardless — but
- *  showing a control that will always fail is its own kind of lie. */
+ *  showing a control that will always fail is its own kind of lie.
+ *
+ *  In local mode there are no permissions to resolve, and the state that
+ *  matters is different: not "who holds this" but "is it open right now". */
 export function ProfileTable({
   profiles,
   me,
   thisMachine,
+  local,
   busy,
   onLaunch,
-  onRelease,
+  onStop,
 }: {
   profiles: Profile[];
   me: Me | null;
   thisMachine: string;
+  local: boolean;
   busy: boolean;
   onLaunch: (p: Profile, force?: boolean) => void;
-  onRelease: (p: Profile) => void;
+  onStop: (p: Profile) => void;
 }) {
   if (profiles.length === 0) {
     return <p className="empty pad">No profiles in this project yet.</p>;
@@ -30,6 +35,7 @@ export function ProfileTable({
           <th>Persona</th>
           <th>Proxy</th>
           <th>Status</th>
+          <th>Last opened</th>
           <th />
         </tr>
       </thead>
@@ -42,11 +48,11 @@ export function ProfileTable({
           // "Mine" means this user *on this machine*. Matching on the user
           // alone was wrong: the same person signed in on a laptop and a
           // desktop would see the laptop's live lock labelled "Open here", with
-          // a Close button that works — releasing a lock whose browser is still
-          // running, with live cookies, on the other machine. The machine name
-          // is what makes the two cases distinguishable.
+          // a Close button that worked — releasing a lock whose browser was
+          // still running on the other machine.
           const mine =
             locked && p.lock!.user_id === me?.user_id && p.lock!.machine_name === thisMachine;
+          const open = local ? p.running : mine;
 
           return (
             <tr key={p.id}>
@@ -70,35 +76,43 @@ export function ProfileTable({
                     </div>
                   </>
                 ) : (
+                  // Not cosmetic: the agent refuses to launch without one,
+                  // because everything the core does goes through the relay.
                   <span className="warn">No proxy</span>
                 )}
               </td>
               <td>
-                {!locked && <span className="free">Free</span>}
-                {locked && mine && <span className="mineLock">Open here</span>}
-                {locked && !mine && (
+                {open && <span className="mineLock">Open</span>}
+                {!open && locked && (
                   <span className="lock">
                     In use — {p.lock!.user_email} on {p.lock!.machine_name}
                   </span>
                 )}
+                {!open && !locked && <span className="free">Idle</span>}
+              </td>
+              <td className="muted small">
+                {/* docs/12: the metric that matters to someone running accounts
+                    is which profiles have gone stale. A profile untouched for
+                    two months behaves differently from a live one. */}
+                {p.last_opened_at ? new Date(p.last_opened_at).toLocaleString() : "never"}
               </td>
               <td className="actions">
-                {!locked && canLaunch && (
+                {!open && !locked && canLaunch && (
                   <button disabled={busy} onClick={() => onLaunch(p)}>
                     Open
                   </button>
                 )}
-                {mine && (
-                  <button className="ghost" disabled={busy} onClick={() => onRelease(p)}>
+                {open && (
+                  <button className="ghost" disabled={busy} onClick={() => onStop(p)}>
                     Close
                   </button>
                 )}
-                {locked && !mine && canForce && (
+                {!open && locked && canForce && (
                   <button className="danger" disabled={busy} onClick={() => onLaunch(p, true)}>
                     Take over
                   </button>
                 )}
-                {locked && !mine && !canForce && (
+                {!open && locked && !canForce && (
                   <span className="muted small">Ask them to close it</span>
                 )}
               </td>

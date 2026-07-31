@@ -6,10 +6,10 @@ import { ServerSetup } from "./components/ServerSetup";
 import { Sidebar } from "./components/Sidebar";
 
 export function App() {
-  // The shell answers three things the UI cannot know on its own: which server
-  // this installation points at, what this machine is called, and whether there
-  // is a live session. In the packaged app all three come from Rust, because
-  // the token deliberately never reaches this document.
+  // The shell answers what the interface cannot know on its own: whether this
+  // installation works alone or against a server, what this machine is called,
+  // and whether there is a live session. In local mode there is no session and
+  // no account — that is the point of it.
   const [shell, setShell] = useState<Shell | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -22,33 +22,35 @@ export function App() {
     void api.shell().then(setShell);
   }, []);
 
-  const signedIn = shell?.signed_in ?? false;
+  const local = shell?.mode === "local";
+  // Local mode has nobody to sign in as. Team mode does, and until it happens
+  // there is nothing to show.
+  const ready = shell !== null && (local || shell.signed_in);
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      // Identity and projects together: the table cannot tell "your lock" from
-      // "someone else's" until it knows which user this session belongs to.
-      const [who, list] = await Promise.all([api.me(), api.projects()]);
-      setMe(who);
+      const list = await api.projects();
       setProjects(list);
       // Open straight into a project: the list of profiles is the application,
       // and any screen between launching and it is friction (docs/12).
       setActive((current) =>
         current ? (list.find((p) => p.id === current.id) ?? list[0] ?? null) : (list[0] ?? null),
       );
+      // Identity only exists with a server.
+      setMe(local ? null : await api.me());
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) void api.shell().then(setShell);
       else setError((e as Error).message);
     }
-  }, []);
+  }, [local]);
 
   useEffect(() => {
-    if (signedIn) void load();
-  }, [signedIn, load]);
+    if (ready) void load();
+  }, [ready, load]);
 
   const refreshProfiles = useCallback(async () => {
-    if (!active || !signedIn) {
+    if (!active || !ready) {
       setProfiles([]);
       return;
     }
@@ -58,47 +60,48 @@ export function App() {
       if (e instanceof ApiError && e.status === 401) void api.shell().then(setShell);
       else setError((e as Error).message);
     }
-  }, [active, signedIn]);
+  }, [active, ready]);
 
   useEffect(() => {
     void refreshProfiles();
-    // Lock state changes when a colleague opens or closes a profile, so the
-    // list has to keep up on its own — otherwise "who has this open?" becomes a
-    // chat message, which is the problem the lock column exists to remove.
-    const timer = setInterval(() => void refreshProfiles(), 10_000);
+    // A browser can be closed from its own window, and in team mode a colleague
+    // can take or release a lock. Either way the table has to notice without
+    // being asked, or "is this open?" becomes a chat message — the problem the
+    // column exists to remove.
+    const timer = setInterval(() => void refreshProfiles(), 5_000);
     return () => clearInterval(timer);
   }, [refreshProfiles]);
 
   if (!shell) return <div className="splash">Fury</div>;
 
-  // A packaged app with nowhere to connect is the genuine first-run state. The
-  // browser dev build always has the Vite proxy, so it skips this.
-  if (shell.native && !shell.server_url) {
-    return <ServerSetup onDone={setShell} />;
-  }
-
-  if (!signedIn) {
-    return <Login onSuccess={() => void api.shell().then(setShell)} />;
+  if (!local && !shell.signed_in) {
+    return shell.server_url ? (
+      <Login onSuccess={() => void api.shell().then(setShell)} />
+    ) : (
+      <ServerSetup onDone={setShell} />
+    );
   }
 
   const onLaunch = async (profile: Profile, force = false) => {
     setBusy(true);
     setError(null);
     try {
-      const res = await api.lock(profile.id, force);
-      const applied = Object.entries(res.restrictions)
-        .filter(([, on]) => on)
-        .map(([k]) => k);
-      // The agent is not wired up yet, so say exactly that rather than
-      // pretending a browser opened — and say that the lock lapses, since
-      // nothing renews it until the agent owns the heartbeat. "Held until
-      // 05:19" alone would read as a promise.
-      setError(
-        `Lock taken; it lapses at ${new Date(res.expires_at).toLocaleTimeString()}` +
-          `${res.renewed ? "" : " and nothing is renewing it yet"}. ` +
-          `The local agent is not connected, so nothing was launched. ` +
-          `Restrictions it would apply: ${applied.length ? applied.join(", ") : "none"}.`,
-      );
+      const res = await api.launch(profile.id, force);
+      if (!res.launched) {
+        // Team mode: the agent cannot fetch a bundle from a server yet, so all
+        // that happened was taking the lock. Saying "opening…" would leave the
+        // operator waiting for a window that is not coming.
+        const applied = Object.entries(res.restrictions ?? {})
+          .filter(([, on]) => on)
+          .map(([k]) => k);
+        setError(
+          `Lock taken; it lapses at ${
+            res.expires_at ? new Date(res.expires_at).toLocaleTimeString() : "soon"
+          } and nothing is renewing it yet. Profiles from a server cannot be launched ` +
+            `yet — that needs bundle sync. Restrictions it would apply: ` +
+            `${applied.length ? applied.join(", ") : "none"}.`,
+        );
+      }
       await refreshProfiles();
     } catch (e) {
       setError((e as Error).message);
@@ -107,10 +110,10 @@ export function App() {
     }
   };
 
-  const onRelease = async (profile: Profile) => {
+  const onStop = async (profile: Profile) => {
     setBusy(true);
     try {
-      await api.unlock(profile.id);
+      await api.stop(profile.id);
       await refreshProfiles();
     } catch (e) {
       setError((e as Error).message);
@@ -127,6 +130,12 @@ export function App() {
         shell={shell}
         me={me}
         onSelect={setActive}
+        onNewProject={async () => {
+          const name = prompt("Project name")?.trim();
+          if (!name) return;
+          await api.createProject(name);
+          await load();
+        }}
         onSignOut={async () => {
           await api.logout();
           setMe(null);
@@ -139,9 +148,16 @@ export function App() {
         <header className="head">
           <h1>{active?.name ?? "No projects"}</h1>
           <span className="muted">
-            {active ? `${profiles.length} profiles` : "Ask an admin for access"}
+            {active ? `${profiles.length} profiles` : "Nothing here yet"}
           </span>
         </header>
+
+        {local && !shell.agent_ready && (
+          <div className="notice warnBar" role="status">
+            The local agent is not running, so nothing can be launched. It normally
+            starts on its own — if this persists, run <code>fury-agent serve</code>.
+          </div>
+        )}
 
         {error && (
           <div className="notice" role="status">
@@ -160,9 +176,10 @@ export function App() {
             profiles={profiles}
             me={me}
             thisMachine={shell.machine_name}
+            local={local}
             busy={busy}
             onLaunch={onLaunch}
-            onRelease={onRelease}
+            onStop={onStop}
           />
         )}
       </main>

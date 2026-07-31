@@ -10,6 +10,7 @@
 // No console window behind the app on Windows.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod agent;
 mod commands;
 mod session;
 mod settings;
@@ -81,13 +82,21 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::shell_state,
             commands::set_server,
+            commands::disconnect_server,
             commands::login,
             commands::logout,
             commands::me,
             commands::projects,
             commands::profiles,
-            commands::lock,
-            commands::unlock,
+            commands::launch,
+            commands::stop,
+            commands::personas,
+            commands::proxies,
+            commands::save_proxy,
+            commands::delete_proxy,
+            commands::save_profile,
+            commands::delete_profile,
+            commands::create_project,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Fury");

@@ -332,3 +332,28 @@ button.danger {
   margin-bottom: 0;
   width: 100%;
 }
+
+.warnBar {
+  border-left-color: var(--warn);
+}
+
+.linky {
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.linky:hover {
+  color: var(--text);
+  background: transparent;
+}
+
+.section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}

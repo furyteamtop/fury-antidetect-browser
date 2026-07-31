@@ -55,6 +55,14 @@ pub struct ApiErr {
     pub message: String,
 }
 
+impl From<crate::agent::AgentError> for ApiErr {
+    fn from(e: crate::agent::AgentError) -> Self {
+        // Status 0 is "never reached a server", which is exactly what an agent
+        // failure is from the interface's point of view.
+        ApiErr::local(e.to_string())
+    }
+}
+
 impl ApiErr {
     fn local(message: impl Into<String>) -> Self {
         Self {
@@ -178,16 +186,60 @@ pub struct Shell {
     pub signed_in: bool,
     /// Lets the UI say "desktop" where the browser build has to stay vague.
     pub native: bool,
+    /// `"local"` or `"team"`.
+    ///
+    /// Local is the default and the whole product for one person: no account,
+    /// no server, no database. A sign-in screen appears only once there is a
+    /// server to sign in to — asking for a password with nothing to check it
+    /// against was the shape of the first version and it was wrong.
+    pub mode: &'static str,
+    /// Whether the local daemon answered. Nothing can be launched without it.
+    pub agent_ready: bool,
+}
+
+fn mode_of(state: &AppState) -> &'static str {
+    if state.settings.lock().unwrap().server_url.is_some() {
+        "team"
+    } else {
+        "local"
+    }
 }
 
 #[tauri::command]
-pub fn shell_state(state: State<'_, AppState>) -> Shell {
-    Shell {
+pub async fn shell_state(state: State<'_, AppState>) -> Result<Shell, ApiErr> {
+    let mode = mode_of(&state);
+    // Started on demand rather than announced as missing: telling someone to
+    // open a terminal would make the desktop app useless to the people it is
+    // for.
+    let agent_ready = crate::agent::ensure_running().await.is_ok();
+
+    Ok(Shell {
         server_url: state.settings.lock().unwrap().server_url.clone(),
         machine_name: settings::machine_name(),
         signed_in: state.session.is_signed_in(),
         native: true,
+        mode,
+        agent_ready,
+    })
+}
+
+/// Forgets the server and returns to working locally.
+///
+/// The session is revoked on the way out — leaving a live one behind on a
+/// server the operator has walked away from is the same defect as a sign-out
+/// that does not sign out.
+#[tauri::command]
+pub async fn disconnect_server(state: State<'_, AppState>) -> Result<Shell, ApiErr> {
+    if state.session.is_signed_in() {
+        let _ = logout(state.clone()).await;
     }
+    {
+        let mut s = state.settings.lock().unwrap();
+        s.server_url = None;
+        s.save(&state.config_dir)
+            .map_err(|e| ApiErr::local(format!("Could not save settings: {e}")))?;
+    }
+    shell_state(state).await
 }
 
 /// Points this installation at a server, after checking something is there.
@@ -246,7 +298,7 @@ pub async fn set_server(state: State<'_, AppState>, url: String) -> R<Shell> {
     // Rebinding also swaps in whatever token was stored for this server.
     state.session.bind(&normalised);
 
-    Ok(shell_state(state))
+    shell_state(state).await
 }
 
 #[derive(Serialize, Deserialize)]
@@ -313,23 +365,171 @@ pub async fn me(state: State<'_, AppState>) -> R<Me> {
 // if the server changes a field, this stops compiling instead of producing a
 // blank column that nobody notices.
 
-#[tauri::command]
-pub async fn projects(state: State<'_, AppState>) -> R<Vec<ProjectSummary>> {
-    state
-        .call(reqwest::Method::GET, "/v1/projects", Body::None, true)
-        .await
+/// One shape for the table, whichever half of the product produced it.
+///
+/// Local and team mode answer different questions — one has permissions and a
+/// distributed lock, the other has a running process — and folding them here
+/// rather than in the interface keeps a single table component instead of two
+/// that drift apart.
+#[derive(Serialize)]
+pub struct UiProject {
+    pub id: String,
+    pub name: String,
+    pub profile_count: i64,
+}
+
+#[derive(Serialize)]
+pub struct UiProxy {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    /// Host as the caller is allowed to see it. Masked by the server for anyone
+    /// without `reveal_secrets`; never masked locally, where there is nobody to
+    /// hide it from and the operator has to be able to check what they typed.
+    pub display: String,
+    pub country: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct UiProfile {
+    pub id: String,
+    pub project_id: String,
+    pub name: String,
+    pub tags: Vec<String>,
+    pub persona_id: String,
+    pub proxy: Option<UiProxy>,
+    pub permissions: Vec<String>,
+    pub lock: Option<serde_json::Value>,
+    /// Only ever true in local mode today: the agent knows what it launched.
+    /// In team mode a colleague's browser is visible through `lock`, not here.
+    pub running: bool,
+    pub last_opened_at: Option<String>,
+}
+
+/// Everything a local profile allows. There are no roles without a server —
+/// whoever can open the agent socket owns the machine and the data.
+fn all_permissions() -> Vec<String> {
+    [
+        "view", "launch", "edit_profile", "edit_fingerprint", "edit_proxy",
+        "reveal_secrets", "export_cookies", "create_profile", "delete_profile",
+        "manage_access",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
 }
 
 #[tauri::command]
-pub async fn profiles(state: State<'_, AppState>, project_id: String) -> R<Vec<ProfileSummary>> {
-    state
+pub async fn projects(state: State<'_, AppState>) -> R<Vec<UiProject>> {
+    if mode_of(&state) == "local" {
+        let local: Vec<crate::agent::LocalProject> =
+            crate::agent::call("projects.list", serde_json::json!({})).await?;
+        return Ok(local
+            .into_iter()
+            .map(|p| UiProject {
+                id: p.id,
+                name: p.name,
+                profile_count: p.profile_count,
+            })
+            .collect());
+    }
+
+    let remote: Vec<ProjectSummary> = state
+        .call(reqwest::Method::GET, "/v1/projects", Body::None, true)
+        .await?;
+    Ok(remote
+        .into_iter()
+        .map(|p| UiProject {
+            id: p.id.to_string(),
+            name: p.name,
+            profile_count: p.profile_count,
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn profiles(state: State<'_, AppState>, project_id: String) -> R<Vec<UiProfile>> {
+    if mode_of(&state) == "local" {
+        let local: Vec<crate::agent::LocalProfile> = crate::agent::call(
+            "profiles.list",
+            serde_json::json!({ "project_id": project_id }),
+        )
+        .await?;
+        return Ok(local
+            .into_iter()
+            .map(|p| UiProfile {
+                proxy: p.proxy.map(|x| UiProxy {
+                    display: format!("{}:{}", x.host, x.port),
+                    country: x.last_country,
+                    id: x.id,
+                    name: x.name,
+                    kind: x.kind,
+                }),
+                permissions: all_permissions(),
+                lock: None,
+                running: p.running,
+                last_opened_at: p.last_opened_at,
+                id: p.id,
+                project_id: p.project_id,
+                name: p.name,
+                tags: p.tags,
+                persona_id: p.persona_id,
+            })
+            .collect());
+    }
+
+    let remote: Vec<ProfileSummary> = state
         .call(
             reqwest::Method::GET,
             &format!("/v1/projects/{project_id}/profiles"),
             Body::None,
             true,
         )
-        .await
+        .await?;
+    Ok(remote
+        .into_iter()
+        .map(|p| UiProfile {
+            id: p.id.to_string(),
+            project_id: p.project_id.to_string(),
+            name: p.name,
+            tags: p.tags,
+            persona_id: p.persona_id,
+            proxy: p.proxy.map(|x| UiProxy {
+                id: x.id.to_string(),
+                name: x.name,
+                kind: x.kind,
+                display: x.display,
+                country: x.country,
+            }),
+            permissions: p.permissions.iter().map(|v| perm_name(v)).collect(),
+            lock: p.lock.as_ref().map(|l| serde_json::json!({
+                "user_id": l.user_id.to_string(),
+                "user_email": l.user_email,
+                "machine_name": l.machine_name,
+                "acquired_at": l.acquired_at,
+                "expires_at": l.expires_at,
+            })),
+            running: false,
+            last_opened_at: None,
+        })
+        .collect())
+}
+
+/// Serde already spells these the way the interface expects; going through it
+/// keeps one definition rather than a second list that can drift.
+fn perm_name(p: &fury_shared::rbac::Perm) -> String {
+    serde_json::to_value(p)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+#[derive(Serialize)]
+pub struct LockHeld {
+    pub expires_at: String,
+    pub restrictions: serde_json::Value,
+    /// False while nothing renews the lock. The heartbeat belongs to the agent.
+    pub renewed: bool,
 }
 
 /// What the server grants, in full. Only part of it crosses to the webview.
@@ -340,20 +540,24 @@ struct LockGrant {
     restrictions: serde_json::Value,
 }
 
-/// What the interface is told: when the lock lapses, and how a launch would be
-/// constrained. Not the token.
-#[derive(Serialize)]
-pub struct LockHeld {
-    pub expires_at: String,
-    pub restrictions: serde_json::Value,
-    /// Seconds until the lock lapses unless something renews it. Nothing does
-    /// yet — the heartbeat belongs to the agent (docs/01) — so the interface has
-    /// to be able to say so rather than imply the lock is durable.
-    pub renewed: bool,
-}
-
+/// Open a profile.
+///
+/// In local mode this actually launches a browser. In team mode it still only
+/// takes the lock — the agent does not yet know how to fetch a bundle from a
+/// server, so saying anything else would be a lie the operator discovers by
+/// waiting for a window that never appears.
 #[tauri::command]
-pub async fn lock(state: State<'_, AppState>, profile_id: String, force: bool) -> R<LockHeld> {
+pub async fn launch(
+    state: State<'_, AppState>,
+    profile_id: String,
+    force: bool,
+) -> R<serde_json::Value> {
+    if mode_of(&state) == "local" {
+        let out: serde_json::Value =
+            crate::agent::call("profile.launch", serde_json::json!({ "id": profile_id })).await?;
+        return Ok(serde_json::json!({ "launched": true, "pid": out.get("pid") }));
+    }
+
     let body = serde_json::json!({
         "machine_id": state.machine_id(),
         "machine_name": settings::machine_name(),
@@ -374,15 +578,20 @@ pub async fn lock(state: State<'_, AppState>, profile_id: String, force: bool) -
         .unwrap()
         .insert(profile_id, grant.lock_token);
 
-    Ok(LockHeld {
-        expires_at: grant.expires_at,
-        restrictions: grant.restrictions,
-        renewed: false,
-    })
+    Ok(serde_json::json!({
+        "launched": false,
+        "expires_at": grant.expires_at,
+        "restrictions": grant.restrictions,
+        "renewed": false,
+    }))
 }
 
 #[tauri::command]
-pub async fn unlock(state: State<'_, AppState>, profile_id: String) -> R<()> {
+pub async fn stop(state: State<'_, AppState>, profile_id: String) -> R<serde_json::Value> {
+    if mode_of(&state) == "local" {
+        return Ok(crate::agent::call("profile.stop", serde_json::json!({ "id": profile_id })).await?);
+    }
+
     let _: serde_json::Value = state
         .call(
             reqwest::Method::POST,
@@ -391,9 +600,45 @@ pub async fn unlock(state: State<'_, AppState>, profile_id: String) -> R<()> {
             true,
         )
         .await?;
-    // Dropped only after the server agreed. Forgetting it on a failed release
-    // would leave this process unable to prove it is the holder of a lock it
-    // still has.
     state.locks.lock().unwrap().remove(&profile_id);
-    Ok(())
+    Ok(serde_json::json!({ "stopped": true }))
+}
+
+// ---------------------------------------------------------------------------
+// local-only editing
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn personas() -> R<serde_json::Value> {
+    Ok(crate::agent::call("personas.list", serde_json::json!({})).await?)
+}
+
+#[tauri::command]
+pub async fn proxies() -> R<serde_json::Value> {
+    Ok(crate::agent::call("proxies.list", serde_json::json!({})).await?)
+}
+
+#[tauri::command]
+pub async fn save_proxy(proxy: serde_json::Value) -> R<serde_json::Value> {
+    Ok(crate::agent::call("proxies.upsert", proxy).await?)
+}
+
+#[tauri::command]
+pub async fn delete_proxy(id: String) -> R<serde_json::Value> {
+    Ok(crate::agent::call("proxies.delete", serde_json::json!({ "id": id })).await?)
+}
+
+#[tauri::command]
+pub async fn save_profile(profile: serde_json::Value) -> R<serde_json::Value> {
+    Ok(crate::agent::call("profiles.upsert", profile).await?)
+}
+
+#[tauri::command]
+pub async fn delete_profile(id: String) -> R<serde_json::Value> {
+    Ok(crate::agent::call("profiles.delete", serde_json::json!({ "id": id })).await?)
+}
+
+#[tauri::command]
+pub async fn create_project(name: String) -> R<serde_json::Value> {
+    Ok(crate::agent::call("projects.create", serde_json::json!({ "name": name })).await?)
 }

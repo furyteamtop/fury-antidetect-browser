@@ -26,20 +26,17 @@ export type Perm =
 export interface Project {
   id: string;
   name: string;
-  description: string;
-  color: string | null;
   profile_count: number;
-  permissions: Perm[];
 }
 
 export interface ProxySummary {
   id: string;
   name: string;
   kind: string;
-  /** Already masked by the server when the caller lacks reveal_secrets. */
+  /** Already masked by the server when the caller lacks reveal_secrets.
+   *  Never masked in local mode — there is nobody to hide it from. */
   display: string;
   country: string | null;
-  shared_with_profiles: number;
 }
 
 export interface LockInfo {
@@ -57,9 +54,33 @@ export interface Profile {
   tags: string[];
   persona_id: string;
   proxy: ProxySummary | null;
-  current_version: number;
   lock: LockInfo | null;
   permissions: Perm[];
+  /** Local mode only: the agent knows what it launched. In team mode a
+   *  colleague's browser shows up through `lock`, not here. */
+  running: boolean;
+  last_opened_at: string | null;
+}
+
+export interface Persona {
+  id: string;
+  os: string;
+  gpu: string;
+  screen: string;
+  weight: number;
+  source: string | null;
+}
+
+export interface LocalProxy {
+  id: string;
+  name: string;
+  kind: string;
+  host: string;
+  port: number;
+  username: string | null;
+  password: string | null;
+  last_country: string | null;
+  last_ip: string | null;
 }
 
 export interface Me {
@@ -75,16 +96,23 @@ export interface Shell {
   machine_name: string;
   signed_in: boolean;
   native: boolean;
+  /** "local" needs no account at all; "team" is a server someone chose. */
+  mode: "local" | "team";
+  agent_ready: boolean;
 }
 
 /** Note what is absent: the lock token. It authorises overwriting a bundle,
  *  so in the desktop build it stays in Rust — the interface only needs to know
  *  when the lock lapses and how a launch would be constrained. */
-export interface LockResult {
-  expires_at: string;
-  restrictions: Record<string, boolean>;
-  /** False while nothing renews the lock. The heartbeat belongs to the agent. */
-  renewed: boolean;
+export interface LaunchResult {
+  /** True when a browser actually started. False in team mode, where all that
+   *  happened was taking the lock — saying otherwise would have the operator
+   *  waiting for a window that never appears. */
+  launched: boolean;
+  pid?: number;
+  expires_at?: string;
+  restrictions?: Record<string, boolean>;
+  renewed?: boolean;
 }
 
 const TOKEN_KEY = "fury.token";
@@ -198,6 +226,8 @@ export const api = {
   shell(): Promise<Shell> {
     if (isDesktop) return cmd<Shell>("shell_state");
     return Promise.resolve({
+      mode: "team" as const,
+      agent_ready: false,
       // Vite proxies /v1, so in this mode the address is fixed by the dev
       // config rather than chosen by the operator.
       server_url: "http://127.0.0.1:8901 (vite proxy)",
@@ -255,20 +285,34 @@ export const api = {
       ? cmd<Profile[]>("profiles", { projectId })
       : http<Profile[]>(`/v1/projects/${projectId}/profiles`),
 
-  lock: (profileId: string, force = false): Promise<LockResult> =>
+  launch: (profileId: string, force = false): Promise<LaunchResult> =>
     isDesktop
-      ? cmd<LockResult>("lock", { profileId, force })
-      : http<LockResult>(`/v1/profiles/${profileId}/lock`, {
+      ? cmd<LaunchResult>("launch", { profileId, force })
+      : http<LaunchResult>(`/v1/profiles/${profileId}/lock`, {
           method: "POST",
           body: JSON.stringify({
             machine_id: devMachineId(),
             machine_name: navigator.platform,
             force,
           }),
-        }),
+        }).then((r) => ({ ...r, launched: false })),
 
-  unlock: (profileId: string): Promise<unknown> =>
+  stop: (profileId: string): Promise<unknown> =>
     isDesktop
-      ? cmd<unknown>("unlock", { profileId })
+      ? cmd<unknown>("stop", { profileId })
       : http(`/v1/profiles/${profileId}/unlock`, { method: "POST" }),
+
+  // Local mode only: with a server, profiles and proxies are edited where the
+  // permissions live, and that screen does not exist yet.
+  disconnectServer: (): Promise<Shell> => cmd<Shell>("disconnect_server"),
+  personas: (): Promise<Persona[]> => cmd<Persona[]>("personas"),
+  proxies: (): Promise<LocalProxy[]> => cmd<LocalProxy[]>("proxies"),
+  saveProxy: (proxy: Partial<LocalProxy>): Promise<{ id: string }> =>
+    cmd<{ id: string }>("save_proxy", { proxy }),
+  deleteProxy: (id: string): Promise<unknown> => cmd("delete_proxy", { id }),
+  saveProfile: (profile: unknown): Promise<{ id: string }> =>
+    cmd<{ id: string }>("save_profile", { profile }),
+  deleteProfile: (id: string): Promise<unknown> => cmd("delete_profile", { id }),
+  createProject: (name: string): Promise<{ id: string }> =>
+    cmd<{ id: string }>("create_project", { name }),
 };
