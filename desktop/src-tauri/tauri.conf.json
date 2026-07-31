@@ -7,7 +7,7 @@
     "devUrl": "http://localhost:5273",
     "frontendDist": "../dist",
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "beforeBuildCommand": "./scripts/sidecar.sh && npm run build"
   },
   "app": {
     "windows": [
@@ -47,6 +47,9 @@
     "longDescription": "Self-hosted anti-detect browser with projects, per-project access grants and a shared profile lock.",
     "macOS": {
       "minimumSystemVersion": "10.15"
-    }
+    },
+    "externalBin": [
+      "binaries/fury-agent"
+    ]
   }
 }

@@ -12,6 +12,9 @@ dist/
 # Tauri
 desktop/src-tauri/target/
 desktop/src-tauri/gen/
+# The agent sidecar is a build artefact: scripts/sidecar.sh rebuilds it, and a
+# 7 MB binary per platform has no business in the history.
+desktop/src-tauri/binaries/
 
 # Chromium fork — never commit the upstream tree, only patches
 core/src/

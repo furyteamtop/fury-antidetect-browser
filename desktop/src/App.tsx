@@ -26,6 +26,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<Profile | null | undefined>(undefined);
   const [query, setQuery] = useState("");
+  const [group, setGroup] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [view, setView] = useState<"profiles" | "trash">("profiles");
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -147,7 +148,17 @@ export function App() {
     }
   };
 
-  const shown = matching(profiles, query);
+  // Every group currently in use, so the filter and the editor both offer what
+  // exists without a table to keep in step.
+  const groups = Array.from(
+    new Set(profiles.map((p) => p.group_name).filter((g): g is string => !!g)),
+  ).sort();
+
+  const shown = matching(profiles, query).filter(
+    (p) =>
+      group === "" ||
+      (group === "\u0000none" ? !p.group_name : p.group_name === group),
+  );
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -274,6 +285,21 @@ export function App() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
+            {groups.length > 0 && (
+              <select
+                style={{ width: "auto", minWidth: 140 }}
+                value={group}
+                onChange={(e) => setGroup(e.target.value)}
+              >
+                <option value="">{t("bar.allGroups")}</option>
+                <option value={"\u0000none"}>{t("bar.ungrouped")}</option>
+                {groups.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+              </select>
+            )}
             <div className="spacer" />
             {chosen.length > 0 && (
               <div className="bulk">
@@ -408,6 +434,7 @@ export function App() {
           <ProfileDialog
             projectId={active.id}
             editing={editing}
+            groups={groups}
             onClose={() => setEditing(undefined)}
             onSaved={async () => {
               setEditing(undefined);
