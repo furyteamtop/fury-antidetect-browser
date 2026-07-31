@@ -365,6 +365,7 @@ mod tests {
                 password: Some("s3cr3t".into()),
                 last_country: Some("DE".into()),
                 last_ip: None,
+                last_timezone: None,
                 rotate_url: None,
                 checker_url: None,
             })
@@ -382,6 +383,7 @@ mod tests {
             password: None,
             last_country: None,
             last_ip: None,
+            last_timezone: None,
             rotate_url: None,
             checker_url: None,
         });

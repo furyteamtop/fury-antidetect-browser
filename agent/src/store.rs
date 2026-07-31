@@ -50,6 +50,14 @@ pub struct Proxy {
     pub password: Option<String>,
     pub last_country: Option<String>,
     pub last_ip: Option<String>,
+    /// The timezone of the exit, as the checker reported it.
+    ///
+    /// This is what a profile with no timezone of its own follows. A browser
+    /// claiming Europe/Berlin while its traffic leaves in Amsterdam is one
+    /// subtraction away from being noticed, and it is the cheapest check a
+    /// detector runs.
+    #[serde(default)]
+    pub last_timezone: Option<String>,
     /// A URL that makes the provider hand out a new exit IP.
     ///
     /// Mobile and rotating residential proxies are sold this way, and an
@@ -221,6 +229,7 @@ impl Store {
         for stmt in [
             "ALTER TABLE proxies ADD COLUMN rotate_url TEXT",
             "ALTER TABLE proxies ADD COLUMN checker_url TEXT",
+            "ALTER TABLE proxies ADD COLUMN last_timezone TEXT",
         ] {
             let _ = sqlx::query(stmt).execute(&self.pool).await;
         }
@@ -407,6 +416,7 @@ impl Store {
     pub async fn proxies(&self) -> anyhow::Result<Vec<Proxy>> {
         let rows = sqlx::query(
             "SELECT id, name, kind, host, port, username, password, last_country, last_ip,
+                    last_timezone,
                     rotate_url, checker_url
              FROM proxies WHERE deleted_at IS NULL ORDER BY name",
         )
@@ -452,6 +462,33 @@ impl Store {
         p
     }
 
+    /// Remember what a proxy's exit looked like.
+    ///
+    /// Stored so a launch does not have to ask the network what timezone to
+    /// claim every single time. A profile that follows its exit needs the
+    /// answer before the browser starts, and a round trip in front of every
+    /// launch is a round trip an operator waits through fifty times a day.
+    pub async fn record_exit(
+        &self,
+        proxy_id: &str,
+        ip: Option<&str>,
+        country: Option<&str>,
+        timezone: Option<&str>,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE proxies SET last_ip = ?, last_country = ?, last_timezone = ?, checked_at = ? \
+             WHERE id = ?",
+        )
+        .bind(ip)
+        .bind(country)
+        .bind(timezone)
+        .bind(now())
+        .bind(proxy_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     /// The machine key, shared rather than rebuilt: a second vault would seal
     /// values the first could not open.
     pub fn vault(&self) -> &crate::vault::Vault {
@@ -495,7 +532,8 @@ impl Store {
                     p.name AS project_name,
                     x.id AS px_id, x.name AS px_name, x.kind AS px_kind, x.host AS px_host,
                     x.port AS px_port, x.username AS px_user, x.password AS px_pass,
-                    x.last_country AS px_country, x.last_ip AS px_ip
+                    x.last_country AS px_country, x.last_ip AS px_ip,
+                    x.last_timezone AS px_tz
              FROM profiles f
              LEFT JOIN projects p ON p.id = f.project_id AND p.deleted_at IS NULL
              LEFT JOIN proxies x ON x.id = f.proxy_id AND x.deleted_at IS NULL
@@ -552,7 +590,8 @@ impl Store {
                     p.name AS project_name,
                     x.id AS px_id, x.name AS px_name, x.kind AS px_kind, x.host AS px_host,
                     x.port AS px_port, x.username AS px_user, x.password AS px_pass,
-                    x.last_country AS px_country, x.last_ip AS px_ip
+                    x.last_country AS px_country, x.last_ip AS px_ip,
+                    x.last_timezone AS px_tz
              FROM profiles f
              LEFT JOIN projects p ON p.id = f.project_id AND p.deleted_at IS NULL
              LEFT JOIN proxies x ON x.id = f.proxy_id AND x.deleted_at IS NULL
@@ -637,7 +676,8 @@ impl Store {
                     f.timezone, f.languages, f.start_urls, f.deleted_at AS last_opened_at,
                     x.id AS px_id, x.name AS px_name, x.kind AS px_kind, x.host AS px_host,
                     x.port AS px_port, x.username AS px_user, x.password AS px_pass,
-                    x.last_country AS px_country, x.last_ip AS px_ip
+                    x.last_country AS px_country, x.last_ip AS px_ip,
+                    x.last_timezone AS px_tz
              FROM profiles f
              LEFT JOIN proxies x ON x.id = f.proxy_id AND x.deleted_at IS NULL
              WHERE f.deleted_at IS NOT NULL
@@ -731,6 +771,7 @@ fn row_to_profile(r: sqlx::sqlite::SqliteRow) -> Profile {
             password: None,
             last_country: r.get("px_country"),
             last_ip: r.get("px_ip"),
+            last_timezone: r.try_get("px_tz").unwrap_or(None),
             // Not selected in the profile join: a rotation link usually embeds
             // an API key, and no list view has any use for it.
             rotate_url: None,
@@ -750,6 +791,7 @@ fn row_to_proxy(r: &sqlx::sqlite::SqliteRow) -> Proxy {
         password: r.get("password"),
         last_country: r.get("last_country"),
         last_ip: r.get("last_ip"),
+        last_timezone: r.try_get("last_timezone").unwrap_or(None),
         rotate_url: r.get("rotate_url"),
         checker_url: r.get("checker_url"),
     }
@@ -880,6 +922,7 @@ mod tests {
                 password: None,
                 last_country: None,
                 last_ip: None,
+                last_timezone: None,
                 rotate_url: None,
                 checker_url: None,
             })
@@ -897,6 +940,7 @@ mod tests {
             password: None,
             last_country: None,
             last_ip: None,
+            last_timezone: None,
             rotate_url: None,
             checker_url: None,
         });
@@ -943,6 +987,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_checked_exit_is_remembered_for_the_launch_that_follows_it() {
+        // A profile with no timezone of its own follows its exit, and the
+        // launch reads it from here rather than paying for a round trip.
+        let s = store().await;
+        let id = s
+            .upsert_proxy(&Proxy {
+                id: String::new(),
+                name: "eu".into(),
+                kind: "socks5".into(),
+                host: "exit.example".into(),
+                port: 1080,
+                username: None,
+                password: None,
+                last_country: None,
+                last_ip: None,
+                last_timezone: None,
+                rotate_url: None,
+                checker_url: None,
+            })
+            .await
+            .unwrap();
+
+        s.record_exit(&id, Some("203.0.113.7"), Some("DE"), Some("Europe/Berlin"))
+            .await
+            .unwrap();
+
+        let stored = s.proxies().await.unwrap();
+        assert_eq!(stored[0].last_timezone.as_deref(), Some("Europe/Berlin"));
+        assert_eq!(stored[0].last_country.as_deref(), Some("DE"));
+
+        // And the launch path sees it through the profile join, which is the
+        // only place it matters.
+        let project = s.default_project().await.unwrap();
+        let mut p = blank(&project, "follows its exit");
+        p.timezone = None;
+        p.proxy = Some(Proxy {
+            id: id.clone(),
+            name: String::new(),
+            kind: String::new(),
+            host: String::new(),
+            port: 0,
+            username: None,
+            password: None,
+            last_country: None,
+            last_ip: None,
+            last_timezone: None,
+            rotate_url: None,
+            checker_url: None,
+        });
+        let pid = s.upsert_profile(&p).await.unwrap();
+        let launched = s.profile(&pid).await.unwrap().unwrap();
+        assert_eq!(
+            launched.proxy.unwrap().last_timezone.as_deref(),
+            Some("Europe/Berlin"),
+            "the launch path cannot see the exit it is supposed to follow"
+        );
+    }
+
+    #[tokio::test]
     async fn the_launch_path_gets_the_proxy_password_and_the_list_does_not() {
         // Most residential and mobile proxies are sold with credentials. The
         // list blanks the password by design; the launch path must not, or the
@@ -961,6 +1064,7 @@ mod tests {
                 password: Some("s3cr3t".into()),
                 last_country: None,
                 last_ip: None,
+                last_timezone: None,
                 rotate_url: None,
                 checker_url: None,
             })
@@ -978,6 +1082,7 @@ mod tests {
             password: None,
             last_country: None,
             last_ip: None,
+            last_timezone: None,
             rotate_url: None,
             checker_url: None,
         });
@@ -1113,6 +1218,7 @@ mod tests {
             password: None,
             last_country: None,
             last_ip: None,
+            last_timezone: None,
             rotate_url: None,
             checker_url: None,
         };

@@ -251,6 +251,16 @@ impl Agent {
                     }
                 };
 
+                // Remembered, so a profile that follows its exit does not pay
+                // for this round trip again at launch.
+                if let Some(id) = params.get("id").and_then(|v| v.as_str()) {
+                    let s = |k: &str| body.get(k).and_then(|v| v.as_str());
+                    let _ = self
+                        .store
+                        .record_exit(id, s("ip"), s("country"), s("timezone"))
+                        .await;
+                }
+
                 Ok(json!({
                     "ok": true,
                     "ip": body.get("ip"),
@@ -573,6 +583,30 @@ impl Agent {
         }
     }
 
+    /// Ask a proxy where its traffic comes out.
+    ///
+    /// The same request the operator's "where does it come out?" button makes,
+    /// so a launch and a check can never disagree about an exit.
+    async fn resolve_exit(
+        url: &str,
+        checker_url: Option<&str>,
+    ) -> anyhow::Result<(Option<String>, Option<String>, Option<String>)> {
+        let endpoint = checker_url
+            .map(str::to_string)
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| std::env::var("FURY_IP_CHECK").ok())
+            .unwrap_or_else(|| "https://ipinfo.io/json".to_string());
+
+        let client = reqwest::Client::builder()
+            .proxy(reqwest::Proxy::all(url)?)
+            .timeout(std::time::Duration::from_secs(15))
+            .build()?;
+
+        let body: serde_json::Value = client.get(&endpoint).send().await?.json().await?;
+        let s = |k: &str| body.get(k).and_then(|v| v.as_str()).map(str::to_string);
+        Ok((s("ip"), s("country"), s("timezone")))
+    }
+
     async fn launch(
         &self,
         profile_id: &str,
@@ -641,8 +675,49 @@ impl Agent {
             );
         }
 
+        // A profile with no timezone of its own follows its exit.
+        //
+        // Claiming UTC while leaving through Berlin is the cheapest thing a
+        // detector checks: one subtraction between
+        // Intl.DateTimeFormat().resolvedOptions().timeZone and the geolocation
+        // of the address the request came from. The stored answer is used when
+        // there is one, and asked for when there is not — a second in front of
+        // a launch is worth less than an account.
+        let timezone = match profile.timezone.clone() {
+            Some(tz) => tz,
+            None => {
+                let known = proxy.last_timezone.clone();
+                let resolved = match known {
+                    Some(tz) => Some(tz),
+                    None => match Self::resolve_exit(&proxy.url(), proxy.checker_url.as_deref()).await {
+                        Ok((ip, country, tz)) => {
+                            let _ = self
+                                .store
+                                .record_exit(&proxy.id, ip.as_deref(), country.as_deref(), tz.as_deref())
+                                .await;
+                            tz
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "could not resolve the proxy exit");
+                            None
+                        }
+                    },
+                };
+                // UTC only when the exit could not be reached at all. It is a
+                // guess, and the log says so rather than letting a launch look
+                // like it followed something.
+                resolved.unwrap_or_else(|| {
+                    tracing::warn!(
+                        profile = %profile.name,
+                        "launching with UTC: this profile follows its exit and the exit did not answer"
+                    );
+                    "UTC".into()
+                })
+            }
+        };
+
         let ctx = fury_shared::persona::ProfileContext {
-            timezone: profile.timezone.clone().unwrap_or_else(|| "UTC".into()),
+            timezone,
             languages: profile
                 .languages
                 .clone()

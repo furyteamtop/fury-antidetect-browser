@@ -1270,6 +1270,7 @@ pub async fn check_proxy(
     // fetched and opened here instead.
     proxy_id: Option<String>,
 ) -> R<serde_json::Value> {
+    let stored_id = proxy_id.clone();
     let url = match proxy_id.filter(|_| mode_of(&state) != "local") {
         None => url,
         Some(id) => {
@@ -1319,7 +1320,9 @@ pub async fn check_proxy(
     // machine whose exit the answer describes.
     Ok(crate::agent::call(
         "proxies.check",
-        serde_json::json!({ "url": url, "checker_url": checker_url }),
+        // The id, when there is one, so the agent can remember what it learned
+        // and a launch that follows this exit does not ask again.
+        serde_json::json!({ "url": url, "checker_url": checker_url, "id": stored_id }),
     )
     .await?)
 }
