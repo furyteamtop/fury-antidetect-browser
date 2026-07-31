@@ -131,6 +131,8 @@ export interface Shell {
   /** "local" needs no account at all; "team" is a server someone chose. */
   mode: "local" | "team";
   agent_ready: boolean;
+  /** Whether the organisation key is remembered between launches. */
+  remember_org_key: boolean;
   /** This build, for the About panel and for any bug report that follows. */
   version: string;
   /** Whether this process holds the organisation key. A session survives a
@@ -281,6 +283,7 @@ export const api = {
     return Promise.resolve({
       mode: "team" as const,
       agent_ready: false,
+      remember_org_key: true,
       version: "dev",
       org_key_ready: false,
       last_email: null,
@@ -382,6 +385,9 @@ export const api = {
     }[];
     invited: { email: string; role: string; expires_at: string }[];
   }> => cmd("org_members"),
+
+  setRememberOrgKey: (remember: boolean): Promise<Shell> =>
+    cmd<Shell>("set_remember_org_key", { remember }),
 
   invite: (email: string, role: string): Promise<{ code: string; expires_in_hours: number }> =>
     cmd("invite", { email, role }),

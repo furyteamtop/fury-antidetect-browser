@@ -179,8 +179,12 @@ export function App() {
     );
   }
 
-  // Signed in, and holding nothing that can open a profile. The session came
-  // back from the keychain; the organisation key never does, by design.
+  // Signed in and holding nothing that can open a profile.
+  //
+  // With the key remembered — the default — this does not happen: it comes
+  // back from the keychain with the session. It is reached by someone who
+  // turned that off, and by a member who has not been handed the key yet, and
+  // for the second the password is not the answer. Both are told which.
   if (!local && !shell.org_key_ready) {
     return (
       <Login

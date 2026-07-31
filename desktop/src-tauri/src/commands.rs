@@ -129,6 +129,22 @@ impl AppState {
             .ok_or_else(|| ApiErr::local("No server configured yet."))
     }
 
+    /// The organisation key, from memory or from the keychain.
+    ///
+    /// Lazy: the first command that needs it pays for the keychain read, and
+    /// nothing on the startup path does.
+    fn org_key(&self) -> Option<[u8; 32]> {
+        if let Some(key) = *self.org_key.lock().unwrap() {
+            return Some(key);
+        }
+        if !self.settings.lock().unwrap().remember_org_key {
+            return None;
+        }
+        let found = self.session.load_org_key()?;
+        *self.org_key.lock().unwrap() = Some(found);
+        Some(found)
+    }
+
     fn machine_id(&self) -> String {
         self.settings.lock().unwrap().machine_id.clone()
     }
@@ -274,7 +290,7 @@ pub async fn shell_state(state: State<'_, AppState>) -> Result<Shell, ApiErr> {
         let s = state.settings.lock().unwrap();
         (s.server_url.clone(), s.last_email.clone())
     };
-    let org_key_ready = state.org_key.lock().unwrap().is_some();
+    let org_key_ready = state.org_key().is_some();
 
     Ok(Shell {
         server_url,
@@ -429,6 +445,11 @@ pub async fn login(state: State<'_, AppState>, email: String, password: String) 
     match crypto::unlock_org_key(&password, &ok.kdf_salt, &ok.wrapped_private_key, ok.wrapped_ork.as_deref()) {
         Ok(key) => {
             *state.org_key.lock().unwrap() = key;
+            if let Some(k) = key.as_ref() {
+                if state.settings.lock().unwrap().remember_org_key {
+                    state.session.store_org_key(k);
+                }
+            }
             if let Some(g) = ok.ork_generation {
                 let mut seen = state.ork_generation.lock().unwrap();
                 *seen = (*seen).max(g);
@@ -541,6 +562,11 @@ pub async fn enrol(
     state.session.bind(&base);
     state.session.store(&ok.token);
     *state.org_key.lock().unwrap() = e.org_key;
+    if let Some(k) = e.org_key.as_ref() {
+        if state.settings.lock().unwrap().remember_org_key {
+            state.session.store_org_key(k);
+        }
+    }
 
     state
         .call(reqwest::Method::GET, "/v1/me", Body::None, true)
@@ -866,9 +892,7 @@ async fn launch_from_spec(state: &AppState, grant: &LockGrant) -> R<serde_json::
     let spec = &grant.spec;
 
     let org_key = state
-        .org_key
-        .lock()
-        .unwrap()
+        .org_key()
         .ok_or_else(|| {
             ApiErr::local(
                 "This machine does not hold the organisation key yet. An owner or admin has to                  hand it over before anything here can be decrypted — until then you can see the                  team and open nothing.",
@@ -967,6 +991,25 @@ pub async fn stop(state: State<'_, AppState>, profile_id: String) -> R<serde_jso
 // the team
 // ---------------------------------------------------------------------------
 
+/// Whether the organisation key is remembered between launches.
+#[tauri::command]
+pub async fn set_remember_org_key(state: State<'_, AppState>, remember: bool) -> R<Shell> {
+    {
+        let mut s = state.settings.lock().unwrap();
+        s.remember_org_key = remember;
+        s.save(&state.config_dir)
+            .map_err(|e| ApiErr::local(format!("Could not save settings: {e}")))?;
+    }
+    if !remember {
+        // Turned off, the copy on disk goes now rather than at the next sign
+        // out — otherwise "do not remember it" leaves it remembered.
+        state.session.forget_org_key();
+    } else if let Some(key) = *state.org_key.lock().unwrap() {
+        state.session.store_org_key(&key);
+    }
+    shell_state(state).await
+}
+
 #[tauri::command]
 pub async fn org_members(state: State<'_, AppState>) -> R<serde_json::Value> {
     state.call(reqwest::Method::GET, "/v1/org/members", Body::None, true).await
@@ -999,7 +1042,7 @@ pub async fn hand_over_key(
     user_id: String,
     public_key: String,
 ) -> R<serde_json::Value> {
-    let org_key = state.org_key.lock().unwrap().ok_or_else(|| {
+    let org_key = state.org_key().ok_or_else(|| {
         ApiErr::coded("err.noOrgKeyGive", 
             "You do not hold the organisation key on this machine, so you cannot hand it to \
              anyone. Sign in again, or ask an owner.",
@@ -1034,7 +1077,7 @@ pub async fn remove_member(
     state: State<'_, AppState>,
     user_id: Option<String>,
 ) -> R<serde_json::Value> {
-    let old = state.org_key.lock().unwrap().ok_or_else(|| {
+    let old = state.org_key().ok_or_else(|| {
         ApiErr::coded(
             "err.noOrgKeyGive",
             "You do not hold the organisation key on this machine, so you cannot rotate it.",
@@ -1096,6 +1139,9 @@ pub async fn remove_member(
     // Only after the server accepted it. Adopting the new key on a rotation
     // that was refused would leave this machine unable to open anything.
     *state.org_key.lock().unwrap() = Some(new_key);
+    if state.settings.lock().unwrap().remember_org_key {
+        state.session.store_org_key(&new_key);
+    }
     if let Some(g) = out.get("generation").and_then(|v| v.as_i64()) {
         let mut seen = state.ork_generation.lock().unwrap();
         *seen = (*seen).max(g as i32);
@@ -1232,7 +1278,7 @@ pub async fn save_proxy(
 
     let id = proxy.get("id").and_then(|v| v.as_str()).unwrap_or_default().to_string();
 
-    let org_key = state.org_key.lock().unwrap().ok_or_else(|| {
+    let org_key = state.org_key().ok_or_else(|| {
         ApiErr::coded("err.noOrgKeySeal", 
             "This machine does not hold the organisation key yet, so it cannot seal a proxy's \
              credentials. An owner or admin has to hand the key over first.",
@@ -1291,7 +1337,7 @@ pub async fn check_proxy(
     let url = match proxy_id.filter(|_| mode_of(&state) != "local") {
         None => url,
         Some(id) => {
-            let org_key = state.org_key.lock().unwrap().ok_or_else(|| {
+            let org_key = state.org_key().ok_or_else(|| {
                 ApiErr::coded(
                     "err.noOrgKeySeal",
                     "This machine does not hold the organisation key, so it cannot open this \

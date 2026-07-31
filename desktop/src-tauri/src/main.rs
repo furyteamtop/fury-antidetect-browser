@@ -97,6 +97,7 @@ fn main() {
             commands::profiles,
             commands::move_profiles,
             update::check_update,
+            commands::set_remember_org_key,
             commands::org_members,
             commands::invite,
             commands::hand_over_key,

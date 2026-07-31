@@ -139,11 +139,21 @@ export function Settings({
                   <button type="button" className="linky" onClick={onEnrol}>
                     {t("enrol.have")}
                   </button>
-                  <p className="hint">{t("set.howTo")}</p>
+                  <SelfHosting />
                 </>
               ) : (
                 <>
                   <p className="mono">{shell.server_url}</p>
+                  <label className="row" style={{ gap: 8, margin: "var(--s-3) 0" }}>
+                    <input
+                      type="checkbox"
+                      style={{ width: 14, height: 14, accentColor: "var(--accent)" }}
+                      checked={shell.remember_org_key}
+                      onChange={async (e) => onChanged(await api.setRememberOrgKey(e.target.checked))}
+                    />
+                    <span>{t("set.rememberKey")}</span>
+                  </label>
+                  <p className="hint">{t("set.rememberKeyHint")}</p>
                   <button
                     onClick={async () => {
                       onChanged(await api.disconnectServer());
@@ -209,6 +219,41 @@ export function Settings({
         </div>
       </div>
     </div>
+  );
+}
+
+/// What to run to have a server of your own.
+///
+/// In the application rather than in a document, because the person who needs
+/// it has an application and not a repository — "see docs/13-self-hosting.md"
+/// was an instruction they could not follow.
+function SelfHosting() {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" className="linky" onClick={() => setOpen(!open)}>
+        {open ? t("host.hide") : t("host.show")}
+      </button>
+      {open && (
+        <div style={{ maxWidth: 620 }}>
+          <p className="hint">{t("host.intro")}</p>
+          <ol className="hint" style={{ paddingLeft: "1.2em", lineHeight: 1.7 }}>
+            <li>{t("host.step1")}</li>
+            <li>
+              {t("host.step2")}
+              <pre className="mono snippet">./deploy/push.sh root@ADDRESS ADDRESS-with-dashes.sslip.io</pre>
+            </li>
+            <li>
+              {t("host.step3")}
+              <pre className="mono snippet">fury-server invite --email you@example.com --org "My team"</pre>
+            </li>
+            <li>{t("host.step4")}</li>
+          </ol>
+          <p className="hint">{t("host.note")}</p>
+        </div>
+      )}
+    </>
   );
 }
 

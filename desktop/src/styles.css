@@ -774,6 +774,18 @@ input::placeholder {
   min-width: 0;
 }
 
+.snippet {
+  margin: var(--s-2) 0;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
 .sectionTitle {
   margin: 0 0 var(--s-2);
   font-size: 13px;

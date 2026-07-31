@@ -32,6 +32,18 @@ pub struct Settings {
     /// ever moves forward — see AppState::ork_generation.
     #[serde(default)]
     pub ork_generation: i32,
+
+    /// Whether the organisation key is remembered between launches.
+    ///
+    /// On by default. Off means the password is asked for on every start,
+    /// which is a real choice for a shared machine and a bad default for a
+    /// tool somebody opens ten times a day.
+    #[serde(default = "yes")]
+    pub remember_org_key: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Settings {
@@ -56,6 +68,7 @@ impl Settings {
             None => Settings {
                 last_email: None,
                 ork_generation: 0,
+                remember_org_key: true,
                 server_url: None,
                 machine_id: new_machine_id(),
             },

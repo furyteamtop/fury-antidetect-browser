@@ -26,6 +26,11 @@ use std::sync::Mutex;
 
 const SERVICE: &str = "dev.fury.desktop";
 
+/// Where the organisation key is remembered, keyed by server like the token.
+fn org_key_account(server_url: &str) -> String {
+    format!("ork:{server_url}")
+}
+
 /// Holds the token for the current process and mirrors it into the keychain.
 pub struct Session {
     /// Keyed by server URL, so pointing the app at a second server does not
@@ -152,11 +157,79 @@ impl Session {
         }
     }
 
+    /// Remember the organisation key, so the next launch does not ask for a
+    /// password again.
+    ///
+    /// It goes where the session token already goes. That is the whole
+    /// argument: an attacker who can read this keychain entry can read the
+    /// token beside it, and the token already reaches the server. Keeping the
+    /// key out bought a narrow window — keychain readable, process memory not —
+    /// and charged a password for it every single time the application opened,
+    /// several times a day, for a tool people keep open all day. The threat
+    /// model (docs/01) already says plainly that a process running as this user
+    /// is not defended against.
+    ///
+    /// Someone who wants the old behaviour can have it: see
+    /// `Settings::remember_org_key`.
+    pub fn store_org_key(&self, key: &[u8; 32]) {
+        let account = self.account.lock().unwrap().clone();
+        if account.is_empty() {
+            return;
+        }
+        use base64::Engine;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(key);
+        if let Ok(e) = keyring::Entry::new(SERVICE, &org_key_account(&account)) {
+            if let Err(err) = e.set_password(&encoded) {
+                eprintln!("session: could not remember the organisation key: {err}");
+            }
+        }
+    }
+
+    /// The remembered organisation key, if there is one.
+    ///
+    /// Bounded and on its own thread, for the reason the token read is: macOS
+    /// ties keychain permission to the binary's signature, and a prompt on the
+    /// calling thread is an application that appears to hang.
+    pub fn load_org_key(&self) -> Option<[u8; 32]> {
+        let account = self.account.lock().unwrap().clone();
+        if account.is_empty() {
+            return None;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let found = keyring::Entry::new(SERVICE, &org_key_account(&account))
+                .ok()
+                .and_then(|e| e.get_password().ok());
+            let _ = tx.send(found);
+        });
+
+        use base64::Engine;
+        rx.recv_timeout(std::time::Duration::from_secs(5))
+            .ok()
+            .flatten()
+            .and_then(|v| base64::engine::general_purpose::STANDARD.decode(v).ok())
+            .and_then(|v| <[u8; 32]>::try_from(v).ok())
+    }
+
+    pub fn forget_org_key(&self) {
+        let account = self.account.lock().unwrap().clone();
+        if let Ok(e) = keyring::Entry::new(SERVICE, &org_key_account(&account)) {
+            match e.delete_credential() {
+                Ok(()) | Err(keyring::Error::NoEntry) => {}
+                Err(err) => eprintln!("session: could not forget the organisation key: {err}"),
+            }
+        }
+    }
+
     /// Forgets the token locally. Revoking it server-side is a separate call and
     /// must happen first — see the `logout` command.
     pub fn clear(&self) {
         *self.token.lock().unwrap() = None;
         *self.loaded.lock().unwrap() = true;
+        // The key goes with the session. A signed-out application that can
+        // still open every credential it saw is the state "sign out" is asked
+        // for precisely to avoid.
+        self.forget_org_key();
         let account = self.account.lock().unwrap().clone();
         if let Some(e) = entry(&account) {
             match e.delete_credential() {
