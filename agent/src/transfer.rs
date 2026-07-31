@@ -33,7 +33,10 @@ use crate::store::{Profile, Proxy, Store};
 /// Magic and version. Read before anything else, so a file from a later
 /// version says so instead of failing as "wrong passphrase" — which is the
 /// error people spend an hour on.
-const MAGIC: &[u8; 8] = b"FURY-EX1";
+const MAGIC: &[u8; 8] = b"FURY-EX2";
+/// The first format. Same layout, weaker key derivation — see `derive_key`.
+/// Still read, never written: a file someone exported last month has to open.
+const MAGIC_V1: &[u8; 8] = b"FURY-EX1";
 const SALT_LEN: usize = 16;
 const NONCE_LEN: usize = 24;
 
@@ -115,7 +118,7 @@ pub async fn export_project(
 
     let salt: [u8; SALT_LEN] = rand::random();
     let nonce_bytes: [u8; NONCE_LEN] = rand::random();
-    let cipher = XChaCha20Poly1305::new((&derive_key(passphrase, &salt)?).into());
+    let cipher = XChaCha20Poly1305::new((&derive_key(passphrase, &salt, Version::V2)?).into());
     let sealed = cipher
         .encrypt(XNonce::from_slice(&nonce_bytes), compressed.as_ref())
         .map_err(|_| anyhow::anyhow!("encryption failed"))?;
@@ -150,7 +153,12 @@ pub async fn import_project(
     profile_dir: impl Fn(&str) -> PathBuf,
 ) -> anyhow::Result<(String, usize)> {
     let raw = std::fs::read(src)?;
-    if raw.len() < MAGIC.len() + SALT_LEN + NONCE_LEN || &raw[..MAGIC.len()] != MAGIC {
+    let version = match raw.get(..MAGIC.len()) {
+        Some(m) if m == MAGIC => Version::V2,
+        Some(m) if m == MAGIC_V1 => Version::V1,
+        _ => anyhow::bail!("this is not a Fury export file"),
+    };
+    if raw.len() < MAGIC.len() + SALT_LEN + NONCE_LEN {
         anyhow::bail!("this is not a Fury export file");
     }
 
@@ -158,7 +166,7 @@ pub async fn import_project(
     let nonce = &raw[MAGIC.len() + SALT_LEN..MAGIC.len() + SALT_LEN + NONCE_LEN];
     let sealed = &raw[MAGIC.len() + SALT_LEN + NONCE_LEN..];
 
-    let cipher = XChaCha20Poly1305::new((&derive_key(passphrase, salt)?).into());
+    let cipher = XChaCha20Poly1305::new((&derive_key(passphrase, salt, version)?).into());
     let compressed = cipher
         .decrypt(XNonce::from_slice(nonce), sealed)
         .map_err(|_| anyhow::anyhow!("wrong passphrase, or the file has been altered"))?;
@@ -250,12 +258,48 @@ pub async fn import_project(
     Ok((project_id, manifest.profiles.len()))
 }
 
-fn derive_key(passphrase: &str, salt: &[u8]) -> anyhow::Result<[u8; 32]> {
+/// Turn the passphrase into a key.
+///
+/// `Argon2::default()` is 19 MiB and two passes — chosen for hashing a login
+/// password on a busy server, where the cost is paid on every request. It is
+/// the wrong parameter set here and was a real weakness: this file *is* the
+/// asset. Cookie jars for live accounts and the passwords of the proxies they
+/// go out through, sitting in a Downloads folder or on a USB stick, guarded by
+/// whatever phrase a person typed. Against a phrase a human invented, 19 MiB
+/// puts a GPU cluster within reach.
+///
+/// So the current format uses the same parameters as the vault key: 256 MiB and
+/// three passes, about a second on the machines this ships to, and out of range
+/// for guessing at scale. The cost is paid twice in a lifetime — once writing
+/// the file, once reading it.
+///
+/// V1 files keep opening with the old parameters. Refusing them to fix the
+/// derivation would strand exports people already made.
+fn derive_key(passphrase: &str, salt: &[u8], version: Version) -> anyhow::Result<[u8; 32]> {
     let mut key = [0u8; 32];
-    Argon2::default()
+    let argon = match version {
+        Version::V1 => Argon2::default(),
+        Version::V2 => {
+            let params = argon2::Params::new(
+                fury_shared::keys::KDF_MEMORY_KIB,
+                fury_shared::keys::KDF_PASSES,
+                fury_shared::keys::KDF_LANES,
+                Some(32),
+            )
+            .map_err(|e| anyhow::anyhow!("bad Argon2 parameters: {e}"))?;
+            Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params)
+        }
+    };
+    argon
         .hash_password_into(passphrase.as_bytes(), salt, &mut key)
         .map_err(|e| anyhow::anyhow!("deriving the key failed: {e}"))?;
     Ok(key)
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Version {
+    V1,
+    V2,
 }
 
 fn append_bytes<W: Write>(
@@ -379,6 +423,18 @@ mod tests {
             std::fs::read(profile_dir(&r.id).join("Cookies")).unwrap(),
             b"warm"
         );
+    }
+
+    #[test]
+    fn a_file_written_before_the_kdf_was_strengthened_still_opens() {
+        // V1 used Argon2::default() — 19 MiB, two passes — over a phrase a
+        // person invented, protecting live accounts. V2 uses the vault's
+        // parameters. Old files must keep opening, or fixing the derivation
+        // strands every export already made.
+        let salt = [7u8; SALT_LEN];
+        let v1 = derive_key("correct horse battery", &salt, Version::V1).unwrap();
+        let v2 = derive_key("correct horse battery", &salt, Version::V2).unwrap();
+        assert_ne!(v1, v2, "both versions derive the same key — the change did nothing");
     }
 
     #[tokio::test]

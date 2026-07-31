@@ -43,9 +43,9 @@ use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 /// every request on a shared server. 256 MiB and three passes is roughly a
 /// second on the machines this ships to, and prices a GPU attack out of the
 /// range where a memorable password is guessable.
-const KDF_MEMORY_KIB: u32 = 262_144;
-const KDF_PASSES: u32 = 3;
-const KDF_LANES: u32 = 1;
+pub const KDF_MEMORY_KIB: u32 = 262_144;
+pub const KDF_PASSES: u32 = 3;
+pub const KDF_LANES: u32 = 1;
 
 pub const KEY_LEN: usize = 32;
 pub const SALT_LEN: usize = 16;
@@ -59,6 +59,8 @@ pub enum KeyError {
     Open,
     #[error("expected {expected} bytes, found {found}")]
     Length { expected: usize, found: usize },
+    #[error("that public key cannot receive a sealed value")]
+    UnusableKey,
 }
 
 /// A random salt, one per user, stored beside the wrapped key.
@@ -136,18 +138,27 @@ pub fn new_keypair() -> Keypair {
 /// exchange. Without it, a sealed blob could be replayed to a different
 /// recipient by an attacker who could get them to accept an arbitrary
 /// ephemeral key.
-pub fn seal_to(recipient_public: &[u8; KEY_LEN], plain: &[u8]) -> Vec<u8> {
+pub fn seal_to(recipient_public: &[u8; KEY_LEN], plain: &[u8]) -> Result<Vec<u8>, KeyError> {
     let mut eph = [0u8; KEY_LEN];
     getrandom(&mut eph);
     let eph_secret = x25519_dalek::StaticSecret::from(eph);
     let eph_public = x25519_dalek::PublicKey::from(&eph_secret).to_bytes();
 
     let shared = eph_secret.diffie_hellman(&x25519_dalek::PublicKey::from(*recipient_public));
+    // X25519 has small-subgroup points whose exchange yields an all-zero shared
+    // secret for *any* private key. A member who published one of those as
+    // their public key would get an organisation key sealed under a value
+    // anybody can compute — which is not a wrapped key at all. The recipient's
+    // key arrives over the network from whoever is enrolling, so this is
+    // checked rather than assumed.
+    if !shared.was_contributory() {
+        return Err(KeyError::UnusableKey);
+    }
     let key = derive(shared.as_bytes(), &eph_public, recipient_public);
 
     let mut out = eph_public.to_vec();
     out.extend_from_slice(&wrap(&key, plain));
-    out
+    Ok(out)
 }
 
 pub fn open_sealed(secret: &[u8; KEY_LEN], blob: &[u8]) -> Result<Vec<u8>, KeyError> {
@@ -163,6 +174,12 @@ pub fn open_sealed(secret: &[u8; KEY_LEN], blob: &[u8]) -> Result<Vec<u8>, KeyEr
     let sk = x25519_dalek::StaticSecret::from(*secret);
     let recipient_public = x25519_dalek::PublicKey::from(&sk).to_bytes();
     let shared = sk.diffie_hellman(&x25519_dalek::PublicKey::from(eph_public));
+    // The same check on the way back: a blob carrying a small-subgroup
+    // ephemeral key opens under a shared secret an attacker also knows, so it
+    // is refused rather than decrypted.
+    if !shared.was_contributory() {
+        return Err(KeyError::UnusableKey);
+    }
     let key = derive(shared.as_bytes(), &eph_public, &recipient_public);
 
     unwrap(&key, &blob[KEY_LEN..])
@@ -221,7 +238,7 @@ mod tests {
         let bob = new_keypair();
         let ork = new_org_key();
 
-        let sealed = seal_to(&alice.public, &ork);
+        let sealed = seal_to(&alice.public, &ork).unwrap();
         assert_eq!(open_sealed(&alice.secret, &sealed).unwrap(), ork.to_vec());
         // Bob holds a valid key, and it is the wrong one.
         assert!(open_sealed(&bob.secret, &sealed).is_err());
@@ -231,8 +248,8 @@ mod tests {
     fn sealing_reveals_neither_the_payload_nor_a_repeat() {
         let alice = new_keypair();
         let ork = new_org_key();
-        let once = seal_to(&alice.public, &ork);
-        let twice = seal_to(&alice.public, &ork);
+        let once = seal_to(&alice.public, &ork).unwrap();
+        let twice = seal_to(&alice.public, &ork).unwrap();
         assert_ne!(once, twice, "sealing is deterministic — the ephemeral key is not ephemeral");
         assert!(
             !once.windows(KEY_LEN).any(|w| w == ork),
@@ -241,9 +258,28 @@ mod tests {
     }
 
     #[test]
+    fn a_key_that_cannot_receive_a_secret_is_refused() {
+        // Small-subgroup points: the exchange gives an all-zero shared secret
+        // for every private key, so anything "sealed" to one is readable by
+        // anybody. These arrive from whoever is enrolling.
+        for bad in [[0u8; KEY_LEN], {
+            let mut one = [0u8; KEY_LEN];
+            one[0] = 1;
+            one
+        }] {
+            assert!(
+                matches!(seal_to(&bad, b"the organisation key"), Err(KeyError::UnusableKey)),
+                "a degenerate public key was accepted"
+            );
+        }
+        // And an ordinary key still works, so the check is not simply refusing.
+        assert!(seal_to(&new_keypair().public, b"x").is_ok());
+    }
+
+    #[test]
     fn a_truncated_blob_is_an_error_rather_than_a_panic() {
         let alice = new_keypair();
-        let sealed = seal_to(&alice.public, b"x");
+        let sealed = seal_to(&alice.public, b"x").unwrap();
         for cut in [0, 1, KEY_LEN, KEY_LEN + NONCE_LEN] {
             assert!(open_sealed(&alice.secret, &sealed[..cut]).is_err(), "cut at {cut}");
         }
@@ -253,7 +289,7 @@ mod tests {
     #[test]
     fn a_tampered_blob_does_not_open() {
         let alice = new_keypair();
-        let mut sealed = seal_to(&alice.public, b"the organisation key");
+        let mut sealed = seal_to(&alice.public, b"the organisation key").unwrap();
         let last = sealed.len() - 1;
         sealed[last] ^= 1;
         assert!(open_sealed(&alice.secret, &sealed).is_err());
@@ -285,7 +321,7 @@ mod tests {
         let kp = new_keypair();
         let wrapped_private = wrap(&uk, &kp.secret);
         let ork = new_org_key();
-        let wrapped_ork = seal_to(&kp.public, &ork);
+        let wrapped_ork = seal_to(&kp.public, &ork).unwrap();
 
         // The server holds: salt, wrapped_private, wrapped_ork, public key.
         // Somewhere else entirely, with only the password:

@@ -59,7 +59,7 @@ pub fn enrol(password: &str, creates_org: bool) -> anyhow::Result<Enrolment> {
         // Sealed to our own public key rather than wrapped under the user key:
         // it makes the owner's copy the same shape as every member's, so
         // handing the key to a second person later is not a special case.
-        (Some(b64(&keys::seal_to(&kp.public, &ork))), Some(ork))
+        (Some(b64(&keys::seal_to(&kp.public, &ork)?)), Some(ork))
     } else {
         (None, None)
     };
@@ -105,7 +105,7 @@ pub fn unlock_org_key(
 #[allow(dead_code)] // Reached once the member-approval screen lands.
 pub fn wrap_for_member(org_key: &[u8; 32], member_public_key: &str) -> anyhow::Result<String> {
     let pk = key32("the member's public key", unb64("public_key", member_public_key)?)?;
-    Ok(b64(&keys::seal_to(&pk, org_key)))
+    Ok(b64(&keys::seal_to(&pk, org_key)?))
 }
 
 #[cfg(test)]
