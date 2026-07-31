@@ -40,7 +40,6 @@ pub fn routes() -> Router<Arc<AppState>> {
             "/v1/projects/{project_id}",
             axum::routing::patch(rename_project).delete(delete_project),
         )
-        .route("/v1/projects/{project_id}/profiles", get(list_profiles))
         .route(
             "/v1/projects/{project_id}/grants",
             get(list_grants).post(grant_access),
@@ -48,6 +47,11 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route(
             "/v1/projects/{project_id}/grants/{user_id}",
             axum::routing::delete(revoke_access),
+        )
+        .route("/v1/proxies", get(list_proxies).post(create_proxy))
+        .route(
+            "/v1/projects/{project_id}/profiles",
+            get(list_profiles).post(create_profile),
         )
         .route("/v1/org/members", get(list_members))
         .route("/v1/org/invitations", post(create_invitation))
@@ -859,6 +863,252 @@ async fn revoke_access(
 }
 
 // ---------------------------------------------------------------------------
+// proxies and profiles
+// ---------------------------------------------------------------------------
+
+fn unhex(what: &str, v: &str) -> Result<Vec<u8>, ApiError> {
+    if v.len() % 2 != 0 || !v.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(ApiError::BadRequest(format!("{what} is not hex")));
+    }
+    (0..v.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&v[i..i + 2], 16).map_err(|_| ApiError::BadRequest(format!("{what} is not hex"))))
+        .collect()
+}
+
+#[derive(Deserialize)]
+pub struct ProxyRequest {
+    name: String,
+    kind: String,
+    host: String,
+    port: i32,
+    /// NULL scopes the proxy to the whole organisation.
+    #[serde(default)]
+    project_id: Option<Uuid>,
+    /// `{username, password}` sealed under a per-proxy data key, hex.
+    credentials_enc: String,
+    /// That data key, wrapped under the organisation key, hex.
+    wrapped_dek: String,
+    #[serde(default)]
+    rotate_url_enc: Option<String>,
+}
+
+/// Add a proxy the team can use.
+///
+/// The server receives two opaque blobs and stores them. It cannot read either,
+/// and does not try: no field here is parsed beyond checking it is hex and
+/// plausible in length. That is the whole point — a stolen database yields a
+/// list of hostnames, not a working proxy pool.
+async fn create_proxy(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+    Json(req): Json<ProxyRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    use fury_shared::rbac::OrgRole;
+    if !matches!(caller.role, OrgRole::Owner | OrgRole::Admin) {
+        return Err(ApiError::Denied(Perm::EditProxy));
+    }
+    if !matches!(req.kind.as_str(), "http" | "https" | "socks5") {
+        return Err(ApiError::BadRequest("kind must be http, https or socks5".into()));
+    }
+    if !(1..=65535).contains(&req.port) {
+        return Err(ApiError::BadRequest("port must be between 1 and 65535".into()));
+    }
+    if req.host.trim().is_empty() {
+        return Err(ApiError::BadRequest("a proxy needs a host".into()));
+    }
+
+    let credentials_enc = unhex("credentials_enc", &req.credentials_enc)?;
+    let wrapped_dek = unhex("wrapped_dek", &req.wrapped_dek)?;
+    let rotate_url_enc = req
+        .rotate_url_enc
+        .as_deref()
+        .map(|v| unhex("rotate_url_enc", v))
+        .transpose()?;
+    // 24-byte nonce plus a tag: anything shorter cannot be a sealed value, and
+    // storing one would fail on an operator's machine at launch, with nothing
+    // to point at.
+    if wrapped_dek.len() < 40 || credentials_enc.len() < 40 {
+        return Err(ApiError::BadRequest(
+            "credentials_enc and wrapped_dek must be sealed values".into(),
+        ));
+    }
+
+    // Scoped to the caller's organisation, and a project must belong to it.
+    if let Some(project_id) = req.project_id {
+        let ours: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM projects WHERE id = $1 AND org_id = $2)",
+        )
+        .bind(project_id)
+        .bind(caller.org_id)
+        .fetch_one(&state.db)
+        .await?;
+        if !ours {
+            return Err(ApiError::NotFound);
+        }
+    }
+
+    let id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO proxies (id, org_id, project_id, name, kind, host, port,                               credentials_enc, wrapped_dek, rotate_url_enc)          VALUES ($1, $2, $3, $4, $5::proxy_kind, $6, $7, $8, $9, $10)",
+    )
+    .bind(id)
+    .bind(caller.org_id)
+    .bind(req.project_id)
+    .bind(req.name.trim())
+    .bind(&req.kind)
+    .bind(req.host.trim())
+    .bind(req.port)
+    .bind(&credentials_enc)
+    .bind(&wrapped_dek)
+    .bind(&rotate_url_enc)
+    .execute(&state.db)
+    .await?;
+
+    audit(&state, &caller, "proxy.create", Some(id), json!({ "host": req.host })).await?;
+    Ok(Json(json!({ "id": id })))
+}
+
+/// The organisation's proxies, for the picker on a profile.
+///
+/// Never returns `credentials_enc`. Someone choosing which exit a profile uses
+/// needs to tell them apart, which is a name and a masked host; the sealed
+/// credentials are handed out once, bound to a lock, when a profile is actually
+/// launched.
+async fn list_proxies(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+) -> ApiResult<Json<Vec<ProxySummary>>> {
+    let reveal = caller.implicit_permissions().has(Perm::RevealSecrets);
+    let rows: Vec<(Uuid, String, String, String, i32, Option<String>, Option<String>, Option<String>, i64)> =
+        sqlx::query_as(&format!(
+            "SELECT x.id, x.name, x.kind::text, x.host, x.port, x.last_country,                     x.last_kind_detected, {},                     (SELECT count(*) FROM profiles f WHERE f.proxy_id = x.id AND f.deleted_at IS NULL)              FROM proxies x              WHERE x.org_id = $1 AND x.deleted_at IS NULL              ORDER BY x.name",
+            rfc3339("x.last_checked_at"),
+        ))
+        .bind(caller.org_id)
+        .fetch_all(&state.db)
+        .await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|(id, name, kind, host, port, country, detected, checked, used)| ProxySummary {
+                id,
+                name,
+                kind,
+                // The doc comment on ProxySummary promises host:port and the
+                // first version gave only the host, so a picker could not tell
+                // two ports on one gateway apart — which is how a provider
+                // sells fifty exits.
+                display: if reveal {
+                    format!("{host}:{port}")
+                } else {
+                    format!("{}:{port}", mask_host(&host))
+                },
+                country,
+                detected_kind: detected,
+                last_checked_at: checked,
+                shared_with_profiles: used,
+            })
+            .collect(),
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct NewProfileRequest {
+    name: String,
+    #[serde(default)]
+    tags: Vec<String>,
+    persona_id: String,
+    /// Sixteen lowercase hex characters. Generated by the client, because it is
+    /// the client that has to keep it stable for the life of the account.
+    fp_seed: String,
+    timezone: String,
+    languages: Vec<String>,
+    proxy_id: Uuid,
+    #[serde(default)]
+    start_urls: Vec<String>,
+    #[serde(default)]
+    notes: String,
+}
+
+/// Create a profile in a project.
+///
+/// Everything a launch needs is required here rather than defaulted. A profile
+/// that cannot be launched should not be creatable: the alternative is a row
+/// that looks fine in a list and fails at the moment someone needs it, which
+/// for a shared profile means failing on a colleague's machine.
+async fn create_profile(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+    Path(project_id): Path<Uuid>,
+    Json(req): Json<NewProfileRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    rbac_guard::require(&state.db, caller.user_id, project_id, Perm::CreateProfile).await?;
+
+    if req.name.trim().is_empty() {
+        return Err(ApiError::BadRequest("a profile needs a name".into()));
+    }
+    let seed = fury_shared::persona::seed::from_hex(&req.fp_seed).ok_or_else(|| {
+        ApiError::BadRequest("fp_seed must be sixteen hex characters".into())
+    })?;
+    if req.timezone.trim().is_empty() {
+        return Err(ApiError::BadRequest("a profile needs a timezone".into()));
+    }
+    if req.languages.is_empty() {
+        return Err(ApiError::BadRequest("a profile needs at least one language".into()));
+    }
+    if !fury_shared::catalogue::all().iter().any(|p| p.id == req.persona_id) {
+        return Err(ApiError::BadRequest(format!(
+            "no persona called {:?} — the client and the server ship different catalogues",
+            req.persona_id
+        )));
+    }
+
+    // The proxy has to be one of ours, and it has to be usable: a profile
+    // pointing at a proxy whose credentials were never sealed is exactly the
+    // unlaunchable row this endpoint refuses to create.
+    let usable: Option<(bool,)> = sqlx::query_as(
+        "SELECT (credentials_enc IS NOT NULL AND wrapped_dek IS NOT NULL)          FROM proxies WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL",
+    )
+    .bind(req.proxy_id)
+    .bind(caller.org_id)
+    .fetch_optional(&state.db)
+    .await?;
+    match usable {
+        None => return Err(ApiError::BadRequest("no such proxy".into())),
+        Some((false,)) => {
+            return Err(ApiError::BadRequest(
+                "that proxy has no stored credentials, so nothing could launch through it".into(),
+            ))
+        }
+        Some((true,)) => {}
+    }
+
+    let id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO profiles (id, org_id, project_id, name, notes, tags, persona_id, fp_seed,                                timezone, languages, proxy_id, start_urls, created_by)          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+    )
+    .bind(id)
+    .bind(caller.org_id)
+    .bind(project_id)
+    .bind(req.name.trim())
+    .bind(&req.notes)
+    .bind(&req.tags)
+    .bind(&req.persona_id)
+    .bind(fury_shared::persona::seed::to_bytes(seed).as_slice())
+    .bind(&req.timezone)
+    .bind(&req.languages)
+    .bind(req.proxy_id)
+    .bind(&req.start_urls)
+    .bind(caller.user_id)
+    .execute(&state.db)
+    .await?;
+
+    audit(&state, &caller, "profile.create", Some(id), json!({ "name": req.name })).await?;
+    Ok(Json(json!({ "id": id })))
+}
+
+// ---------------------------------------------------------------------------
 // the organisation
 // ---------------------------------------------------------------------------
 
@@ -1081,6 +1331,11 @@ async fn acquire_lock(
         return Err(ApiError::Denied(Perm::ManageAccess));
     }
 
+    // Assembled before the lock is taken. A lock held on a profile that turns
+    // out to be unlaunchable is a profile nobody else can open for the next
+    // ninety seconds, over a failure that was knowable up front.
+    let spec = launch_spec(&state, profile_id).await?;
+
     let (raw, digest) = auth::new_token();
 
     // One statement, so two agents racing cannot both win.
@@ -1160,7 +1415,93 @@ async fn acquire_lock(
         lock_token: raw,
         expires_at: expires_at.to_string(),
         restrictions,
+        spec,
     }))
+}
+
+/// Everything needed to start one profile.
+///
+/// Refuses, with a sentence rather than a code, when the profile is missing
+/// something a launch cannot proceed without. The wording mirrors the agent's
+/// own (`agent/src/ipc.rs`), because an operator should read the same
+/// explanation whether the profile lives on this machine or on a server.
+async fn launch_spec(state: &AppState, profile_id: Uuid) -> ApiResult<fury_shared::api::LaunchSpec> {
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        name: String,
+        persona_id: String,
+        fp_seed: Vec<u8>,
+        timezone: Option<String>,
+        languages: Vec<String>,
+        start_urls: Vec<String>,
+        px_id: Option<Uuid>,
+        px_kind: Option<String>,
+        px_host: Option<String>,
+        px_port: Option<i32>,
+        credentials_enc: Option<Vec<u8>>,
+        wrapped_dek: Option<Vec<u8>>,
+    }
+
+    let row: Row = sqlx::query_as(
+        "SELECT f.name, f.persona_id, f.fp_seed, f.timezone, f.languages, f.start_urls,                 x.id AS px_id, x.kind::text AS px_kind, x.host AS px_host, x.port AS px_port,                 x.credentials_enc, x.wrapped_dek          FROM profiles f          LEFT JOIN proxies x ON x.id = f.proxy_id AND x.deleted_at IS NULL          WHERE f.id = $1 AND f.deleted_at IS NULL",
+    )
+    .bind(profile_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(ApiError::NotFound)?;
+
+    let (Some(px_id), Some(kind), Some(host), Some(port)) =
+        (row.px_id, row.px_kind, row.px_host, row.px_port)
+    else {
+        return Err(ApiError::BadRequest(
+            "this profile has no proxy. Everything the browser does goes through one, so              launching without it would send traffic from the operator's own address"
+                .into(),
+        ));
+    };
+    let (Some(credentials_enc), Some(wrapped_dek)) = (row.credentials_enc, row.wrapped_dek) else {
+        return Err(ApiError::BadRequest(format!(
+            "the proxy on this profile has no stored credentials. It was created before              credentials were sealed, or by a client that could not seal them — open it in              Proxies and save it again ({px_id})"
+        )));
+    };
+    let Some(timezone) = row.timezone else {
+        return Err(ApiError::BadRequest(
+            "this profile has no timezone. A browser claiming UTC while its exit is in Berlin              is the cheapest thing there is to notice"
+                .into(),
+        ));
+    };
+    if row.languages.is_empty() {
+        return Err(ApiError::BadRequest(
+            "this profile has no languages. Accept-Language is sent on every request, and an              empty one is not a value any real browser produces"
+                .into(),
+        ));
+    }
+
+    let fp_seed = fury_shared::persona::seed::from_bytes(&row.fp_seed)
+        .map(fury_shared::persona::seed::to_hex)
+        .ok_or_else(|| {
+            ApiError::Internal(anyhow::anyhow!(
+                "profile {profile_id} has a {}-byte seed; it must be 8",
+                row.fp_seed.len()
+            ))
+        })?;
+
+    Ok(fury_shared::api::LaunchSpec {
+        profile_id,
+        name: row.name,
+        persona_id: row.persona_id,
+        fp_seed,
+        timezone,
+        languages: row.languages,
+        start_urls: row.start_urls,
+        proxy: fury_shared::api::SealedProxy {
+            id: px_id,
+            kind,
+            host,
+            port: port as u16,
+            credentials_enc,
+            wrapped_dek,
+        },
+    })
 }
 
 // ---------------------------------------------------------------------------

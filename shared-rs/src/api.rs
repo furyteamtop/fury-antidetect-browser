@@ -81,6 +81,59 @@ pub struct AcquireLockResponse {
     /// operator cannot take the data home", so they are never trusted from the
     /// client.
     pub restrictions: crate::rbac::LaunchRestrictions,
+    /// Everything needed to actually start the browser.
+    ///
+    /// Folded into the lock rather than a separate `GET /launch-spec`, for two
+    /// reasons. One round trip instead of two, and — the real one — every
+    /// handout of proxy ciphertext is then bound to a lock, and therefore
+    /// already written to the audit log as `profile.launch`. A separate
+    /// endpoint would be a way to collect the organisation's proxy credentials
+    /// without ever appearing to open anything.
+    pub spec: LaunchSpec,
+}
+
+/// What the agent needs to run one profile, and nothing else.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LaunchSpec {
+    pub profile_id: Uuid,
+    pub name: String,
+    pub persona_id: String,
+    /// Sixteen lowercase hex characters — see `persona::seed` for why this is
+    /// pinned rather than left to each side's own integer type.
+    pub fp_seed: String,
+    pub timezone: String,
+    pub languages: Vec<String>,
+    pub start_urls: Vec<String>,
+    pub proxy: SealedProxy,
+}
+
+/// A proxy as the server holds it: addressable, and unreadable.
+///
+/// The credentials travel encrypted and are opened by the desktop shell, which
+/// holds the organisation key. The server never had them and the agent never
+/// needs the key that opens them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SealedProxy {
+    pub id: Uuid,
+    /// http | https | socks5
+    pub kind: String,
+    pub host: String,
+    pub port: u16,
+    /// `{username, password}` as JSON, sealed under a per-proxy data key.
+    #[serde(with = "hex_bytes")]
+    pub credentials_enc: Vec<u8>,
+    /// That data key, wrapped under the organisation key.
+    #[serde(with = "hex_bytes")]
+    pub wrapped_dek: Vec<u8>,
+}
+
+/// The plaintext behind `credentials_enc`. Exists on the client only.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProxyCredentials {
+    #[serde(default)]
+    pub username: Option<String>,
+    #[serde(default)]
+    pub password: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

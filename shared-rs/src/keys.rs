@@ -196,6 +196,30 @@ fn derive(shared: &[u8], eph_public: &[u8; KEY_LEN], recipient: &[u8; KEY_LEN]) 
     key
 }
 
+/// A key for exactly one object, derived from the organisation key.
+///
+/// The organisation key opens every proxy credential and every profile in the
+/// team. Handing it to a second process so that process can open *one* profile
+/// is a bad trade, and the agent is exactly that case: it needs to unseal one
+/// bundle, and it is the process that runs a browser full of other people's
+/// JavaScript. So it gets a subkey — enough to open the profile it was asked
+/// to launch, useless for the one next to it.
+///
+/// The id goes into the derivation after a zero byte, so that a label and an id
+/// cannot be re-cut to produce the same input: ("ab", "c") and ("a", "bc") are
+/// different keys.
+pub fn subkey(ork: &[u8; KEY_LEN], label: &str, id: &str) -> [u8; KEY_LEN] {
+    let mut info = label.as_bytes().to_vec();
+    info.push(0);
+    info.extend_from_slice(id.as_bytes());
+
+    let hk = hkdf::Hkdf::<sha2::Sha256>::new(None, ork);
+    let mut out = [0u8; KEY_LEN];
+    hk.expand(&info, &mut out)
+        .expect("32 bytes is within HKDF-SHA256's output range");
+    out
+}
+
 /// A fresh organisation root key.
 pub fn new_org_key() -> [u8; KEY_LEN] {
     let mut k = [0u8; KEY_LEN];
@@ -274,6 +298,31 @@ mod tests {
         }
         // And an ordinary key still works, so the check is not simply refusing.
         assert!(seal_to(&new_keypair().public, b"x").is_ok());
+    }
+
+    #[test]
+    fn a_subkey_opens_one_thing_and_not_its_neighbour() {
+        let ork = new_org_key();
+        let a = subkey(&ork, "fury-profile-v1", "profile-a");
+        let b = subkey(&ork, "fury-profile-v1", "profile-b");
+
+        assert_ne!(a, b, "one subkey for two profiles");
+        assert_eq!(a, subkey(&ork, "fury-profile-v1", "profile-a"), "not stable");
+        assert_ne!(a, ork, "the subkey is the organisation key");
+
+        // A different organisation cannot reach it either.
+        assert_ne!(a, subkey(&new_org_key(), "fury-profile-v1", "profile-a"));
+
+        // The zero byte: a label and an id must not be re-cuttable.
+        assert_ne!(subkey(&ork, "ab", "c"), subkey(&ork, "a", "bc"));
+    }
+
+    #[test]
+    fn a_subkey_cannot_be_walked_back_to_the_organisation_key() {
+        // Not a proof, a guard: the derived bytes must not contain the input.
+        let ork = new_org_key();
+        let sub = subkey(&ork, "fury-profile-v1", "p");
+        assert!(!sub.windows(8).any(|w| ork.windows(8).any(|o| o == w)));
     }
 
     #[test]

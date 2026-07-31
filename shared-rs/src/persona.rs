@@ -383,8 +383,82 @@ impl Persona {
     }
 }
 
+/// The fingerprint seed, in the one representation everything agrees on.
+///
+/// Three places hold this value and each had its own idea of it: the server
+/// stores `BYTEA`, the local store an `i64`, and the agent hands
+/// `derive_core_config` a `u64`. That is fine until a profile crosses between
+/// them — and then a seed that round-trips differently is not a smaller
+/// problem than a wrong password. It is a different machine. Every launch
+/// would present a new fingerprint for an account that has spent months
+/// building one, which is the single failure this whole product exists to
+/// prevent.
+///
+/// So it is pinned here, in the crate all three depend on: **eight bytes, big
+/// endian, sixteen lowercase hex characters on the wire.**
+pub mod seed {
+    /// The wire form: sixteen lowercase hex characters.
+    pub fn to_hex(seed: u64) -> String {
+        format!("{seed:016x}")
+    }
+
+    /// Parse the wire form. `None` for anything that is not exactly sixteen
+    /// hex characters — a shorter string would parse into a different number
+    /// and silently give the profile a different machine.
+    pub fn from_hex(s: &str) -> Option<u64> {
+        if s.len() != 16 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        u64::from_str_radix(s, 16).ok()
+    }
+
+    /// The storage form for a database with a bytes column.
+    pub fn to_bytes(seed: u64) -> [u8; 8] {
+        seed.to_be_bytes()
+    }
+
+    pub fn from_bytes(b: &[u8]) -> Option<u64> {
+        Some(u64::from_be_bytes(b.try_into().ok()?))
+    }
+
+    /// The local store keeps an `i64`, because SQLite has no unsigned integer.
+    /// Same eight bytes, reinterpreted — never a numeric conversion, which
+    /// would saturate or panic on half the range.
+    pub fn from_i64(v: i64) -> u64 {
+        v as u64
+    }
+
+    pub fn to_i64(v: u64) -> i64 {
+        v as i64
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_seed_survives_every_representation_it_passes_through() {
+        // The one that matters: a seed with the top bit set. As an i64 it is
+        // negative, and a numeric conversion rather than a reinterpretation
+        // would lose it — giving a warmed account a different machine.
+        for seed in [0u64, 1, 0x0123_4567_89ab_cdef, u64::MAX, 1 << 63] {
+            assert_eq!(seed::from_hex(&seed::to_hex(seed)), Some(seed));
+            assert_eq!(seed::from_bytes(&seed::to_bytes(seed)), Some(seed));
+            assert_eq!(seed::from_i64(seed::to_i64(seed)), seed);
+            assert_eq!(seed::to_hex(seed).len(), 16, "the wire form is fixed width");
+        }
+    }
+
+    #[test]
+    fn a_seed_that_is_not_exactly_right_is_refused() {
+        // Truncated, over-long, or not hex. Each of these would otherwise
+        // parse into some number, and some number is a different machine.
+        for bad in ["", "0", "123456789abcdef", "0123456789abcdef0", "0123456789abcdeg", " 123456789abcdef"] {
+            assert_eq!(seed::from_hex(bad), None, "accepted {bad:?}");
+        }
+        assert_eq!(seed::from_bytes(&[0; 7]), None);
+        assert_eq!(seed::from_bytes(&[0; 9]), None);
+    }
+
     use super::*;
 
     fn load(name: &str) -> Persona {
