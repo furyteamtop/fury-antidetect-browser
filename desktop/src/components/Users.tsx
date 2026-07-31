@@ -89,7 +89,19 @@ export function Users({
   if (local) {
     return (
       <div className="teamPane">
-        <h2 className="sectionTitle">{t("team.people")}</h2>
+        {/* The sequence, stated.
+          This screen used to show a form and not a path: inviting is one of
+          four steps, and the other three appear as buttons on a member's row —
+          so an owner who is still the only member never saw them and could not
+          tell what happens after they send a code. */}
+      <ol className="steps">
+        <li>{t("team.how1")}</li>
+        <li>{t("team.how2")}</li>
+        <li>{t("team.how3")}</li>
+        <li>{t("team.how4")}</li>
+      </ol>
+
+      <h2 className="sectionTitle">{t("team.people")}</h2>
         <p className="hint" style={{ maxWidth: 620 }}>
           {t("team.aloneHere")}
         </p>
@@ -111,6 +123,18 @@ export function Users({
     <div className="teamPane">
       {dialog}
       {error && <p className="error">{error}</p>}
+
+      {/* The sequence, stated.
+          This screen used to show a form and not a path: inviting is one of
+          four steps, and the other three appear as buttons on a member's row —
+          so an owner who is still the only member never saw them and could not
+          tell what happens after they send a code. */}
+      <ol className="steps">
+        <li>{t("team.how1")}</li>
+        <li>{t("team.how2")}</li>
+        <li>{t("team.how3")}</li>
+        <li>{t("team.how4")}</li>
+      </ol>
 
       <h2 className="sectionTitle">{t("team.people")}</h2>
       <table className="grid">
@@ -223,6 +247,10 @@ export function Users({
             ))}
           </select>
         </p>
+      )}
+
+      {team.members.length === 1 && (
+        <p className="hint" style={{ maxWidth: 620 }}>{t("team.aloneOnServer")}</p>
       )}
 
       <h2 className="sectionTitle" style={{ marginTop: "var(--s-6)" }}>

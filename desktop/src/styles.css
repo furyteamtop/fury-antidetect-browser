@@ -786,6 +786,41 @@ input::placeholder {
   white-space: pre;
 }
 
+/* The four steps of adding somebody, above the thing that does step one. */
+.steps {
+  margin: 0 0 var(--s-5);
+  padding: 0;
+  max-width: 720px;
+  list-style: none;
+  counter-reset: step;
+  display: grid;
+  gap: var(--s-2);
+}
+
+.steps li {
+  counter-increment: step;
+  position: relative;
+  padding-left: 28px;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.steps li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 17px;
+  text-align: center;
+}
+
 .sectionTitle {
   margin: 0 0 var(--s-2);
   font-size: 13px;
