@@ -334,39 +334,7 @@ impl Store {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|r| Profile {
-                id: r.get("id"),
-                project_id: r.get("project_id"),
-                name: r.get("name"),
-                notes: r.get("notes"),
-                tags: from_json_array(r.get("tags")),
-                persona_id: r.get("persona_id"),
-                fp_seed: r.get("fp_seed"),
-                timezone: r.get("timezone"),
-                languages: r
-                    .get::<Option<String>, _>("languages")
-                    .map(from_json_array),
-                start_urls: from_json_array(r.get("start_urls")),
-                last_opened_at: r.get("last_opened_at"),
-                proxy: r.get::<Option<String>, _>("px_id").map(|id| Proxy {
-                    id,
-                    name: r.get("px_name"),
-                    kind: r.get("px_kind"),
-                    host: r.get("px_host"),
-                    port: r.get::<i64, _>("px_port") as u16,
-                    username: r.get("px_user"),
-                    password: r.get("px_pass"),
-                    last_country: r.get("px_country"),
-                    last_ip: r.get("px_ip"),
-                    // Not selected in the profile join: a rotation link usually
-                    // embeds an API key, and the profile list has no use for it.
-                    rotate_url: None,
-                    checker_url: None,
-                }),
-            })
-            .collect())
+        Ok(rows.into_iter().map(row_to_profile).collect())
     }
 
     pub async fn profile(&self, id: &str) -> anyhow::Result<Option<Profile>> {
@@ -438,6 +406,54 @@ impl Store {
         Ok(())
     }
 
+    /// What is in the trash, newest first.
+    ///
+    /// Across every project rather than per project: someone looking for a
+    /// profile they deleted by accident usually remembers the account, not
+    /// which folder it was in.
+    pub async fn deleted_profiles(&self) -> anyhow::Result<Vec<Profile>> {
+        let rows = sqlx::query(
+            "SELECT f.id, f.project_id, f.name, f.notes, f.tags, f.persona_id, f.fp_seed,
+                    f.timezone, f.languages, f.start_urls, f.deleted_at AS last_opened_at,
+                    x.id AS px_id, x.name AS px_name, x.kind AS px_kind, x.host AS px_host,
+                    x.port AS px_port, x.username AS px_user, x.password AS px_pass,
+                    x.last_country AS px_country, x.last_ip AS px_ip
+             FROM profiles f
+             LEFT JOIN proxies x ON x.id = f.proxy_id AND x.deleted_at IS NULL
+             WHERE f.deleted_at IS NOT NULL
+             ORDER BY f.deleted_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(row_to_profile).collect())
+    }
+
+    pub async fn restore_profile(&self, id: &str) -> anyhow::Result<()> {
+        sqlx::query("UPDATE profiles SET deleted_at = NULL WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Gone for good: the row and the browser data both.
+    ///
+    /// The directory goes too, because leaving a cookie jar on disk for a
+    /// profile the operator believes they destroyed is the opposite of what
+    /// "empty the trash" means. Deleted first — a failure there must not leave
+    /// a row pointing at nothing, but an orphaned directory with no row is
+    /// worse still.
+    pub async fn purge_profile(&self, id: &str, dir: &Path) -> anyhow::Result<()> {
+        if dir.exists() {
+            std::fs::remove_dir_all(dir)?;
+        }
+        sqlx::query("DELETE FROM profiles WHERE id = ? AND deleted_at IS NOT NULL")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Rows that a soft delete hid. Used by the trash view and by the test that
     /// checks a delete is recoverable.
     pub async fn deleted_profile_exists(&self, id: &str) -> anyhow::Result<bool> {
@@ -448,6 +464,37 @@ impl Store {
         .fetch_one(&self.pool)
         .await?;
         Ok(n == 1)
+    }
+}
+
+fn row_to_profile(r: sqlx::sqlite::SqliteRow) -> Profile {
+    Profile {
+        id: r.get("id"),
+        project_id: r.get("project_id"),
+        name: r.get("name"),
+        notes: r.get("notes"),
+        tags: from_json_array(r.get("tags")),
+        persona_id: r.get("persona_id"),
+        fp_seed: r.get("fp_seed"),
+        timezone: r.get("timezone"),
+        languages: r.get::<Option<String>, _>("languages").map(from_json_array),
+        start_urls: from_json_array(r.get("start_urls")),
+        last_opened_at: r.get("last_opened_at"),
+        proxy: r.get::<Option<String>, _>("px_id").map(|id| Proxy {
+            id,
+            name: r.get("px_name"),
+            kind: r.get("px_kind"),
+            host: r.get("px_host"),
+            port: r.get::<i64, _>("px_port") as u16,
+            username: r.get("px_user"),
+            password: r.get("px_pass"),
+            last_country: r.get("px_country"),
+            last_ip: r.get("px_ip"),
+            // Not selected in the profile join: a rotation link usually embeds
+            // an API key, and no list view has any use for it.
+            rotate_url: None,
+            checker_url: None,
+        }),
     }
 }
 
@@ -615,6 +662,59 @@ mod tests {
         assert!(s.profile(&id).await.unwrap().is_none());
         // Still recoverable — that is what the trash in docs/12 restores from.
         assert!(s.deleted_profile_exists(&id).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn the_trash_gives_a_profile_back_intact() {
+        let s = store().await;
+        let project = s.default_project().await.unwrap();
+        let mut p = blank(&project, "warmed account");
+        p.tags = vec!["de".into()];
+        p.id = s.upsert_profile(&p).await.unwrap();
+        let seed = s.profile(&p.id).await.unwrap().unwrap().fp_seed;
+
+        s.delete_profile(&p.id).await.unwrap();
+        assert_eq!(s.deleted_profiles().await.unwrap().len(), 1);
+
+        s.restore_profile(&p.id).await.unwrap();
+        let back = s.profile(&p.id).await.unwrap().unwrap();
+        // The point of a trash rather than a delete: what comes back is the
+        // same machine, not a new profile with the same name.
+        assert_eq!(back.fp_seed, seed);
+        assert_eq!(back.tags, vec!["de".to_string()]);
+        assert!(s.deleted_profiles().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn purging_takes_the_browser_data_with_it() {
+        let s = store().await;
+        let project = s.default_project().await.unwrap();
+        let id = s.upsert_profile(&blank(&project, "gone")).await.unwrap();
+
+        let dir = std::env::temp_dir().join(format!("fury-purge-{id}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("Cookies"), b"secrets").unwrap();
+
+        s.delete_profile(&id).await.unwrap();
+        s.purge_profile(&id, &dir).await.unwrap();
+
+        assert!(!s.deleted_profile_exists(&id).await.unwrap());
+        // Leaving a cookie jar behind for a profile the operator believes they
+        // destroyed is the opposite of what emptying a trash means.
+        assert!(!dir.exists(), "the profile directory survived the purge");
+    }
+
+    #[tokio::test]
+    async fn purge_refuses_a_profile_that_is_not_in_the_trash() {
+        let s = store().await;
+        let project = s.default_project().await.unwrap();
+        let id = s.upsert_profile(&blank(&project, "live")).await.unwrap();
+        let dir = std::env::temp_dir().join(format!("fury-nopurge-{id}"));
+
+        s.purge_profile(&id, &dir).await.unwrap();
+        // Still there: purge only ever touches rows a delete already hid, so a
+        // stray call cannot destroy something in use.
+        assert!(s.profile(&id).await.unwrap().is_some());
     }
 
     #[tokio::test]

@@ -8,6 +8,8 @@ export function Sidebar({
   me,
   onSelect,
   onNewProject,
+  view,
+  onView,
   onSettings,
   onSignOut,
 }: {
@@ -17,6 +19,8 @@ export function Sidebar({
   me: Me | null;
   onSelect: (p: Project) => void;
   onNewProject: () => void;
+  view: "profiles" | "trash";
+  onView: (v: "profiles" | "trash") => void;
   onSettings: () => void;
   onSignOut: () => void;
 }) {
@@ -39,13 +43,27 @@ export function Sidebar({
         {projects.map((p) => (
           <button
             key={p.id}
-            className={p.id === active?.id ? "nav active" : "nav"}
-            onClick={() => onSelect(p)}
+            className={p.id === active?.id && view === "profiles" ? "nav active" : "nav"}
+            onClick={() => {
+              onSelect(p);
+              onView("profiles");
+            }}
           >
             <span>{p.name}</span>
             <span className="count">{p.profile_count}</span>
           </button>
         ))}
+        {local && (
+          <>
+            <div className="section" style={{ marginTop: "var(--s-3)" }} />
+            <button
+              className={view === "trash" ? "nav active" : "nav"}
+              onClick={() => onView("trash")}
+            >
+              <span>{t("trash.title")}</span>
+            </button>
+          </>
+        )}
       </nav>
 
       <div className="foot">

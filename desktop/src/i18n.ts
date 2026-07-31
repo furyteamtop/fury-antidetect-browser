@@ -141,6 +141,8 @@ const en = {
   "px.checker": "IP checker",
   "px.checkerDefault": "default (ipinfo.io)",
   "px.checkerHint": "Leave empty unless you would rather not tell ipinfo.io that this proxy exists. Any URL returning JSON with ip, country, city and timezone will do.",
+  "px.newInline": "New proxy…",
+  "px.saved": "Saved",
   "px.add": "Add",
 
   // settings
@@ -183,6 +185,13 @@ const en = {
   "srv.checking": "Checking…",
 
   // shared
+  "trash.title": "Trash",
+  "trash.empty": "Nothing deleted.",
+  "trash.restore": "Restore",
+  "trash.purge": "Delete for good",
+  "trash.deletedAt": "Deleted",
+  "trash.confirmPurge": "Delete \"{name}\" for good? The browser data goes too, and neither comes back.",
+  "trash.hint": "A profile holding a warmed account should not be lost to a stray click, so deleting only hides it. Emptying the trash removes the cookies as well.",
   "ui.cancel": "Cancel",
   "ui.save": "Save",
   "ui.create": "Create",
@@ -316,6 +325,8 @@ const ru: Record<Key, string> = {
   "px.checker": "IP-чекер",
   "px.checkerDefault": "по умолчанию (ipinfo.io)",
   "px.checkerHint": "Оставьте пустым, если не против сообщить ipinfo.io о существовании этого прокси. Подойдёт любой URL, отдающий JSON с полями ip, country, city и timezone.",
+  "px.newInline": "Новый прокси…",
+  "px.saved": "Сохранённые",
   "px.add": "Добавить",
 
   "set.title": "Настройки",
@@ -355,6 +366,13 @@ const ru: Record<Key, string> = {
   "srv.connect": "Подключиться",
   "srv.checking": "Проверяю…",
 
+  "trash.title": "Корзина",
+  "trash.empty": "Ничего не удалено.",
+  "trash.restore": "Восстановить",
+  "trash.purge": "Удалить навсегда",
+  "trash.deletedAt": "Удалён",
+  "trash.confirmPurge": "Удалить «{name}» навсегда? Данные браузера тоже, и вернуть будет нельзя.",
+  "trash.hint": "Профиль с прогретым аккаунтом нельзя терять по случайному клику, поэтому удаление только прячет его. Очистка корзины стирает и cookies.",
   "ui.cancel": "Отмена",
   "ui.save": "Сохранить",
   "ui.create": "Создать",

@@ -99,6 +99,9 @@ fn main() {
             commands::delete_proxy,
             commands::save_profile,
             commands::delete_profile,
+            commands::trash,
+            commands::restore_profile,
+            commands::purge_profile,
             commands::create_project,
         ])
         .run(tauri::generate_context!())

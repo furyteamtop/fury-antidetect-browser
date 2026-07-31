@@ -665,6 +665,46 @@ pub async fn delete_profile(id: String) -> R<serde_json::Value> {
 }
 
 #[tauri::command]
+pub async fn trash() -> R<Vec<UiProfile>> {
+    let local: Vec<crate::agent::LocalProfile> =
+        crate::agent::call("profiles.trash", serde_json::json!({})).await?;
+    Ok(local
+        .into_iter()
+        .map(|p| UiProfile {
+            proxy: p.proxy.map(|x| UiProxy {
+                display: format!("{}:{}", x.host, x.port),
+                country: x.last_country,
+                id: x.id,
+                name: x.name,
+                kind: x.kind,
+            }),
+            permissions: all_permissions(),
+            lock: None,
+            running: false,
+            // Carries the deletion time, not the last launch: in the trash the
+            // question is when it went, not when it last ran.
+            last_opened_at: p.last_opened_at,
+            id: p.id,
+            project_id: p.project_id,
+            name: p.name,
+            tags: p.tags,
+            persona_id: p.persona_id,
+            fp_seed: p.fp_seed,
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn restore_profile(id: String) -> R<serde_json::Value> {
+    Ok(crate::agent::call("profiles.restore", serde_json::json!({ "id": id })).await?)
+}
+
+#[tauri::command]
+pub async fn purge_profile(id: String) -> R<serde_json::Value> {
+    Ok(crate::agent::call("profiles.purge", serde_json::json!({ "id": id })).await?)
+}
+
+#[tauri::command]
 pub async fn create_project(name: String) -> R<serde_json::Value> {
     Ok(crate::agent::call("projects.create", serde_json::json!({ "name": name })).await?)
 }

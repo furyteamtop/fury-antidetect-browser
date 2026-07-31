@@ -385,6 +385,17 @@ impl Agent {
                 }))
             }
 
+            "profiles.trash" => Ok(serde_json::to_value(self.store.deleted_profiles().await?)?),
+            "profiles.restore" => {
+                self.store.restore_profile(&str_param(&params, "id")?).await?;
+                Ok(json!({}))
+            }
+            "profiles.purge" => {
+                let id = str_param(&params, "id")?;
+                self.store.purge_profile(&id, &paths::profile_dir(&id)).await?;
+                Ok(json!({}))
+            }
+
             "profile.launch" => self.launch(&str_param(&params, "id")?).await,
             "profile.stop" => self.stop(&str_param(&params, "id")?).await,
 

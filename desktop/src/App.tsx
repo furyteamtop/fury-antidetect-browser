@@ -4,7 +4,7 @@ import { api, ApiError, type Me, type Profile, type Project, type Shell } from "
 import { Login } from "./components/Login";
 import { ProfileDialog } from "./components/ProfileDialog";
 import { ProfileTable } from "./components/ProfileTable";
-import { ProxyDialog } from "./components/ProxyDialog";
+import { Trash } from "./components/Trash";
 import { ServerSetup } from "./components/ServerSetup";
 import { Settings } from "./components/Settings";
 import { Sidebar } from "./components/Sidebar";
@@ -25,8 +25,8 @@ export function App() {
   const [editing, setEditing] = useState<Profile | null | undefined>(undefined);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [view, setView] = useState<"profiles" | "trash">("profiles");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [proxyOpen, setProxyOpen] = useState(false);
   // Applied at the root before anything renders, so the first paint is already
   // the right theme rather than a flash of the wrong one.
   useTheme();
@@ -69,7 +69,13 @@ export function App() {
       return;
     }
     try {
-      setProfiles(await api.profiles(active.id));
+      // Projects come along, because their counts change whenever a profile is
+      // created, deleted or restored — including from another window or from
+      // the agent directly. Refreshing only the rows left the sidebar showing a
+      // number the table contradicted.
+      const [rows, list] = await Promise.all([api.profiles(active.id), api.projects()]);
+      setProfiles(rows);
+      setProjects(list);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) void api.shell().then(setShell);
       else setError((e as Error).message);
@@ -187,6 +193,8 @@ export function App() {
         shell={shell}
         me={me}
         onSelect={setActive}
+        view={view}
+        onView={setView}
         onSettings={() => setSettingsOpen(true)}
         onNewProject={async () => {
           const name = prompt(t("app.projectName"))?.trim();
@@ -204,10 +212,12 @@ export function App() {
       />
       <main className="main">
         <header className="head">
-          <h1>{active?.name ?? t("app.noProjects")}</h1>
-          <span className="muted">
-            {active ? t("app.profileCount", { n: profiles.length }) : t("app.nothingYet")}
-          </span>
+          <h1>{view === "trash" ? t("trash.title") : (active?.name ?? t("app.noProjects"))}</h1>
+          {view === "profiles" && (
+            <span className="muted">
+              {active ? t("app.profileCount", { n: profiles.length }) : t("app.nothingYet")}
+            </span>
+          )}
         </header>
 
         {local && !shell.agent_ready && (
@@ -225,7 +235,7 @@ export function App() {
           </div>
         )}
 
-        {active && local && (
+        {active && local && view === "profiles" && (
           <div className="toolbar">
             <button className="primary" onClick={() => setEditing(null)}>
               {t("bar.newProfile")}
@@ -281,9 +291,6 @@ export function App() {
                 </button>
               </div>
             )}
-            <button className="ghost" onClick={() => setProxyOpen(true)}>
-              {t("bar.addProxy")}
-            </button>
             <button className="ghost" onClick={() => void refreshProfiles()}>
               {t("bar.refresh")}
             </button>
@@ -293,7 +300,16 @@ export function App() {
         {/* No project selected is not the same as a project with no profiles,
             and saying the latter to someone who has been granted nothing sends
             them looking for a profile list that was never theirs. */}
-        {active && (
+        {view === "trash" && (
+          <Trash
+            onChanged={async () => {
+              await load();
+              await refreshProfiles();
+            }}
+          />
+        )}
+
+        {view === "profiles" && active && (
           <div className="tableWrap">
             <ProfileTable
               profiles={shown}
@@ -318,14 +334,6 @@ export function App() {
               }
             />
           </div>
-        )}
-
-        {proxyOpen && (
-          <ProxyDialog
-            editing={null}
-            onClose={() => setProxyOpen(false)}
-            onSaved={() => setProxyOpen(false)}
-          />
         )}
 
         {settingsOpen && (

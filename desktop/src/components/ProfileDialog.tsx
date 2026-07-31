@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
 import { api, type LocalProxy, type Persona, type Preview, type Profile } from "../api";
+import { ProxyDialog } from "./ProxyDialog";
 
 const TABS = ["General", "Proxy", "Device", "Advanced"] as const;
 const TAB_KEYS = {
@@ -40,6 +41,7 @@ export function ProfileDialog({
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [newProxy, setNewProxy] = useState(false);
 
   const [name, setName] = useState(editing?.name ?? "");
   const [tags, setTags] = useState((editing?.tags ?? []).join(", "));
@@ -111,6 +113,21 @@ export function ProfileDialog({
 
   return (
     <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      {newProxy && (
+        <ProxyDialog
+          editing={null}
+          onClose={() => setNewProxy(false)}
+          onSaved={async () => {
+            setNewProxy(false);
+            // Select what was just created: nobody adds a proxy inside a
+            // profile for any other reason.
+            const list = await api.proxies();
+            setProxies(list);
+            const added = list.find((p) => !proxies.some((old) => old.id === p.id));
+            if (added) setProxyId(added.id);
+          }}
+        />
+      )}
       <div className="modal" role="dialog" aria-modal="true">
         <div className="modalHead">
           <h2>{editing ? t("pd.edit") : t("pd.new")}</h2>
@@ -190,18 +207,27 @@ export function ProfileDialog({
                 <div className="field">
                   <label htmlFor="p-proxy">{t("pd.proxy")}</label>
                   <div>
-                    <select
-                      id="p-proxy"
-                      value={proxyId}
-                      onChange={(e) => setProxyId(e.target.value)}
-                    >
-                      <option value="">{t("pd.proxyNone")}</option>
-                      {proxies.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} · {p.kind}://{p.host}:{p.port}
-                        </option>
-                      ))}
-                    </select>
+                    {/* Adding one lives here rather than in the toolbar: a
+                        proxy is wanted at the moment a profile needs an exit,
+                        and a button somewhere else means leaving this dialog,
+                        losing what has been typed, and coming back. */}
+                    <div className="row">
+                      <select
+                        id="p-proxy"
+                        value={proxyId}
+                        onChange={(e) => setProxyId(e.target.value)}
+                      >
+                        <option value="">{t("pd.proxyNone")}</option>
+                        {proxies.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} · {p.kind}://{p.host}:{p.port}
+                          </option>
+                        ))}
+                      </select>
+                      <button style={{ whiteSpace: "nowrap" }} onClick={() => setNewProxy(true)}>
+                        {t("px.newInline")}
+                      </button>
+                    </div>
                     {/* Not a recommendation. The agent refuses to launch without
                         one, because the core is started pointing at a relay and
                         traffic would otherwise leave from this machine's own
