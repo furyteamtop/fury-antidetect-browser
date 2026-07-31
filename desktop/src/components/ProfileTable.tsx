@@ -6,12 +6,14 @@ import type { Me, Profile } from "../api";
 export function ProfileTable({
   profiles,
   me,
+  thisMachine,
   busy,
   onLaunch,
   onRelease,
 }: {
   profiles: Profile[];
   me: Me | null;
+  thisMachine: string;
   busy: boolean;
   onLaunch: (p: Profile, force?: boolean) => void;
   onRelease: (p: Profile) => void;
@@ -37,11 +39,14 @@ export function ProfileTable({
           const canForce = p.permissions.includes("manage_access");
           const canReveal = p.permissions.includes("reveal_secrets");
           const locked = p.lock !== null;
-          // A lock this same user already holds is not contention — it is the
-          // profile they are working in. Offering to "take over" from yourself
-          // reads as a bug, and worse, it hides the one control that matters
-          // (letting go of it).
-          const mine = locked && p.lock!.user_id === me?.user_id;
+          // "Mine" means this user *on this machine*. Matching on the user
+          // alone was wrong: the same person signed in on a laptop and a
+          // desktop would see the laptop's live lock labelled "Open here", with
+          // a Close button that works — releasing a lock whose browser is still
+          // running, with live cookies, on the other machine. The machine name
+          // is what makes the two cases distinguishable.
+          const mine =
+            locked && p.lock!.user_id === me?.user_id && p.lock!.machine_name === thisMachine;
 
           return (
             <tr key={p.id}>

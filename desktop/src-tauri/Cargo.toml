@@ -1,0 +1,34 @@
+[package]
+name = "fury-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Fury desktop shell"
+# keyring 4 requires a newer compiler than the rest of the workspace. Stated
+# here rather than raised workspace-wide: the agent and server should stay
+# buildable on older toolchains, and only this crate needs the newer one.
+rust-version = "1.88"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+fury-shared = { path = "../../shared-rs" }
+
+tauri = { version = "2", features = [] }
+# Two copies of the shell would each keep a profile lock alive and each show a
+# stale view of the other's work. See the comment in main.rs.
+tauri-plugin-single-instance = "2"
+
+# rustls rather than the platform TLS stack: a self-hosted server often sits
+# behind a certificate the OS store has to be taught about, and one TLS
+# implementation across macOS and Windows means one set of failures to explain.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+keyring = "4"
+whoami = "1"

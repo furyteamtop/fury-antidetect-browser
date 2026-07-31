@@ -1,17 +1,28 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, storedToken, type Me, type Profile, type Project } from "./api";
+import { api, ApiError, type Me, type Profile, type Project, type Shell } from "./api";
 import { Login } from "./components/Login";
 import { ProfileTable } from "./components/ProfileTable";
+import { ServerSetup } from "./components/ServerSetup";
 import { Sidebar } from "./components/Sidebar";
 
 export function App() {
-  const [authed, setAuthed] = useState(() => storedToken() !== null);
+  // The shell answers three things the UI cannot know on its own: which server
+  // this installation points at, what this machine is called, and whether there
+  // is a live session. In the packaged app all three come from Rust, because
+  // the token deliberately never reaches this document.
+  const [shell, setShell] = useState<Shell | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [active, setActive] = useState<Project | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void api.shell().then(setShell);
+  }, []);
+
+  const signedIn = shell?.signed_in ?? false;
 
   const load = useCallback(async () => {
     setError(null);
@@ -27,27 +38,27 @@ export function App() {
         current ? (list.find((p) => p.id === current.id) ?? list[0] ?? null) : (list[0] ?? null),
       );
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401) setAuthed(false);
-      else setError(String((e as Error).message));
+      if (e instanceof ApiError && e.status === 401) void api.shell().then(setShell);
+      else setError((e as Error).message);
     }
   }, []);
 
   useEffect(() => {
-    if (authed) void load();
-  }, [authed, load]);
+    if (signedIn) void load();
+  }, [signedIn, load]);
 
   const refreshProfiles = useCallback(async () => {
-    if (!active) {
+    if (!active || !signedIn) {
       setProfiles([]);
       return;
     }
     try {
       setProfiles(await api.profiles(active.id));
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401) setAuthed(false);
-      else setError(String((e as Error).message));
+      if (e instanceof ApiError && e.status === 401) void api.shell().then(setShell);
+      else setError((e as Error).message);
     }
-  }, [active]);
+  }, [active, signedIn]);
 
   useEffect(() => {
     void refreshProfiles();
@@ -58,8 +69,16 @@ export function App() {
     return () => clearInterval(timer);
   }, [refreshProfiles]);
 
-  if (!authed) {
-    return <Login onSuccess={() => setAuthed(true)} />;
+  if (!shell) return <div className="splash">Fury</div>;
+
+  // A packaged app with nowhere to connect is the genuine first-run state. The
+  // browser dev build always has the Vite proxy, so it skips this.
+  if (shell.native && !shell.server_url) {
+    return <ServerSetup onDone={setShell} />;
+  }
+
+  if (!signedIn) {
+    return <Login onSuccess={() => void api.shell().then(setShell)} />;
   }
 
   const onLaunch = async (profile: Profile, force = false) => {
@@ -79,7 +98,7 @@ export function App() {
       );
       await refreshProfiles();
     } catch (e) {
-      setError(String((e as Error).message));
+      setError((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -91,7 +110,7 @@ export function App() {
       await api.unlock(profile.id);
       await refreshProfiles();
     } catch (e) {
-      setError(String((e as Error).message));
+      setError((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -102,11 +121,15 @@ export function App() {
       <Sidebar
         projects={projects}
         active={active}
+        shell={shell}
+        me={me}
         onSelect={setActive}
         onSignOut={async () => {
           await api.logout();
           setMe(null);
-          setAuthed(false);
+          setProjects([]);
+          setActive(null);
+          setShell(await api.shell());
         }}
       />
       <main className="main">
@@ -133,6 +156,7 @@ export function App() {
           <ProfileTable
             profiles={profiles}
             me={me}
+            thisMachine={shell.machine_name}
             busy={busy}
             onLaunch={onLaunch}
             onRelease={onRelease}

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Fury",
+  "version": "0.0.1",
+  "identifier": "dev.fury.desktop",
+  "build": {
+    "devUrl": "http://localhost:5273",
+    "frontendDist": "../dist",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Fury",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 560,
+        "resizable": true,
+        "theme": "Dark"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; form-action 'none'",
+      "freezePrototype": true
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg", "nsis"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "copyright": "Fury Browser contributors",
+    "category": "Utility",
+    "shortDescription": "Anti-detect browser for teams",
+    "longDescription": "Self-hosted anti-detect browser with projects, per-project access grants and a shared profile lock."
+  }
+}

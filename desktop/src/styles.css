@@ -294,3 +294,41 @@ button.danger {
 .mineLock {
   color: var(--ok);
 }
+
+/* ---- shell chrome ------------------------------------------------------ */
+
+.splash {
+  display: grid;
+  place-items: center;
+  height: 100vh;
+  color: var(--accent);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.center {
+  text-align: center;
+}
+
+.who {
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+/* Server URLs and device names are arbitrary length and must not push the
+   sidebar wider — the full value is in the title attribute. */
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.foot > * {
+  margin-bottom: 6px;
+}
+
+.foot > button {
+  margin-bottom: 0;
+  width: 100%;
+}

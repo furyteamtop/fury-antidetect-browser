@@ -1,13 +1,17 @@
-import type { Project } from "../api";
+import type { Me, Project, Shell } from "../api";
 
 export function Sidebar({
   projects,
   active,
+  shell,
+  me,
   onSelect,
   onSignOut,
 }: {
   projects: Project[];
   active: Project | null;
+  shell: Shell;
+  me: Me | null;
   onSelect: (p: Project) => void;
   onSignOut: () => void;
 }) {
@@ -31,8 +35,18 @@ export function Sidebar({
       </nav>
 
       <div className="foot">
-        {/* Quotas and connection state belong here — an operator has to know
-            whether they are working online or from a stale cache (docs/12). */}
+        {/* docs/12 wants connection state permanently visible. Who and where
+            matter for the same reason: on a machine that can reach two
+            organisations, sending work to the wrong one is a mistake that only
+            surfaces much later. */}
+        {me && <div className="who ellipsis">{me.email}</div>}
+        <div className="muted small ellipsis" title={shell.server_url ?? ""}>
+          {shell.server_url ?? "no server"}
+        </div>
+        <div className="muted small ellipsis" title={shell.machine_name}>
+          {shell.machine_name}
+          {!shell.native && " · browser dev"}
+        </div>
         <button className="ghost" onClick={onSignOut}>
           Sign out
         </button>

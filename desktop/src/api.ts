@@ -1,5 +1,22 @@
 // The server is the only authority on what a user may do. Nothing here decides
 // permissions; it reads the set the server resolved and renders accordingly.
+//
+// Two transports, one surface:
+//
+//   * In the packaged app, every call is a Tauri command. The session token
+//     lives in Rust and in the OS keychain, and never enters this document.
+//   * Under `npm run dev` in a plain browser there is no Rust side, so calls go
+//     out via fetch through Vite's proxy and the token sits in localStorage.
+//
+// The browser path is kept because the edit-reload loop for the interface is
+// seconds there and tens of seconds through a Tauri rebuild. It is a
+// development convenience and is not what ships — which is why the token
+// handling differs, and why that difference is stated here rather than hidden.
+
+import { invoke } from "@tauri-apps/api/core";
+
+export const isDesktop =
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 export type Perm =
   | "view" | "launch" | "edit_profile" | "edit_fingerprint" | "edit_proxy"
@@ -33,13 +50,6 @@ export interface LockInfo {
   expires_at: string;
 }
 
-export interface Me {
-  user_id: string;
-  email: string;
-  org_id: string;
-  role: "owner" | "admin" | "manager" | "member";
-}
-
 export interface Profile {
   id: string;
   project_id: string;
@@ -52,10 +62,37 @@ export interface Profile {
   permissions: Perm[];
 }
 
+export interface Me {
+  user_id: string;
+  email: string;
+  org_id: string;
+  role: "owner" | "admin" | "manager" | "member";
+}
+
+/** What the shell knows before anyone signs in. */
+export interface Shell {
+  server_url: string | null;
+  machine_name: string;
+  signed_in: boolean;
+  native: boolean;
+}
+
+export interface LockResult {
+  lock_token: string;
+  expires_at: string;
+  restrictions: Record<string, boolean>;
+}
+
 const TOKEN_KEY = "fury.token";
 
-export function storedToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+// A build that once ran in the browser leaves a token behind in the webview's
+// data store, where it survives every later launch of the packaged app. The
+// server would happily keep renewing it — sessions slide forward on each
+// authenticated request — so the copy the desktop stopped using is exactly the
+// copy nothing will ever expire. Drop it on sight.
+if (isDesktop && typeof localStorage !== "undefined") {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem("fury.machine_id");
 }
 
 export class ApiError extends Error {
@@ -68,7 +105,55 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+/** Turns a status and the server's JSON body into something worth reading. */
+function describe(status: number, body: any): string {
+  if (body?.error === "denied") {
+    return `Not permitted: this action needs "${body.missing_permission}".`;
+  }
+  if (body?.error === "locked") {
+    const h = body.holder ?? {};
+    return `In use by ${h.user_email ?? "someone"} on ${h.machine_name ?? "another machine"}.`;
+  }
+  if (status === 401) return "Session expired. Sign in again.";
+  // 404 covers both "gone" and "not yours" — the server deliberately does not
+  // distinguish them, so neither does this message.
+  if (status === 404) return "Not found, or you no longer have access.";
+  if (body?.message) return body.message;
+  // status 0 means the request never reached a server; the Rust side has
+  // already written a specific sentence for that case.
+  if (status === 0) return "Could not reach the server.";
+  return `Request failed (${status}).`;
+}
+
+// ---------------------------------------------------------------------------
+// desktop transport
+// ---------------------------------------------------------------------------
+
+/** Rust rejects with the serialised ApiErr — {status, body, message}. */
+async function cmd<T>(name: string, args: Record<string, unknown> = {}): Promise<T> {
+  try {
+    return await invoke<T>(name, args);
+  } catch (raw: any) {
+    const status = typeof raw?.status === "number" ? raw.status : 0;
+    const body = raw?.body ?? null;
+    // Prefer the message the transport wrote (it names the actual host and
+    // failure), falling back to the shared description for server-side errors.
+    const fromBody = describe(status, body);
+    const message =
+      status === 0 && typeof raw?.message === "string" ? raw.message : fromBody;
+    throw new ApiError(status, message, body);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// browser transport (development only)
+// ---------------------------------------------------------------------------
+
+export function storedToken(): string | null {
+  return isDesktop ? null : localStorage.getItem(TOKEN_KEY);
+}
+
+async function http<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = storedToken();
   const res = await fetch(path, {
     ...init,
@@ -92,74 +177,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return body as T;
 }
 
-function describe(status: number, body: any): string {
-  if (body?.error === "denied") {
-    return `Not permitted: this action needs "${body.missing_permission}".`;
-  }
-  if (body?.error === "locked") {
-    const h = body.holder ?? {};
-    return `In use by ${h.user_email ?? "someone"} on ${h.machine_name ?? "another machine"}.`;
-  }
-  if (status === 401) return "Session expired. Sign in again.";
-  // 404 covers both "gone" and "not yours" — the server deliberately does not
-  // distinguish them, so neither does this message.
-  if (status === 404) return "Not found, or you no longer have access.";
-  if (body?.message) return body.message;
-  return `Request failed (${status}).`;
-}
-
-export const api = {
-  async login(email: string, password: string): Promise<void> {
-    const res = await fetch("/v1/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, machine_name: navigator.platform }),
-    });
-    if (!res.ok) throw new ApiError(res.status, "Wrong email or password.");
-    const { token } = await res.json();
-    localStorage.setItem(TOKEN_KEY, token);
-  },
-
-  async logout(): Promise<void> {
-    // Revoke first, forget second. Clearing the token up front would send the
-    // request unauthenticated, leaving a live session on the server — the
-    // opposite of what signing out is for. The local token is dropped even if
-    // the call fails, so a user on a dead network still ends up logged out.
-    try {
-      await request("/v1/auth/logout", { method: "POST" });
-    } catch {
-      // Already invalid, or unreachable. Either way, nothing left to do.
-    } finally {
-      localStorage.removeItem(TOKEN_KEY);
-    }
-  },
-
-  me: () => request<Me>("/v1/me"),
-
-  projects: () => request<Project[]>("/v1/projects"),
-
-  profiles: (projectId: string) =>
-    request<Profile[]>(`/v1/projects/${projectId}/profiles`),
-
-  lock: (profileId: string, force = false) =>
-    request<{ lock_token: string; expires_at: string; restrictions: Record<string, boolean> }>(
-      `/v1/profiles/${profileId}/lock`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          machine_id: machineId(),
-          machine_name: navigator.platform,
-          force,
-        }),
-      },
-    ),
-
-  unlock: (profileId: string) =>
-    request(`/v1/profiles/${profileId}/unlock`, { method: "POST" }),
-};
-
-/** Stable per installation, so the lock list names the same machine each time. */
-function machineId(): string {
+/** Stable per installation, so the lock list names the same browser each time. */
+function devMachineId(): string {
   const key = "fury.machine_id";
   let id = localStorage.getItem(key);
   if (!id) {
@@ -168,3 +187,84 @@ function machineId(): string {
   }
   return id;
 }
+
+// ---------------------------------------------------------------------------
+
+export const api = {
+  shell(): Promise<Shell> {
+    if (isDesktop) return cmd<Shell>("shell_state");
+    return Promise.resolve({
+      // Vite proxies /v1, so in this mode the address is fixed by the dev
+      // config rather than chosen by the operator.
+      server_url: "http://127.0.0.1:8901 (vite proxy)",
+      machine_name: navigator.platform || "this browser",
+      signed_in: storedToken() !== null,
+      native: false,
+    });
+  },
+
+  setServer(url: string): Promise<Shell> {
+    if (!isDesktop) {
+      return Promise.reject(
+        new ApiError(0, "The server address is fixed by vite.config.ts in development."),
+      );
+    }
+    return cmd<Shell>("set_server", { url });
+  },
+
+  async login(email: string, password: string): Promise<Me> {
+    if (isDesktop) return cmd<Me>("login", { email, password });
+
+    const res = await fetch("/v1/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, machine_name: navigator.platform }),
+    });
+    if (!res.ok) throw new ApiError(res.status, "Wrong email or password.");
+    const { token } = await res.json();
+    localStorage.setItem(TOKEN_KEY, token);
+    return http<Me>("/v1/me");
+  },
+
+  async logout(): Promise<void> {
+    if (isDesktop) return cmd<void>("logout");
+    // Revoke first, forget second. Clearing the token up front would send the
+    // request unauthenticated, leaving a live session on the server — the
+    // opposite of what signing out is for. The local token is dropped even if
+    // the call fails, so a user on a dead network still ends up logged out.
+    try {
+      await http("/v1/auth/logout", { method: "POST" });
+    } catch {
+      // Already invalid, or unreachable. Either way, nothing left to do.
+    } finally {
+      localStorage.removeItem(TOKEN_KEY);
+    }
+  },
+
+  me: (): Promise<Me> => (isDesktop ? cmd<Me>("me") : http<Me>("/v1/me")),
+
+  projects: (): Promise<Project[]> =>
+    isDesktop ? cmd<Project[]>("projects") : http<Project[]>("/v1/projects"),
+
+  profiles: (projectId: string): Promise<Profile[]> =>
+    isDesktop
+      ? cmd<Profile[]>("profiles", { projectId })
+      : http<Profile[]>(`/v1/projects/${projectId}/profiles`),
+
+  lock: (profileId: string, force = false): Promise<LockResult> =>
+    isDesktop
+      ? cmd<LockResult>("lock", { profileId, force })
+      : http<LockResult>(`/v1/profiles/${profileId}/lock`, {
+          method: "POST",
+          body: JSON.stringify({
+            machine_id: devMachineId(),
+            machine_name: navigator.platform,
+            force,
+          }),
+        }),
+
+  unlock: (profileId: string): Promise<unknown> =>
+    isDesktop
+      ? cmd<unknown>("unlock", { profileId })
+      : http(`/v1/profiles/${profileId}/unlock`, { method: "POST" }),
+};
