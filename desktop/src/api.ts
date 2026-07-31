@@ -168,6 +168,9 @@ export class ApiError extends Error {
     public status: number,
     message: string,
     public body: unknown = null,
+    /** Set for failures this application produced itself, so the interface can
+     *  say them in the operator's language. The message is the fallback. */
+    public code: string | null = null,
   ) {
     super(message);
   }
@@ -220,7 +223,7 @@ async function cmd<T>(name: string, args: Record<string, unknown> = {}): Promise
     const fromBody = describe(status, body);
     const message =
       status === 0 && typeof raw?.message === "string" ? raw.message : fromBody;
-    throw new ApiError(status, message, body);
+    throw new ApiError(status, message, body, typeof raw?.code === "string" ? raw.code : null);
   }
 }
 

@@ -66,7 +66,6 @@ export function ProfileTable({
           {/* Only when the list spans projects. Inside one project the column
               would repeat the same value on every row. */}
           {showProject && <th>{t("col.project")}</th>}
-          <th>{t("col.persona")}</th>
           <th>{t("col.proxy")}</th>
           <th>{t("col.status")}</th>
           <th>{t("col.lastOpened")}</th>
@@ -109,7 +108,6 @@ export function ProfileTable({
                   {p.project_name ?? <span className="dim">{t("col.noProject")}</span>}
                 </td>
               )}
-              <td className="mono muted">{p.persona_id}</td>
               <td>
                 {p.proxy ? (
                   <>

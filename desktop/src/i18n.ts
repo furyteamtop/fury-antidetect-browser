@@ -104,7 +104,17 @@ const en = {
   "app.launchRestricted": "Opened with limits from your permissions: {list}.",
   "auth.unlock": "Unlock",
   "auth.unlockWhy": "Your session is still valid, but the key that opens this team's data is not kept anywhere — it exists only while the app is running. Your password is what it is derived from.",
-  "nav.team": "Team",
+  "err.notSignedIn": "Not signed in.",
+  "err.noOrgKey": "This machine does not hold the organisation key yet. An owner or admin has to hand it over before anything here can be decrypted — until then you can see the team and open nothing.",
+  "err.noOrgKeySeal": "This machine does not hold the organisation key yet, so it cannot seal a proxy's credentials. Ask an owner or admin to hand the key over first.",
+  "err.noOrgKeyGive": "You do not hold the organisation key on this machine, so you cannot hand it to anyone. Unlock first, or ask an owner.",
+  "err.teamProfileNeedsProxy": "A team profile needs a proxy. Everything the browser does goes through one.",
+  "err.teamProfileNeedsProject": "A team profile has to live in a project — that is what carries access to it.",
+  "err.proxyEditNotBuilt": "Changing a proxy on a team server is not built yet. Add a new one and move the profiles across.",
+  "nav.users": "Users",
+  "team.aloneHere": "Nobody but you. Everything is on this machine — no account, no server, nothing leaving it. Connect a server when there is a team to share projects with, and the people you invite appear here.",
+  "team.connectToWork": "Connect a server",
+  "team.thisAccount": "This account",
   "team.loading": "Loading the team…",
   "team.people": "People",
   "team.member": "Member",
@@ -401,7 +411,17 @@ const ru: Record<Key, string> = {
   "app.launchRestricted": "Открыт с ограничениями по вашим правам: {list}.",
   "auth.unlock": "Разблокировать",
   "auth.unlockWhy": "Сессия ещё жива, но ключ, которым открываются данные команды, нигде не хранится — он существует только пока запущено приложение. Выводится он из вашего пароля.",
-  "nav.team": "Команда",
+  "err.notSignedIn": "Вы не вошли.",
+  "err.noOrgKey": "На этой машине пока нет ключа организации. Владелец или админ должен его выдать — до этого вы видите команду и не можете ничего открыть.",
+  "err.noOrgKeySeal": "На этой машине пока нет ключа организации, поэтому запечатать учётку прокси нечем. Попросите владельца или админа выдать ключ.",
+  "err.noOrgKeyGive": "У вас на этой машине нет ключа организации, значит и выдать его некому. Разблокируйте вход или попросите владельца.",
+  "err.teamProfileNeedsProxy": "Командному профилю нужен прокси. Через него идёт всё, что делает браузер.",
+  "err.teamProfileNeedsProject": "Командный профиль должен лежать в проекте — именно проект несёт доступ к нему.",
+  "err.proxyEditNotBuilt": "Изменение прокси на командном сервере ещё не сделано. Добавьте новый и переведите профили на него.",
+  "nav.users": "Пользователи",
+  "team.aloneHere": "Кроме вас никого. Всё на этой машине — ни аккаунта, ни сервера, ничего не уходит. Подключите сервер, когда появится команда, с которой надо делить проекты, и приглашённые появятся здесь.",
+  "team.connectToWork": "Подключить сервер",
+  "team.thisAccount": "Этот аккаунт",
   "team.loading": "Загружаю команду…",
   "team.people": "Участники",
   "team.member": "Участник",
@@ -632,6 +652,14 @@ const listeners = new Set<() => void>();
 
 export function useI18n(): {
   t: (key: Key, vars?: Record<string, string | number>) => string;
+  /** What to show an operator when something failed.
+   *
+   *  Failures raised by the application itself carry a code, because they are
+   *  written in Rust and Rust does not know which language the interface is in.
+   *  Anything without one — a server's own message, a network failure naming a
+   *  host — is shown as it came: an untranslated sentence that says what
+   *  happened beats a translated one that does not. */
+  say: (e: unknown) => string;
   language: Language;
   setLanguage: (l: Language) => void;
 } {
@@ -651,8 +679,16 @@ export function useI18n(): {
 
   const dict = resolve(language) === "ru" ? ru : en;
 
+  const t = (key: Key, vars?: Record<string, string | number>) =>
+    format(dict[key] ?? en[key], vars);
+
   return {
-    t: (key, vars) => format(dict[key] ?? en[key], vars),
+    t,
+    say: (e) => {
+      const code = (e as { code?: unknown } | null)?.code;
+      if (typeof code === "string" && code in dict) return t(code as Key);
+      return (e as Error)?.message ?? String(e);
+    },
     language,
     setLanguage: (l) => {
       localStorage.setItem(KEY, l);

@@ -49,6 +49,9 @@ pub fn routes() -> Router<Arc<AppState>> {
             axum::routing::delete(revoke_access),
         )
         .route("/v1/profiles", get(list_all_profiles))
+        .route("/v1/profiles/trash", get(list_trash))
+        .route("/v1/profiles/{profile_id}/restore", post(restore_profile))
+        .route("/v1/profiles/{profile_id}/purge", axum::routing::delete(purge_profile))
         .route("/v1/proxies", get(list_proxies).post(create_proxy))
         .route("/v1/proxies/{proxy_id}", axum::routing::delete(delete_proxy))
         .route(
@@ -1344,6 +1347,119 @@ async fn delete_profile(
 
     audit(&state, &caller, "profile.delete", Some(profile_id), json!({})).await?;
     Ok(Json(json!({ "deleted": true })))
+}
+
+/// Deleted profiles the caller may see.
+///
+/// Deletion is soft everywhere in this product for one reason: a profile holds
+/// an account that took months to warm, and the difference between hiding one
+/// and destroying one must never be a single click.
+async fn list_trash(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+) -> ApiResult<Json<serde_json::Value>> {
+    let rows: Vec<(Uuid, Uuid, String, String, Vec<String>, String, String)> =
+        sqlx::query_as(&format!(
+            "SELECT f.id, f.project_id, p.name, f.name, f.tags, f.persona_id, {} \
+             FROM profiles f \
+             JOIN projects p ON p.id = f.project_id \
+             JOIN org_members m ON m.org_id = p.org_id AND m.user_id = $1 \
+             LEFT JOIN project_grants g ON g.project_id = p.id AND g.user_id = $1 \
+                    AND (g.expires_at IS NULL OR g.expires_at > now()) \
+             WHERE f.deleted_at IS NOT NULL AND ($2 OR g.permissions IS NOT NULL) \
+             ORDER BY f.deleted_at DESC",
+            rfc3339("f.deleted_at"),
+        ))
+        .bind(caller.user_id)
+        .bind(fury_shared::rbac::has_implicit_project_access(caller.role))
+        .fetch_all(&state.db)
+        .await?;
+
+    Ok(Json(json!(rows
+        .into_iter()
+        .map(|(id, project_id, project_name, name, tags, persona_id, deleted_at)| json!({
+            "id": id,
+            "project_id": project_id,
+            "project_name": project_name,
+            "name": name,
+            "tags": tags,
+            "persona_id": persona_id,
+            "fp_seed": 0,
+            "proxy": serde_json::Value::Null,
+            // The trash answers "when did this go", not "when did it last run".
+            "last_opened_at": deleted_at,
+            "running": false,
+        }))
+        .collect::<Vec<_>>())))
+}
+
+async fn restore_profile(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+    Path(profile_id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    // Resolved against the deleted row, which permissions_for_profile cannot
+    // see — it filters deleted profiles, as every other caller needs it to.
+    let project: Option<(Uuid,)> = sqlx::query_as("SELECT project_id FROM profiles WHERE id = $1")
+        .bind(profile_id)
+        .fetch_optional(&state.db)
+        .await?;
+    let (project_id,) = project.ok_or(ApiError::NotFound)?;
+    rbac_guard::require(&state.db, caller.user_id, project_id, Perm::DeleteProfile).await?;
+
+    // Into a project that still exists, or nowhere useful. A profile restored
+    // into a deleted project is invisible again, which is the state the trash
+    // exists to get it out of.
+    let alive: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM projects WHERE id = $1 AND deleted_at IS NULL)",
+    )
+    .bind(project_id)
+    .fetch_one(&state.db)
+    .await?;
+    if !alive {
+        return Err(ApiError::BadRequest(
+            "the project this profile was in has been deleted. Restore the project first"
+                .into(),
+        ));
+    }
+
+    sqlx::query("UPDATE profiles SET deleted_at = NULL WHERE id = $1")
+        .bind(profile_id)
+        .execute(&state.db)
+        .await?;
+    audit(&state, &caller, "profile.restore", Some(profile_id), json!({})).await?;
+    Ok(Json(json!({ "restored": true })))
+}
+
+/// Gone for good: the row, and every bundle stored for it.
+async fn purge_profile(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+    Path(profile_id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let project: Option<(Uuid,)> = sqlx::query_as("SELECT project_id FROM profiles WHERE id = $1")
+        .bind(profile_id)
+        .fetch_optional(&state.db)
+        .await?;
+    let (project_id,) = project.ok_or(ApiError::NotFound)?;
+    rbac_guard::require(&state.db, caller.user_id, project_id, Perm::DeleteProfile).await?;
+
+    // The bytes go first. A row deleted while its bundles stay is a directory
+    // of live cookie jars for a profile the operator believes is destroyed —
+    // the opposite of what emptying a trash means.
+    let dir = bundle_root().join(profile_id.to_string());
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).map_err(|e| {
+            ApiError::Internal(anyhow::anyhow!("could not remove {}: {e}", dir.display()))
+        })?;
+    }
+    sqlx::query("DELETE FROM profiles WHERE id = $1 AND deleted_at IS NOT NULL")
+        .bind(profile_id)
+        .execute(&state.db)
+        .await?;
+
+    audit(&state, &caller, "profile.purge", Some(profile_id), json!({})).await?;
+    Ok(Json(json!({ "purged": true })))
 }
 
 // ---------------------------------------------------------------------------

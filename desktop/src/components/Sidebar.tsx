@@ -2,7 +2,7 @@ import { useI18n } from "../i18n";
 import { useState } from "react";
 import type { Me, Project, Shell } from "../api";
 
-export type View = "profiles" | "proxies" | "trash" | "team";
+export type View = "profiles" | "proxies" | "trash" | "users";
 
 export function Sidebar({
   projects,
@@ -17,7 +17,6 @@ export function Sidebar({
   view,
   onView,
   onSettings,
-  onSignOut,
 }: {
   projects: Project[];
   active: Project | null;
@@ -31,7 +30,6 @@ export function Sidebar({
   onView: (v: View) => void;
   onNewProfile: () => void;
   onSettings: () => void;
-  onSignOut: () => void;
 }) {
   const { t } = useI18n();
   const local = shell.mode === "local";
@@ -40,26 +38,19 @@ export function Sidebar({
     <aside className="sidebar">
       <div className="brand">Fury</div>
 
-      {local && (
-        <button className="primary newProfile" onClick={onNewProfile}>
-          {t("bar.newProfile")}
-        </button>
-      )}
+      <button className="primary newProfile" onClick={onNewProfile}>
+        {t("bar.newProfile")}
+      </button>
 
       <nav>
-        {!local && (
-          <button
-            className={view === "team" ? "nav active" : "nav"}
-            onClick={() => onView("team")}
-          >
-            <span>{t("nav.team")}</span>
-          </button>
-        )}
-        {local && (
-          <>
-            {/* Sections first, projects under them: the sections are where an
-                operator goes, the projects are what they filter by. */}
-            {(["profiles", "proxies", "trash"] as const).map((v) => (
+        {/* Sections first, projects under them: the sections are where an
+            operator goes, the projects are what they filter by. */}
+        {/* The same four everywhere. Working alone and working with a team
+                are the same application doing the same job — one of them simply
+                has other people in it — and an interface that rearranges itself
+                around that makes the operator relearn where things are the day
+                their team grows. */}
+        {(["profiles", "proxies", "users", "trash"] as const).map((v) => (
               <button
                 key={v}
                 // Profiles is only "the current section" when no project is
@@ -78,14 +69,12 @@ export function Sidebar({
                 <span>{t(`nav.${v}` as never)}</span>
               </button>
             ))}
-            <div className="section" style={{ marginTop: "var(--s-3)" }}>
-              {t("app.projects")}
-              <button className="linky" onClick={onNewProject} title={t("app.newProject")}>
-                +
-              </button>
-            </div>
-          </>
-        )}
+        <div className="section" style={{ marginTop: "var(--s-3)" }}>
+          {t("app.projects")}
+          <button className="linky" onClick={onNewProject} title={t("app.newProject")}>
+            +
+          </button>
+        </div>
         {projects.length === 0 && <div className="empty">{t("app.nothingShared")}</div>}
         {projects.map((p) => (
           <div key={p.id} className="projectRow">
@@ -140,10 +129,11 @@ export function Sidebar({
         <div className="muted small ellipsis" title={shell.server_url ?? ""}>
           {local ? t("app.workingLocally") : shell.server_url}
         </div>
-        <div className="muted small ellipsis" title={shell.machine_name}>
-          {shell.machine_name}
-          {!shell.native && ` · ${t("app.browserDev")}`}
-        </div>
+        <div className="footRow">
+          <div className="muted small ellipsis" title={shell.machine_name}>
+            {shell.machine_name}
+            {!shell.native && ` · ${t("app.browserDev")}`}
+          </div>
         {/* An icon, not a word: it sits under the machine name where a label
             competes with information, and a gear is the one glyph nobody has to
             learn. The accessible name carries the word instead. */}
@@ -164,13 +154,7 @@ export function Sidebar({
             />
           </svg>
         </button>
-        {/* Nothing to sign out of when there is no server. Offering it anyway
-            would imply an account exists somewhere. */}
-        {!local && (
-          <button className="ghost" onClick={onSignOut}>
-            {t("app.signOut")}
-          </button>
-        )}
+        </div>
       </div>
     </aside>
   );

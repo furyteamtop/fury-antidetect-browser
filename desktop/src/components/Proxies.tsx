@@ -12,7 +12,7 @@ import { ProxyForm } from "./ProxyForm";
  *  the one number that matters, since several accounts behind one address is
  *  the oldest farm signal there is. */
 export function Proxies({ profiles }: { profiles: Profile[] }) {
-  const { t } = useI18n();
+  const { t, say } = useI18n();
   const { ask, dialog } = useAsk();
   const [rows, setRows] = useState<LocalProxy[]>([]);
   const [editing, setEditing] = useState<LocalProxy | null | undefined>(undefined);
@@ -23,7 +23,7 @@ export function Proxies({ profiles }: { profiles: Profile[] }) {
       setRows(await api.proxies());
       setError(null);
     } catch (e) {
-      setError((e as Error).message);
+      setError(say(e));
     }
   }, []);
 

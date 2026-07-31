@@ -761,6 +761,19 @@ input::placeholder {
   max-width: 620px;
 }
 
+/* The machine name and the settings gear on one line. A lone icon button under
+   a block of text reads as something that fell off the layout. */
+.footRow {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.footRow > .muted {
+  flex: 1;
+  min-width: 0;
+}
+
 .sectionTitle {
   margin: 0 0 var(--s-2);
   font-size: 13px;

@@ -62,6 +62,11 @@ pub struct ApiErr {
     pub status: u16,
     pub body: serde_json::Value,
     pub message: String,
+    /// A stable name for the failures this process produces itself, so the
+    /// interface can say them in the operator's language. The message stays as
+    /// the fallback: an untranslated sentence beats a bare code.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<&'static str>,
 }
 
 impl From<crate::agent::AgentError> for ApiErr {
@@ -78,7 +83,12 @@ impl ApiErr {
             status: 0,
             body: serde_json::Value::Null,
             message: message.into(),
+            code: None,
         }
+    }
+
+    fn coded(code: &'static str, message: impl Into<String>) -> Self {
+        Self { code: Some(code), ..Self::local(message) }
     }
 }
 
@@ -160,6 +170,7 @@ impl AppState {
                 status: status.as_u16(),
                 body: parsed,
                 message: format!("Request failed ({status})."),
+                code: None,
             });
         }
 
@@ -181,6 +192,7 @@ fn unauthenticated() -> ApiErr {
         status: 401,
         body: serde_json::json!({ "error": "unauthenticated" }),
         message: "Not signed in.".into(),
+        code: Some("err.notSignedIn"),
     }
 }
 
@@ -453,6 +465,7 @@ pub async fn enrol(
                 .unwrap_or("The server refused the invitation.")
                 .to_string(),
             body,
+            code: None,
         });
     }
     let ok: EnrolOk = serde_json::from_value(body)
@@ -911,7 +924,7 @@ pub async fn hand_over_key(
     public_key: String,
 ) -> R<serde_json::Value> {
     let org_key = state.org_key.lock().unwrap().ok_or_else(|| {
-        ApiErr::local(
+        ApiErr::coded("err.noOrgKeyGive", 
             "You do not hold the organisation key on this machine, so you cannot hand it to \
              anyone. Sign in again, or ask an owner.",
         )
@@ -1000,7 +1013,38 @@ pub async fn proxies(state: State<'_, AppState>) -> R<serde_json::Value> {
     if mode_of(&state) == "local" {
         return Ok(crate::agent::call("proxies.list", serde_json::json!({})).await?);
     }
-    state.call(reqwest::Method::GET, "/v1/proxies", Body::None, true).await
+    // Reshaped into what the local store returns, so the interface has one
+    // proxy and not two. The password is absent rather than empty: the server
+    // never sends it, and a blank string would read as "no password set".
+    let remote: Vec<fury_shared::api::ProxySummary> = state
+        .call(reqwest::Method::GET, "/v1/proxies", Body::None, true)
+        .await?;
+    Ok(serde_json::Value::Array(
+        remote
+            .into_iter()
+            .map(|p| {
+                let (host, port) = p
+                    .display
+                    .rsplit_once(':')
+                    .map(|(h, port)| (h.to_string(), port.parse::<u16>().unwrap_or(0)))
+                    .unwrap_or((p.display.clone(), 0));
+                serde_json::json!({
+                    "id": p.id.to_string(),
+                    "name": p.name,
+                    "kind": p.kind,
+                    "host": host,
+                    "port": port,
+                    "username": serde_json::Value::Null,
+                    "password": serde_json::Value::Null,
+                    "last_country": p.country,
+                    "last_ip": serde_json::Value::Null,
+                    "rotate_url": serde_json::Value::Null,
+                    "checker_url": serde_json::Value::Null,
+                    "shared_with_profiles": p.shared_with_profiles,
+                })
+            })
+            .collect(),
+    ))
 }
 
 /// Save a proxy.
@@ -1027,14 +1071,14 @@ pub async fn save_proxy(
     // silently creating a second one instead would leave the team with two
     // exits where they asked for one.
     if proxy.get("id").and_then(|v| v.as_str()).is_some_and(|v| !v.is_empty()) {
-        return Err(ApiErr::local(
+        return Err(ApiErr::coded("err.proxyEditNotBuilt", 
             "Changing a proxy on a team server is not built yet — add a new one and move the \
              profiles across.",
         ));
     }
 
     let org_key = state.org_key.lock().unwrap().ok_or_else(|| {
-        ApiErr::local(
+        ApiErr::coded("err.noOrgKeySeal", 
             "This machine does not hold the organisation key yet, so it cannot seal a proxy's \
              credentials. An owner or admin has to hand the key over first.",
         )
@@ -1109,7 +1153,7 @@ pub async fn save_profile(
         .and_then(|v| v.as_str())
         .filter(|v| !v.is_empty())
         .ok_or_else(|| {
-            ApiErr::local(
+            ApiErr::coded("err.teamProfileNeedsProxy", 
                 "A team profile needs a proxy. Everything the browser does goes through one.",
             )
         })?;
@@ -1134,7 +1178,7 @@ pub async fn save_profile(
         };
         let project_id = s("project_id");
         if project_id.is_empty() {
-            return Err(ApiErr::local(
+            return Err(ApiErr::coded("err.teamProfileNeedsProject", 
                 "A team profile has to live in a project — that is what carries access to it.",
             ));
         }
@@ -1195,9 +1239,14 @@ pub async fn import_project(path: String, passphrase: String) -> R<serde_json::V
 }
 
 #[tauri::command]
-pub async fn trash() -> R<Vec<UiProfile>> {
-    let local: Vec<crate::agent::LocalProfile> =
-        crate::agent::call("profiles.trash", serde_json::json!({})).await?;
+pub async fn trash(state: State<'_, AppState>) -> R<Vec<UiProfile>> {
+    let local: Vec<crate::agent::LocalProfile> = if mode_of(&state) == "local" {
+        crate::agent::call("profiles.trash", serde_json::json!({})).await?
+    } else {
+        state
+            .call(reqwest::Method::GET, "/v1/profiles/trash", Body::None, true)
+            .await?
+    };
     Ok(local
         .into_iter()
         .map(|p| UiProfile {
@@ -1245,13 +1294,23 @@ pub async fn move_profiles(
 }
 
 #[tauri::command]
-pub async fn restore_profile(id: String) -> R<serde_json::Value> {
-    Ok(crate::agent::call("profiles.restore", serde_json::json!({ "id": id })).await?)
+pub async fn restore_profile(state: State<'_, AppState>, id: String) -> R<serde_json::Value> {
+    if mode_of(&state) == "local" {
+        return Ok(crate::agent::call("profiles.restore", serde_json::json!({ "id": id })).await?);
+    }
+    state
+        .call(reqwest::Method::POST, &format!("/v1/profiles/{id}/restore"), Body::None, true)
+        .await
 }
 
 #[tauri::command]
-pub async fn purge_profile(id: String) -> R<serde_json::Value> {
-    Ok(crate::agent::call("profiles.purge", serde_json::json!({ "id": id })).await?)
+pub async fn purge_profile(state: State<'_, AppState>, id: String) -> R<serde_json::Value> {
+    if mode_of(&state) == "local" {
+        return Ok(crate::agent::call("profiles.purge", serde_json::json!({ "id": id })).await?);
+    }
+    state
+        .call(reqwest::Method::DELETE, &format!("/v1/profiles/{id}/purge"), Body::None, true)
+        .await
 }
 
 #[tauri::command]

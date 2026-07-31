@@ -8,7 +8,7 @@ import { CommandPalette, type Command } from "./components/CommandPalette";
 import { ProfileTable } from "./components/ProfileTable";
 import { Proxies } from "./components/Proxies";
 import { Trash } from "./components/Trash";
-import { Team } from "./components/Team";
+import { Users } from "./components/Users";
 import { ServerSetup } from "./components/ServerSetup";
 import { Enrol } from "./components/Enrol";
 import { Settings } from "./components/Settings";
@@ -43,7 +43,7 @@ export function App() {
   // Applied at the root before anything renders, so the first paint is already
   // the right theme rather than a flash of the wrong one.
   useTheme();
-  const { t } = useI18n();
+  const { t, say } = useI18n();
   const { ask, dialog: askDialog } = useAsk();
 
   useEffect(() => {
@@ -83,7 +83,7 @@ export function App() {
       setMe(local ? null : await api.me());
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) void api.shell().then(setShell);
-      else setError((e as Error).message);
+      else setError(say(e));
     }
   }, [local]);
 
@@ -112,7 +112,7 @@ export function App() {
       setProjects(list);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) void api.shell().then(setShell);
-      else setError((e as Error).message);
+      else setError(say(e));
     }
   }, [active, ready]);
 
@@ -163,6 +163,14 @@ export function App() {
     );
   }
 
+  const signOut = async () => {
+    await api.logout();
+    setMe(null);
+    setProjects([]);
+    setActive(null);
+    setShell(await api.shell());
+  };
+
   const onLaunch = async (profile: Profile, force = false) => {
     setBusy(true);
     setError(null);
@@ -180,7 +188,7 @@ export function App() {
       }
       await refreshProfiles();
     } catch (e) {
-      setError((e as Error).message);
+      setError(say(e));
     } finally {
       setBusy(false);
     }
@@ -234,7 +242,7 @@ export function App() {
       }
       setError(null);
     } catch (e) {
-      setError((e as Error).message);
+      setError(say(e));
     } finally {
       setBusy(false);
     }
@@ -246,7 +254,7 @@ export function App() {
       await api.stop(profile.id);
       await refreshProfiles();
     } catch (e) {
-      setError((e as Error).message);
+      setError(say(e));
     } finally {
       setBusy(false);
     }
@@ -282,7 +290,7 @@ export function App() {
             const r = await api.exportProject(active.id, path, pass);
             setNotice(t("ex.done", { kb: Math.round(r.bytes / 1024), path: r.path }));
           } catch (e) {
-            setError((e as Error).message);
+            setError(say(e));
           }
   };
 
@@ -305,7 +313,7 @@ export function App() {
             setNotice(t("ex.imported", { n: r.profiles }));
             await load();
           } catch (e) {
-            setError((e as Error).message);
+            setError(say(e));
           }
   };
 
@@ -365,13 +373,6 @@ export function App() {
           await api.createProject(name);
           await load();
         }}
-        onSignOut={async () => {
-          await api.logout();
-          setMe(null);
-          setProjects([]);
-          setActive(null);
-          setShell(await api.shell());
-        }}
       />
       <main className="main">
         <header className="head">
@@ -380,8 +381,8 @@ export function App() {
               ? t("trash.title")
               : view === "proxies"
                 ? t("nav.proxies")
-                : view === "team"
-                  ? t("nav.team")
+                : view === "users"
+                  ? t("nav.users")
                   : (active?.name ?? t("nav.profiles"))}
           </h1>
           {view === "profiles" && (
@@ -389,7 +390,7 @@ export function App() {
           )}
         </header>
 
-        {local && !shell.agent_ready && (
+        {!shell.agent_ready && (
           <div className="notice warnBar" role="status">
             {t("app.agentDown")}
           </div>
@@ -413,7 +414,7 @@ export function App() {
           </div>
         )}
 
-        {local && view === "profiles" && (
+        {view === "profiles" && (
           <div className="toolbar">
             {/* No "New profile" here. It is the first thing in the sidebar,
                 permanently, and a second copy of the primary action a few
@@ -513,7 +514,7 @@ export function App() {
                         await load();
                         await refreshProfiles();
                       } catch (err) {
-                        setError((err as Error).message);
+                        setError(say(err));
                       } finally {
                         setBusy(false);
                       }
@@ -544,7 +545,14 @@ export function App() {
             them looking for a profile list that was never theirs. */}
         {view === "proxies" && <Proxies profiles={profiles} />}
 
-        {view === "team" && <Team projects={projects} />}
+        {view === "users" && (
+          <Users
+            projects={projects}
+            local={local}
+            onSignOut={signOut}
+            onConnect={() => setSettingsOpen(true)}
+          />
+        )}
 
         {view === "trash" && (
           <Trash
@@ -569,7 +577,7 @@ export function App() {
               busy={busy}
               onLaunch={onLaunch}
               onStop={onStop}
-              onEdit={local ? setEditing : undefined}
+              onEdit={setEditing}
               onDelete={
                 local
                   ? async (p) => {

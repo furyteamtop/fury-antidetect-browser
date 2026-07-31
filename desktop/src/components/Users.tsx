@@ -20,8 +20,21 @@ const ROLES = ["admin", "manager", "member"] as const;
  *  Handing the key over happens on this machine. The key is sealed to their
  *  published public key in Rust and only the result is sent. Nobody, including
  *  whoever runs the server, can do it on their behalf. */
-export function Team({ projects }: { projects: Project[] }) {
-  const { t } = useI18n();
+export function Users({
+  projects,
+  local,
+  onSignOut,
+  onConnect,
+}: {
+  projects: Project[];
+  /** Working alone. The tab is here all the same — it is where an account
+   *  lives, and hiding it until one exists means the way to get one is a
+   *  setting nobody opens. */
+  local: boolean;
+  onSignOut: () => void;
+  onConnect: () => void;
+}) {
+  const { t, say } = useI18n();
   const [team, setTeam] = useState<Members | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -35,7 +48,7 @@ export function Team({ projects }: { projects: Project[] }) {
     try {
       setTeam(await api.orgMembers());
     } catch (e) {
-      setError((e as Error).message);
+      setError(say(e));
     }
   }, []);
 
@@ -65,11 +78,25 @@ export function Team({ projects }: { projects: Project[] }) {
       await load();
       await loadGrants();
     } catch (e) {
-      setError((e as Error).message);
+      setError(say(e));
     } finally {
       setBusy(false);
     }
   };
+
+  if (local) {
+    return (
+      <div className="teamPane">
+        <h2 className="sectionTitle">{t("team.people")}</h2>
+        <p className="hint" style={{ maxWidth: 620 }}>
+          {t("team.aloneHere")}
+        </p>
+        <button className="primary" onClick={onConnect}>
+          {t("team.connectToWork")}
+        </button>
+      </div>
+    );
+  }
 
   if (!team) {
     return <p className="empty pad">{error ?? t("team.loading")}</p>;
@@ -227,6 +254,13 @@ export function Team({ projects }: { projects: Project[] }) {
           </button>
         </div>
       )}
+
+      <h2 className="sectionTitle" style={{ marginTop: "var(--s-6)" }}>
+        {t("team.thisAccount")}
+      </h2>
+      <button className="ghost" onClick={onSignOut}>
+        {t("app.signOut")}
+      </button>
 
       {team.invited.length > 0 && (
         <>
