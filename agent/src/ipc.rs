@@ -48,6 +48,10 @@ struct Running {
     /// the version that was pulled, so the upload can refuse to clobber someone
     /// who saved in between.
     server: Option<(crate::sync::Server, i32)>,
+    /// For a team profile: the key its bundle is wrapped under, derived by the
+    /// shell from the organisation key. Absent for a profile that lives only
+    /// here, which uses this machine's vault instead.
+    profile_key: Option<[u8; 32]>,
     /// Proof that this machine is the one running the browser. The server
     /// requires it on upload, so it has to outlive the heartbeat that also
     /// uses it — the push happens after the browser is already gone.
@@ -469,7 +473,10 @@ impl Agent {
                         );
                     }
                 }
-                let sealed = crate::bundle::pack(&paths::profile_dir(&id), self.store.vault())?;
+                let sealed = crate::bundle::pack(
+                    &paths::profile_dir(&id),
+                    &crate::bundle::Sealer::Machine(self.store.vault()),
+                )?;
                 let out = paths::data_dir().join("bundles");
                 std::fs::create_dir_all(&out)?;
                 let path = out.join(format!("{id}.bundle"));
@@ -489,7 +496,7 @@ impl Agent {
                 let files = crate::bundle::unpack(
                     &std::fs::read(&path)?,
                     &wrapped_key,
-                    self.store.vault(),
+                    &crate::bundle::Sealer::Machine(self.store.vault()),
                     &paths::profile_dir(&id),
                 )?;
                 Ok(json!({ "files": files }))
@@ -537,7 +544,28 @@ impl Agent {
                     .cloned()
                     .map(serde_json::from_value)
                     .transpose()?;
-                self.launch(&str_param(&params, "id")?, server, lock_token, inline).await
+                // Hex, because it is a key and hex is what the rest of this
+                // protocol uses for one. Absent means "use this machine's
+                // vault", which is what a local profile wants.
+                let profile_key = params
+                    .get("profile_key")
+                    .and_then(|v| v.as_str())
+                    .map(|v| {
+                        let bytes: Option<Vec<u8>> = (v.len() == 64
+                            && v.bytes().all(|b| b.is_ascii_hexdigit()))
+                        .then(|| {
+                            (0..64)
+                                .step_by(2)
+                                .filter_map(|i| u8::from_str_radix(&v[i..i + 2], 16).ok())
+                                .collect()
+                        });
+                        bytes
+                            .and_then(|b| <[u8; 32]>::try_from(b).ok())
+                            .ok_or_else(|| anyhow::anyhow!("profile_key must be 64 hex characters"))
+                    })
+                    .transpose()?;
+                self.launch(&str_param(&params, "id")?, server, lock_token, inline, profile_key)
+                    .await
             }
             "profile.stop" => self.stop(&str_param(&params, "id")?).await,
 
@@ -551,6 +579,7 @@ impl Agent {
         server: Option<crate::sync::Server>,
         lock_token: Option<String>,
         inline: Option<Profile>,
+        profile_key: Option<[u8; 32]>,
     ) -> anyhow::Result<serde_json::Value> {
         {
             let mut running = self.running.lock().await;
@@ -629,11 +658,19 @@ impl Agent {
         // Pull before launching, not after. A browser started on stale data and
         // then overwritten mid-session is worse than one that waited: the pages
         // it already loaded belong to the old cookie jar.
+        let sealer = match profile_key {
+            Some(key) => crate::bundle::Sealer::Shared {
+                key,
+                vault: Some(self.store.vault()),
+            },
+            None => crate::bundle::Sealer::Machine(self.store.vault()),
+        };
+
         let mut pulled_version = 0;
         if let Some(srv) = server.as_ref() {
             match srv.fetch_bundle(&profile.id).await? {
                 Some((bytes, wrapped, version)) => {
-                    crate::bundle::unpack(&bytes, &wrapped, self.store.vault(), &dir)?;
+                    crate::bundle::unpack(&bytes, &wrapped, &sealer, &dir)?;
                     pulled_version = version;
                     tracing::info!(profile = %profile.name, version, "pulled bundle");
                 }
@@ -692,6 +729,7 @@ impl Agent {
                 relay_port,
                 relay: relay_task,
                 server: server.map(|s| (s, pulled_version)),
+                profile_key,
                 lock_token,
                 heartbeat,
             },
@@ -746,7 +784,14 @@ impl Agent {
             let token = entry.lock_token.take().ok_or_else(|| {
                 anyhow::anyhow!("this profile was launched against a server without a lock")
             })?;
-            let sealed = crate::bundle::pack(&paths::profile_dir(profile_id), self.store.vault())?;
+            let sealer = match entry.profile_key {
+                Some(key) => crate::bundle::Sealer::Shared {
+                    key,
+                    vault: Some(self.store.vault()),
+                },
+                None => crate::bundle::Sealer::Machine(self.store.vault()),
+            };
+            let sealed = crate::bundle::pack(&paths::profile_dir(profile_id), &sealer)?;
             let version = srv
                 .push_bundle(
                     profile_id,

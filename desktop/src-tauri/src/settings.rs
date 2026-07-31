@@ -27,6 +27,11 @@ pub struct Settings {
     /// keychain and the key it protects is not stored anywhere.
     #[serde(default)]
     pub last_email: Option<String>,
+
+    /// The highest organisation-key generation this machine has accepted. Only
+    /// ever moves forward — see AppState::ork_generation.
+    #[serde(default)]
+    pub ork_generation: i32,
 }
 
 impl Settings {
@@ -50,6 +55,7 @@ impl Settings {
             }
             None => Settings {
                 last_email: None,
+                ork_generation: 0,
                 server_url: None,
                 machine_id: new_machine_id(),
             },

@@ -128,8 +128,9 @@ async fn login(
     // can be lost. They are useless to anyone who intercepts them: the private
     // key opens only under a key derived from the password, and the ORK opens
     // only under the private key.
-    let org: Option<(Uuid, Option<Vec<u8>>, String)> = sqlx::query_as(
-        "SELECT org_id, wrapped_ork, role::text FROM org_members WHERE user_id = $1 LIMIT 1",
+    let org: Option<(Uuid, Option<Vec<u8>>, String, Option<i32>)> = sqlx::query_as(
+        "SELECT org_id, wrapped_ork, role::text, ork_generation \
+         FROM org_members WHERE user_id = $1 LIMIT 1",
     )
     .bind(user_id)
     .fetch_optional(&state.db)
@@ -143,11 +144,19 @@ async fn login(
         "user_id": user_id,
         "wrapped_private_key": b64(&wrapped_private_key),
         "kdf_salt": b64(&kdf_salt),
-        "org_id": org.as_ref().map(|(id, _, _)| *id),
-        "role": org.as_ref().map(|(_, _, r)| r.clone()),
+        "org_id": org.as_ref().map(|(id, _, _, _)| *id),
+        "role": org.as_ref().map(|(_, _, r, _)| r.clone()),
         // None means enrolled but not yet handed the organisation key: they can
         // sign in and see the shape of the team, and decrypt nothing.
-        "wrapped_ork": org.as_ref().and_then(|(_, ork, _)| ork.as_deref()).map(b64),
+        "wrapped_ork": org.as_ref().and_then(|(_, ork, _, _)| ork.as_deref()).map(b64),
+        // Which generation this wrapping belongs to.
+        //
+        // Without it a client cannot tell a current key from a retired one, and
+        // the wrapping carries no signature — `seal_to` is anonymous by design.
+        // A server that kept a member's pre-rotation blob could serve it back
+        // and quietly return them to a key somebody else still holds. The
+        // client refuses anything below the highest generation it has seen.
+        "ork_generation": org.as_ref().and_then(|(_, _, _, g)| *g),
     })))
 }
 
@@ -1674,10 +1683,19 @@ async fn rotation_material(
     let b64 = |v: &[u8]| base64::engine::general_purpose::STANDARD.encode(v);
     let hex = |v: &[u8]| v.iter().map(|b| format!("{b:02x}")).collect::<String>();
 
+    // Only members who already hold the key.
+    //
+    // Enrolling makes an account; being handed the organisation key is a
+    // separate, deliberate act, and `has_key: false` is the gate an admin sees.
+    // Without this predicate a rotation walked straight through it: everyone
+    // who had ever enrolled — including someone an admin looked at and chose
+    // not to admit — was sealed the new key by an operation nobody associates
+    // with granting access. Worse, the completeness check below made omitting
+    // them impossible.
     let members: Vec<(Uuid, String, Vec<u8>)> = sqlx::query_as(
         "SELECT u.id, u.email, u.public_key FROM org_members m \
          JOIN users u ON u.id = m.user_id \
-         WHERE m.org_id = $1 AND u.disabled_at IS NULL",
+         WHERE m.org_id = $1 AND u.disabled_at IS NULL AND m.wrapped_ork IS NOT NULL",
     )
     .bind(caller.org_id)
     .fetch_all(&state.db)
@@ -1810,8 +1828,11 @@ async fn rotate_org_key(
     // Every remaining member must be covered. One left out is one who can no
     // longer decrypt anything, discovered later and unfixable without another
     // rotation.
+    // Same predicate as the material, or the two disagree and one of them
+    // wins silently. A member with no key cannot be "locked out" by a rotation
+    // — they were never let in.
     let remaining: Vec<(Uuid,)> = sqlx::query_as(
-        "SELECT user_id FROM org_members WHERE org_id = $1",
+        "SELECT user_id FROM org_members WHERE org_id = $1 AND wrapped_ork IS NOT NULL",
     )
     .bind(caller.org_id)
     .fetch_all(&mut *tx)
@@ -1834,9 +1855,13 @@ async fn rotate_org_key(
                 "that is not a sealed organisation key".into(),
             ));
         }
+        // `wrapped_ork IS NOT NULL` here too, so a client that supplies an
+        // entry for a member who was never admitted writes nothing. Three
+        // places, one rule: rotation re-keys those who already hold a key, and
+        // admitting someone is `hand_over_key` and nothing else.
         sqlx::query(
             "UPDATE org_members SET wrapped_ork = $1, ork_generation = $2 \
-             WHERE org_id = $3 AND user_id = $4",
+             WHERE org_id = $3 AND user_id = $4 AND wrapped_ork IS NOT NULL",
         )
         .bind(&wrapped)
         .bind(next)

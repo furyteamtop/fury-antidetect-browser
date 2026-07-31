@@ -132,7 +132,6 @@ pub fn seal_proxy_credentials(
 /// The key the agent is given for one profile's bundle.
 ///
 /// Not the organisation key. See `fury_shared::keys::subkey`.
-#[allow(dead_code)] // Reached when bundle sealing moves onto the org key.
 pub fn profile_key(org_key: &[u8; 32], profile_id: &str) -> [u8; 32] {
     keys::subkey(org_key, "fury-profile-v1", profile_id)
 }

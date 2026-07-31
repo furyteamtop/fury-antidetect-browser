@@ -14,10 +14,27 @@
 //! key per machine, "share this profile" means re-encrypting the whole
 //! directory under their key, every time, for every recipient.
 //!
-//! So each bundle carries its own data key, and only that key is wrapped by the
-//! vault. Sharing later re-wraps 32 bytes instead of re-encrypting a gigabyte,
-//! and revoking someone means they never receive the wrapped key again rather
-//! than a re-encryption of everything they ever touched.
+//! So each bundle carries its own data key, and only that key is wrapped.
+//! Sharing later re-wraps 32 bytes instead of re-encrypting a gigabyte, and
+//! revoking someone means they never receive the wrapped key again rather than
+//! a re-encryption of everything they ever touched.
+//!
+//! # What wraps that key, and why it is not always the vault
+//!
+//! For a profile that lives only on this machine, the vault — the machine key
+//! in the OS keychain. Nothing else needs to open it.
+//!
+//! For a team profile, that is exactly wrong, and wrong in the way that defeats
+//! the feature: a bundle packed on one operator's laptop and wrapped under
+//! *that machine's* key cannot be opened by the colleague it was uploaded for.
+//! The error even said so — "the bundle key does not belong to this machine" —
+//! while the whole point of uploading it was that it should belong to someone
+//! else too.
+//!
+//! So a team profile's data key is wrapped under a subkey derived from the
+//! organisation key and the profile id. Every member can derive it, no other
+//! profile shares it, and the agent is handed only the one it needs rather than
+//! the organisation key itself.
 //!
 //! # What the server sees
 //!
@@ -34,6 +51,86 @@ use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use sha2::{Digest, Sha256};
 
 use crate::vault::Vault;
+
+/// What wraps a bundle's data key.
+///
+/// Two cases and no default: a bundle sealed under the wrong one is a bundle
+/// that opens nowhere, and the two are indistinguishable at the point of use
+/// unless the caller has to say which it means.
+pub enum Sealer<'a> {
+    /// A profile that lives only on this machine.
+    Machine(&'a Vault),
+    /// A team profile: a key derived from the organisation key and this
+    /// profile's id, which every member of the organisation can derive.
+    ///
+    /// The vault comes along for reading only. Bundles uploaded before this
+    /// existed are wrapped under the machine key, and refusing them would mean
+    /// an operator's own profile stops opening the day they update — on the
+    /// machine that packed it, where the key is right there. The prefix says
+    /// which is which, so this is a lookup and not a guess. Writing is always
+    /// shared, so each such bundle converts itself the first time it is closed.
+    Shared { key: [u8; 32], vault: Option<&'a Vault> },
+}
+
+/// Marks a key wrapped under a shared key rather than a machine one. Distinct
+/// from the vault's own prefix so that neither can be mistaken for the other:
+/// silently trying the wrong key would fail as "wrong password" a long way from
+/// the cause.
+const SHARED_PREFIX: &str = "fury:ork1:";
+
+impl Sealer<'_> {
+    fn seal(&self, plain: &str) -> String {
+        match self {
+            Sealer::Machine(v) => v.seal(plain),
+            Sealer::Shared { key, .. } => {
+                use base64::Engine;
+                format!(
+                    "{SHARED_PREFIX}{}",
+                    base64::engine::general_purpose::STANDARD
+                        .encode(fury_shared::keys::wrap(key, plain.as_bytes()))
+                )
+            }
+        }
+    }
+
+    fn open(&self, stored: &str) -> String {
+        match self {
+            Sealer::Machine(v) => {
+                if stored.starts_with(SHARED_PREFIX) {
+                    // A team bundle reached a launch that has no organisation
+                    // key. Returning nothing is right; pretending otherwise
+                    // would produce a corrupt profile directory.
+                    return String::new();
+                }
+                v.open_value(stored)
+            }
+            Sealer::Shared { key, vault } => {
+                use base64::Engine;
+                let Some(rest) = stored.strip_prefix(SHARED_PREFIX) else {
+                    // Packed before team bundles had their own key. Openable
+                    // here if this is the machine that packed it, and nowhere
+                    // else — which the caller's error message says.
+                    return vault.map(|v| v.open_value(stored)).unwrap_or_default();
+                };
+                base64::engine::general_purpose::STANDARD
+                    .decode(rest)
+                    .ok()
+                    .and_then(|blob| fury_shared::keys::unwrap(key, &blob).ok())
+                    .and_then(|v| String::from_utf8(v).ok())
+                    .unwrap_or_default()
+            }
+        }
+    }
+
+    /// Whether sealing will actually seal. A vault with no keychain passes
+    /// values through; a shared key always works.
+    fn available(&self) -> bool {
+        match self {
+            Sealer::Machine(v) => v.available(),
+            Sealer::Shared { .. } => true,
+        }
+    }
+}
 
 const MAGIC: &[u8; 8] = b"FURY-BN1";
 const NONCE_LEN: usize = 24;
@@ -69,7 +166,7 @@ impl std::fmt::Debug for Sealed {
     }
 }
 
-pub fn pack(profile_dir: &Path, vault: &Vault) -> anyhow::Result<Sealed> {
+pub fn pack(profile_dir: &Path, sealer: &Sealer<'_>) -> anyhow::Result<Sealed> {
     let mut archive = tar::Builder::new(Vec::new());
     if profile_dir.exists() {
         append_dir(&mut archive, profile_dir, profile_dir)?;
@@ -91,8 +188,8 @@ pub fn pack(profile_dir: &Path, vault: &Vault) -> anyhow::Result<Sealed> {
     bytes.extend_from_slice(&nonce);
     bytes.extend_from_slice(&sealed);
 
-    let wrapped_key = vault.seal(&hex(&data_key));
-    if !vault.available() {
+    let wrapped_key = sealer.seal(&hex(&data_key));
+    if !sealer.available() {
         // seal() passes through when there is no keychain, which would put the
         // data key next to the data it protects. Better to refuse: a bundle
         // that looks encrypted and ships its own key is worse than none.
@@ -112,14 +209,18 @@ pub fn pack(profile_dir: &Path, vault: &Vault) -> anyhow::Result<Sealed> {
 pub fn unpack(
     sealed: &[u8],
     wrapped_key: &str,
-    vault: &Vault,
+    sealer: &Sealer<'_>,
     dest: &Path,
 ) -> anyhow::Result<usize> {
     if sealed.len() < MAGIC.len() + NONCE_LEN || &sealed[..MAGIC.len()] != MAGIC {
         anyhow::bail!("this is not a Fury bundle");
     }
-    let key = unhex(&vault.open_value(wrapped_key))
-        .ok_or_else(|| anyhow::anyhow!("the bundle key does not belong to this machine"))?;
+    let key = unhex(&sealer.open(wrapped_key)).ok_or_else(|| {
+        anyhow::anyhow!(
+            "this bundle's key will not open here. A team profile needs the organisation key, \
+             and a personal one needs the machine that packed it"
+        )
+    })?;
 
     let nonce = &sealed[MAGIC.len()..MAGIC.len() + NONCE_LEN];
     let body = &sealed[MAGIC.len() + NONCE_LEN..];
@@ -207,6 +308,81 @@ mod tests {
     }
 
     #[test]
+    fn a_team_bundle_opens_on_a_machine_that_never_packed_it() {
+        // The bug this replaces defeated the whole feature: the data key was
+        // wrapped under the packing machine's vault, so a colleague pulling the
+        // bundle was told "the bundle key does not belong to this machine" —
+        // which was true, and was the point of uploading it.
+        let ork = fury_shared::keys::new_org_key();
+        let key = fury_shared::keys::subkey(&ork, "fury-profile-v1", "profile-a");
+
+        let src = dir("src");
+        std::fs::create_dir_all(src.join("Default")).unwrap();
+        std::fs::write(src.join("Default/Cookies"), b"warm-account").unwrap();
+        let sealed = pack(&src, &Sealer::Shared { key, vault: None }).unwrap();
+
+        // Another machine: a different vault entirely, and only the
+        // organisation key in common.
+        let dest = dir("dest");
+        let same = fury_shared::keys::subkey(&ork, "fury-profile-v1", "profile-a");
+        assert_eq!(
+            unpack(&sealed.bytes, &sealed.wrapped_key, &Sealer::Shared { key: same, vault: None }, &dest).unwrap(),
+            1
+        );
+        assert_eq!(std::fs::read(dest.join("Default/Cookies")).unwrap(), b"warm-account");
+    }
+
+    #[test]
+    fn a_bundle_packed_before_sharing_still_opens_where_it_was_packed() {
+        // Updating must not strand an operator's own profiles. The prefix says
+        // which key wrapped it, so this is a lookup rather than a guess — and
+        // the next close re-seals it shared.
+        let vault = Vault::for_tests([3u8; 32]);
+        let src = dir("src");
+        std::fs::create_dir_all(src.join("Default")).unwrap();
+        std::fs::write(src.join("Default/Cookies"), b"warm-account").unwrap();
+        let old = pack(&src, &Sealer::Machine(&vault)).unwrap();
+
+        let ork = fury_shared::keys::new_org_key();
+        let shared = Sealer::Shared {
+            key: fury_shared::keys::subkey(&ork, "fury-profile-v1", "p"),
+            vault: Some(&vault),
+        };
+        let dest = dir("dest");
+        assert_eq!(unpack(&old.bytes, &old.wrapped_key, &shared, &dest).unwrap(), 1);
+
+        // And what it writes from now on is shared, so it converts itself.
+        assert!(pack(&src, &shared).unwrap().wrapped_key.starts_with(SHARED_PREFIX));
+    }
+
+    #[test]
+    fn a_team_bundle_does_not_open_under_the_wrong_key() {
+        let ork = fury_shared::keys::new_org_key();
+        let src = dir("src");
+        std::fs::create_dir_all(src.join("Default")).unwrap();
+        std::fs::write(src.join("Default/Cookies"), b"warm-account").unwrap();
+        let sealed = pack(
+            &src,
+            &Sealer::Shared {
+                key: fury_shared::keys::subkey(&ork, "fury-profile-v1", "profile-a"),
+                vault: None,
+            },
+        )
+        .unwrap();
+
+        // A different profile in the same organisation.
+        let other = fury_shared::keys::subkey(&ork, "fury-profile-v1", "profile-b");
+        assert!(unpack(&sealed.bytes, &sealed.wrapped_key, &Sealer::Shared { key: other, vault: None }, &dir("d1")).is_err());
+
+        // And a machine vault, which is what a local launch would bring.
+        let vault = Vault::for_tests([3u8; 32]);
+        assert!(
+            unpack(&sealed.bytes, &sealed.wrapped_key, &Sealer::Machine(&vault), &dir("d2")).is_err(),
+            "a team bundle opened under a machine key"
+        );
+    }
+
+    #[test]
     fn a_profile_survives_a_round_trip() {
         let vault = Vault::for_tests([3u8; 32]);
         let src = dir("src");
@@ -216,12 +392,12 @@ mod tests {
         // Must not travel: it describes a browser running on another machine.
         std::fs::write(src.join("SingletonLock"), b"pid").unwrap();
 
-        let sealed = pack(&src, &vault).unwrap();
+        let sealed = pack(&src, &Sealer::Machine(&vault)).unwrap();
         assert!(!sealed.bytes.windows(12).any(|w| w == b"warm-account"));
         assert_eq!(sealed.sha256.len(), 64);
 
         let dest = dir("dest");
-        let n = unpack(&sealed.bytes, &sealed.wrapped_key, &vault, &dest).unwrap();
+        let n = unpack(&sealed.bytes, &sealed.wrapped_key, &Sealer::Machine(&vault), &dest).unwrap();
         assert_eq!(n, 2, "the singleton lock rode along");
         assert_eq!(std::fs::read(dest.join("Default/Cookies")).unwrap(), b"warm-account");
         assert!(!dest.join("SingletonLock").exists());
@@ -232,7 +408,7 @@ mod tests {
         let vault = Vault::for_tests([3u8; 32]);
         let src = dir("d");
         std::fs::write(src.join("Cookies"), b"x").unwrap();
-        let sealed = pack(&src, &vault).unwrap();
+        let sealed = pack(&src, &Sealer::Machine(&vault)).unwrap();
         assert_eq!(hex(&Sha256::digest(&sealed.bytes)), sealed.sha256);
     }
 
@@ -242,9 +418,9 @@ mod tests {
         let theirs = Vault::for_tests([9u8; 32]);
         let src = dir("d");
         std::fs::write(src.join("Cookies"), b"secret").unwrap();
-        let sealed = pack(&src, &mine).unwrap();
+        let sealed = pack(&src, &Sealer::Machine(&mine)).unwrap();
 
-        assert!(unpack(&sealed.bytes, &sealed.wrapped_key, &theirs, &dir("out")).is_err());
+        assert!(unpack(&sealed.bytes, &sealed.wrapped_key, &Sealer::Machine(&theirs), &dir("out")).is_err());
     }
 
     #[test]
@@ -252,11 +428,11 @@ mod tests {
         let vault = Vault::for_tests([3u8; 32]);
         let src = dir("d");
         std::fs::write(src.join("Cookies"), b"secret").unwrap();
-        let mut sealed = pack(&src, &vault).unwrap();
+        let mut sealed = pack(&src, &Sealer::Machine(&vault)).unwrap();
         let last = sealed.bytes.len() - 1;
         sealed.bytes[last] ^= 0xff;
 
-        assert!(unpack(&sealed.bytes, &sealed.wrapped_key, &vault, &dir("out")).is_err());
+        assert!(unpack(&sealed.bytes, &sealed.wrapped_key, &Sealer::Machine(&vault), &dir("out")).is_err());
     }
 
     #[test]
@@ -267,7 +443,7 @@ mod tests {
         let none = Vault::for_tests_without_key();
         let src = dir("d");
         std::fs::write(src.join("Cookies"), b"secret").unwrap();
-        let err = pack(&src, &none).unwrap_err();
+        let err = pack(&src, &Sealer::Machine(&none)).unwrap_err();
         assert!(err.to_string().contains("carries its own key"), "{err}");
     }
 }

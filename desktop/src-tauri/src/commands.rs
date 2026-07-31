@@ -50,6 +50,16 @@ pub struct AppState {
     /// lives exactly as long as the process and no longer. Signing out drops
     /// it; so does quitting. That is the intended cost of the design.
     pub org_key: Mutex<Option<[u8; 32]>>,
+
+    /// The highest organisation-key generation this machine has ever accepted.
+    ///
+    /// Persisted, because the attack it stops spans restarts: the wrapping of
+    /// an organisation key carries no signature, so a server that kept a
+    /// member's pre-rotation blob could serve it back and return them to a key
+    /// a removed colleague still holds. Everything they sealed afterwards would
+    /// be readable by that person and by nobody else in the team. A watermark
+    /// that only moves forward makes that a refusal instead.
+    pub ork_generation: Mutex<i32>,
 }
 
 /// A failed call, in the same shape the browser transport produces.
@@ -367,6 +377,8 @@ pub async fn login(state: State<'_, AppState>, email: String, password: String) 
         wrapped_private_key: String,
         kdf_salt: String,
         wrapped_ork: Option<String>,
+        #[serde(default)]
+        ork_generation: Option<i32>,
     }
 
     let body = serde_json::json!({
@@ -390,8 +402,35 @@ pub async fn login(state: State<'_, AppState>, email: String, password: String) 
         let _ = settings.save(&state.config_dir);
     }
 
+    // Never backwards. A generation below what this machine has already seen is
+    // a rollback, whatever produced it.
+    {
+        let seen = *state.ork_generation.lock().unwrap();
+        if let Some(g) = ok.ork_generation {
+            if g < seen {
+                return Err(ApiErr::coded(
+                    "err.staleOrgKey",
+                    format!(
+                        "This server offered organisation key generation {g}, but this machine \
+                         has already used {seen}. Refusing — a key that goes backwards is one \
+                         somebody else may still hold."
+                    ),
+                ));
+            }
+        }
+    }
+
     match crypto::unlock_org_key(&password, &ok.kdf_salt, &ok.wrapped_private_key, ok.wrapped_ork.as_deref()) {
-        Ok(key) => *state.org_key.lock().unwrap() = key,
+        Ok(key) => {
+            *state.org_key.lock().unwrap() = key;
+            if let Some(g) = ok.ork_generation {
+                let mut seen = state.ork_generation.lock().unwrap();
+                *seen = (*seen).max(g);
+                let mut s = state.settings.lock().unwrap();
+                s.ork_generation = *seen;
+                let _ = s.save(&state.config_dir);
+            }
+        }
         Err(e) => {
             tracing::warn!(error = %e, "signed in without the organisation key");
             *state.org_key.lock().unwrap() = None;
@@ -862,6 +901,12 @@ async fn launch_from_spec(state: &AppState, grant: &LockGrant) -> R<serde_json::
     let server = state.server_url()?;
     let token = state.session.token().ok_or_else(unauthenticated)?;
 
+    // The key this profile's bundle is wrapped under. Derived from the
+    // organisation key and this profile's id, so the agent can open the one
+    // bundle it was asked for and no other — and so a colleague on a different
+    // machine can open the same bundle, which is what a team profile is for.
+    let profile_key = crypto::profile_key(&org_key, &spec.profile_id.to_string());
+
     Ok(crate::agent::call(
         "profile.launch",
         serde_json::json!({
@@ -869,6 +914,7 @@ async fn launch_from_spec(state: &AppState, grant: &LockGrant) -> R<serde_json::
             "profile": profile,
             "server": { "url": server, "token": token },
             "lock_token": grant.lock_token,
+            "profile_key": profile_key.iter().map(|b| format!("{b:02x}")).collect::<String>(),
         }),
     )
     .await?)
@@ -1033,6 +1079,13 @@ pub async fn remove_member(
     // Only after the server accepted it. Adopting the new key on a rotation
     // that was refused would leave this machine unable to open anything.
     *state.org_key.lock().unwrap() = Some(new_key);
+    if let Some(g) = out.get("generation").and_then(|v| v.as_i64()) {
+        let mut seen = state.ork_generation.lock().unwrap();
+        *seen = (*seen).max(g as i32);
+        let mut s = state.settings.lock().unwrap();
+        s.ork_generation = *seen;
+        let _ = s.save(&state.config_dir);
+    }
     Ok(out)
 }
 

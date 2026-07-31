@@ -47,6 +47,7 @@ fn main() {
         .setup(|app| {
             let config_dir = app.path().app_config_dir()?;
             let settings = Settings::load(&config_dir);
+            let seen_generation = settings.ork_generation;
 
             let session = Session::new();
             if let Some(url) = settings.server_url.as_deref() {
@@ -79,6 +80,7 @@ fn main() {
                 session,
                 locks: Default::default(),
                 org_key: Default::default(),
+                ork_generation: Mutex::new(seen_generation),
             });
             Ok(())
         })
