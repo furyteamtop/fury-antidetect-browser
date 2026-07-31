@@ -46,8 +46,13 @@ export function App() {
   const { t, say } = useI18n();
   const { ask, dialog: askDialog } = useAsk();
 
+  const [fatal, setFatal] = useState<string | null>(null);
+
   useEffect(() => {
-    void api.shell().then(setShell);
+    // Caught, because this is the one call with nothing behind it. Without a
+    // catch a failure here left the splash on screen for ever — an application
+    // that looks like it is still starting, and never will.
+    api.shell().then(setShell, (e) => setFatal(say(e)));
   }, []);
 
   // ⌘K, or Ctrl+K where there is no command key. Registered on the window so it
@@ -125,6 +130,20 @@ export function App() {
     const timer = setInterval(() => void refreshProfiles(), 5_000);
     return () => clearInterval(timer);
   }, [refreshProfiles]);
+
+  if (fatal) {
+    return (
+      <div className="splash">
+        <div>Fury</div>
+        <p className="error" style={{ maxWidth: 460, marginTop: "var(--s-4)" }}>
+          {fatal}
+        </p>
+        <button className="ghost" onClick={() => window.location.reload()}>
+          {t("app.retry")}
+        </button>
+      </div>
+    );
+  }
 
   if (!shell) return <div className="splash">Fury</div>;
 

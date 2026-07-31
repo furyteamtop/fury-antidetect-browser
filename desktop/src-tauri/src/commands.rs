@@ -247,16 +247,29 @@ pub async fn shell_state(state: State<'_, AppState>) -> Result<Shell, ApiErr> {
     // for.
     let agent_ready = crate::agent::ensure_running().await.is_ok();
 
+    // Both settings fields in one lock, released before the struct is built.
+    //
+    // Two `settings.lock()` calls inside a single struct literal deadlocked:
+    // the temporaries a struct literal creates live until the end of the whole
+    // expression, so the first guard was still held when the second asked for
+    // the same non-reentrant mutex. The application started, drew its window,
+    // and never left the splash — the first call it makes never returned.
+    let (server_url, last_email) = {
+        let s = state.settings.lock().unwrap();
+        (s.server_url.clone(), s.last_email.clone())
+    };
+    let org_key_ready = state.org_key.lock().unwrap().is_some();
+
     Ok(Shell {
-        server_url: state.settings.lock().unwrap().server_url.clone(),
+        server_url,
         machine_name: settings::machine_name(),
         signed_in: state.session.is_signed_in(),
         native: true,
         mode,
         agent_ready,
         version: env!("CARGO_PKG_VERSION"),
-        org_key_ready: state.org_key.lock().unwrap().is_some(),
-        last_email: state.settings.lock().unwrap().last_email.clone(),
+        org_key_ready,
+        last_email,
     })
 }
 
