@@ -27,7 +27,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<Profile | null | undefined>(undefined);
   const [query, setQuery] = useState("");
-  const [group, setGroup] = useState("");
+  const [tag, setTag] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [view, setView] = useState<View>("profiles");
   const [openOnly, setOpenOnly] = useState(false);
@@ -151,17 +151,16 @@ export function App() {
     }
   };
 
-  // Every group currently in use, so the filter and the editor both offer what
-  // exists without a table to keep in step.
-  const groups = Array.from(
-    new Set(profiles.map((p) => p.group_name).filter((g): g is string => !!g)),
-  ).sort();
+  // Tags in use. Groups were a second, weaker version of this — one label where
+  // a tag list allows several — and two ways to sort the same profiles is one
+  // too many. Projects are the unit that carries access, so nothing was lost.
+  const tags = Array.from(new Set(profiles.flatMap((p) => p.tags))).sort();
 
   const shown = matching(profiles, query)
     .filter(
       (p) =>
-        group === "" ||
-        (group === "\u0000none" ? !p.group_name : p.group_name === group),
+        tag === "" ||
+        (tag === "\u0000none" ? p.tags.length === 0 : p.tags.includes(tag)),
     )
     .filter((p) => !openOnly || p.running);
 
@@ -379,17 +378,13 @@ export function App() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
-            {groups.length > 0 && (
-              <select
-                style={{ width: "auto" }}
-                value={group}
-                onChange={(e) => setGroup(e.target.value)}
-              >
-                <option value="">{t("bar.allGroups")}</option>
-                <option value={"\u0000none"}>{t("bar.ungrouped")}</option>
-                {groups.map((g) => (
-                  <option key={g} value={g}>
-                    {g}
+            {tags.length > 0 && (
+              <select style={{ width: "auto" }} value={tag} onChange={(e) => setTag(e.target.value)}>
+                <option value="">{t("bar.allTags")}</option>
+                <option value={"\u0000none"}>{t("bar.untagged")}</option>
+                {tags.map((x) => (
+                  <option key={x} value={x}>
+                    {x}
                   </option>
                 ))}
               </select>
@@ -476,7 +471,7 @@ export function App() {
           />
         )}
 
-        {(view === "profiles" || view === "groups") && active && (
+        {view === "profiles" && active && (
           <div className="tableWrap">
             <ProfileTable
               profiles={shown}
@@ -548,7 +543,6 @@ export function App() {
           <ProfileDialog
             projectId={active.id}
             editing={editing}
-            groups={groups}
             onClose={() => setEditing(undefined)}
             onSaved={async () => {
               setEditing(undefined);

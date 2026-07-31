@@ -25,14 +25,11 @@ type Tab = (typeof TABS)[number];
 export function ProfileDialog({
   projectId,
   editing,
-  groups,
   onClose,
   onSaved,
 }: {
   projectId: string;
   editing: Profile | null;
-  /** Groups already in use, offered as suggestions. */
-  groups: string[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -64,7 +61,6 @@ export function ProfileDialog({
 
   const [name, setName] = useState(editing?.name ?? "");
   const [tags, setTags] = useState((editing?.tags ?? []).join(", "));
-  const [group, setGroup] = useState(editing?.group_name ?? "");
   const [personaId, setPersonaId] = useState(editing?.persona_id ?? "");
   const [proxyId, setProxyId] = useState(editing?.proxy?.id ?? "");
   const [timezone, setTimezone] = useState("Europe/Berlin");
@@ -130,7 +126,6 @@ export function ProfileDialog({
         name: name.trim() || "Untitled",
         notes,
         tags: splitList(tags),
-        group_name: group.trim() || null,
         persona_id: personaId,
         // Zero means "assign one": the seed is generated once, on creation, and
         // never moves afterwards. Changing it would give a warmed account a
@@ -203,27 +198,6 @@ export function ProfileDialog({
                       onChange={(e) => setTags(e.target.value)}
                     />
                     <p className="hint">{t("pd.tagsHint")}</p>
-                  </div>
-                </div>
-                <div className="field">
-                  <label htmlFor="p-group">{t("pd.group")}</label>
-                  <div>
-                    {/* A free-text input with suggestions rather than a select:
-                        a group has to be usable the moment it is typed, and a
-                        dropdown of existing ones would mean creating it first. */}
-                    <input
-                      id="p-group"
-                      value={group}
-                      list="fury-groups"
-                      placeholder={t("bar.ungrouped")}
-                      onChange={(e) => setGroup(e.target.value)}
-                    />
-                    <datalist id="fury-groups">
-                      {groups.map((g) => (
-                        <option key={g} value={g} />
-                      ))}
-                    </datalist>
-                    <p className="hint">{t("pd.groupHint")}</p>
                   </div>
                 </div>
                 <div className="field">

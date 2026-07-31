@@ -55,8 +55,6 @@ export interface Profile {
   persona_id: string;
   /** Zero in team mode — the server never exposes a seed. */
   fp_seed: number;
-  /** Local mode only; a team server has no group concept yet. */
-  group_name: string | null;
   proxy: ProxySummary | null;
   lock: LockInfo | null;
   permissions: Perm[];

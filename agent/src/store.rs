@@ -82,14 +82,6 @@ pub struct Profile {
     pub tags: Vec<String>,
     pub persona_id: String,
     pub fp_seed: i64,
-    /// A second level inside a project, flat and free-form.
-    ///
-    /// Not a table. A group here is a label an operator invents while working —
-    /// "warmed", "to check", "client A" — and giving it a row of its own would
-    /// mean creating one before it can be used, which is exactly the friction
-    /// that makes people stop using groups. Empty means ungrouped.
-    #[serde(default)]
-    pub group_name: Option<String>,
     pub proxy: Option<Proxy>,
     /// `None` means "follow the proxy's exit" once that resolution lands.
     pub timezone: Option<String>,
@@ -169,7 +161,6 @@ impl Store {
                 tags           TEXT NOT NULL DEFAULT '[]',
                 persona_id     TEXT NOT NULL,
                 fp_seed        INTEGER NOT NULL,
-                group_name     TEXT,
                 -- SET NULL rather than CASCADE: deleting a proxy must not delete
                 -- the profiles that used it. A warmed account is worth more than
                 -- the exit it happened to go out through.
@@ -197,10 +188,14 @@ impl Store {
         // Columns added after the first schema shipped. SQLite cannot express
         // "add if absent", and a failed ADD COLUMN on an existing column is the
         // expected case rather than an error worth surfacing.
+        //
+        // `group_name` was one of these and is gone. The column is deliberately
+        // *not* dropped from databases that already have it: removing a column
+        // in SQLite means rebuilding the table, and rebuilding a table that
+        // holds warmed accounts to reclaim a few unused bytes is a bad trade.
         for stmt in [
             "ALTER TABLE proxies ADD COLUMN rotate_url TEXT",
             "ALTER TABLE proxies ADD COLUMN checker_url TEXT",
-            "ALTER TABLE profiles ADD COLUMN group_name TEXT",
         ] {
             let _ = sqlx::query(stmt).execute(&self.pool).await;
         }
@@ -385,7 +380,7 @@ impl Store {
     pub async fn profiles(&self, project_id: &str) -> anyhow::Result<Vec<Profile>> {
         let rows = sqlx::query(
             "SELECT f.id, f.project_id, f.name, f.notes, f.tags, f.persona_id, f.fp_seed,
-                    f.group_name, f.timezone, f.languages, f.start_urls, f.last_opened_at,
+                    f.timezone, f.languages, f.start_urls, f.last_opened_at,
                     x.id AS px_id, x.name AS px_name, x.kind AS px_kind, x.host AS px_host,
                     x.port AS px_port, x.username AS px_user, x.password AS px_pass,
                     x.last_country AS px_country, x.last_ip AS px_ip
@@ -425,14 +420,13 @@ impl Store {
         let seed = if p.fp_seed == 0 { random_seed() } else { p.fp_seed };
         sqlx::query(
             "INSERT INTO profiles
-                (id, project_id, name, notes, tags, persona_id, fp_seed, group_name, proxy_id,
+                (id, project_id, name, notes, tags, persona_id, fp_seed, proxy_id,
                  timezone, languages, start_urls, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
                 project_id = excluded.project_id, name = excluded.name,
                 notes = excluded.notes, tags = excluded.tags,
-                persona_id = excluded.persona_id, group_name = excluded.group_name,
-                proxy_id = excluded.proxy_id,
+                persona_id = excluded.persona_id, proxy_id = excluded.proxy_id,
                 timezone = excluded.timezone, languages = excluded.languages,
                 start_urls = excluded.start_urls, deleted_at = NULL",
         )
@@ -443,7 +437,6 @@ impl Store {
         .bind(to_json_array(&p.tags))
         .bind(&p.persona_id)
         .bind(seed)
-        .bind(p.group_name.as_ref().filter(|g| !g.trim().is_empty()))
         .bind(p.proxy.as_ref().map(|x| x.id.clone()))
         .bind(&p.timezone)
         .bind(p.languages.as_ref().map(|l| to_json_array(l)))
@@ -480,7 +473,7 @@ impl Store {
     pub async fn deleted_profiles(&self) -> anyhow::Result<Vec<Profile>> {
         let rows = sqlx::query(
             "SELECT f.id, f.project_id, f.name, f.notes, f.tags, f.persona_id, f.fp_seed,
-                    f.group_name, f.timezone, f.languages, f.start_urls, f.deleted_at AS last_opened_at,
+                    f.timezone, f.languages, f.start_urls, f.deleted_at AS last_opened_at,
                     x.id AS px_id, x.name AS px_name, x.kind AS px_kind, x.host AS px_host,
                     x.port AS px_port, x.username AS px_user, x.password AS px_pass,
                     x.last_country AS px_country, x.last_ip AS px_ip
@@ -556,7 +549,6 @@ fn row_to_profile(r: sqlx::sqlite::SqliteRow) -> Profile {
         tags: from_json_array(r.get("tags")),
         persona_id: r.get("persona_id"),
         fp_seed: r.get("fp_seed"),
-        group_name: r.get("group_name"),
         timezone: r.get("timezone"),
         languages: r.get::<Option<String>, _>("languages").map(from_json_array),
         start_urls: from_json_array(r.get("start_urls")),
@@ -644,7 +636,6 @@ mod tests {
             tags: vec![],
             persona_id: "macos-15-m-series-1728x1117".into(),
             fp_seed: 0,
-            group_name: None,
             proxy: None,
             timezone: None,
             languages: None,
@@ -747,26 +738,6 @@ mod tests {
         assert!(s.profile(&id).await.unwrap().is_none());
         // Still recoverable — that is what the trash in docs/12 restores from.
         assert!(s.deleted_profile_exists(&id).await.unwrap());
-    }
-
-    #[tokio::test]
-    async fn a_group_is_just_a_label_and_survives_a_round_trip() {
-        // No table, no create-group step: the label is invented while working
-        // and has to be usable the moment it is typed.
-        let s = store().await;
-        let project = s.default_project().await.unwrap();
-        let mut p = blank(&project, "shop");
-        p.group_name = Some("warmed".into());
-        p.id = s.upsert_profile(&p).await.unwrap();
-        assert_eq!(
-            s.profile(&p.id).await.unwrap().unwrap().group_name.as_deref(),
-            Some("warmed")
-        );
-
-        // Blank is ungrouped, not a group called "".
-        p.group_name = Some("   ".into());
-        s.upsert_profile(&p).await.unwrap();
-        assert_eq!(s.profile(&p.id).await.unwrap().unwrap().group_name, None);
     }
 
     #[tokio::test]

@@ -296,7 +296,6 @@ mod tests {
             tags: vec!["de".into()],
             persona_id: "win11-rtx4060-1920x1080".into(),
             fp_seed: 0,
-            group_name: Some("warmed".into()),
             proxy: None,
             timezone: Some("Europe/Berlin".into()),
             languages: Some(vec!["de-DE".into()]),
@@ -368,7 +367,6 @@ mod tests {
         // The seed is the machine. A profile that comes back with a different
         // one is a different device, and the account would notice.
         assert_eq!(r.fp_seed, seed);
-        assert_eq!(r.group_name.as_deref(), Some("warmed"));
         assert_eq!(r.tags, vec!["de".to_string()]);
         // The proxy came with it, credentials included, under a new id.
         let px = r.proxy.as_ref().expect("proxy did not survive");

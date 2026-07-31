@@ -59,7 +59,6 @@ export function ProfileTable({
             />
           </th>
           <th>{t("col.name")}</th>
-          <th>{t("col.group")}</th>
           <th>{t("col.persona")}</th>
           <th>{t("col.proxy")}</th>
           <th>{t("col.status")}</th>
@@ -98,7 +97,6 @@ export function ProfileTable({
                   <div className="tags">{p.tags.map((t) => <span key={t}>{t}</span>)}</div>
                 )}
               </td>
-              <td className="muted">{p.group_name ?? "—"}</td>
               <td className="mono muted">{p.persona_id}</td>
               <td>
                 {p.proxy ? (

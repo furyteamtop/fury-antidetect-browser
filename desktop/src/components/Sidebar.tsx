@@ -2,7 +2,7 @@ import { useI18n } from "../i18n";
 import { useState } from "react";
 import type { Me, Project, Shell } from "../api";
 
-export type View = "profiles" | "groups" | "proxies" | "trash";
+export type View = "profiles" | "proxies" | "trash";
 
 export function Sidebar({
   projects,
@@ -51,7 +51,7 @@ export function Sidebar({
           <>
             {/* Sections first, projects under them: the sections are where an
                 operator goes, the projects are what they filter by. */}
-            {(["profiles", "groups", "proxies", "trash"] as const).map((v) => (
+            {(["profiles", "proxies", "trash"] as const).map((v) => (
               <button
                 key={v}
                 className={view === v ? "nav active" : "nav"}
