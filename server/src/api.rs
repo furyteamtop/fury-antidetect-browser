@@ -53,7 +53,11 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/v1/profiles/{profile_id}/restore", post(restore_profile))
         .route("/v1/profiles/{profile_id}/purge", axum::routing::delete(purge_profile))
         .route("/v1/proxies", get(list_proxies).post(create_proxy))
-        .route("/v1/proxies/{proxy_id}", axum::routing::delete(delete_proxy))
+        .route(
+            "/v1/proxies/{proxy_id}",
+            axum::routing::patch(edit_proxy).delete(delete_proxy),
+        )
+        .route("/v1/proxies/{proxy_id}/credentials", get(reveal_proxy))
         .route(
             "/v1/profiles/{profile_id}",
             axum::routing::patch(edit_profile).delete(delete_profile),
@@ -1183,6 +1187,151 @@ async fn create_profile(
 
     audit(&state, &caller, "profile.create", Some(id), json!({ "name": req.name })).await?;
     Ok(Json(json!({ "id": id })))
+}
+
+#[derive(Deserialize)]
+pub struct EditProxyRequest {
+    name: String,
+    kind: String,
+    host: String,
+    port: i32,
+    /// Present only when the credentials changed. Absent leaves the stored ones
+    /// alone, so renaming a proxy does not require the organisation key.
+    #[serde(default)]
+    credentials_enc: Option<String>,
+    #[serde(default)]
+    wrapped_dek: Option<String>,
+}
+
+/// Change a proxy.
+///
+/// The credentials are optional, and that is the useful part: renaming an exit
+/// or correcting its port is an everyday edit, and requiring the organisation
+/// key for it would mean a manager cannot fix a typo. Supplying them replaces
+/// both halves together — a `credentials_enc` under one data key with a
+/// `wrapped_dek` for another is a proxy that opens nowhere.
+async fn edit_proxy(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+    Path(proxy_id): Path<Uuid>,
+    Json(req): Json<EditProxyRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    use fury_shared::rbac::OrgRole;
+    if !matches!(caller.role, OrgRole::Owner | OrgRole::Admin) {
+        return Err(ApiError::Denied(Perm::EditProxy));
+    }
+    if !matches!(req.kind.as_str(), "http" | "https" | "socks5") {
+        return Err(ApiError::BadRequest("kind must be http, https or socks5".into()));
+    }
+    if !(1..=65535).contains(&req.port) || req.host.trim().is_empty() {
+        return Err(ApiError::BadRequest("a proxy needs a host and a port".into()));
+    }
+
+    let credentials = match (&req.credentials_enc, &req.wrapped_dek) {
+        (Some(c), Some(d)) => {
+            let c = unhex("credentials_enc", c)?;
+            let d = unhex("wrapped_dek", d)?;
+            if c.len() < 40 || d.len() < 40 {
+                return Err(ApiError::BadRequest(
+                    "credentials_enc and wrapped_dek must be sealed values".into(),
+                ));
+            }
+            Some((c, d))
+        }
+        (None, None) => None,
+        _ => {
+            return Err(ApiError::BadRequest(
+                "credentials_enc and wrapped_dek travel together or not at all".into(),
+            ))
+        }
+    };
+
+    let updated = match credentials {
+        Some((c, d)) => {
+            sqlx::query(
+                "UPDATE proxies SET name = $1, kind = $2::proxy_kind, host = $3, port = $4, \
+                        credentials_enc = $5, wrapped_dek = $6 \
+                 WHERE id = $7 AND org_id = $8 AND deleted_at IS NULL",
+            )
+            .bind(req.name.trim())
+            .bind(&req.kind)
+            .bind(req.host.trim())
+            .bind(req.port)
+            .bind(&c)
+            .bind(&d)
+            .bind(proxy_id)
+            .bind(caller.org_id)
+            .execute(&state.db)
+            .await?
+        }
+        None => {
+            sqlx::query(
+                "UPDATE proxies SET name = $1, kind = $2::proxy_kind, host = $3, port = $4 \
+                 WHERE id = $5 AND org_id = $6 AND deleted_at IS NULL",
+            )
+            .bind(req.name.trim())
+            .bind(&req.kind)
+            .bind(req.host.trim())
+            .bind(req.port)
+            .bind(proxy_id)
+            .bind(caller.org_id)
+            .execute(&state.db)
+            .await?
+        }
+    };
+    if updated.rows_affected() == 0 {
+        return Err(ApiError::NotFound);
+    }
+
+    audit(&state, &caller, "proxy.edit", Some(proxy_id),
+          json!({ "credentials_changed": req.credentials_enc.is_some() })).await?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// Hand over one proxy's sealed credentials.
+///
+/// Everywhere else, ciphertext is released only as part of taking a lock, so
+/// that every handout is already recorded as a launch. Checking a proxy is the
+/// exception that has to exist — an operator must be able to ask "does this
+/// exit still work" without opening a profile — so it is its own permission and
+/// its own audit line rather than a quiet reuse of something else.
+///
+/// Still ciphertext. The server has never held the plaintext and does not here.
+async fn reveal_proxy(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+    Path(proxy_id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    if !caller.implicit_permissions().has(Perm::RevealSecrets) {
+        return Err(ApiError::Denied(Perm::RevealSecrets));
+    }
+
+    let row: Option<(String, String, i32, Option<Vec<u8>>, Option<Vec<u8>>)> = sqlx::query_as(
+        "SELECT kind::text, host, port, credentials_enc, wrapped_dek \
+         FROM proxies WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL",
+    )
+    .bind(proxy_id)
+    .bind(caller.org_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    let (kind, host, port, credentials_enc, wrapped_dek) = row.ok_or(ApiError::NotFound)?;
+    let (Some(credentials_enc), Some(wrapped_dek)) = (credentials_enc, wrapped_dek) else {
+        return Err(ApiError::BadRequest(
+            "this proxy has no stored credentials".into(),
+        ));
+    };
+
+    audit(&state, &caller, "proxy.reveal", Some(proxy_id), json!({})).await?;
+
+    let hex = |v: &[u8]| v.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    Ok(Json(json!({
+        "kind": kind,
+        "host": host,
+        "port": port,
+        "credentials_enc": hex(&credentials_enc),
+        "wrapped_dek": hex(&wrapped_dek),
+    })))
 }
 
 /// Retire a proxy.

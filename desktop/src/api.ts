@@ -462,10 +462,10 @@ export const api = {
   saveProxy: (proxy: Partial<LocalProxy>): Promise<{ id: string }> =>
     cmd<{ id: string }>("save_proxy", { proxy }),
   deleteProxy: (id: string): Promise<unknown> => cmd("delete_proxy", { id }),
-  checkProxy: (url: string, checkerUrl?: string | null): Promise<{
+  checkProxy: (url: string, checkerUrl?: string | null, proxyId?: string | null): Promise<{
     ok: boolean; error?: string; ip?: string; country?: string;
     city?: string; timezone?: string; org?: string; ms?: number;
-  }> => cmd("check_proxy", { url, checkerUrl: checkerUrl || null }),
+  }> => cmd("check_proxy", { url, checkerUrl: checkerUrl || null, proxyId: proxyId || null }),
   rotateProxy: (id: string): Promise<{ ok: boolean; error?: string }> =>
     cmd("rotate_proxy", { id }),
   saveProfile: (profile: unknown): Promise<{ id: string }> =>

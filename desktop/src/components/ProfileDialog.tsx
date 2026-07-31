@@ -308,6 +308,8 @@ export function ProfileDialog({
                               setBusy(true);
                               setPxCheck(null);
                               try {
+                                // The inline fields, which carry a typed password — so the URL is
+                                // complete and there is no stored proxy to open.
                                 setPxCheck(await api.checkProxy(pxUrl(), pxChecker));
                               } finally {
                                 setBusy(false);

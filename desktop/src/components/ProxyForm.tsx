@@ -74,7 +74,7 @@ export function ProxyForm({
                     setBusy(true);
                     setCheck(null);
                     try {
-                      setCheck(await api.checkProxy(url(), checker));
+                      setCheck(await api.checkProxy(url(), checker, editing?.id ?? null));
                     } finally {
                       setBusy(false);
                     }

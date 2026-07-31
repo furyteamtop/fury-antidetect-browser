@@ -1213,15 +1213,7 @@ pub async fn save_proxy(
         return Ok(crate::agent::call("proxies.upsert", proxy).await?);
     }
 
-    // Editing a stored proxy needs a PATCH the server does not have yet, and
-    // silently creating a second one instead would leave the team with two
-    // exits where they asked for one.
-    if proxy.get("id").and_then(|v| v.as_str()).is_some_and(|v| !v.is_empty()) {
-        return Err(ApiErr::coded("err.proxyEditNotBuilt", 
-            "Changing a proxy on a team server is not built yet — add a new one and move the \
-             profiles across.",
-        ));
-    }
+    let id = proxy.get("id").and_then(|v| v.as_str()).unwrap_or_default().to_string();
 
     let org_key = state.org_key.lock().unwrap().ok_or_else(|| {
         ApiErr::coded("err.noOrgKeySeal", 
@@ -1235,37 +1227,96 @@ pub async fn save_proxy(
         username: field("username").filter(|v| !v.is_empty()),
         password: field("password").filter(|v| !v.is_empty()),
     };
-    let (credentials_enc, wrapped_dek) = crypto::seal_proxy_credentials(&org_key, &credentials)
-        .map_err(|e| ApiErr::local(format!("Could not seal the credentials: {e}")))?;
-
     let hex = |v: &[u8]| v.iter().map(|b| format!("{b:02x}")).collect::<String>();
-    state
-        .call(
-            reqwest::Method::POST,
-            "/v1/proxies",
-            Body::Json(serde_json::json!({
-                "name": field("name").unwrap_or_default(),
-                "kind": field("kind").unwrap_or_else(|| "socks5".into()),
-                "host": field("host").unwrap_or_default(),
-                "port": proxy.get("port").and_then(|v| v.as_i64()).unwrap_or(0),
-                "project_id": serde_json::Value::Null,
-                "credentials_enc": hex(&credentials_enc),
-                "wrapped_dek": hex(&wrapped_dek),
-            })),
-            true,
-        )
-        .await
+    let mut body = serde_json::json!({
+        "name": field("name").unwrap_or_default(),
+        "kind": field("kind").unwrap_or_else(|| "socks5".into()),
+        "host": field("host").unwrap_or_default(),
+        "port": proxy.get("port").and_then(|v| v.as_i64()).unwrap_or(0),
+    });
+
+    // Editing without touching the credentials is the ordinary case — a
+    // renamed exit, a corrected port — and the form cannot show a password it
+    // never received. An empty password on an edit therefore means "leave it",
+    // not "clear it", which is the only reading that does not silently break a
+    // working proxy.
+    let touching_credentials = id.is_empty()
+        || credentials.username.is_some()
+        || credentials.password.is_some();
+    if touching_credentials {
+        let (credentials_enc, wrapped_dek) = crypto::seal_proxy_credentials(&org_key, &credentials)
+            .map_err(|e| ApiErr::local(format!("Could not seal the credentials: {e}")))?;
+        body["credentials_enc"] = serde_json::json!(hex(&credentials_enc));
+        body["wrapped_dek"] = serde_json::json!(hex(&wrapped_dek));
+    }
+
+    if id.is_empty() {
+        body["project_id"] = serde_json::Value::Null;
+        state.call(reqwest::Method::POST, "/v1/proxies", Body::Json(body), true).await
+    } else {
+        state
+            .call(reqwest::Method::PATCH, &format!("/v1/proxies/{id}"), Body::Json(body), true)
+            .await
+    }
 }
 
 #[tauri::command]
-pub async fn check_proxy(state: State<'_, AppState>, url: String, checker_url: Option<String>) -> R<serde_json::Value> {
-    if mode_of(&state) != "local" {
-        return Err(ApiErr::coded(
-            "err.proxyCheckNotBuilt",
-            "Checking a proxy on a team server is not built yet — its credentials are sealed, and \
-             the check would run without them.",
-        ));
-    }
+pub async fn check_proxy(
+    state: State<'_, AppState>,
+    url: String,
+    checker_url: Option<String>,
+    // proxy_id is set when checking a proxy already stored on a server: the
+    // interface has no password to build a URL from, so the credentials are
+    // fetched and opened here instead.
+    proxy_id: Option<String>,
+) -> R<serde_json::Value> {
+    let url = match proxy_id.filter(|_| mode_of(&state) != "local") {
+        None => url,
+        Some(id) => {
+            let org_key = state.org_key.lock().unwrap().ok_or_else(|| {
+                ApiErr::coded(
+                    "err.noOrgKeySeal",
+                    "This machine does not hold the organisation key, so it cannot open this \
+                     proxy's credentials to check it.",
+                )
+            })?;
+
+            let sealed: serde_json::Value = state
+                .call(
+                    reqwest::Method::GET,
+                    &format!("/v1/proxies/{id}/credentials"),
+                    Body::None,
+                    true,
+                )
+                .await?;
+
+            let hex = |k: &str| -> R<Vec<u8>> {
+                let v = sealed.get(k).and_then(|v| v.as_str()).unwrap_or_default();
+                (0..v.len())
+                    .step_by(2)
+                    .map(|i| {
+                        u8::from_str_radix(v.get(i..i + 2).unwrap_or(""), 16)
+                            .map_err(|_| ApiErr::local(format!("{k} is not hex")))
+                    })
+                    .collect()
+            };
+            let creds =
+                crypto::open_proxy_credentials(&org_key, &hex("credentials_enc")?, &hex("wrapped_dek")?)
+                    .map_err(|e| {
+                        ApiErr::local(format!("Could not open this proxy's credentials: {e}"))
+                    })?;
+
+            let s = |k: &str| sealed.get(k).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            let port = sealed.get("port").and_then(|v| v.as_i64()).unwrap_or(0);
+            match (creds.username, creds.password) {
+                (Some(u), Some(pw)) => format!("{}://{u}:{pw}@{}:{port}", s("kind"), s("host")),
+                _ => format!("{}://{}:{port}", s("kind"), s("host")),
+            }
+        }
+    };
+
+    // The check itself always runs on this machine, in both modes: it is the
+    // machine whose exit the answer describes.
     Ok(crate::agent::call(
         "proxies.check",
         serde_json::json!({ "url": url, "checker_url": checker_url }),
