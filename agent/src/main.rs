@@ -14,6 +14,7 @@ mod personas;
 mod relay;
 mod store;
 mod transfer;
+mod vault;
 
 use std::time::Duration;
 

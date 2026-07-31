@@ -20,6 +20,11 @@ use sqlx::{Row, SqlitePool};
 #[derive(Clone)]
 pub struct Store {
     pool: SqlitePool,
+    /// Seals the two columns that are secrets: a proxy password, and a rotation
+    /// link that usually embeds an API key. Shared rather than owned, because
+    /// the key is per machine and a second one would seal values the first
+    /// could not open.
+    vault: std::sync::Arc<crate::vault::Vault>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,7 +125,10 @@ impl Store {
             let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
         }
 
-        let store = Self { pool };
+        let store = Self {
+            pool,
+            vault: std::sync::Arc::new(crate::vault::Vault::open()),
+        };
         store.migrate().await?;
         Ok(store)
     }
@@ -285,7 +293,7 @@ impl Store {
         )
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows.iter().map(row_to_proxy).collect())
+        Ok(rows.iter().map(|r| self.open_proxy(row_to_proxy(r))).collect())
     }
 
     pub async fn upsert_proxy(&self, p: &Proxy) -> anyhow::Result<String> {
@@ -306,13 +314,28 @@ impl Store {
         .bind(&p.host)
         .bind(p.port as i64)
         .bind(&p.username)
-        .bind(&p.password)
-        .bind(&p.rotate_url)
+        // Sealed on the way in. A value already stored as plaintext by an older
+        // build is rewritten sealed the first time its proxy is saved — which is
+        // why there is no migration step to fail on someone's laptop.
+        .bind(p.password.as_deref().map(|v| self.vault.seal(v)))
+        .bind(p.rotate_url.as_deref().map(|v| self.vault.seal(v)))
         .bind(&p.checker_url)
         .bind(now())
         .execute(&self.pool)
         .await?;
         Ok(id)
+    }
+
+    /// Unseal the two secret columns.
+    fn open_proxy(&self, mut p: Proxy) -> Proxy {
+        p.password = p.password.map(|v| self.vault.open_value(&v));
+        p.rotate_url = p.rotate_url.map(|v| self.vault.open_value(&v));
+        p
+    }
+
+    /// Whether secrets are actually being sealed, for the interface to report.
+    pub fn vault_available(&self) -> bool {
+        self.vault.available()
     }
 
     pub async fn delete_proxy(&self, id: &str) -> anyhow::Result<()> {
@@ -500,7 +523,10 @@ fn row_to_profile(r: sqlx::sqlite::SqliteRow) -> Profile {
             host: r.get("px_host"),
             port: r.get::<i64, _>("px_port") as u16,
             username: r.get("px_user"),
-            password: r.get("px_pass"),
+            // Left sealed here on purpose: the profile list renders a host and
+            // a country, never a password, and a secret that is not decrypted
+            // is a secret that cannot leak through a list view.
+            password: None,
             last_country: r.get("px_country"),
             last_ip: r.get("px_ip"),
             // Not selected in the profile join: a rotation link usually embeds
