@@ -94,6 +94,7 @@ fn main() {
             commands::preview,
             commands::proxies,
             commands::save_proxy,
+            commands::check_proxy,
             commands::delete_proxy,
             commands::save_profile,
             commands::delete_profile,

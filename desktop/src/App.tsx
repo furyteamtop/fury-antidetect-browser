@@ -3,6 +3,7 @@ import { api, ApiError, type Me, type Profile, type Project, type Shell } from "
 import { Login } from "./components/Login";
 import { ProfileDialog } from "./components/ProfileDialog";
 import { ProfileTable } from "./components/ProfileTable";
+import { ProxyDialog } from "./components/ProxyDialog";
 import { ServerSetup } from "./components/ServerSetup";
 import { Settings } from "./components/Settings";
 import { Sidebar } from "./components/Sidebar";
@@ -23,6 +24,7 @@ export function App() {
   const [editing, setEditing] = useState<Profile | null | undefined>(undefined);
   const [query, setQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [proxyOpen, setProxyOpen] = useState(false);
   // Applied at the root before anything renders, so the first paint is already
   // the right theme rather than a flash of the wrong one.
   useTheme();
@@ -190,6 +192,9 @@ export function App() {
               onChange={(e) => setQuery(e.target.value)}
             />
             <div className="spacer" />
+            <button className="ghost" onClick={() => setProxyOpen(true)}>
+              Add proxy
+            </button>
             <button className="ghost" onClick={() => void refreshProfiles()}>
               Refresh
             </button>
@@ -221,6 +226,14 @@ export function App() {
               }
             />
           </div>
+        )}
+
+        {proxyOpen && (
+          <ProxyDialog
+            editing={null}
+            onClose={() => setProxyOpen(false)}
+            onSaved={() => setProxyOpen(false)}
+          />
         )}
 
         {settingsOpen && (

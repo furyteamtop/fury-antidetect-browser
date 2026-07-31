@@ -186,6 +186,59 @@ impl Agent {
                 let proxy: Proxy = serde_json::from_value(params)?;
                 Ok(json!({ "id": self.store.upsert_proxy(&proxy).await? }))
             }
+            // Does this exit actually work, and where does it come out?
+            //
+            // The one place the agent talks to a third party, and only when
+            // someone presses the button. It has to: the exit IP is by
+            // definition something only the far end can report. The service is
+            // configurable for exactly that reason — an operator who does not
+            // want to tell ipinfo.io that this proxy exists can point
+            // FURY_IP_CHECK at their own.
+            "proxies.check" => {
+                let url = str_param(&params, "url")?;
+                let upstream = crate::parse_upstream(&url)?;
+                // Parsed first so a malformed proxy string fails here rather
+                // than as an opaque transport error thirty seconds later.
+                tracing::info!(?upstream, "checking proxy");
+
+                let endpoint = std::env::var("FURY_IP_CHECK")
+                    .unwrap_or_else(|_| "https://ipinfo.io/json".to_string());
+
+                let client = reqwest::Client::builder()
+                    .proxy(reqwest::Proxy::all(&url)?)
+                    // Short: a proxy that takes longer than this to answer is
+                    // not one anybody wants to browse through.
+                    .timeout(std::time::Duration::from_secs(15))
+                    .build()?;
+
+                let started = std::time::Instant::now();
+                let body: serde_json::Value = match client.get(&endpoint).send().await {
+                    Ok(res) => res.json().await.unwrap_or(serde_json::Value::Null),
+                    Err(e) => {
+                        return Ok(json!({
+                            "ok": false,
+                            "error": if e.is_timeout() {
+                                "The proxy did not answer in time.".to_string()
+                            } else if e.is_connect() {
+                                "Could not connect to the proxy.".to_string()
+                            } else {
+                                format!("The check failed: {e}")
+                            },
+                        }))
+                    }
+                };
+
+                Ok(json!({
+                    "ok": true,
+                    "ip": body.get("ip"),
+                    "country": body.get("country"),
+                    "city": body.get("city"),
+                    "timezone": body.get("timezone"),
+                    "org": body.get("org"),
+                    "ms": started.elapsed().as_millis() as u64,
+                }))
+            }
+
             "proxies.delete" => {
                 self.store.delete_proxy(&str_param(&params, "id")?).await?;
                 Ok(json!({}))

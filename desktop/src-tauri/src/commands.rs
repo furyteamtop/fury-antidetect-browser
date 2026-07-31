@@ -636,6 +636,11 @@ pub async fn save_proxy(proxy: serde_json::Value) -> R<serde_json::Value> {
 }
 
 #[tauri::command]
+pub async fn check_proxy(url: String) -> R<serde_json::Value> {
+    Ok(crate::agent::call("proxies.check", serde_json::json!({ "url": url })).await?)
+}
+
+#[tauri::command]
 pub async fn delete_proxy(id: String) -> R<serde_json::Value> {
     Ok(crate::agent::call("proxies.delete", serde_json::json!({ "id": id })).await?)
 }

@@ -336,6 +336,10 @@ export const api = {
   saveProxy: (proxy: Partial<LocalProxy>): Promise<{ id: string }> =>
     cmd<{ id: string }>("save_proxy", { proxy }),
   deleteProxy: (id: string): Promise<unknown> => cmd("delete_proxy", { id }),
+  checkProxy: (url: string): Promise<{
+    ok: boolean; error?: string; ip?: string; country?: string;
+    city?: string; timezone?: string; org?: string; ms?: number;
+  }> => cmd("check_proxy", { url }),
   saveProfile: (profile: unknown): Promise<{ id: string }> =>
     cmd<{ id: string }>("save_profile", { profile }),
   deleteProfile: (id: string): Promise<unknown> => cmd("delete_profile", { id }),

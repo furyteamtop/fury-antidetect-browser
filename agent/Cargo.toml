@@ -21,6 +21,17 @@ time.workspace = true
 # link the native sqlite3 library, and cargo allows only one package in a graph
 # to do that. Sharing sqlx also means the local schema and the server schema are
 # written against the same tooling.
+# Only for checking that a proxy works: one request through the operator's own
+# upstream to a geo service. `socks` because a SOCKS5 exit is the common case
+# and reqwest does not speak it by default.
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls-native-roots",
+    "charset",
+    "http2",
+    "socks",
+] }
+
 sqlx = { version = "0.8", default-features = false, features = [
     "runtime-tokio",
     "tls-rustls-ring",
