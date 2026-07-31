@@ -62,6 +62,7 @@ pub struct LocalProfile {
     pub name: String,
     pub tags: Vec<String>,
     pub persona_id: String,
+    pub fp_seed: i64,
     pub proxy: Option<LocalProxy>,
     pub running: bool,
     pub last_opened_at: Option<String>,

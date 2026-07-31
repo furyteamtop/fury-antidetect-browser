@@ -14,6 +14,8 @@ export function ProfileTable({
   busy,
   onLaunch,
   onStop,
+  onEdit,
+  onDelete,
 }: {
   profiles: Profile[];
   me: Me | null;
@@ -22,6 +24,10 @@ export function ProfileTable({
   busy: boolean;
   onLaunch: (p: Profile, force?: boolean) => void;
   onStop: (p: Profile) => void;
+  /** Local mode only: with a server, editing belongs where the permissions
+   *  live, and that screen does not exist yet. */
+  onEdit?: (p: Profile) => void;
+  onDelete?: (p: Profile) => void;
 }) {
   if (profiles.length === 0) {
     return <p className="empty pad">No profiles in this project yet.</p>;
@@ -82,13 +88,13 @@ export function ProfileTable({
                 )}
               </td>
               <td>
-                {open && <span className="mineLock">Open</span>}
+                {open && <span className="state mineLock">Open</span>}
                 {!open && locked && (
-                  <span className="lock">
+                  <span className="state lock">
                     In use — {p.lock!.user_email} on {p.lock!.machine_name}
                   </span>
                 )}
-                {!open && !locked && <span className="free">Idle</span>}
+                {!open && !locked && <span className="state free">Idle</span>}
               </td>
               <td className="muted small">
                 {/* docs/12: the metric that matters to someone running accounts
@@ -114,6 +120,16 @@ export function ProfileTable({
                 )}
                 {!open && locked && !canForce && (
                   <span className="muted small">Ask them to close it</span>
+                )}
+                {onEdit && (
+                  <button className="ghost" disabled={busy} onClick={() => onEdit(p)}>
+                    Edit
+                  </button>
+                )}
+                {onDelete && (
+                  <button className="ghost" disabled={busy || open} onClick={() => onDelete(p)}>
+                    Delete
+                  </button>
                 )}
               </td>
             </tr>

@@ -91,6 +91,7 @@ fn main() {
             commands::launch,
             commands::stop,
             commands::personas,
+            commands::preview,
             commands::proxies,
             commands::save_proxy,
             commands::delete_proxy,

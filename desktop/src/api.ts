@@ -53,6 +53,8 @@ export interface Profile {
   name: string;
   tags: string[];
   persona_id: string;
+  /** Zero in team mode — the server never exposes a seed. */
+  fp_seed: number;
   proxy: ProxySummary | null;
   lock: LockInfo | null;
   permissions: Perm[];
@@ -69,6 +71,24 @@ export interface Persona {
   screen: string;
   weight: number;
   source: string | null;
+}
+
+export interface Preview {
+  user_agent: string;
+  platform: string;
+  languages: string[];
+  timezone: string;
+  hardware_concurrency: number;
+  device_memory: number;
+  screen: string;
+  gpu_vendor: string;
+  gpu_renderer: string;
+  client_hints_platform: string;
+  fonts: number;
+  noise: { canvas: boolean; audio: boolean; client_rects: boolean };
+  /** Contradictions that make this device impossible. Non-empty blocks saving:
+   *  an inconsistent profile stands out more than an un-spoofed one. */
+  problems: string[];
 }
 
 export interface LocalProxy {
@@ -306,6 +326,12 @@ export const api = {
   // permissions live, and that screen does not exist yet.
   disconnectServer: (): Promise<Shell> => cmd<Shell>("disconnect_server"),
   personas: (): Promise<Persona[]> => cmd<Persona[]>("personas"),
+  preview: (spec: {
+    persona_id: string;
+    fp_seed: number;
+    timezone: string;
+    languages: string[];
+  }): Promise<Preview> => cmd<Preview>("preview", { spec }),
   proxies: (): Promise<LocalProxy[]> => cmd<LocalProxy[]>("proxies"),
   saveProxy: (proxy: Partial<LocalProxy>): Promise<{ id: string }> =>
     cmd<{ id: string }>("save_proxy", { proxy }),

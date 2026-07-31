@@ -217,6 +217,80 @@ impl Agent {
                 Ok(json!({}))
             }
 
+            // What a profile will claim to be, before it exists.
+            //
+            // The competition builds a fingerprint from independent dropdowns —
+            // pick a user agent here, a GPU renderer there — which lets anyone
+            // assemble a machine that cannot exist: a macOS user agent with an
+            // NVIDIA renderer, a 15px Windows scrollbar on a Mac. Those are not
+            // weaker disguises, they are *signals*: no real device looks like
+            // that, so the combination itself is the tell. Deriving from a
+            // measured persona and showing the result before saving is the
+            // difference between choosing a device and inventing one.
+            "profile.preview" => {
+                let persona = crate::personas::load(&str_param(&params, "persona_id")?)?;
+                let seed = params.get("fp_seed").and_then(|v| v.as_i64()).unwrap_or(1);
+                let ctx = fury_shared::persona::ProfileContext {
+                    timezone: params
+                        .get("timezone")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("UTC")
+                        .to_string(),
+                    languages: params
+                        .get("languages")
+                        .and_then(|v| v.as_array())
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|v| v.as_str().map(str::to_string))
+                                .collect()
+                        })
+                        .unwrap_or_else(|| vec!["en-US".into(), "en".into()]),
+                    chrome_major: crate::CHROME_MAJOR,
+                    chrome_full_version: crate::CHROME_FULL_VERSION.to_string(),
+                };
+
+                let problems: Vec<String> = persona
+                    .validate()
+                    .err()
+                    .map(|errs| errs.iter().map(|e| e.to_string()).collect())
+                    .unwrap_or_default();
+
+                let cfg = persona.derive_core_config(seed.max(1) as u64, &ctx);
+                let get = |path: &str| -> serde_json::Value {
+                    path.split('.')
+                        .try_fold(&cfg, |n, part| n.get(part))
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null)
+                };
+
+                Ok(json!({
+                    "user_agent": get("navigator.userAgent"),
+                    "platform": get("navigator.platform"),
+                    "languages": get("navigator.languages"),
+                    "timezone": get("locale.timezone"),
+                    "hardware_concurrency": get("navigator.hardwareConcurrency"),
+                    "device_memory": get("navigator.deviceMemory"),
+                    "screen": format!(
+                        "{}×{}",
+                        get("screen.width").as_i64().unwrap_or(0),
+                        get("screen.height").as_i64().unwrap_or(0)
+                    ),
+                    "gpu_vendor": get("gpu.webglParams.UNMASKED_VENDOR_WEBGL"),
+                    "gpu_renderer": get("gpu.webglParams.UNMASKED_RENDERER_WEBGL"),
+                    "client_hints_platform": get("clientHints.platform"),
+                    "fonts": get("fonts").as_array().map(|a| a.len()).unwrap_or(0),
+                    // Named individually rather than as one "noise: on": these
+                    // are independent streams, and a profile with canvas noise
+                    // off is a materially different thing from one with it on.
+                    "noise": {
+                        "canvas": !get("noise.canvasSeed").is_null(),
+                        "audio": !get("noise.audioSeed").is_null(),
+                        "client_rects": !get("noise.clientRectsSeed").is_null(),
+                    },
+                    "problems": problems,
+                }))
+            }
+
             "profile.launch" => self.launch(&str_param(&params, "id")?).await,
             "profile.stop" => self.stop(&str_param(&params, "id")?).await,
 

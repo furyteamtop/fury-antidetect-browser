@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, type Me, type Profile, type Project, type Shell } from "./api";
 import { Login } from "./components/Login";
+import { ProfileDialog } from "./components/ProfileDialog";
 import { ProfileTable } from "./components/ProfileTable";
 import { ServerSetup } from "./components/ServerSetup";
 import { Sidebar } from "./components/Sidebar";
@@ -17,6 +18,8 @@ export function App() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState<Profile | null | undefined>(undefined);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     void api.shell().then(setShell);
@@ -168,21 +171,76 @@ export function App() {
           </div>
         )}
 
+        {active && local && (
+          <div className="toolbar">
+            <button className="primary" onClick={() => setEditing(null)}>
+              New profile
+            </button>
+            <input
+              className="search"
+              placeholder="Search by name, tag or proxy"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            <div className="spacer" />
+            <button className="ghost" onClick={() => void refreshProfiles()}>
+              Refresh
+            </button>
+          </div>
+        )}
+
         {/* No project selected is not the same as a project with no profiles,
             and saying the latter to someone who has been granted nothing sends
             them looking for a profile list that was never theirs. */}
         {active && (
-          <ProfileTable
-            profiles={profiles}
-            me={me}
-            thisMachine={shell.machine_name}
-            local={local}
-            busy={busy}
-            onLaunch={onLaunch}
-            onStop={onStop}
+          <div className="tableWrap">
+            <ProfileTable
+              profiles={matching(profiles, query)}
+              me={me}
+              thisMachine={shell.machine_name}
+              local={local}
+              busy={busy}
+              onLaunch={onLaunch}
+              onStop={onStop}
+              onEdit={local ? setEditing : undefined}
+              onDelete={
+                local
+                  ? async (p) => {
+                      if (!confirm(`Delete "${p.name}"? It goes to the trash, not away.`)) return;
+                      await api.deleteProfile(p.id);
+                      await refreshProfiles();
+                    }
+                  : undefined
+              }
+            />
+          </div>
+        )}
+
+        {editing !== undefined && active && (
+          <ProfileDialog
+            projectId={active.id}
+            editing={editing}
+            onClose={() => setEditing(undefined)}
+            onSaved={async () => {
+              setEditing(undefined);
+              await load();
+              await refreshProfiles();
+            }}
           />
         )}
       </main>
     </div>
+  );
+}
+
+/** Search across the three things someone actually looks a profile up by. */
+function matching(profiles: Profile[], query: string): Profile[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return profiles;
+  return profiles.filter((p) =>
+    [p.name, p.persona_id, p.proxy?.display ?? "", ...p.tags]
+      .join(" ")
+      .toLowerCase()
+      .includes(q),
   );
 }

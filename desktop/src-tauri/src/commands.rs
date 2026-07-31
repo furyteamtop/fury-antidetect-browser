@@ -397,6 +397,9 @@ pub struct UiProfile {
     pub name: String,
     pub tags: Vec<String>,
     pub persona_id: String,
+    /// Zero in team mode: the server never exposes a seed, and nothing in the
+    /// interface may invent one.
+    pub fp_seed: i64,
     pub proxy: Option<UiProxy>,
     pub permissions: Vec<String>,
     pub lock: Option<serde_json::Value>,
@@ -474,6 +477,7 @@ pub async fn profiles(state: State<'_, AppState>, project_id: String) -> R<Vec<U
                 name: p.name,
                 tags: p.tags,
                 persona_id: p.persona_id,
+                fp_seed: p.fp_seed,
             })
             .collect());
     }
@@ -494,6 +498,7 @@ pub async fn profiles(state: State<'_, AppState>, project_id: String) -> R<Vec<U
             name: p.name,
             tags: p.tags,
             persona_id: p.persona_id,
+            fp_seed: 0,
             proxy: p.proxy.map(|x| UiProxy {
                 id: x.id.to_string(),
                 name: x.name,
@@ -611,6 +616,13 @@ pub async fn stop(state: State<'_, AppState>, profile_id: String) -> R<serde_jso
 #[tauri::command]
 pub async fn personas() -> R<serde_json::Value> {
     Ok(crate::agent::call("personas.list", serde_json::json!({})).await?)
+}
+
+/// What a profile will claim, before it exists. See the agent for why this is
+/// shown rather than left to be discovered after the fact.
+#[tauri::command]
+pub async fn preview(spec: serde_json::Value) -> R<serde_json::Value> {
+    Ok(crate::agent::call("profile.preview", spec).await?)
 }
 
 #[tauri::command]
