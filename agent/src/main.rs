@@ -13,6 +13,7 @@ mod paths;
 mod personas;
 mod relay;
 mod store;
+mod transfer;
 
 use std::time::Duration;
 

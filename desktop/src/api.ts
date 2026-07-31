@@ -351,6 +351,12 @@ export const api = {
   saveProfile: (profile: unknown): Promise<{ id: string }> =>
     cmd<{ id: string }>("save_profile", { profile }),
   deleteProfile: (id: string): Promise<unknown> => cmd("delete_profile", { id }),
+  exportProject: (id: string, path: string, passphrase: string, withData = true):
+    Promise<{ path: string; bytes: number }> =>
+    cmd("export_project", { id, path, passphrase, withData }),
+  importProject: (path: string, passphrase: string):
+    Promise<{ project_id: string; profiles: number }> =>
+    cmd("import_project", { path, passphrase }),
   trash: (): Promise<Profile[]> => cmd<Profile[]>("trash"),
   restoreProfile: (id: string): Promise<unknown> => cmd("restore_profile", { id }),
   purgeProfile: (id: string): Promise<unknown> => cmd("purge_profile", { id }),

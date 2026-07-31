@@ -385,6 +385,47 @@ impl Agent {
                 }))
             }
 
+            "projects.export" => {
+                let id = str_param(&params, "id")?;
+                let dest = std::path::PathBuf::from(str_param(&params, "path")?);
+                let passphrase = str_param(&params, "passphrase")?;
+                let with_data = params
+                    .get("with_data")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+
+                // Nothing may be open: a browser writes its cookie jar on its
+                // own schedule, so exporting a running profile copies a
+                // half-written database that restores as a logged-out account.
+                {
+                    let running = self.running.lock().await;
+                    let live = self.store.profiles(&id).await?;
+                    if live.iter().any(|p| running.contains_key(&p.id)) {
+                        anyhow::bail!(
+                            "close the profiles in this project first — a browser writes its \
+                             cookies on its own schedule, and copying them while it runs \
+                             produces a profile that restores logged out"
+                        );
+                    }
+                }
+
+                let bytes = crate::transfer::export_project(
+                    &self.store, &id, &dest, &passphrase, with_data, paths::profile_dir,
+                )
+                .await?;
+                Ok(json!({ "path": dest.display().to_string(), "bytes": bytes }))
+            }
+
+            "projects.import" => {
+                let src = std::path::PathBuf::from(str_param(&params, "path")?);
+                let passphrase = str_param(&params, "passphrase")?;
+                let (project_id, count) = crate::transfer::import_project(
+                    &self.store, &src, &passphrase, paths::profile_dir,
+                )
+                .await?;
+                Ok(json!({ "project_id": project_id, "profiles": count }))
+            }
+
             "profiles.trash" => {
                 // Carries `running: false` explicitly. Nothing in the trash can
                 // be open, but the shell reads one shape for both listings, and

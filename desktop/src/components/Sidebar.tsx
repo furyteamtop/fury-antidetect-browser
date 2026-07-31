@@ -1,6 +1,8 @@
 import { useI18n } from "../i18n";
 import type { Me, Project, Shell } from "../api";
 
+export type View = "profiles" | "groups" | "proxies" | "trash";
+
 export function Sidebar({
   projects,
   active,
@@ -8,6 +10,9 @@ export function Sidebar({
   me,
   onSelect,
   onNewProject,
+  onNewProfile,
+  onExport,
+  onImport,
   view,
   onView,
   onSettings,
@@ -19,8 +24,11 @@ export function Sidebar({
   me: Me | null;
   onSelect: (p: Project) => void;
   onNewProject: () => void;
-  view: "profiles" | "trash";
-  onView: (v: "profiles" | "trash") => void;
+  view: View;
+  onView: (v: View) => void;
+  onNewProfile: () => void;
+  onExport: () => void;
+  onImport: () => void;
   onSettings: () => void;
   onSignOut: () => void;
 }) {
@@ -30,15 +38,34 @@ export function Sidebar({
     <aside className="sidebar">
       <div className="brand">Fury</div>
 
+      {local && (
+        <button className="primary newProfile" onClick={onNewProfile}>
+          {t("bar.newProfile")}
+        </button>
+      )}
+
       <nav>
-        <div className="section">
-          {t("app.projects")}
-          {local && (
-            <button className="linky" onClick={onNewProject} title={t("app.newProject")}>
-              +
-            </button>
-          )}
-        </div>
+        {local && (
+          <>
+            {/* Sections first, projects under them: the sections are where an
+                operator goes, the projects are what they filter by. */}
+            {(["profiles", "groups", "proxies", "trash"] as const).map((v) => (
+              <button
+                key={v}
+                className={view === v ? "nav active" : "nav"}
+                onClick={() => onView(v)}
+              >
+                <span>{t(`nav.${v}` as never)}</span>
+              </button>
+            ))}
+            <div className="section" style={{ marginTop: "var(--s-3)" }}>
+              {t("app.projects")}
+              <button className="linky" onClick={onNewProject} title={t("app.newProject")}>
+                +
+              </button>
+            </div>
+          </>
+        )}
         {projects.length === 0 && <div className="empty">{t("app.nothingShared")}</div>}
         {projects.map((p) => (
           <button
@@ -53,17 +80,6 @@ export function Sidebar({
             <span className="count">{p.profile_count}</span>
           </button>
         ))}
-        {local && (
-          <>
-            <div className="section" style={{ marginTop: "var(--s-3)" }} />
-            <button
-              className={view === "trash" ? "nav active" : "nav"}
-              onClick={() => onView("trash")}
-            >
-              <span>{t("trash.title")}</span>
-            </button>
-          </>
-        )}
       </nav>
 
       <div className="foot">
@@ -79,6 +95,20 @@ export function Sidebar({
           {shell.machine_name}
           {!shell.native && ` · ${t("app.browserDev")}`}
         </div>
+        {local && (
+          <div className="row" style={{ gap: 0 }}>
+            <button className="ghost small" onClick={onExport}>
+              {t("nav.export")}
+            </button>
+          </div>
+        )}
+        {local && (
+          <div className="row" style={{ gap: 0 }}>
+            <button className="ghost small" onClick={onImport}>
+              {t("nav.import")}
+            </button>
+          </div>
+        )}
         <button className="ghost" onClick={onSettings}>
           {t("app.settings")}
         </button>

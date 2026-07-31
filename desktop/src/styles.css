@@ -856,3 +856,55 @@ input::placeholder {
 .paletteRow > span:first-child {
   flex: 1;
 }
+
+.newProfile {
+  width: calc(100% - var(--s-4));
+  margin: 0 var(--s-2) var(--s-2);
+  padding: 8px;
+}
+
+.foot button.small {
+  padding: 2px 0;
+  font-size: 12px;
+  text-align: left;
+}
+
+/* ---- selects ----------------------------------------------------------- */
+
+/* A native select on macOS draws its own control: a different height, a blue
+   focus ring, a stepper glyph that belongs to the system rather than to this
+   window. Stripped and redrawn so it sits on the same baseline as the inputs
+   next to it — the appearance:none is what makes that possible at all. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 30px;
+  min-height: 32px;
+  cursor: pointer;
+  /* Two hairlines forming a chevron, drawn in the text colour so it follows
+     the theme without a second asset. */
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-dim) 50%),
+    linear-gradient(135deg, var(--text-dim) 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) calc(50% + 1px),
+    calc(100% - 11px) calc(50% + 1px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+select:hover {
+  border-color: var(--line-strong);
+}
+
+/* The menu itself is drawn by the platform, so at least make its rows legible
+   against the surface rather than inheriting a transparent background. */
+select option {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.toolbar select,
+.field select {
+  min-width: 160px;
+}

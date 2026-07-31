@@ -99,6 +99,8 @@ fn main() {
             commands::delete_proxy,
             commands::save_profile,
             commands::delete_profile,
+            commands::export_project,
+            commands::import_project,
             commands::trash,
             commands::restore_profile,
             commands::purge_profile,

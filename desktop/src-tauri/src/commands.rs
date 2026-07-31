@@ -669,6 +669,29 @@ pub async fn delete_profile(id: String) -> R<serde_json::Value> {
 }
 
 #[tauri::command]
+pub async fn export_project(
+    id: String,
+    path: String,
+    passphrase: String,
+    with_data: bool,
+) -> R<serde_json::Value> {
+    Ok(crate::agent::call(
+        "projects.export",
+        serde_json::json!({ "id": id, "path": path, "passphrase": passphrase, "with_data": with_data }),
+    )
+    .await?)
+}
+
+#[tauri::command]
+pub async fn import_project(path: String, passphrase: String) -> R<serde_json::Value> {
+    Ok(crate::agent::call(
+        "projects.import",
+        serde_json::json!({ "path": path, "passphrase": passphrase }),
+    )
+    .await?)
+}
+
+#[tauri::command]
 pub async fn trash() -> R<Vec<UiProfile>> {
     let local: Vec<crate::agent::LocalProfile> =
         crate::agent::call("profiles.trash", serde_json::json!({})).await?;

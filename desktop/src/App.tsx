@@ -9,7 +9,7 @@ import { ProfileTable } from "./components/ProfileTable";
 import { Trash } from "./components/Trash";
 import { ServerSetup } from "./components/ServerSetup";
 import { Settings } from "./components/Settings";
-import { Sidebar } from "./components/Sidebar";
+import { Sidebar, type View } from "./components/Sidebar";
 import { useTheme } from "./theme";
 
 export function App() {
@@ -28,7 +28,9 @@ export function App() {
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [view, setView] = useState<"profiles" | "trash">("profiles");
+  const [view, setView] = useState<View>("profiles");
+  const [openOnly, setOpenOnly] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Applied at the root before anything renders, so the first paint is already
@@ -154,11 +156,13 @@ export function App() {
     new Set(profiles.map((p) => p.group_name).filter((g): g is string => !!g)),
   ).sort();
 
-  const shown = matching(profiles, query).filter(
-    (p) =>
-      group === "" ||
-      (group === "\u0000none" ? !p.group_name : p.group_name === group),
-  );
+  const shown = matching(profiles, query)
+    .filter(
+      (p) =>
+        group === "" ||
+        (group === "\u0000none" ? !p.group_name : p.group_name === group),
+    )
+    .filter((p) => !openOnly || p.running);
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -230,6 +234,53 @@ export function App() {
         onSelect={setActive}
         view={view}
         onView={setView}
+        onNewProfile={() => setEditing(null)}
+        onExport={async () => {
+          if (!active) return;
+          const path = await ask({
+            title: t("ex.exportTitle"),
+            detail: t("ex.exportDetail"),
+            placeholder: t("ex.path"),
+            initial: `${active.name.replace(/[^\w.-]+/g, "-")}.fury`,
+            confirmLabel: t("nav.export"),
+          });
+          if (!path) return;
+          const pass = await ask({
+            title: t("ex.passphrase"),
+            detail: t("ex.exportDetail"),
+            placeholder: t("ex.passphrase"),
+            confirmLabel: t("nav.export"),
+          });
+          if (!pass) return;
+          try {
+            const r = await api.exportProject(active.id, path, pass);
+            setNotice(t("ex.done", { kb: Math.round(r.bytes / 1024), path: r.path }));
+          } catch (e) {
+            setError((e as Error).message);
+          }
+        }}
+        onImport={async () => {
+          const path = await ask({
+            title: t("ex.importTitle"),
+            detail: t("ex.importDetail"),
+            placeholder: t("ex.path"),
+            confirmLabel: t("nav.import"),
+          });
+          if (!path) return;
+          const pass = await ask({
+            title: t("ex.passphrase"),
+            placeholder: t("ex.passphrase"),
+            confirmLabel: t("nav.import"),
+          });
+          if (!pass) return;
+          try {
+            const r = await api.importProject(path, pass);
+            setNotice(t("ex.imported", { n: r.profiles }));
+            await load();
+          } catch (e) {
+            setError((e as Error).message);
+          }
+        }}
         onSettings={() => setSettingsOpen(true)}
         onNewProject={async () => {
           const name = await ask({
@@ -265,6 +316,15 @@ export function App() {
           </div>
         )}
 
+        {notice && (
+          <div className="notice" role="status">
+            {notice}
+            <button className="ghost" onClick={() => setNotice(null)}>
+              {t("app.dismiss")}
+            </button>
+          </div>
+        )}
+
         {error && (
           <div className="notice" role="status">
             {error}
@@ -287,7 +347,7 @@ export function App() {
             />
             {groups.length > 0 && (
               <select
-                style={{ width: "auto", minWidth: 140 }}
+                style={{ width: "auto" }}
                 value={group}
                 onChange={(e) => setGroup(e.target.value)}
               >
@@ -300,6 +360,17 @@ export function App() {
                 ))}
               </select>
             )}
+            <label className="row" style={{ gap: 6, whiteSpace: "nowrap" }}>
+              <input
+                type="checkbox"
+                style={{ width: 14, height: 14, accentColor: "var(--accent)" }}
+                checked={openOnly}
+                onChange={(e) => setOpenOnly(e.target.checked)}
+              />
+              <span className="muted small">
+                {t("bar.openOnly", { n: profiles.filter((p) => p.running).length })}
+              </span>
+            </label>
             <div className="spacer" />
             {chosen.length > 0 && (
               <div className="bulk">
@@ -369,7 +440,7 @@ export function App() {
           />
         )}
 
-        {view === "profiles" && active && (
+        {(view === "profiles" || view === "groups" || view === "proxies") && active && (
           <div className="tableWrap">
             <ProfileTable
               profiles={shown}
