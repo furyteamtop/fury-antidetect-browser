@@ -131,6 +131,9 @@ fn parse_role(s: &str) -> Option<OrgRole> {
 ///
 /// `set_config(..., true)` scopes the setting to the transaction, so a pooled
 /// connection cannot carry one request's identity into the next.
+/// Second line of defence under the checks above. Wired in when handlers move
+/// to transactions; the policies in 0001_init.sql already expect it.
+#[allow(dead_code)]
 pub async fn bind_rls_user(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     user_id: Uuid,

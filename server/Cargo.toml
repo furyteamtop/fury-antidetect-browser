@@ -19,6 +19,7 @@ sha2.workspace = true
 rand.workspace = true
 
 axum = "0.8"
+argon2 = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors"] }
 sqlx = { version = "0.8", default-features = false, features = [
     "runtime-tokio",

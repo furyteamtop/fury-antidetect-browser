@@ -5,11 +5,13 @@
 //! permissions, and hands out presigned URLs. That is what lets it run on the
 //! cheapest VPS available and makes its compromise survivable.
 
-// Consumed by the project/profile handlers in phase 4; unit-tested until then.
-#[allow(dead_code)]
+mod api;
+mod auth;
+mod error;
 mod rbac_guard;
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use axum::routing::get;
 use axum::{Json, Router};
@@ -43,10 +45,12 @@ async fn main() -> anyhow::Result<()> {
 
     sqlx::migrate!("./migrations").run(&db).await?;
 
+    let state = Arc::new(AppState { db });
     let app = Router::new()
         .route("/healthz", get(healthz))
+        .merge(api::routes())
         .layer(tower_http::trace::TraceLayer::new_for_http())
-        .with_state(AppState { db });
+        .with_state(state);
 
     tracing::info!(%bind, "fury-server listening");
     let listener = tokio::net::TcpListener::bind(bind).await?;
