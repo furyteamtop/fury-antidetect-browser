@@ -534,14 +534,42 @@ impl Store {
         Ok(moved)
     }
 
+    /// One profile, with its proxy password.
+    ///
+    /// This is the launch path, and it is the reason this is not just a filter
+    /// over `profiles()`. That listing deliberately blanks the password — a
+    /// secret that is never decrypted cannot leak through a list view — and
+    /// routing the launch through it meant the relay was handed a proxy with no
+    /// credentials. `Proxy::url()` then produced `socks5://host:port`, the
+    /// upstream answered 407, and every authenticated proxy simply did not
+    /// work. Which is most of the market.
+    ///
+    /// So the two paths are separate on purpose: the list shows, this one acts.
     pub async fn profile(&self, id: &str) -> anyhow::Result<Option<Profile>> {
-        // Straight at the profile. It used to find the project first and list
-        // it, which stopped working the moment a profile could have no project.
-        Ok(self
-            .profiles(None)
-            .await?
-            .into_iter()
-            .find(|p| p.id == id))
+        let row = sqlx::query(
+            "SELECT f.id, f.project_id, f.name, f.notes, f.tags, f.persona_id, f.fp_seed,
+                    f.timezone, f.languages, f.start_urls, f.last_opened_at,
+                    p.name AS project_name,
+                    x.id AS px_id, x.name AS px_name, x.kind AS px_kind, x.host AS px_host,
+                    x.port AS px_port, x.username AS px_user, x.password AS px_pass,
+                    x.last_country AS px_country, x.last_ip AS px_ip
+             FROM profiles f
+             LEFT JOIN projects p ON p.id = f.project_id AND p.deleted_at IS NULL
+             LEFT JOIN proxies x ON x.id = f.proxy_id AND x.deleted_at IS NULL
+             WHERE f.id = ? AND f.deleted_at IS NULL",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| {
+            let sealed: Option<String> = r.get("px_pass");
+            let mut profile = row_to_profile(r);
+            if let Some(proxy) = profile.proxy.as_mut() {
+                proxy.password = sealed.map(|v| self.vault.open_value(&v));
+            }
+            profile
+        }))
     }
 
     /// Insert or update. `fp_seed` is only assigned on creation — changing it
@@ -912,6 +940,61 @@ mod tests {
         assert_eq!(all.len(), 1, "the profile disappeared with its project");
         assert_eq!(all[0].name, "warmed");
         assert_eq!(all[0].project_id, None, "still filed under a deleted project");
+    }
+
+    #[tokio::test]
+    async fn the_launch_path_gets_the_proxy_password_and_the_list_does_not() {
+        // Most residential and mobile proxies are sold with credentials. The
+        // list blanks the password by design; the launch path must not, or the
+        // relay dials anonymously and the upstream answers 407 — which is to
+        // say authenticated proxies do not work at all.
+        let s = store().await;
+        let project = s.default_project().await.unwrap();
+        let proxy_id = s
+            .upsert_proxy(&Proxy {
+                id: String::new(),
+                name: "eu".into(),
+                kind: "socks5".into(),
+                host: "exit.example".into(),
+                port: 1080,
+                username: Some("bob".into()),
+                password: Some("s3cr3t".into()),
+                last_country: None,
+                last_ip: None,
+                rotate_url: None,
+                checker_url: None,
+            })
+            .await
+            .unwrap();
+
+        let mut p = blank(&project, "warmed");
+        p.proxy = Some(Proxy {
+            id: proxy_id,
+            name: String::new(),
+            kind: String::new(),
+            host: String::new(),
+            port: 0,
+            username: None,
+            password: None,
+            last_country: None,
+            last_ip: None,
+            rotate_url: None,
+            checker_url: None,
+        });
+        let id = s.upsert_profile(&p).await.unwrap();
+
+        let launched = s.profile(&id).await.unwrap().unwrap();
+        let proxy = launched.proxy.expect("the profile lost its proxy");
+        assert_eq!(proxy.password.as_deref(), Some("s3cr3t"));
+        assert_eq!(
+            proxy.url(),
+            "socks5://bob:s3cr3t@exit.example:1080",
+            "the relay would dial without credentials"
+        );
+
+        // And the listing still shows nothing it does not need to.
+        let listed = s.profiles(None).await.unwrap();
+        assert_eq!(listed[0].proxy.as_ref().unwrap().password, None);
     }
 
     #[tokio::test]
