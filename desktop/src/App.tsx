@@ -328,6 +328,7 @@ export function App() {
           if (!name) return;
           await api.renameProject(p.id, name);
           await load();
+          await refreshProfiles();
         }}
         onDeleteProject={async (p) => {
           const go = await ask({
@@ -345,6 +346,10 @@ export function App() {
           await api.deleteProject(p.id);
           setActive(null);
           await load();
+          // The rows change too, not just the sidebar: every profile that was
+          // in this project is now in none, and until this ran the table went
+          // on naming a project that no longer exists.
+          await refreshProfiles();
         }}
         onNewProject={async () => {
           const name = await ask({
