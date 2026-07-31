@@ -83,7 +83,13 @@ impl From<crate::agent::AgentError> for ApiErr {
     fn from(e: crate::agent::AgentError) -> Self {
         // Status 0 is "never reached a server", which is exactly what an agent
         // failure is from the interface's point of view.
-        ApiErr::local(e.to_string())
+        match e {
+            crate::agent::AgentError::NotRunning => ApiErr::coded(
+                "err.agentDown",
+                "The local agent is not running. Nothing can be launched without it.",
+            ),
+            other => ApiErr::local(other.to_string()),
+        }
     }
 }
 

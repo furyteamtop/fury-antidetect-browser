@@ -109,12 +109,21 @@ export function App() {
       // No project selected means every profile on this machine. That is the
       // Profiles view: the master list an operator actually works from, with a
       // project as a filter over it rather than the only way in.
-      const [rows, list] = await Promise.all([
+      const [rows, list, current] = await Promise.all([
         api.profiles(active?.id),
         api.projects(),
+        // The shell too, on every poll rather than only at startup.
+        //
+        // shell_state is what restarts the agent if it died, and it was called
+        // once, on mount. So an agent that stopped while the app was open — a
+        // crash, a machine waking from sleep — left the warning on screen for
+        // ever and every persona list, launch and proxy call failing, with
+        // nothing trying to fix it.
+        api.shell(),
       ]);
       setProfiles(rows);
       setProjects(list);
+      setShell(current);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) void api.shell().then(setShell);
       else setError(say(e));
