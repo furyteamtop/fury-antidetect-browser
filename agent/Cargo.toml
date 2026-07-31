@@ -16,6 +16,20 @@ tracing-subscriber.workspace = true
 uuid.workspace = true
 sha2.workspace = true
 rand.workspace = true
+time.workspace = true
+# The same SQL stack as the server, not a second one: rusqlite and sqlx both
+# link the native sqlite3 library, and cargo allows only one package in a graph
+# to do that. Sharing sqlx also means the local schema and the server schema are
+# written against the same tooling.
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "tls-rustls-ring",
+    "sqlite",
+    "uuid",
+    "time",
+    "json",
+    "macros",
+] }
 
 [target.'cfg(unix)'.dependencies]
 # dup2 only. std has no equivalent, and the config descriptor has to land on 3.

@@ -1,0 +1,366 @@
+//! The socket the desktop shell talks to.
+//!
+//! A Unix socket rather than a TCP port, deliberately (docs/01): nothing is
+//! listening on the network, and file permissions are the access control. On a
+//! machine where a browser is running arbitrary sites' JavaScript all day, a
+//! `127.0.0.1` port is reachable from a page; a socket under a 0700 directory
+//! is not.
+//!
+//! The protocol is newline-delimited JSON, one request per line, one response
+//! per line. No framing beyond that, no streaming, no subscriptions — the shell
+//! polls, and a protocol it can be debugged with by `nc` is worth more here than
+//! one that saves a few bytes.
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::{UnixListener, UnixStream};
+use tokio::sync::Mutex;
+
+use crate::launcher;
+use crate::paths;
+use crate::store::{Profile, Proxy, Store};
+
+#[derive(Debug, Deserialize)]
+struct Request {
+    #[serde(default)]
+    id: u64,
+    method: String,
+    #[serde(default)]
+    params: serde_json::Value,
+}
+
+#[derive(Debug, Serialize)]
+struct Response {
+    id: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ok: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    err: Option<String>,
+}
+
+/// A profile that is open right now.
+struct Running {
+    child: std::process::Child,
+    #[allow(dead_code)] // reported by `status`; kept for the automation API
+    relay_port: u16,
+    /// Must be aborted explicitly when the profile closes.
+    ///
+    /// Dropping a JoinHandle does not stop the task — tokio detaches it — so
+    /// the first version leaked a listening relay per launch. Each one still
+    /// forwarded to the customer's upstream, so a day of opening and closing
+    /// profiles left a machine full of live exits nothing was using.
+    relay: tokio::task::JoinHandle<()>,
+}
+
+pub struct Agent {
+    store: Store,
+    running: Mutex<HashMap<String, Running>>,
+    core: Option<std::path::PathBuf>,
+}
+
+impl Agent {
+    pub async fn new() -> anyhow::Result<Arc<Self>> {
+        paths::ensure_data_dir()?;
+        let store = Store::open(&paths::db_path()).await?;
+        // Every installation starts with somewhere to put a profile.
+        store.default_project().await?;
+
+        Ok(Arc::new(Self {
+            store,
+            running: Mutex::new(HashMap::new()),
+            core: crate::core_binary(),
+        }))
+    }
+
+    /// Listen until the process is stopped.
+    pub async fn serve(self: Arc<Self>) -> anyhow::Result<()> {
+        let path = paths::socket_path();
+
+        // A socket file left by a crash would make bind() fail with "address in
+        // use" forever. Removing one that is still live would be worse, so
+        // check first: if something answers, another agent owns this machine.
+        if path.exists() {
+            if UnixStream::connect(&path).await.is_ok() {
+                anyhow::bail!(
+                    "another fury-agent is already running on this machine ({})",
+                    path.display()
+                );
+            }
+            std::fs::remove_file(&path)?;
+        }
+
+        let listener = UnixListener::bind(&path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            // The socket is the whole authorisation story: anyone who can open
+            // it can launch profiles and read proxy credentials.
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+        }
+
+        tracing::info!(socket = %path.display(), "agent listening");
+
+        loop {
+            let (stream, _) = listener.accept().await?;
+            let agent = Arc::clone(&self);
+            tokio::spawn(async move {
+                if let Err(e) = agent.handle_connection(stream).await {
+                    tracing::debug!(error = %e, "connection ended");
+                }
+            });
+        }
+    }
+
+    async fn handle_connection(self: Arc<Self>, stream: UnixStream) -> anyhow::Result<()> {
+        let (read, mut write) = stream.into_split();
+        let mut lines = BufReader::new(read).lines();
+
+        while let Some(line) = lines.next_line().await? {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let response = match serde_json::from_str::<Request>(&line) {
+                Ok(req) => {
+                    let id = req.id;
+                    match self.dispatch(&req.method, req.params).await {
+                        Ok(value) => Response { id, ok: Some(value), err: None },
+                        Err(e) => Response { id, ok: None, err: Some(e.to_string()) },
+                    }
+                }
+                Err(e) => Response {
+                    id: 0,
+                    ok: None,
+                    err: Some(format!("malformed request: {e}")),
+                },
+            };
+            let mut bytes = serde_json::to_vec(&response)?;
+            bytes.push(b'\n');
+            write.write_all(&bytes).await?;
+        }
+        Ok(())
+    }
+
+    async fn dispatch(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        use serde_json::json;
+
+        match method {
+            "status" => {
+                let running = self.running.lock().await;
+                Ok(json!({
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "core": self.core.as_ref().map(|p| p.display().to_string()),
+                    "running": running.keys().collect::<Vec<_>>(),
+                    "data_dir": paths::data_dir().display().to_string(),
+                }))
+            }
+
+            "personas.list" => Ok(serde_json::to_value(crate::personas::catalogue())?),
+
+            "projects.list" => Ok(serde_json::to_value(self.store.projects().await?)?),
+            "projects.create" => {
+                let name = str_param(&params, "name")?;
+                let notes = params.get("notes").and_then(|v| v.as_str()).unwrap_or("");
+                Ok(json!({ "id": self.store.create_project(&name, notes).await? }))
+            }
+            "projects.rename" => {
+                let id = str_param(&params, "id")?;
+                let name = str_param(&params, "name")?;
+                let notes = params.get("notes").and_then(|v| v.as_str()).unwrap_or("");
+                self.store.rename_project(&id, &name, notes).await?;
+                Ok(json!({}))
+            }
+            "projects.delete" => {
+                self.store.delete_project(&str_param(&params, "id")?).await?;
+                Ok(json!({}))
+            }
+
+            "proxies.list" => Ok(serde_json::to_value(self.store.proxies().await?)?),
+            "proxies.upsert" => {
+                let proxy: Proxy = serde_json::from_value(params)?;
+                Ok(json!({ "id": self.store.upsert_proxy(&proxy).await? }))
+            }
+            "proxies.delete" => {
+                self.store.delete_proxy(&str_param(&params, "id")?).await?;
+                Ok(json!({}))
+            }
+
+            "profiles.list" => {
+                let project = str_param(&params, "project_id")?;
+                let mut profiles = self.store.profiles(&project).await?;
+                let running = self.running.lock().await;
+                // The list is the only place the shell learns what is open, so
+                // the answer has to come from the supervisor rather than from a
+                // flag in the database that a crash would leave stale.
+                let out: Vec<serde_json::Value> = profiles
+                    .drain(..)
+                    .map(|p| {
+                        let mut v = serde_json::to_value(&p).unwrap_or_default();
+                        v["running"] = json!(running.contains_key(&p.id));
+                        v
+                    })
+                    .collect();
+                Ok(serde_json::to_value(out)?)
+            }
+            "profiles.upsert" => {
+                let profile: Profile = serde_json::from_value(params)?;
+                Ok(json!({ "id": self.store.upsert_profile(&profile).await? }))
+            }
+            "profiles.delete" => {
+                self.store.delete_profile(&str_param(&params, "id")?).await?;
+                Ok(json!({}))
+            }
+
+            "profile.launch" => self.launch(&str_param(&params, "id")?).await,
+            "profile.stop" => self.stop(&str_param(&params, "id")?).await,
+
+            other => anyhow::bail!("unknown method {other:?}"),
+        }
+    }
+
+    async fn launch(&self, profile_id: &str) -> anyhow::Result<serde_json::Value> {
+        {
+            let mut running = self.running.lock().await;
+            if let Some(existing) = running.get_mut(profile_id) {
+                // try_wait rather than a stored flag: the browser may have been
+                // closed from its own window, and reporting it as open would
+                // leave the operator with a profile they cannot start.
+                if existing.child.try_wait()?.is_none() {
+                    anyhow::bail!("this profile is already open");
+                }
+                // Closed from its own window rather than through us. The relay
+                // is still up and has to go with it.
+                if let Some(dead) = running.remove(profile_id) {
+                    dead.relay.abort();
+                }
+            }
+        }
+
+        let profile = self
+            .store
+            .profile(profile_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("no such profile"))?;
+
+        let proxy = profile.proxy.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "this profile has no proxy. Everything the core does goes through one, so \
+                 launching without it would send traffic from this machine's own address"
+            )
+        })?;
+
+        let core = self.core.clone().ok_or_else(|| {
+            anyhow::anyhow!(
+                "no core binary found. Build it, or point FURY_CORE at one"
+            )
+        })?;
+
+        let upstream = crate::parse_upstream(&proxy.url())?;
+        let (relay_port, relay_task) = crate::relay::Relay::new(upstream).serve(0).await?;
+
+        let persona = crate::personas::load(&profile.persona_id)?;
+        if let Err(errs) = persona.validate() {
+            anyhow::bail!(
+                "persona {} is inconsistent and would stand out:\n  {}",
+                persona.id,
+                errs.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("\n  ")
+            );
+        }
+
+        let ctx = fury_shared::persona::ProfileContext {
+            timezone: profile.timezone.clone().unwrap_or_else(|| "UTC".into()),
+            languages: profile
+                .languages
+                .clone()
+                .unwrap_or_else(|| vec!["en-US".into(), "en".into()]),
+            chrome_major: crate::CHROME_MAJOR,
+            chrome_full_version: crate::CHROME_FULL_VERSION.to_string(),
+        };
+        let config = persona.derive_core_config(profile.fp_seed as u64, &ctx);
+
+        let dir = paths::profile_dir(&profile.id);
+        std::fs::create_dir_all(&dir)?;
+
+        let child = launcher::spawn(&launcher::LaunchSpec {
+            core_binary: &core,
+            user_data_dir: &dir,
+            config: &config,
+            relay_port,
+            // Local mode has no roles to enforce: whoever can reach this socket
+            // owns the machine and the data. Restrictions are a team-server
+            // concept and are computed there.
+            restrictions: fury_shared::rbac::LaunchRestrictions::for_perms(
+                fury_shared::rbac::PermSet::full_profile_work(),
+            ),
+            start_urls: &profile.start_urls,
+            debug_port: None,
+        })?;
+
+        let pid = child.id();
+        self.store.touch_opened(&profile.id).await?;
+        self.running.lock().await.insert(
+            profile.id.clone(),
+            Running { child, relay_port, relay: relay_task },
+        );
+
+        tracing::info!(profile = %profile.name, pid, relay_port, "launched");
+        Ok(serde_json::json!({ "pid": pid, "relay_port": relay_port }))
+    }
+
+    async fn stop(&self, profile_id: &str) -> anyhow::Result<serde_json::Value> {
+        let mut running = self.running.lock().await;
+        let Some(mut entry) = running.remove(profile_id) else {
+            return Ok(serde_json::json!({ "stopped": false }));
+        };
+        // SIGKILL rather than a polite close: Chromium flushes its cookie jar on
+        // its own schedule, and waiting for a graceful exit that may never come
+        // would hang the UI. Losing the last few seconds of state is the
+        // accepted trade until the sync layer owns shutdown.
+        let _ = entry.child.kill();
+        let _ = entry.child.wait();
+        // The exit closes with the profile. Leaving it up would keep a port
+        // forwarding to the customer's proxy with no browser behind it.
+        entry.relay.abort();
+        Ok(serde_json::json!({ "stopped": true }))
+    }
+}
+
+fn str_param(params: &serde_json::Value, name: &str) -> anyhow::Result<String> {
+    params
+        .get(name)
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| anyhow::anyhow!("missing parameter {name:?}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_parameter_is_named() {
+        let err = str_param(&serde_json::json!({}), "project_id").unwrap_err();
+        assert!(err.to_string().contains("project_id"));
+    }
+
+    #[test]
+    fn responses_omit_the_half_that_did_not_happen() {
+        // The shell distinguishes success from failure by which key is present,
+        // so serialising both would make every error look like a success.
+        let ok = Response { id: 1, ok: Some(serde_json::json!({})), err: None };
+        let text = serde_json::to_string(&ok).unwrap();
+        assert!(text.contains("\"ok\""));
+        assert!(!text.contains("\"err\""));
+
+        let bad = Response { id: 2, ok: None, err: Some("no".into()) };
+        let text = serde_json::to_string(&bad).unwrap();
+        assert!(text.contains("\"err\""));
+        assert!(!text.contains("\"ok\""));
+    }
+}

@@ -7,8 +7,12 @@
 //! Only the pieces that stand on their own today are wired up; see
 //! docs/09-roadmap.md for what is still missing.
 
+mod ipc;
 mod launcher;
+mod paths;
+mod personas;
 mod relay;
+mod store;
 
 use std::time::Duration;
 
@@ -26,6 +30,7 @@ async fn main() -> anyhow::Result<()> {
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
+        Some("serve") => ipc::Agent::new().await?.serve().await,
         Some("relay") => cmd_relay(&args[1..]).await,
         Some("launch") => cmd_launch(&args[1..]).await,
         Some("check-fingerprint") => cmd_check_fingerprint(&args[1..]),
@@ -34,6 +39,9 @@ async fn main() -> anyhow::Result<()> {
                 "fury-agent {}\n\
                  \n\
                  USAGE:\n  \
+                   fury-agent serve\n      \
+                     Run the local daemon: profiles, proxies, launching.\n      \
+                     This is what the desktop app talks to.\n  \
                    fury-agent relay <upstream-url> [--port N]\n      \
                      Start a profile relay. Upstream may be:\n        \
                        http://user:pass@host:port\n        \
@@ -198,10 +206,26 @@ async fn cmd_launch(args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Where the core binary is, if it can be found.
+///
+/// Looked up rather than configured, because the common case is that the app
+/// bundle ships one next to the agent. FURY_CORE overrides for a development
+/// tree, where the build output is somewhere only the developer knows.
+pub fn core_binary() -> Option<std::path::PathBuf> {
+    if let Ok(explicit) = std::env::var("FURY_CORE") {
+        let path = std::path::PathBuf::from(explicit);
+        return path.exists().then_some(path);
+    }
+    let beside = std::env::current_exe().ok()?.parent()?.join(
+        if cfg!(target_os = "macos") { "Fury.app/Contents/MacOS/Fury" } else { "fury-core" },
+    );
+    beside.exists().then_some(beside)
+}
+
 /// The core this agent expects to drive. Read from core/CHROMIUM_VERSION at
 /// build time would be better; hard-coded until the two are built together.
-const CHROME_MAJOR: u32 = 150;
-const CHROME_FULL_VERSION: &str = "150.0.7871.187";
+pub const CHROME_MAJOR: u32 = 150;
+pub const CHROME_FULL_VERSION: &str = "150.0.7871.187";
 
 fn cmd_check_fingerprint(args: &[String]) -> anyhow::Result<()> {
     let path = args
@@ -234,7 +258,7 @@ fn cmd_check_fingerprint(args: &[String]) -> anyhow::Result<()> {
 /// Deliberately hand-rolled rather than pulled from a URL crate: proxy strings
 /// in the wild contain characters real URL parsers reject, and silently
 /// mis-parsing one means connecting somewhere unintended.
-fn parse_upstream(url: &str) -> anyhow::Result<Upstream> {
+pub fn parse_upstream(url: &str) -> anyhow::Result<Upstream> {
     let (scheme, rest) = url
         .split_once("://")
         .ok_or_else(|| anyhow::anyhow!("expected scheme://, got {url:?}"))?;
