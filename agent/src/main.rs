@@ -7,8 +7,6 @@
 //! Only the pieces that stand on their own today are wired up; see
 //! docs/09-roadmap.md for what is still missing.
 
-// Wired into the local API in phase 4; built and tested standalone until then.
-#[allow(dead_code)]
 mod launcher;
 mod relay;
 
@@ -29,6 +27,7 @@ async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("relay") => cmd_relay(&args[1..]).await,
+        Some("launch") => cmd_launch(&args[1..]).await,
         Some("check-fingerprint") => cmd_check_fingerprint(&args[1..]),
         _ => {
             eprintln!(
@@ -39,6 +38,16 @@ async fn main() -> anyhow::Result<()> {
                      Start a profile relay. Upstream may be:\n        \
                        http://user:pass@host:port\n        \
                        socks5://user:pass@host:port\n  \
+                   fury-agent launch <persona.json> [options]\n      \
+                     Derive a profile from a persona and run the core on it.\n        \
+                       --seed N            profile seed (default 1)\n        \
+                       --proxy URL         upstream proxy; everything goes through it\n        \
+                       --timezone ZONE     IANA zone the profile reports\n        \
+                       --lang a,b          BCP-47 list, most preferred first\n        \
+                       --profile-dir DIR   user-data-dir (default a temp dir)\n        \
+                       --core PATH         core binary (or set FURY_CORE)\n        \
+                       --url URL           page to open\n        \
+                       --debug-port N      expose CDP on 127.0.0.1:N\n  \
                    fury-agent check-fingerprint <config.json>\n      \
                      Validate a fingerprint config for internal consistency.\n      \
                      Pass '-' to check the built-in sample.\n",
@@ -74,6 +83,125 @@ async fn cmd_relay(args: &[String]) -> anyhow::Result<()> {
     handle.await?;
     Ok(())
 }
+
+/// Derive a profile from a persona and run the core on it.
+///
+/// This is the whole launch path from docs/01 minus the parts that need a
+/// server: acquire the exit, decide what the profile claims about itself, and
+/// hand the core a config it never lets out of the process. Bundle sync and the
+/// distributed lock join later; neither is needed to open a browser.
+async fn cmd_launch(args: &[String]) -> anyhow::Result<()> {
+    let persona_path = args
+        .first()
+        .filter(|a| !a.starts_with("--"))
+        .ok_or_else(|| anyhow::anyhow!("missing persona path"))?;
+
+    let opt = |name: &str| -> Option<String> {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1))
+            .cloned()
+    };
+
+    let persona: fury_shared::persona::Persona =
+        serde_json::from_str(&std::fs::read_to_string(persona_path)?)?;
+    let seed: u64 = opt("--seed").map_or(Ok(1), |s| s.parse())?;
+
+    // Start the exit first. The timezone a profile reports has to match where it
+    // actually leaves the network (docs/05), so the proxy has to exist before
+    // the config is derived, not after.
+    let relay = match opt("--proxy") {
+        Some(url) => {
+            let upstream = parse_upstream(&url)?;
+            tracing::info!(?upstream, "starting relay");
+            let (port, handle) = Relay::new(upstream).serve(0).await?;
+            Some((port, handle))
+        }
+        None => None,
+    };
+    let relay_port = match &relay {
+        Some((port, _)) => *port,
+        None => {
+            // Without a proxy the core would still be pointed at a relay that is
+            // not there, and every request would fail. Refuse rather than
+            // quietly launching a browser that goes out on the real IP.
+            anyhow::bail!(
+                "--proxy is required: the core is launched with --proxy-server pointing at the \
+                 relay, and running without one would send traffic from this machine's own IP"
+            )
+        }
+    };
+
+    let ctx = fury_shared::persona::ProfileContext {
+        // TODO: resolve from the relay's effective exit IP, per docs/05. Until
+        // that lands the operator has to say, and a mismatch is on them.
+        timezone: opt("--timezone").unwrap_or_else(|| "Europe/Berlin".into()),
+        languages: opt("--lang")
+            .map(|l| l.split(',').map(str::to_string).collect())
+            .unwrap_or_else(|| vec!["de-DE".into(), "de".into(), "en-US".into(), "en".into()]),
+        chrome_major: CHROME_MAJOR,
+        chrome_full_version: CHROME_FULL_VERSION.to_string(),
+    };
+
+    // Fail closed before deriving: a config is a pure function of the persona,
+    // so an inconsistent persona is the only way to get an inconsistent profile.
+    if let Err(errs) = persona.validate() {
+        anyhow::bail!(
+            "persona {} is inconsistent and would stand out:\n  {}",
+            persona.id,
+            errs.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("\n  ")
+        );
+    }
+    let config = persona.derive_core_config(seed, &ctx);
+
+    let core = opt("--core")
+        .or_else(|| std::env::var("FURY_CORE").ok())
+        .map(std::path::PathBuf::from)
+        .ok_or_else(|| anyhow::anyhow!("no core binary: pass --core or set FURY_CORE"))?;
+
+    let profile_dir = opt("--profile-dir").map(std::path::PathBuf::from).unwrap_or_else(|| {
+        std::env::temp_dir().join(format!("fury-profile-{}-{seed}", persona.id))
+    });
+    std::fs::create_dir_all(&profile_dir)?;
+
+    let urls: Vec<String> = opt("--url").into_iter().collect();
+
+    let spec = launcher::LaunchSpec {
+        core_binary: &core,
+        user_data_dir: &profile_dir,
+        config: &config,
+        relay_port,
+        // A CLI launch is the operator working on their own machine, so nothing
+        // is withheld. The server decides this when a profile comes from a team.
+        restrictions: fury_shared::rbac::LaunchRestrictions::for_perms(
+            fury_shared::rbac::PermSet::full_profile_work(),
+        ),
+        start_urls: &urls,
+        // Opt-in: CDP is full cookie access, so it is never on by default even
+        // for a local launch.
+        debug_port: opt("--debug-port").and_then(|p| p.parse().ok()),
+    };
+
+    let mut child = launcher::spawn(&spec)?;
+    tracing::info!(
+        pid = child.id(),
+        persona = %persona.id,
+        seed,
+        relay_port,
+        timezone = %ctx.timezone,
+        dir = %profile_dir.display(),
+        "core running"
+    );
+
+    let status = tokio::task::spawn_blocking(move || child.wait()).await??;
+    tracing::info!(?status, "core exited");
+    Ok(())
+}
+
+/// The core this agent expects to drive. Read from core/CHROMIUM_VERSION at
+/// build time would be better; hard-coded until the two are built together.
+const CHROME_MAJOR: u32 = 150;
+const CHROME_FULL_VERSION: &str = "150.0.7871.187";
 
 fn cmd_check_fingerprint(args: &[String]) -> anyhow::Result<()> {
     let path = args

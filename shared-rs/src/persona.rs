@@ -413,6 +413,33 @@ mod tests {
     }
 
     #[test]
+    fn core_config_covers_every_key_the_core_reads() {
+        // The test that would have caught the launcher sending the wrong shape.
+        // A derived config must satisfy every path harvested from the core
+        // patches; if a new patch reads a new key, add it to CORE_CONFIG_KEYS
+        // and this fails until the derivation supplies it.
+        for name in ["macos-15-m-series-1728x1117", "windows-11-rtx4060-1920x1080"] {
+            let derived = load(name).derive_core_config(1, &ctx());
+            crate::fingerprint::check_core_config(&derived)
+                .unwrap_or_else(|missing| panic!("persona {name}:\n  {}", missing.join("\n  ")));
+        }
+    }
+
+    #[test]
+    fn the_validation_model_is_not_the_wire_format() {
+        // These two shapes look interchangeable and are not: FingerprintConfig
+        // is snake_case and predates the client-hints and webglParams sections.
+        // Sending it to the core would miss every lookup, so the check that
+        // guards the launch path must reject it outright.
+        let sample = serde_json::to_value(crate::fingerprint::samples::macos_arm64()).unwrap();
+        assert!(
+            crate::fingerprint::check_core_config(&sample).is_err(),
+            "FingerprintConfig must not pass as a core config — if it now does, \
+             the two shapes have converged and the launcher comment is stale"
+        );
+    }
+
+    #[test]
     fn derivation_is_deterministic() {
         let p = load("windows-11-rtx4060-1920x1080");
         assert_eq!(p.derive_core_config(42, &ctx()), p.derive_core_config(42, &ctx()));

@@ -16,3 +16,7 @@ tracing-subscriber.workspace = true
 uuid.workspace = true
 sha2.workspace = true
 rand.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+# dup2 only. std has no equivalent, and the config descriptor has to land on 3.
+libc = "0.2"

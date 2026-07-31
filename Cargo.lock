@@ -1298,6 +1298,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "fury-shared",
+ "libc",
  "rand 0.8.7",
  "serde",
  "serde_json",

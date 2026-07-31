@@ -461,6 +461,75 @@ pub mod samples {
     }
 }
 
+// ---------------------------------------------------------------------------
+// the core's wire contract
+// ---------------------------------------------------------------------------
+
+/// Every config path the patched core actually reads.
+///
+/// Harvested from `core/patches/*.patch` — the `GetString("…")`,
+/// `GetInt("…")`, `GetStringList("…")` call sites. Kept here, next to a test
+/// that checks a derived config supplies all of them, because the failure this
+/// guards against is silent: the core looks up a path, does not find it, and
+/// falls back to stock Chromium behaviour for that vector. Nothing logs, nothing
+/// crashes, and the profile reports the host machine while appearing configured.
+///
+/// Regenerate with:
+///   grep -rhoE '(GetString|GetInt|GetDouble|GetBool|GetStringList)\("[^"]+"' \
+///       core/patches/*.patch | sed -E 's/.*\("//;s/"$//' | sort -u
+pub const CORE_CONFIG_KEYS: &[&str] = &[
+    "audio.outputLatency",
+    "clientHints.mobile",
+    "fonts",
+    "gpu.webglExtensions",
+    "locale.timezone",
+    "navigator.deviceMemory",
+    "navigator.hardwareConcurrency",
+    "navigator.languages",
+    "navigator.maxTouchPoints",
+    "navigator.platform",
+    "navigator.userAgent",
+    "noise.audioSeed",
+    "noise.canvasSeed",
+    "noise.clientRectsSeed",
+    "screen.availLeft",
+    "screen.availTop",
+    "screen.chromeHeightDelta",
+    "screen.chromeWidthDelta",
+    "screen.colorDepth",
+    "screen.devicePixelRatio",
+    "screen.scrollbarWidth",
+];
+
+/// Checks that a core config carries everything the core will look for.
+///
+/// Deliberately *not* a consistency check — that is the persona's job, and a
+/// config derived from a valid persona cannot contradict itself. This answers a
+/// different question: will the core understand what it is handed? Passing it
+/// the wrong shape entirely (`FingerprintConfig`, whose keys are snake_case)
+/// fails every lookup, and this is what turns that into a refusal to launch
+/// rather than a browser that quietly reports the real machine.
+pub fn check_core_config(config: &serde_json::Value) -> Result<(), Vec<String>> {
+    let missing: Vec<String> = CORE_CONFIG_KEYS
+        .iter()
+        .filter(|path| lookup(config, path).is_none())
+        .map(|path| format!("the core reads {path}, and this config has no such key"))
+        .collect();
+
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(missing)
+    }
+}
+
+/// Dotted-path lookup, matching the core's own `FuryConfig::Get*`.
+fn lookup<'a>(config: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
+    path.split('.')
+        .try_fold(config, |node, part| node.get(part))
+        .filter(|v| !v.is_null())
+}
+
 #[cfg(test)]
 mod tests {
     use super::samples::macos_arm64 as mac_config;

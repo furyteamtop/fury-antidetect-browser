@@ -8,11 +8,11 @@
 //! travels over an inherited pipe instead; only the descriptor number appears
 //! in the arguments.
 
+use std::io::{Seek, Write};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use fury_shared::rbac::LaunchRestrictions;
-use fury_shared::FingerprintConfig;
 
 #[derive(Debug, thiserror::Error)]
 pub enum LaunchError {
@@ -27,7 +27,18 @@ pub enum LaunchError {
 pub struct LaunchSpec<'a> {
     pub core_binary: &'a Path,
     pub user_data_dir: &'a Path,
-    pub config: &'a FingerprintConfig,
+
+    /// The **core's** config, as produced by `Persona::derive_core_config`.
+    ///
+    /// Not `FingerprintConfig`. The two are different shapes and were never
+    /// convertible: the core reads dotted camelCase paths — `audio.sampleRate`,
+    /// `noise.canvasSeed`, `gpu.webglParams.RENDERER`, `clientHints.brands` —
+    /// while `FingerprintConfig` is snake_case and has no client-hints or
+    /// webglParams section at all. Handing it the wrong one is worse than
+    /// handing it nothing: every lookup misses, every vector silently falls back
+    /// to stock Chromium, and the profile *looks* configured. The contract is
+    /// pinned by `core_config_covers_every_key_the_core_reads` in shared-rs.
+    pub config: &'a serde_json::Value,
     pub relay_port: u16,
     pub restrictions: LaunchRestrictions,
     pub start_urls: &'a [String],
@@ -84,9 +95,12 @@ pub fn build_args(spec: &LaunchSpec) -> Vec<String> {
 ///
 /// Validation is fail-closed on purpose: launching an inconsistent profile is
 /// worse than not launching it, because the inconsistency is itself a signal.
+/// The deep consistency checks live on the persona this config was derived from
+/// — a valid persona cannot produce a contradictory config — so what is checked
+/// here is the other failure: a config the core will not understand.
 pub fn spawn(spec: &LaunchSpec) -> Result<std::process::Child, LaunchError> {
-    if let Err(errs) = spec.config.validate() {
-        let msg = errs
+    if let Err(missing) = fury_shared::fingerprint::check_core_config(spec.config) {
+        let msg = missing
             .iter()
             .map(|e| format!("  - {e}"))
             .collect::<Vec<_>>()
@@ -102,21 +116,117 @@ pub fn spawn(spec: &LaunchSpec) -> Result<std::process::Child, LaunchError> {
     let mut cmd = std::process::Command::new(spec.core_binary);
     cmd.args(&args).stdin(Stdio::null());
 
-    // TODO(phase-1): inherit the config pipe as fd 3.
-    //   unix:    CommandExt::pre_exec + dup2 onto 3
-    //   windows: PROC_THREAD_ATTRIBUTE_HANDLE_LIST with an inheritable pipe
-    // Blocked on patch 0001-fp-config-plumbing landing in the core.
+    // The config has to arrive on descriptor 3, where the core reads it to EOF
+    // (components/fury/fury_config.cc). Keep `carrier` alive until spawn
+    // returns: the child inherits a copy of the descriptor across fork, but
+    // only while this one is still open.
+    let carrier = config_carrier(spec.config)?;
+    attach_config_fd(&mut cmd, &carrier);
 
-    Ok(cmd.spawn()?)
+    let child = cmd.spawn()?;
+    drop(carrier);
+    Ok(child)
 }
+
+/// An open, already-unlinked file holding the config JSON, rewound to the start.
+///
+/// A file rather than a pipe, because the core reads to EOF and a pipe would
+/// need the parent to stay around writing — the agent would have to babysit a
+/// descriptor for the life of a browser it otherwise just supervises. Unlinked
+/// the moment it exists, so the persona never has a name on disk that another
+/// process could open; what survives is a descriptor, which is what we wanted
+/// to pass anyway.
+#[cfg(unix)]
+fn config_carrier(config: &serde_json::Value) -> Result<std::fs::File, LaunchError> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let json = serde_json::to_vec(config).map_err(|e| {
+        LaunchError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    })?;
+
+    // Named uniquely only long enough to be opened; 0600 so that even in that
+    // window nobody else can read it.
+    let path = std::env::temp_dir().join(format!(
+        "fury-fp-{}-{}",
+        std::process::id(),
+        // Monotonic within a process; the pid keeps it unique between them.
+        NEXT_CARRIER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)?;
+    std::fs::remove_file(&path)?;
+
+    file.write_all(&json)?;
+    file.rewind()?;
+    Ok(file)
+}
+
+#[cfg(unix)]
+static NEXT_CARRIER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+#[cfg(unix)]
+fn attach_config_fd(cmd: &mut std::process::Command, carrier: &std::fs::File) {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::process::CommandExt;
+
+    let src = carrier.as_raw_fd();
+    // SAFETY: runs in the forked child before exec, so it must only call
+    // async-signal-safe functions. dup2 is one. It also clears FD_CLOEXEC on
+    // the new descriptor, which is precisely why 3 survives the exec.
+    unsafe {
+        cmd.pre_exec(move || {
+            if libc::dup2(src, 3) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+}
+
+// Windows inherits handles by an entirely different mechanism
+// (PROC_THREAD_ATTRIBUTE_HANDLE_LIST on an inheritable handle, plus a switch
+// carrying the handle value rather than a descriptor number). Left unwritten
+// rather than guessed: nothing in this repo has been built for Windows yet, so
+// an implementation here could not be tested and would only look finished.
+#[cfg(not(unix))]
+fn config_carrier(_config: &serde_json::Value) -> Result<std::fs::File, LaunchError> {
+    Err(LaunchError::Io(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "passing the fingerprint config is not implemented on this platform yet",
+    )))
+}
+
+#[cfg(not(unix))]
+fn attach_config_fd(_cmd: &mut std::process::Command, _carrier: &std::fs::File) {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fury_shared::fingerprint::samples::macos_arm64 as sample_config;
     use fury_shared::rbac::{effective, OrgRole, PermSet};
 
-    fn spec_for(restrictions: LaunchRestrictions, cfg: &FingerprintConfig) -> LaunchSpec<'_> {
+    /// A real derived config, not a hand-written one — these tests exist to
+    /// check the thing that actually gets launched.
+    fn sample_config() -> serde_json::Value {
+        let persona: fury_shared::persona::Persona = serde_json::from_str(include_str!(
+            "../../shared/personas/macos-15-m-series-1728x1117.json"
+        ))
+        .expect("shipped persona parses");
+        persona.derive_core_config(
+            1,
+            &fury_shared::persona::ProfileContext {
+                timezone: "Europe/Berlin".into(),
+                languages: vec!["de-DE".into(), "de".into()],
+                chrome_major: 150,
+                chrome_full_version: "150.0.7871.187".into(),
+            },
+        )
+    }
+
+    fn spec_for(restrictions: LaunchRestrictions, cfg: &serde_json::Value) -> LaunchSpec<'_> {
         LaunchSpec {
             core_binary: Path::new("/nonexistent/Fury"),
             user_data_dir: Path::new("/tmp/p"),
@@ -158,16 +268,27 @@ mod tests {
         let args = build_args(&spec_for(r, &cfg));
         let joined = args.join(" ");
         assert!(!joined.contains("webgl"), "fingerprint leaked into argv");
-        assert!(!joined.contains(&cfg.navigator.user_agent));
+        assert!(!joined.contains(cfg["navigator"]["userAgent"].as_str().unwrap()));
         assert!(args.iter().any(|a| a == "--fury-fp-fd=3"));
     }
 
     #[test]
-    fn inconsistent_config_refuses_to_launch() {
+    fn a_config_the_core_cannot_read_refuses_to_launch() {
+        // The exact mistake this guards: handing over FingerprintConfig, whose
+        // keys are snake_case, so every lookup in the core misses and the
+        // profile silently reports the host machine.
+        let wrong = serde_json::to_value(fury_shared::fingerprint::samples::macos_arm64()).unwrap();
+        let r = LaunchRestrictions::for_perms(PermSet::full_profile_work());
+        let err = spawn(&spec_for(r, &wrong)).unwrap_err();
+        assert!(matches!(err, LaunchError::Inconsistent(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn a_config_missing_one_key_refuses_to_launch() {
         let mut cfg = sample_config();
-        cfg.screen.scrollbar_width = 15; // Windows scrollbar on a macOS profile
+        cfg["noise"].as_object_mut().unwrap().remove("canvasSeed");
         let r = LaunchRestrictions::for_perms(PermSet::full_profile_work());
         let err = spawn(&spec_for(r, &cfg)).unwrap_err();
-        assert!(matches!(err, LaunchError::Inconsistent(_)));
+        assert!(matches!(err, LaunchError::Inconsistent(_)), "got {err:?}");
     }
 }
