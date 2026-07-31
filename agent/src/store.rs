@@ -125,6 +125,19 @@ impl Store {
         Ok(store)
     }
 
+    /// A store whose vault key is a constant, so tests exercise sealing without
+    /// asking the machine's keychain for anything — no permission dialog in the
+    /// middle of `cargo test`, and nothing left behind on the machine that ran
+    /// it.
+    #[cfg(test)]
+    pub async fn open_for_tests(path: &std::path::Path) -> anyhow::Result<Self> {
+        let store = Self::open(path).await?;
+        Ok(Self {
+            pool: store.pool.clone(),
+            vault: std::sync::Arc::new(crate::vault::Vault::for_tests([42u8; 32])),
+        })
+    }
+
     async fn migrate(&self) -> anyhow::Result<()> {
         sqlx::raw_sql(
             r#"
@@ -362,6 +375,12 @@ impl Store {
     /// The machine key, shared rather than rebuilt: a second vault would seal
     /// values the first could not open.
     pub fn vault(&self) -> &crate::vault::Vault {
+        &self.vault
+    }
+
+    /// The vault itself, for the one caller that outlives the borrow: priming
+    /// the key hands it to a thread.
+    pub fn vault_handle(&self) -> &std::sync::Arc<crate::vault::Vault> {
         &self.vault
     }
 
@@ -627,10 +646,25 @@ fn random_seed() -> i64 {
 mod tests {
     use super::*;
 
-    async fn store() -> Store {
-        let dir = std::env::temp_dir().join(format!("fury-test-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        Store::open(&dir.join("t.db")).await.unwrap()
+    /// A store that owns its directory. The guard has to outlive the pool —
+    /// SQLite writes its journal next to the database — so the two travel
+    /// together and the test sees a plain `Store`.
+    struct TestStore {
+        store: Store,
+        _dir: crate::tmp::TempDir,
+    }
+
+    impl std::ops::Deref for TestStore {
+        type Target = Store;
+        fn deref(&self) -> &Store {
+            &self.store
+        }
+    }
+
+    async fn store() -> TestStore {
+        let dir = crate::tmp::TempDir::new("test");
+        let store = Store::open_for_tests(&dir.join("t.db")).await.unwrap();
+        TestStore { store, _dir: dir }
     }
 
     fn blank(project: &str, name: &str) -> Profile {

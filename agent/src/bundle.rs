@@ -200,10 +200,10 @@ fn unhex(s: &str) -> Option<[u8; 32]> {
 mod tests {
     use super::*;
 
-    fn dir(tag: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("fury-bn-{tag}-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&d).unwrap();
-        d
+    use crate::tmp::TempDir;
+
+    fn dir(tag: &str) -> TempDir {
+        TempDir::new(&format!("bn-{tag}"))
     }
 
     #[test]

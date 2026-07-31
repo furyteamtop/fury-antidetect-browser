@@ -281,10 +281,11 @@ fn now() -> String {
 mod tests {
     use super::*;
 
-    async fn store() -> (Store, PathBuf) {
-        let dir = std::env::temp_dir().join(format!("fury-x-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        (Store::open(&dir.join("t.db")).await.unwrap(), dir)
+    /// The directory comes back as a guard, not a path: every test here already
+    /// holds it for the whole body, and now holding it is what cleans it up.
+    async fn store() -> (Store, crate::tmp::TempDir) {
+        let dir = crate::tmp::TempDir::new("x");
+        (Store::open_for_tests(&dir.join("t.db")).await.unwrap(), dir)
     }
 
     fn profile(project: &str, name: &str) -> Profile {
@@ -342,7 +343,7 @@ mod tests {
         let id = s.upsert_profile(&p).await.unwrap();
         let seed = s.profile(&id).await.unwrap().unwrap().fp_seed;
 
-        let dirs = dir.clone();
+        let dirs = dir.to_path_buf();
         let profile_dir = move |pid: &str| dirs.join("profiles").join(pid);
         std::fs::create_dir_all(profile_dir(&id)).unwrap();
         std::fs::write(profile_dir(&id).join("Cookies"), b"warm").unwrap();

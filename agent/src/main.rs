@@ -14,6 +14,9 @@ mod paths;
 mod personas;
 mod relay;
 mod store;
+mod sync;
+#[cfg(test)]
+mod tmp;
 mod transfer;
 mod vault;
 

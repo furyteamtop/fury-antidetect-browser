@@ -44,6 +44,13 @@ struct Response {
 /// A profile that is open right now.
 struct Running {
     child: std::process::Child,
+    /// Set when this launch came from a team server: what to push back to, and
+    /// the version that was pulled, so the upload can refuse to clobber someone
+    /// who saved in between.
+    server: Option<(crate::sync::Server, i32)>,
+    /// Renews the lock while the browser runs. Aborted on stop — a lock kept
+    /// alive after the browser closed is a profile nobody else can open.
+    heartbeat: Option<tokio::task::JoinHandle<()>>,
     #[allow(dead_code)] // reported by `status`; kept for the automation API
     relay_port: u16,
     /// Must be aborted explicitly when the profile closes.
@@ -67,6 +74,9 @@ impl Agent {
         let store = Store::open(&paths::db_path()).await?;
         // Every installation starts with somewhere to put a profile.
         store.default_project().await?;
+        // Warm the keychain on its own thread. If the OS wants to ask about it,
+        // it asks while the agent is already listening rather than instead of.
+        store.vault_handle().prime();
 
         Ok(Arc::new(Self {
             store,
@@ -495,14 +505,29 @@ impl Agent {
                 Ok(json!({}))
             }
 
-            "profile.launch" => self.launch(&str_param(&params, "id")?).await,
+            "profile.launch" => {
+                let server: Option<crate::sync::Server> = params
+                    .get("server")
+                    .cloned()
+                    .and_then(|v| serde_json::from_value(v).ok());
+                let lock_token = params
+                    .get("lock_token")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string);
+                self.launch(&str_param(&params, "id")?, server, lock_token).await
+            }
             "profile.stop" => self.stop(&str_param(&params, "id")?).await,
 
             other => anyhow::bail!("unknown method {other:?}"),
         }
     }
 
-    async fn launch(&self, profile_id: &str) -> anyhow::Result<serde_json::Value> {
+    async fn launch(
+        &self,
+        profile_id: &str,
+        server: Option<crate::sync::Server>,
+        lock_token: Option<String>,
+    ) -> anyhow::Result<serde_json::Value> {
         {
             let mut running = self.running.lock().await;
             if let Some(existing) = running.get_mut(profile_id) {
@@ -565,6 +590,24 @@ impl Agent {
         let dir = paths::profile_dir(&profile.id);
         std::fs::create_dir_all(&dir)?;
 
+        // Pull before launching, not after. A browser started on stale data and
+        // then overwritten mid-session is worse than one that waited: the pages
+        // it already loaded belong to the old cookie jar.
+        let mut pulled_version = 0;
+        if let Some(srv) = server.as_ref() {
+            match srv.fetch_bundle(&profile.id).await? {
+                Some((bytes, wrapped, version)) => {
+                    crate::bundle::unpack(&bytes, &wrapped, self.store.vault(), &dir)?;
+                    pulled_version = version;
+                    tracing::info!(profile = %profile.name, version, "pulled bundle");
+                }
+                // A profile shared before it was ever opened has a row and no
+                // bytes. Starting empty is correct; refusing would make the
+                // first launch of every shared profile fail.
+                None => tracing::info!(profile = %profile.name, "no bundle on the server yet"),
+            }
+        }
+
         // Nothing configured means the start page, not a blank tab: the first
         // thing an operator needs after opening a profile is proof that the
         // disguise and the exit are working.
@@ -591,9 +634,25 @@ impl Agent {
 
         let pid = child.id();
         self.store.touch_opened(&profile.id).await?;
+
+        let heartbeat = match (server.as_ref(), lock_token.as_ref()) {
+            (Some(srv), Some(token)) => Some(crate::sync::keep_alive(
+                srv.clone(),
+                profile.id.clone(),
+                token.clone(),
+            )),
+            _ => None,
+        };
+
         self.running.lock().await.insert(
             profile.id.clone(),
-            Running { child, relay_port, relay: relay_task },
+            Running {
+                child,
+                relay_port,
+                relay: relay_task,
+                server: server.map(|s| (s, pulled_version)),
+                heartbeat,
+            },
         );
 
         tracing::info!(profile = %profile.name, pid, relay_port, "launched");
@@ -601,20 +660,54 @@ impl Agent {
     }
 
     async fn stop(&self, profile_id: &str) -> anyhow::Result<serde_json::Value> {
-        let mut running = self.running.lock().await;
-        let Some(mut entry) = running.remove(profile_id) else {
-            return Ok(serde_json::json!({ "stopped": false }));
+        // Taken out of the map before the upload, which can take a while: the
+        // list must stop reporting it as open the moment the browser is gone.
+        let mut entry = {
+            let mut running = self.running.lock().await;
+            match running.remove(profile_id) {
+                Some(e) => e,
+                None => return Ok(serde_json::json!({ "stopped": false })),
+            }
         };
-        // SIGKILL rather than a polite close: Chromium flushes its cookie jar on
-        // its own schedule, and waiting for a graceful exit that may never come
-        // would hang the UI. Losing the last few seconds of state is the
-        // accepted trade until the sync layer owns shutdown.
+        // Terminate, not kill, when there is something to save. Chromium flushes
+        // its cookie jar on exit, and a bundle packed from a SIGKILLed profile
+        // is the last write the browser managed rather than the session the
+        // operator just finished. Without a server there is nothing to upload,
+        // so the old, faster path stands.
+        if entry.server.is_some() {
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(entry.child.id() as i32, libc::SIGTERM);
+            }
+            // Bounded: a browser that will not close must not hold the UI.
+            for _ in 0..50 {
+                if entry.child.try_wait()?.is_some() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+        }
         let _ = entry.child.kill();
         let _ = entry.child.wait();
+
+        // The lock stops being renewed the moment the browser is gone, not when
+        // the next request happens to notice.
+        if let Some(beat) = entry.heartbeat.take() {
+            beat.abort();
+        }
+
+        let mut pushed = serde_json::Value::Null;
+        if let Some((srv, base)) = entry.server.take() {
+            let sealed = crate::bundle::pack(&paths::profile_dir(profile_id), self.store.vault())?;
+            let version = srv
+                .push_bundle(profile_id, &sealed.bytes, &sealed.wrapped_key, &sealed.sha256, base)
+                .await?;
+            pushed = serde_json::json!(version);
+        }
         // The exit closes with the profile. Leaving it up would keep a port
         // forwarding to the customer's proxy with no browser behind it.
         entry.relay.abort();
-        Ok(serde_json::json!({ "stopped": true }))
+        Ok(serde_json::json!({ "stopped": true, "uploaded_version": pushed }))
     }
 }
 

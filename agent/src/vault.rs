@@ -39,22 +39,50 @@ const NONCE_LEN: usize = 24;
 
 /// The machine key, created on first use.
 ///
-/// Cached for the process: a keychain read is a round trip to a daemon, and the
-/// profile list seals and opens a handful of values every time it refreshes.
+/// Read once and cached for the process: a keychain read is a round trip to a
+/// daemon, and the profile list seals and opens a handful of values every time
+/// it refreshes.
+///
+/// The read is deliberately *lazy*. macOS ties keychain permission to the
+/// signature of the binary asking, so a rebuilt agent — a development build, or
+/// any user the day after an update — gets a modal dialog, and the read blocks
+/// inside the Security framework until somebody clicks it. Doing that at
+/// startup meant the agent hung before it had logged a single line and before
+/// the socket existed: from the application, an agent that simply never came
+/// up. Loading on first use costs nothing when the answer is cached and keeps
+/// the failure where it can be explained.
 pub struct Vault {
-    key: Option<[u8; 32]>,
+    key: std::sync::OnceLock<Option<[u8; 32]>>,
 }
 
 impl Vault {
     pub fn open() -> Self {
-        Self { key: load_or_create() }
+        Self { key: std::sync::OnceLock::new() }
+    }
+
+    /// The key, read from the keychain the first time anything needs it.
+    fn key(&self) -> Option<[u8; 32]> {
+        *self.key.get_or_init(load_or_create)
+    }
+
+    /// Read the key now, off the caller's thread.
+    ///
+    /// Called once at startup so the usual case — a granted keychain, a few
+    /// milliseconds — is over before the first profile is listed, and the
+    /// unusual one puts its dialog on screen next to a running application
+    /// rather than in place of one.
+    pub fn prime(self: &std::sync::Arc<Self>) {
+        let vault = std::sync::Arc::clone(self);
+        std::thread::spawn(move || {
+            let _ = vault.key();
+        });
     }
 
     /// Seal a value for storage. Returns it unchanged when there is no key —
     /// an unavailable keychain must not stop someone using the application,
     /// and refusing to save a proxy would do exactly that.
     pub fn seal(&self, plain: &str) -> String {
-        let Some(key) = self.key else {
+        let Some(key) = self.key() else {
             return plain.to_string();
         };
         let nonce: [u8; NONCE_LEN] = rand::random();
@@ -78,7 +106,7 @@ impl Vault {
         let Some(rest) = stored.strip_prefix(PREFIX) else {
             return stored.to_string();
         };
-        let Some(key) = self.key else {
+        let Some(key) = self.key() else {
             return String::new();
         };
         let Ok(blob) = base64::engine::general_purpose::STANDARD.decode(rest) else {
@@ -98,23 +126,28 @@ impl Vault {
     }
 
     pub fn available(&self) -> bool {
-        self.key.is_some()
+        self.key().is_some()
     }
 
     /// A vault with a known key, so tests never touch the real keychain — and
     /// never leave an entry behind on the machine that ran them.
     #[cfg(test)]
     pub fn for_tests(key: [u8; 32]) -> Self {
-        Self { key: Some(key) }
+        Self { key: std::sync::OnceLock::from(Some(key)) }
     }
 
     #[cfg(test)]
     pub fn for_tests_without_key() -> Self {
-        Self { key: None }
+        Self { key: std::sync::OnceLock::from(None) }
     }
 }
 
 fn load_or_create() -> Option<[u8; 32]> {
+    // Logged before the call, not after: on a signature the keychain does not
+    // recognise this blocks until a dialog is answered, and the log is the only
+    // place that says why.
+    tracing::info!("reading the vault key — the OS may ask for permission");
+
     let entry = keyring::Entry::new(SERVICE, ACCOUNT)
         .inspect_err(|e| tracing::warn!(error = %e, "no credential store — secrets stay as typed"))
         .ok()?;
@@ -150,7 +183,7 @@ mod tests {
 
     /// A vault with a known key, so the tests do not touch the real keychain.
     fn fixed() -> Vault {
-        Vault { key: Some([7u8; 32]) }
+        Vault::for_tests([7u8; 32])
     }
 
     #[test]
@@ -181,7 +214,7 @@ mod tests {
     #[test]
     fn a_value_from_another_machine_opens_as_empty_not_as_ciphertext() {
         let sealed = fixed().seal("theirs");
-        let other = Vault { key: Some([9u8; 32]) };
+        let other = Vault::for_tests([9u8; 32]);
         // Handing a proxy the base64 of somebody else's ciphertext, as if it
         // were a password, would be worse than failing.
         assert_eq!(other.open_value(&sealed), "");
@@ -189,7 +222,7 @@ mod tests {
 
     #[test]
     fn without_a_keychain_values_pass_through_rather_than_breaking() {
-        let none = Vault { key: None };
+        let none = Vault::for_tests_without_key();
         assert_eq!(none.seal("as typed"), "as typed");
         assert_eq!(none.open_value("as typed"), "as typed");
         assert!(!none.available());
