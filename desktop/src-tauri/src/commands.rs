@@ -1125,7 +1125,14 @@ pub async fn save_proxy(
 }
 
 #[tauri::command]
-pub async fn check_proxy(url: String, checker_url: Option<String>) -> R<serde_json::Value> {
+pub async fn check_proxy(state: State<'_, AppState>, url: String, checker_url: Option<String>) -> R<serde_json::Value> {
+    if mode_of(&state) != "local" {
+        return Err(ApiErr::coded(
+            "err.proxyCheckNotBuilt",
+            "Checking a proxy on a team server is not built yet — its credentials are sealed, and \
+             the check would run without them.",
+        ));
+    }
     Ok(crate::agent::call(
         "proxies.check",
         serde_json::json!({ "url": url, "checker_url": checker_url }),
@@ -1134,13 +1141,25 @@ pub async fn check_proxy(url: String, checker_url: Option<String>) -> R<serde_js
 }
 
 #[tauri::command]
-pub async fn rotate_proxy(id: String) -> R<serde_json::Value> {
+pub async fn rotate_proxy(state: State<'_, AppState>, id: String) -> R<serde_json::Value> {
+    if mode_of(&state) != "local" {
+        return Err(ApiErr::coded(
+            "err.proxyCheckNotBuilt",
+            "Checking a proxy on a team server is not built yet — its credentials are sealed, and \
+             the check would run without them.",
+        ));
+    }
     Ok(crate::agent::call("proxies.rotate", serde_json::json!({ "id": id })).await?)
 }
 
 #[tauri::command]
-pub async fn delete_proxy(id: String) -> R<serde_json::Value> {
-    Ok(crate::agent::call("proxies.delete", serde_json::json!({ "id": id })).await?)
+pub async fn delete_proxy(state: State<'_, AppState>, id: String) -> R<serde_json::Value> {
+    if mode_of(&state) == "local" {
+        return Ok(crate::agent::call("proxies.delete", serde_json::json!({ "id": id })).await?);
+    }
+    state
+        .call(reqwest::Method::DELETE, &format!("/v1/proxies/{id}"), Body::None, true)
+        .await
 }
 
 #[tauri::command]
@@ -1327,16 +1346,48 @@ pub async fn purge_profile(state: State<'_, AppState>, id: String) -> R<serde_js
 }
 
 #[tauri::command]
-pub async fn rename_project(id: String, name: String) -> R<serde_json::Value> {
-    Ok(crate::agent::call("projects.rename", serde_json::json!({ "id": id, "name": name })).await?)
+pub async fn rename_project(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+) -> R<serde_json::Value> {
+    if mode_of(&state) == "local" {
+        return Ok(
+            crate::agent::call("projects.rename", serde_json::json!({ "id": id, "name": name }))
+                .await?,
+        );
+    }
+    state
+        .call(
+            reqwest::Method::PATCH,
+            &format!("/v1/projects/{id}"),
+            Body::Json(serde_json::json!({ "name": name })),
+            true,
+        )
+        .await
 }
 
 #[tauri::command]
-pub async fn delete_project(id: String) -> R<serde_json::Value> {
-    Ok(crate::agent::call("projects.delete", serde_json::json!({ "id": id })).await?)
+pub async fn delete_project(state: State<'_, AppState>, id: String) -> R<serde_json::Value> {
+    if mode_of(&state) == "local" {
+        return Ok(crate::agent::call("projects.delete", serde_json::json!({ "id": id })).await?);
+    }
+    state
+        .call(reqwest::Method::DELETE, &format!("/v1/projects/{id}"), Body::None, true)
+        .await
 }
 
 #[tauri::command]
-pub async fn create_project(name: String) -> R<serde_json::Value> {
-    Ok(crate::agent::call("projects.create", serde_json::json!({ "name": name })).await?)
+pub async fn create_project(state: State<'_, AppState>, name: String) -> R<serde_json::Value> {
+    if mode_of(&state) == "local" {
+        return Ok(crate::agent::call("projects.create", serde_json::json!({ "name": name })).await?);
+    }
+    state
+        .call(
+            reqwest::Method::POST,
+            "/v1/projects",
+            Body::Json(serde_json::json!({ "name": name })),
+            true,
+        )
+        .await
 }
