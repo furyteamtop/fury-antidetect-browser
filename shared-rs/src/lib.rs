@@ -4,6 +4,7 @@
 //! sides depend on this crate so the wire format cannot drift.
 
 pub mod api;
+pub mod catalogue;
 pub mod fingerprint;
 pub mod persona;
 pub mod rbac;

@@ -7,6 +7,7 @@ export function Sidebar({
   me,
   onSelect,
   onNewProject,
+  onSettings,
   onSignOut,
 }: {
   projects: Project[];
@@ -15,6 +16,7 @@ export function Sidebar({
   me: Me | null;
   onSelect: (p: Project) => void;
   onNewProject: () => void;
+  onSettings: () => void;
   onSignOut: () => void;
 }) {
   const local = shell.mode === "local";
@@ -57,6 +59,9 @@ export function Sidebar({
           {shell.machine_name}
           {!shell.native && " · browser dev"}
         </div>
+        <button className="ghost" onClick={onSettings}>
+          Settings
+        </button>
         {/* Nothing to sign out of when there is no server. Offering it anyway
             would imply an account exists somewhere. */}
         {!local && (

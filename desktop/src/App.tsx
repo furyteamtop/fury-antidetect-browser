@@ -4,7 +4,9 @@ import { Login } from "./components/Login";
 import { ProfileDialog } from "./components/ProfileDialog";
 import { ProfileTable } from "./components/ProfileTable";
 import { ServerSetup } from "./components/ServerSetup";
+import { Settings } from "./components/Settings";
 import { Sidebar } from "./components/Sidebar";
+import { useTheme } from "./theme";
 
 export function App() {
   // The shell answers what the interface cannot know on its own: whether this
@@ -20,6 +22,10 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<Profile | null | undefined>(undefined);
   const [query, setQuery] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  // Applied at the root before anything renders, so the first paint is already
+  // the right theme rather than a flash of the wrong one.
+  useTheme();
 
   useEffect(() => {
     void api.shell().then(setShell);
@@ -133,6 +139,7 @@ export function App() {
         shell={shell}
         me={me}
         onSelect={setActive}
+        onSettings={() => setSettingsOpen(true)}
         onNewProject={async () => {
           const name = prompt("Project name")?.trim();
           if (!name) return;
@@ -214,6 +221,10 @@ export function App() {
               }
             />
           </div>
+        )}
+
+        {settingsOpen && (
+          <Settings shell={shell} onChanged={setShell} onClose={() => setSettingsOpen(false)} />
         )}
 
         {editing !== undefined && active && (

@@ -77,6 +77,20 @@ impl Relay {
 
     /// Bind on loopback only and serve until the returned handle is dropped.
     /// Port 0 asks the OS for a free port, which is what the launcher uses.
+    /// How to name this profile's exit on the start page.
+    ///
+    /// Host and port only — never the credentials. The page is rendered inside
+    /// the profile's own browser, where any site it later visits could read the
+    /// document if something went wrong; a proxy password does not belong
+    /// anywhere near that.
+    fn upstream_label(&self) -> String {
+        let (host, port, scheme) = match &self.upstream {
+            Upstream::Http { host, port, .. } => (host, port, "http"),
+            Upstream::Socks5 { host, port, .. } => (host, port, "socks5"),
+        };
+        format!("{scheme}://{host}:{port}")
+    }
+
     pub async fn serve(self, port: u16) -> anyhow::Result<(u16, tokio::task::JoinHandle<()>)> {
         let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port))).await?;
         let bound = listener.local_addr()?.port();
@@ -106,6 +120,25 @@ impl Relay {
     async fn handle_client(&self, mut client: TcpStream) -> Result<(), RelayError> {
         let (head, leftover) = read_request_head(&mut client).await?;
         let (method, target) = parse_request_line(&head).ok_or(RelayError::BadRequest)?;
+
+        // The start page is answered here rather than fetched from anywhere.
+        //
+        // AdsPower opens a page on its own servers at launch, which tells the
+        // vendor every time an operator starts a profile and from which exit.
+        // Serving it from the relay keeps that entirely local: the check that
+        // the proxy works happens inside the same component that provides the
+        // proxy, and nothing about the launch leaves the machine.
+        if method != "CONNECT" && is_start_page(&target, &head) {
+            let body = start_page(&self.upstream_label());
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\
+                 Content-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            client.write_all(response.as_bytes()).await?;
+            client.write_all(body.as_bytes()).await?;
+            return Ok(());
+        }
 
         // CONNECT is the HTTPS path and by far the common case.
         let (host, port) = if method == "CONNECT" {
@@ -340,6 +373,36 @@ fn find_headers_end(buf: &[u8]) -> Option<usize> {
     buf.windows(4).position(|w| w == b"\r\n\r\n").map(|p| p + 4)
 }
 
+/// Minimal HTML escaping for the one value the start page interpolates.
+fn escape_html(raw: &str) -> String {
+    raw.chars()
+        .map(|c| match c {
+            '&' => "&amp;".to_string(),
+            '<' => "&lt;".to_string(),
+            '>' => "&gt;".to_string(),
+            '"' => "&quot;".to_string(),
+            '\'' => "&#39;".to_string(),
+            other => other.to_string(),
+        })
+        .collect()
+}
+
+/// Is this a request for the profile's own start page?
+fn is_start_page(target: &str, head: &str) -> bool {
+    let host = absolute_uri_host(target)
+        .or_else(|| header_host(head))
+        .unwrap_or_default();
+    host.split(':').next().unwrap_or_default() == START_HOST
+}
+
+/// The hostname the start page answers on.
+///
+/// A `.invalid` name by design (RFC 6761): it can never resolve in DNS, so if
+/// this interception ever failed to fire, the request would fail loudly instead
+/// of quietly reaching a real site of that name.
+pub const START_HOST: &str = "fury.invalid";
+pub const START_URL: &str = "http://fury.invalid/";
+
 fn parse_request_line(head: &str) -> Option<(String, String)> {
     let line = head.lines().next()?;
     let mut parts = line.split_whitespace();
@@ -423,6 +486,82 @@ fn base64(input: &[u8]) -> String {
     out
 }
 
+/// The page a profile opens on.
+///
+/// Everything it reports is measured in the page itself, by the browser being
+/// tested — which is the only way to check a disguise: what the operator needs
+/// to see is what a site would see, not what the configuration intended.
+fn start_page(exit: &str) -> String {
+    // Escaped here rather than by the caller. The function that interpolates is
+    // the one that has to be safe: a caller that forgets is a bug nobody sees
+    // until a proxy hostname contains a bracket.
+    let exit = escape_html(exit);
+    format!(
+        r##"<!doctype html><meta charset="utf-8"><title>Fury</title>
+<style>
+ :root{{color-scheme:dark}}
+ body{{margin:0;background:#0e1013;color:#e8eaed;
+   font:14px/1.6 -apple-system,system-ui,sans-serif;display:grid;place-items:center;min-height:100vh}}
+ main{{width:min(620px,92vw);padding:28px 0}}
+ h1{{margin:0 0 4px;font-size:20px;color:#e0552f}}
+ p.sub{{margin:0 0 24px;color:#9aa3b0;font-size:13px}}
+ dl{{display:grid;grid-template-columns:150px 1fr;gap:8px 16px;margin:0 0 20px;font-size:13px}}
+ dt{{color:#6b7480}} dd{{margin:0;overflow-wrap:anywhere}}
+ /* Deliberately not a monospace stack. The font filter narrows the list to the
+    persona's fonts, so a Windows profile on a Mac has no monospace face that
+    actually exists on the host — and text asking for one renders as nothing at
+    all. That is a real defect in the filter, recorded in docs/09; this page
+    must not be the thing that hides it. */
+ code{{font-family:inherit;font-size:12.5px;color:#e8eaed}}
+ .v{{padding:10px 14px;border-radius:8px;font-size:13px}}
+ .ok{{background:rgba(76,175,125,.1);color:#4caf7d}}
+ .bad{{background:rgba(224,160,48,.1);color:#e0a030}}
+</style>
+<main>
+ <h1>Fury</h1>
+ <p class="sub">What this profile reports right now, measured in this page. Nothing here left your machine.</p>
+ <dl id="facts"></dl>
+ <div id="verdict" class="v"></div>
+ <p class="sub" style="margin-top:20px">Exit: <code>{exit}</code></p>
+</main>
+<script>
+const g=(f)=>{{try{{return f()}}catch(e){{return "—"}}}};
+const gl=g(()=>{{const c=document.createElement("canvas").getContext("webgl");
+  const d=c.getExtension("WEBGL_debug_renderer_info");
+  return c.getParameter(d.UNMASKED_RENDERER_WEBGL)}});
+const facts={{
+ "Platform":navigator.platform,
+ "User agent":navigator.userAgent,
+ "Languages":navigator.languages.join(", "),
+ "Time zone":Intl.DateTimeFormat().resolvedOptions().timeZone,
+ "Screen":screen.width+"×"+screen.height+" (usable "+screen.availWidth+"×"+screen.availHeight+")",
+ "GPU":gl,
+ "CPU · RAM":navigator.hardwareConcurrency+" cores · "+(navigator.deviceMemory||"?")+" GB",
+ "Touch points":navigator.maxTouchPoints,
+ "navigator.webdriver":String(navigator.webdriver),
+}};
+const dl=document.getElementById("facts");
+for(const[k,v]of Object.entries(facts)){{
+ dl.insertAdjacentHTML("beforeend","<dt></dt><dd><code></code></dd>");
+ dl.children[dl.children.length-2].textContent=k;
+ dl.lastElementChild.firstChild.textContent=v;
+}}
+// The checks a site would actually run: does the platform agree with the user
+// agent, and does the GPU belong to the operating system being claimed.
+const ua=navigator.userAgent, mac=/Mac OS X/.test(ua), win=/Windows NT/.test(ua);
+const problems=[];
+if(mac&&navigator.platform!=="MacIntel")problems.push("macOS user agent with platform "+navigator.platform);
+if(win&&navigator.platform!=="Win32")problems.push("Windows user agent with platform "+navigator.platform);
+if(mac&&/NVIDIA|Direct3D/.test(gl))problems.push("macOS user agent with a Windows GPU string");
+if(win&&/Metal|Apple/.test(gl))problems.push("Windows user agent with an Apple GPU string");
+if(navigator.webdriver)problems.push("navigator.webdriver is true");
+const v=document.getElementById("verdict");
+v.className="v "+(problems.length?"bad":"ok");
+v.textContent=problems.length?problems.join(" · "):"Consistent — the platform, the user agent and the GPU agree.";
+</script>"##
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -444,6 +583,24 @@ mod tests {
         let (h, p) = split_host_port("[2606:4700::1111]:8443", 443).unwrap();
         assert_eq!(h, "2606:4700::1111");
         assert_eq!(p, 8443);
+    }
+
+    #[test]
+    fn the_start_page_is_recognised_however_it_is_addressed() {
+        assert!(is_start_page("http://fury.invalid/", ""));
+        assert!(is_start_page("/", "Host: fury.invalid\r\n"));
+        assert!(is_start_page("http://fury.invalid:80/x", ""));
+        // And nothing else is intercepted, or a real site could be shadowed.
+        assert!(!is_start_page("http://example.com/", ""));
+        assert!(!is_start_page("http://notfury.invalid/", ""));
+    }
+
+    #[test]
+    fn the_start_page_escapes_what_it_prints() {
+        // The exit label comes from a proxy hostname the operator typed. It is
+        // shown, so it must not be able to close the tag it sits in.
+        let page = start_page("<script>alert(1)</script>");
+        assert!(!page.contains("<script>alert(1)"), "exit label was not escaped");
     }
 
     #[test]

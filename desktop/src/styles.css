@@ -55,6 +55,65 @@
   color-scheme: dark;
 }
 
+/* Light theme.
+ *
+ * Not an inversion. On a light background the same hierarchy needs different
+ * distances: hairlines have to darken rather than lighten, the accent has to
+ * come down in luminance to stay readable as button text, and the "faint" tier
+ * cannot simply be a paler grey or it drops below the contrast floor. Only the
+ * three meaning-carrying colours keep their roles. */
+:root[data-theme="light"] {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --raised: #f0f2f5;
+  --hover: #e9ecf1;
+  --line: #e2e5ea;
+  --line-strong: #cbd1d9;
+
+  --text: #14171c;
+  --text-dim: #545b66;
+  --text-faint: #767e8a;
+
+  --accent: #c9421c;
+  --accent-hover: #b03716;
+  --accent-dim: #fdeee9;
+
+  --ok: #197a4c;
+  --warn: #8a5a06;
+
+  color-scheme: light;
+}
+
+:root[data-theme="light"] .modal {
+  box-shadow: 0 24px 64px rgba(20, 23, 28, 0.18);
+}
+
+:root[data-theme="light"] .scrim {
+  background: rgba(20, 23, 28, 0.28);
+}
+
+:root[data-theme="light"] .verdict.good {
+  background: rgba(25, 122, 76, 0.1);
+}
+
+:root[data-theme="light"] .verdict.bad {
+  background: rgba(138, 90, 6, 0.1);
+}
+
+:root[data-theme="light"] button.primary {
+  color: #fff;
+}
+
+:root[data-theme="light"] button.danger {
+  border-color: #e0b6ac;
+  background: var(--accent-dim);
+  color: #a8331a;
+}
+
+:root[data-theme="light"] .error {
+  color: #a8331a;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -676,4 +735,26 @@ input::placeholder {
 
 .personaCard + .personaCard {
   margin-top: var(--s-2);
+}
+
+/* ---- settings ---------------------------------------------------------- */
+
+.settings {
+  max-width: 620px;
+}
+
+.settingsGroup {
+  margin-bottom: var(--s-6);
+}
+
+.settingsGroup h2 {
+  margin: 0 0 var(--s-1);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.settingsGroup > p {
+  margin: 0 0 var(--s-3);
+  color: var(--text-dim);
+  font-size: 12px;
 }

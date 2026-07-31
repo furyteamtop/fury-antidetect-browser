@@ -12,16 +12,7 @@
 use fury_shared::persona::Persona;
 use serde::Serialize;
 
-const BUILT_IN: &[(&str, &str)] = &[
-    (
-        "macos-15-m-series-1728x1117",
-        include_str!("../../shared/personas/macos-15-m-series-1728x1117.json"),
-    ),
-    (
-        "windows-11-rtx4060-1920x1080",
-        include_str!("../../shared/personas/windows-11-rtx4060-1920x1080.json"),
-    ),
-];
+
 
 /// What the interface shows in a persona picker.
 #[derive(Debug, Serialize)]
@@ -38,7 +29,11 @@ pub struct PersonaSummary {
 }
 
 pub fn catalogue() -> Vec<PersonaSummary> {
-    all()
+    let mut personas = all();
+    // Commonest first. Sorting here rather than in the table keeps the table
+    // grouped by family, which is how it is read and edited.
+    personas.sort_by(|a, b| b.weight.total_cmp(&a.weight));
+    personas
         .into_iter()
         .map(|p| PersonaSummary {
             os: format!("{} {}", p.os.name, p.os.version),
@@ -52,19 +47,9 @@ pub fn catalogue() -> Vec<PersonaSummary> {
 }
 
 pub fn all() -> Vec<Persona> {
-    let mut out: Vec<Persona> = BUILT_IN
-        .iter()
-        .filter_map(|(id, raw)| match serde_json::from_str::<Persona>(raw) {
-            Ok(p) => Some(p),
-            Err(e) => {
-                // A built-in that does not parse is a build mistake, not a
-                // runtime condition; say so loudly rather than shipping a
-                // shorter list nobody notices.
-                tracing::error!(persona = id, error = %e, "built-in persona does not parse");
-                None
-            }
-        })
-        .collect();
+    // The catalogue lives in the shared crate, where a test refuses to build if
+    // any entry describes a machine that cannot exist.
+    let mut out: Vec<Persona> = fury_shared::catalogue::all();
 
     if let Ok(dir) = std::env::var("FURY_PERSONAS") {
         if let Ok(entries) = std::fs::read_dir(&dir) {
@@ -99,13 +84,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_built_in_persona_parses_and_is_consistent() {
+    fn every_built_in_persona_is_consistent() {
         let all = all();
-        assert_eq!(all.len(), BUILT_IN.len(), "a built-in persona failed to parse");
+        assert!(all.len() >= 12, "only {} personas", all.len());
         for p in &all {
             p.validate()
                 .unwrap_or_else(|e| panic!("persona {}: {e:?}", p.id));
         }
+    }
+
+    #[test]
+    fn the_catalogue_is_sorted_so_common_machines_come_first() {
+        // An operator scanning the list should meet the ordinary machines
+        // before the rare ones; a rare-but-real device narrows the crowd.
+        let weights: Vec<f64> = catalogue().into_iter().map(|p| p.weight).collect();
+        assert!(
+            weights.windows(2).all(|w| w[0] >= w[1]),
+            "catalogue is not ordered by population share: {weights:?}"
+        );
     }
 
     #[test]

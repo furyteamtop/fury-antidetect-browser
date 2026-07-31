@@ -361,6 +361,15 @@ impl Agent {
         let dir = paths::profile_dir(&profile.id);
         std::fs::create_dir_all(&dir)?;
 
+        // Nothing configured means the start page, not a blank tab: the first
+        // thing an operator needs after opening a profile is proof that the
+        // disguise and the exit are working.
+        let start_urls = if profile.start_urls.is_empty() {
+            vec![crate::relay::START_URL.to_string()]
+        } else {
+            profile.start_urls.clone()
+        };
+
         let child = launcher::spawn(&launcher::LaunchSpec {
             core_binary: &core,
             user_data_dir: &dir,
@@ -372,7 +381,7 @@ impl Agent {
             restrictions: fury_shared::rbac::LaunchRestrictions::for_perms(
                 fury_shared::rbac::PermSet::full_profile_work(),
             ),
-            start_urls: &profile.start_urls,
+            start_urls: &start_urls,
             debug_port: None,
         })?;
 
