@@ -21,6 +21,12 @@ pub struct Settings {
     /// an agent reclaim a lock it already holds after a crash instead of
     /// waiting out the timeout.
     pub machine_id: String,
+
+    /// The address that signed in last, so unlocking after a restart asks for a
+    /// password rather than for both. Not a credential — the token is in the
+    /// keychain and the key it protects is not stored anywhere.
+    #[serde(default)]
+    pub last_email: Option<String>,
 }
 
 impl Settings {
@@ -43,6 +49,7 @@ impl Settings {
                 s
             }
             None => Settings {
+                last_email: None,
                 server_url: None,
                 machine_id: new_machine_id(),
             },

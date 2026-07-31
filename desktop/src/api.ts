@@ -130,6 +130,11 @@ export interface Shell {
   agent_ready: boolean;
   /** This build, for the About panel and for any bug report that follows. */
   version: string;
+  /** Whether this process holds the organisation key. A session survives a
+   *  restart; the key deliberately does not. So "signed in" and "able to
+   *  decrypt" are different states, and both have to be visible. */
+  org_key_ready: boolean;
+  last_email: string | null;
 }
 
 /** Note what is absent: the lock token. It authorises overwriting a bundle,
@@ -271,6 +276,8 @@ export const api = {
       mode: "team" as const,
       agent_ready: false,
       version: "dev",
+      org_key_ready: false,
+      last_email: null,
       // Vite proxies /v1, so in this mode the address is fixed by the dev
       // config rather than chosen by the operator.
       server_url: "http://127.0.0.1:8901 (vite proxy)",
@@ -354,6 +361,40 @@ export const api = {
       : projectId
         ? http<Profile[]>(`/v1/projects/${projectId}/profiles`)
         : Promise.resolve([]),
+
+  // ---- the team (server only) ------------------------------------------
+
+  orgMembers: (): Promise<{
+    members: {
+      user_id: string;
+      email: string;
+      role: string;
+      public_key: string;
+      has_key: boolean;
+      joined_at: string;
+      is_you: boolean;
+    }[];
+    invited: { email: string; role: string; expires_at: string }[];
+  }> => cmd("org_members"),
+
+  invite: (email: string, role: string): Promise<{ code: string; expires_in_hours: number }> =>
+    cmd("invite", { email, role }),
+
+  /** Seal the organisation key to a member's public key. Happens in Rust; the
+   *  key itself never reaches this side. */
+  handOverKey: (userId: string, publicKey: string): Promise<unknown> =>
+    cmd("hand_over_key", { userId, publicKey }),
+
+  grants: (projectId: string): Promise<{
+    granted: { user_id: string; email: string; role: string; permissions: Perm[] }[];
+    implicit: { user_id: string; email: string; role: string }[];
+  }> => cmd("grants", { projectId }),
+
+  grantAccess: (projectId: string, userId: string, permissions: Perm[]): Promise<unknown> =>
+    cmd("grant_access", { projectId, userId, permissions }),
+
+  revokeAccess: (projectId: string, userId: string): Promise<unknown> =>
+    cmd("revoke_access", { projectId, userId }),
 
   /** Ask the release feed whether there is a newer build. It never installs:
    *  see src-tauri/update.rs for why that waits on signed releases. */

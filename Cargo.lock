@@ -1405,6 +1405,7 @@ dependencies = [
  "base64 0.22.1",
  "fury-shared",
  "keyring",
+ "rand 0.8.7",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

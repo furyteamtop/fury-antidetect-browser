@@ -25,6 +25,10 @@ pub struct ProjectSummary {
 pub struct ProfileSummary {
     pub id: Uuid,
     pub project_id: Uuid,
+    /// So the flat list can say where a profile is filed without a second
+    /// request per row.
+    #[serde(default)]
+    pub project_name: String,
     pub name: String,
     pub tags: Vec<String>,
     pub persona_id: String,

@@ -761,6 +761,22 @@ input::placeholder {
   max-width: 620px;
 }
 
+.sectionTitle {
+  margin: 0 0 var(--s-2);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* The team screen scrolls on its own; .pad above is shared with empty states,
+   which must not. */
+.teamPane {
+  padding: var(--s-6) var(--s-3);
+  overflow-y: auto;
+}
+
 /* ---- settings tabs ------------------------------------------------------ */
 
 .tabs {

@@ -206,6 +206,17 @@ pub struct Shell {
     pub agent_ready: bool,
     /// This build, for the About panel and for any bug report that follows it.
     pub version: &'static str,
+
+    /// Whether this process holds the organisation key.
+    ///
+    /// A session survives a restart — the token is in the keychain — and the
+    /// key deliberately does not: it lives in memory for exactly as long as the
+    /// process. So "signed in" and "able to decrypt" are different states, and
+    /// the second one has to be visible, or the application comes back looking
+    /// signed in and quietly unable to open anything.
+    pub org_key_ready: bool,
+    /// Who signed in last, so unlocking asks for one field instead of two.
+    pub last_email: Option<String>,
 }
 
 fn mode_of(state: &AppState) -> &'static str {
@@ -232,6 +243,8 @@ pub async fn shell_state(state: State<'_, AppState>) -> Result<Shell, ApiErr> {
         mode,
         agent_ready,
         version: env!("CARGO_PKG_VERSION"),
+        org_key_ready: state.org_key.lock().unwrap().is_some(),
+        last_email: state.settings.lock().unwrap().last_email.clone(),
     })
 }
 
@@ -346,6 +359,12 @@ pub async fn login(state: State<'_, AppState>, email: String, password: String) 
     // the only moment it exists in this process. A failure here is not fatal to
     // signing in: someone whose key has not been handed over yet still has an
     // account, and should be able to see the team rather than a login error.
+    {
+        let mut settings = state.settings.lock().unwrap();
+        settings.last_email = Some(email.clone());
+        let _ = settings.save(&state.config_dir);
+    }
+
     match crypto::unlock_org_key(&password, &ok.kdf_salt, &ok.wrapped_private_key, ok.wrapped_ork.as_deref()) {
         Ok(key) => *state.org_key.lock().unwrap() = key,
         Err(e) => {
@@ -619,27 +638,21 @@ pub async fn profiles(
             .collect());
     }
 
-    // The server has no "every profile" listing yet — profiles are reachable
-    // only through the project they belong to. Rather than invent one client
-    // side by fanning out over every project, team mode keeps asking per
-    // project until that endpoint exists.
-    let Some(project_id) = project_id else {
-        return Ok(Vec::new());
+    // No project means every profile the caller may see — the same flat list
+    // local mode shows, resolved server-side where the permissions live.
+    let path = match &project_id {
+        Some(id) => format!("/v1/projects/{id}/profiles"),
+        None => "/v1/profiles".to_string(),
     };
     let remote: Vec<ProfileSummary> = state
-        .call(
-            reqwest::Method::GET,
-            &format!("/v1/projects/{project_id}/profiles"),
-            Body::None,
-            true,
-        )
+        .call(reqwest::Method::GET, &path, Body::None, true)
         .await?;
     Ok(remote
         .into_iter()
         .map(|p| UiProfile {
             id: p.id.to_string(),
             project_id: Some(p.project_id.to_string()),
-            project_name: None,
+            project_name: Some(p.project_name),
             name: p.name,
             tags: p.tags,
             persona_id: p.persona_id,
@@ -744,7 +757,7 @@ pub async fn launch(
     // profile that never opened is the thing locks are supposed to prevent,
     // arrived at from the wrong direction — a colleague waiting ninety seconds
     // for a browser that does not exist.
-    let launched = launch_from_spec(&state, &profile_id, &grant).await;
+    let launched = launch_from_spec(&state, &grant).await;
     if launched.is_err() {
         let _: R<serde_json::Value> = state
             .call(
@@ -767,11 +780,7 @@ pub async fn launch(
 }
 
 /// Turn a launch spec into a running browser.
-async fn launch_from_spec(
-    state: &AppState,
-    profile_id: &str,
-    grant: &LockGrant,
-) -> R<serde_json::Value> {
+async fn launch_from_spec(state: &AppState, grant: &LockGrant) -> R<serde_json::Value> {
     let spec = &grant.spec;
 
     let org_key = state
@@ -866,6 +875,111 @@ pub async fn stop(state: State<'_, AppState>, profile_id: String) -> R<serde_jso
 }
 
 // ---------------------------------------------------------------------------
+// the team
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn org_members(state: State<'_, AppState>) -> R<serde_json::Value> {
+    state.call(reqwest::Method::GET, "/v1/org/members", Body::None, true).await
+}
+
+#[tauri::command]
+pub async fn invite(
+    state: State<'_, AppState>,
+    email: String,
+    role: String,
+) -> R<serde_json::Value> {
+    state
+        .call(
+            reqwest::Method::POST,
+            "/v1/org/invitations",
+            Body::Json(serde_json::json!({ "email": email, "role": role })),
+            true,
+        )
+        .await
+}
+
+/// Let a member in.
+///
+/// The half that cannot happen on the server: their copy of the organisation
+/// key is sealed to their published public key, here, by someone who already
+/// holds it. The server stores the result and can do nothing with it.
+#[tauri::command]
+pub async fn hand_over_key(
+    state: State<'_, AppState>,
+    user_id: String,
+    public_key: String,
+) -> R<serde_json::Value> {
+    let org_key = state.org_key.lock().unwrap().ok_or_else(|| {
+        ApiErr::local(
+            "You do not hold the organisation key on this machine, so you cannot hand it to \
+             anyone. Sign in again, or ask an owner.",
+        )
+    })?;
+
+    let wrapped = crypto::wrap_for_member(&org_key, &public_key)
+        .map_err(|e| ApiErr::local(format!("Could not seal the key for them: {e}")))?;
+
+    state
+        .call(
+            reqwest::Method::POST,
+            &format!("/v1/org/members/{user_id}/key"),
+            Body::Json(serde_json::json!({ "wrapped_ork": wrapped })),
+            true,
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn grants(state: State<'_, AppState>, project_id: String) -> R<serde_json::Value> {
+    state
+        .call(
+            reqwest::Method::GET,
+            &format!("/v1/projects/{project_id}/grants"),
+            Body::None,
+            true,
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn grant_access(
+    state: State<'_, AppState>,
+    project_id: String,
+    user_id: String,
+    permissions: Vec<String>,
+) -> R<serde_json::Value> {
+    state
+        .call(
+            reqwest::Method::POST,
+            &format!("/v1/projects/{project_id}/grants"),
+            Body::Json(serde_json::json!({
+                "user_id": user_id,
+                "permissions": permissions,
+                "expires_at": serde_json::Value::Null,
+            })),
+            true,
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn revoke_access(
+    state: State<'_, AppState>,
+    project_id: String,
+    user_id: String,
+) -> R<serde_json::Value> {
+    state
+        .call(
+            reqwest::Method::DELETE,
+            &format!("/v1/projects/{project_id}/grants/{user_id}"),
+            Body::None,
+            true,
+        )
+        .await
+}
+
+// ---------------------------------------------------------------------------
 // local-only editing
 // ---------------------------------------------------------------------------
 
@@ -882,13 +996,75 @@ pub async fn preview(spec: serde_json::Value) -> R<serde_json::Value> {
 }
 
 #[tauri::command]
-pub async fn proxies() -> R<serde_json::Value> {
-    Ok(crate::agent::call("proxies.list", serde_json::json!({})).await?)
+pub async fn proxies(state: State<'_, AppState>) -> R<serde_json::Value> {
+    if mode_of(&state) == "local" {
+        return Ok(crate::agent::call("proxies.list", serde_json::json!({})).await?);
+    }
+    state.call(reqwest::Method::GET, "/v1/proxies", Body::None, true).await
 }
 
+/// Save a proxy.
+///
+/// In team mode the credentials are sealed here, before anything leaves this
+/// process: a per-proxy data key seals `{username, password}`, and only that
+/// key is wrapped under the organisation key. The server receives two blobs it
+/// cannot read.
+///
+/// Two layers rather than one because of what happens when somebody leaves.
+/// Removing a member means rotating the organisation key, and with this shape
+/// that is re-wrapping one small key per proxy — not re-encrypting every secret
+/// the team owns.
 #[tauri::command]
-pub async fn save_proxy(proxy: serde_json::Value) -> R<serde_json::Value> {
-    Ok(crate::agent::call("proxies.upsert", proxy).await?)
+pub async fn save_proxy(
+    state: State<'_, AppState>,
+    proxy: serde_json::Value,
+) -> R<serde_json::Value> {
+    if mode_of(&state) == "local" {
+        return Ok(crate::agent::call("proxies.upsert", proxy).await?);
+    }
+
+    // Editing a stored proxy needs a PATCH the server does not have yet, and
+    // silently creating a second one instead would leave the team with two
+    // exits where they asked for one.
+    if proxy.get("id").and_then(|v| v.as_str()).is_some_and(|v| !v.is_empty()) {
+        return Err(ApiErr::local(
+            "Changing a proxy on a team server is not built yet — add a new one and move the \
+             profiles across.",
+        ));
+    }
+
+    let org_key = state.org_key.lock().unwrap().ok_or_else(|| {
+        ApiErr::local(
+            "This machine does not hold the organisation key yet, so it cannot seal a proxy's \
+             credentials. An owner or admin has to hand the key over first.",
+        )
+    })?;
+
+    let field = |k: &str| proxy.get(k).and_then(|v| v.as_str()).map(str::to_string);
+    let credentials = fury_shared::api::ProxyCredentials {
+        username: field("username").filter(|v| !v.is_empty()),
+        password: field("password").filter(|v| !v.is_empty()),
+    };
+    let (credentials_enc, wrapped_dek) = crypto::seal_proxy_credentials(&org_key, &credentials)
+        .map_err(|e| ApiErr::local(format!("Could not seal the credentials: {e}")))?;
+
+    let hex = |v: &[u8]| v.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    state
+        .call(
+            reqwest::Method::POST,
+            "/v1/proxies",
+            Body::Json(serde_json::json!({
+                "name": field("name").unwrap_or_default(),
+                "kind": field("kind").unwrap_or_else(|| "socks5".into()),
+                "host": field("host").unwrap_or_default(),
+                "port": proxy.get("port").and_then(|v| v.as_i64()).unwrap_or(0),
+                "project_id": serde_json::Value::Null,
+                "credentials_enc": hex(&credentials_enc),
+                "wrapped_dek": hex(&wrapped_dek),
+            })),
+            true,
+        )
+        .await
 }
 
 #[tauri::command]
@@ -911,13 +1087,88 @@ pub async fn delete_proxy(id: String) -> R<serde_json::Value> {
 }
 
 #[tauri::command]
-pub async fn save_profile(profile: serde_json::Value) -> R<serde_json::Value> {
-    Ok(crate::agent::call("profiles.upsert", profile).await?)
+pub async fn save_profile(
+    state: State<'_, AppState>,
+    profile: serde_json::Value,
+) -> R<serde_json::Value> {
+    if mode_of(&state) == "local" {
+        return Ok(crate::agent::call("profiles.upsert", profile).await?);
+    }
+
+    let s = |k: &str| profile.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let list = |k: &str| -> Vec<String> {
+        profile
+            .get(k)
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+            .unwrap_or_default()
+    };
+    let proxy_id = profile
+        .get("proxy")
+        .and_then(|p| p.get("id"))
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| {
+            ApiErr::local(
+                "A team profile needs a proxy. Everything the browser does goes through one.",
+            )
+        })?;
+
+    let body = serde_json::json!({
+        "name": s("name"),
+        "notes": s("notes"),
+        "tags": list("tags"),
+        "timezone": s("timezone"),
+        "languages": list("languages"),
+        "proxy_id": proxy_id,
+        "start_urls": list("start_urls"),
+    });
+
+    let id = s("id");
+    if id.is_empty() {
+        // New. The seed is generated here, once, and never again — see the
+        // comment on the server's create endpoint for why it cannot move.
+        let seed: u64 = {
+            use rand::Rng;
+            rand::thread_rng().gen()
+        };
+        let project_id = s("project_id");
+        if project_id.is_empty() {
+            return Err(ApiErr::local(
+                "A team profile has to live in a project — that is what carries access to it.",
+            ));
+        }
+        let mut body = body;
+        body["persona_id"] = serde_json::json!(s("persona_id"));
+        body["fp_seed"] = serde_json::json!(fury_shared::persona::seed::to_hex(seed));
+        state
+            .call(
+                reqwest::Method::POST,
+                &format!("/v1/projects/{project_id}/profiles"),
+                Body::Json(body),
+                true,
+            )
+            .await
+    } else {
+        state
+            .call(
+                reqwest::Method::PATCH,
+                &format!("/v1/profiles/{id}"),
+                Body::Json(body),
+                true,
+            )
+            .await
+    }
 }
 
 #[tauri::command]
-pub async fn delete_profile(id: String) -> R<serde_json::Value> {
-    Ok(crate::agent::call("profiles.delete", serde_json::json!({ "id": id })).await?)
+pub async fn delete_profile(state: State<'_, AppState>, id: String) -> R<serde_json::Value> {
+    if mode_of(&state) == "local" {
+        return Ok(crate::agent::call("profiles.delete", serde_json::json!({ "id": id })).await?);
+    }
+    state
+        .call(reqwest::Method::DELETE, &format!("/v1/profiles/{id}"), Body::None, true)
+        .await
 }
 
 #[tauri::command]

@@ -51,4 +51,5 @@ uuid.workspace = true
 keyring = "4"
 whoami = "1"
 base64 = "0.22"
+rand.workspace = true
 tracing.workspace = true

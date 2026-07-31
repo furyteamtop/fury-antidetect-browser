@@ -48,7 +48,13 @@ pub fn routes() -> Router<Arc<AppState>> {
             "/v1/projects/{project_id}/grants/{user_id}",
             axum::routing::delete(revoke_access),
         )
+        .route("/v1/profiles", get(list_all_profiles))
         .route("/v1/proxies", get(list_proxies).post(create_proxy))
+        .route("/v1/proxies/{proxy_id}", axum::routing::delete(delete_proxy))
+        .route(
+            "/v1/profiles/{profile_id}",
+            axum::routing::patch(edit_profile).delete(delete_profile),
+        )
         .route(
             "/v1/projects/{project_id}/profiles",
             get(list_profiles).post(create_profile),
@@ -591,6 +597,14 @@ async fn list_profiles(
     caller: Caller,
     Path(project_id): Path<Uuid>,
 ) -> ApiResult<Json<Vec<ProfileSummary>>> {
+    profiles_in(&state, &caller, project_id).await
+}
+
+async fn profiles_in(
+    state: &AppState,
+    caller: &Caller,
+    project_id: Uuid,
+) -> ApiResult<Json<Vec<ProfileSummary>>> {
     let perms = rbac_guard::permissions_for(&state.db, caller.user_id, project_id).await?;
     if perms == PermSet::NONE {
         return Err(ApiError::NotFound);
@@ -605,14 +619,16 @@ async fn list_profiles(
         Uuid, String, Vec<String>, String, i32,
         Option<Uuid>, Option<String>, Option<String>, Option<String>, Option<String>,
         Option<Uuid>, Option<String>, Option<String>, Option<String>, Option<String>,
+        String,
     )> = sqlx::query_as(
         &format!(
             r#"
         SELECT f.id, f.name, f.tags, f.persona_id, f.current_version,
-               x.id, x.name, x.kind::text, x.host, x.last_country,
+               x.id, x.name, x.kind::text, x.host || ':' || x.port, x.last_country,
                l.user_id, u.email, l.machine_name,
-               {acquired}, {expires}
+               {acquired}, {expires}, p.name
         FROM profiles f
+        JOIN projects p ON p.id = f.project_id
         LEFT JOIN proxies x ON x.id = f.proxy_id AND x.deleted_at IS NULL
         LEFT JOIN profile_locks l ON l.profile_id = f.id AND l.expires_at > now()
         LEFT JOIN users u ON u.id = l.user_id
@@ -634,10 +650,12 @@ async fn list_profiles(
                 id, name, tags, persona_id, current_version,
                 proxy_id, proxy_name, proxy_kind, proxy_host, proxy_country,
                 lock_user, lock_email, lock_machine, lock_acquired, lock_expires,
+                project_name,
             )| {
                 ProfileSummary {
                     id,
                     project_id,
+                    project_name,
                     name,
                     tags,
                     persona_id,
@@ -649,9 +667,15 @@ async fn list_profiles(
                         // Without reveal_secrets the host is masked here, on the
                         // server. Masking in the UI would still have sent the
                         // real value over the wire.
+                        // host:port in both cases. The first version showed
+                        // only the host, and a provider selling fifty exits
+                        // behind one gateway made every profile look identical.
                         display: match (&proxy_host, reveal) {
                             (Some(h), true) => h.clone(),
-                            (Some(h), false) => mask_host(h),
+                            (Some(h), false) => match h.rsplit_once(':') {
+                                Some((host, port)) => format!("{}:{port}", mask_host(host)),
+                                None => mask_host(h),
+                            },
                             (None, _) => String::new(),
                         },
                         country: proxy_country,
@@ -672,6 +696,46 @@ async fn list_profiles(
         )
         .collect();
 
+    Ok(Json(out))
+}
+
+/// Every profile the caller may see, across every project.
+///
+/// The interface's Profiles view is the flat list of everything an operator can
+/// work with, and a project narrows it. Without this the team-mode version of
+/// that screen was empty until somebody clicked a project — the first thing a
+/// new member sees being "nothing here" while their work sits one click away.
+///
+/// Resolved per project rather than in one query with a join, because the
+/// permissions differ per project and a row must carry the ones that apply to
+/// it. It is a handful of small queries against an index, and the alternative
+/// is a query whose correctness nobody can check by reading it.
+async fn list_all_profiles(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+) -> ApiResult<Json<Vec<ProfileSummary>>> {
+    let projects: Vec<(Uuid,)> = sqlx::query_as(
+        "SELECT p.id FROM projects p \
+         JOIN org_members m ON m.org_id = p.org_id AND m.user_id = $1 \
+         LEFT JOIN project_grants g ON g.project_id = p.id AND g.user_id = $1 \
+                AND (g.expires_at IS NULL OR g.expires_at > now()) \
+         WHERE p.deleted_at IS NULL AND ($2 OR g.permissions IS NOT NULL) \
+         ORDER BY p.name",
+    )
+    .bind(caller.user_id)
+    .bind(fury_shared::rbac::has_implicit_project_access(caller.role))
+    .fetch_all(&state.db)
+    .await?;
+
+    let mut out = Vec::new();
+    for (project_id,) in projects {
+        // Reusing the per-project handler rather than a second copy of its
+        // query: two listings that drift apart is how one of them starts
+        // showing an unmasked host.
+        let Json(mut rows) = profiles_in(&state, &caller, project_id).await?;
+        out.append(&mut rows);
+    }
+    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Ok(Json(out))
 }
 
@@ -1106,6 +1170,180 @@ async fn create_profile(
 
     audit(&state, &caller, "profile.create", Some(id), json!({ "name": req.name })).await?;
     Ok(Json(json!({ "id": id })))
+}
+
+/// Retire a proxy.
+///
+/// Soft, and the profiles that used it keep working until someone gives them
+/// another — `ON DELETE SET NULL`, because a warmed account is worth more than
+/// the exit it happened to go out through. They will refuse to launch, with a
+/// sentence saying why, which is the correct amount of stopping.
+async fn delete_proxy(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+    Path(proxy_id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    use fury_shared::rbac::OrgRole;
+    if !matches!(caller.role, OrgRole::Owner | OrgRole::Admin) {
+        return Err(ApiError::Denied(Perm::EditProxy));
+    }
+    let used: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM profiles WHERE proxy_id = $1 AND deleted_at IS NULL",
+    )
+    .bind(proxy_id)
+    .fetch_one(&state.db)
+    .await?;
+
+    let updated = sqlx::query(
+        "UPDATE proxies SET deleted_at = now() \
+         WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL",
+    )
+    .bind(proxy_id)
+    .bind(caller.org_id)
+    .execute(&state.db)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(ApiError::NotFound);
+    }
+
+    audit(&state, &caller, "proxy.delete", Some(proxy_id), json!({ "profiles": used })).await?;
+    Ok(Json(json!({ "deleted": true, "profiles_left_without_a_proxy": used })))
+}
+
+#[derive(Deserialize)]
+pub struct EditProfileRequest {
+    name: String,
+    #[serde(default)]
+    notes: String,
+    #[serde(default)]
+    tags: Vec<String>,
+    timezone: String,
+    languages: Vec<String>,
+    proxy_id: Uuid,
+    #[serde(default)]
+    start_urls: Vec<String>,
+}
+
+/// Change a profile. Never its persona or its seed.
+///
+/// Those two are the machine the account has been seen on, and changing them is
+/// not an edit — it is telling a site that a device it has known for months has
+/// been replaced. Nothing in this API can do it, which is why there is no field
+/// for it here rather than a check that rejects one.
+async fn edit_profile(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+    Path(profile_id): Path<Uuid>,
+    Json(req): Json<EditProfileRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let perms = rbac_guard::permissions_for_profile(&state.db, caller.user_id, profile_id).await?;
+    if perms == PermSet::NONE {
+        return Err(ApiError::NotFound);
+    }
+    if !perms.has(Perm::EditProfile) {
+        return Err(ApiError::Denied(Perm::EditProfile));
+    }
+
+    if req.name.trim().is_empty() {
+        return Err(ApiError::BadRequest("a profile needs a name".into()));
+    }
+    if req.timezone.trim().is_empty() || req.languages.is_empty() {
+        return Err(ApiError::BadRequest(
+            "a profile needs a timezone and at least one language".into(),
+        ));
+    }
+
+    // Changing which exit a profile uses is its own permission: it is the one
+    // edit that changes where the account appears to be.
+    let current: Option<Uuid> = sqlx::query_scalar("SELECT proxy_id FROM profiles WHERE id = $1")
+        .bind(profile_id)
+        .fetch_one(&state.db)
+        .await?;
+    if current != Some(req.proxy_id) && !perms.has(Perm::EditProxy) {
+        return Err(ApiError::Denied(Perm::EditProxy));
+    }
+
+    let usable: Option<(bool,)> = sqlx::query_as(
+        "SELECT (credentials_enc IS NOT NULL AND wrapped_dek IS NOT NULL) \
+         FROM proxies WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL",
+    )
+    .bind(req.proxy_id)
+    .bind(caller.org_id)
+    .fetch_optional(&state.db)
+    .await?;
+    match usable {
+        None => return Err(ApiError::BadRequest("no such proxy".into())),
+        Some((false,)) => {
+            return Err(ApiError::BadRequest(
+                "that proxy has no stored credentials, so nothing could launch through it".into(),
+            ))
+        }
+        Some((true,)) => {}
+    }
+
+    sqlx::query(
+        "UPDATE profiles SET name = $1, notes = $2, tags = $3, timezone = $4, \
+                             languages = $5, proxy_id = $6, start_urls = $7 \
+         WHERE id = $8 AND deleted_at IS NULL",
+    )
+    .bind(req.name.trim())
+    .bind(&req.notes)
+    .bind(&req.tags)
+    .bind(&req.timezone)
+    .bind(&req.languages)
+    .bind(req.proxy_id)
+    .bind(&req.start_urls)
+    .bind(profile_id)
+    .execute(&state.db)
+    .await?;
+
+    audit(&state, &caller, "profile.edit", Some(profile_id), json!({ "name": req.name })).await?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// Send a profile to the trash.
+///
+/// Soft, always. A profile holds a warmed account, and the difference between
+/// hiding one and destroying one must never be a single click — the same rule
+/// the local store follows. Refused while it is open: a browser closing after
+/// this would push a bundle into a profile nobody can find.
+async fn delete_profile(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+    Path(profile_id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let perms = rbac_guard::permissions_for_profile(&state.db, caller.user_id, profile_id).await?;
+    if perms == PermSet::NONE {
+        return Err(ApiError::NotFound);
+    }
+    if !perms.has(Perm::DeleteProfile) {
+        return Err(ApiError::Denied(Perm::DeleteProfile));
+    }
+
+    let open: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM profile_locks WHERE profile_id = $1 AND expires_at > now())",
+    )
+    .bind(profile_id)
+    .fetch_one(&state.db)
+    .await?;
+    if open {
+        return Err(ApiError::Conflict(
+            "this profile is open right now. Close it first — a browser closing after it was \
+             deleted would save into a profile nobody can find"
+                .into(),
+        ));
+    }
+
+    let updated = sqlx::query("UPDATE profiles SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL")
+        .bind(profile_id)
+        .execute(&state.db)
+        .await?;
+    if updated.rows_affected() == 0 {
+        return Err(ApiError::NotFound);
+    }
+
+    audit(&state, &caller, "profile.delete", Some(profile_id), json!({})).await?;
+    Ok(Json(json!({ "deleted": true })))
 }
 
 // ---------------------------------------------------------------------------

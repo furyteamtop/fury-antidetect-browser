@@ -5,13 +5,19 @@ import { api } from "../api";
 export function Login({
   onSuccess,
   onEnrol,
+  unlockFor,
 }: {
   onSuccess: () => void;
   /** There is no registration form, so the only way to a first account is an
    *  invitation — and this screen is where someone holding one arrives. */
   onEnrol: () => void;
+  /** Set when the session is alive but the organisation key is not: the app was
+   *  restarted, and the key lives in memory for exactly as long as the process
+   *  that holds it. This is the same form doing a different job — the password
+   *  is what the key is derived from, so there is nothing else it could be. */
+  unlockFor?: string | null;
 }) {
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(unlockFor ?? "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -37,6 +43,7 @@ export function Login({
   return (
     <form className="login" onSubmit={submit}>
       <h1>Fury</h1>
+      {unlockFor && <p className="muted center">{t("auth.unlockWhy")}</p>}
       <input
         type="email"
         placeholder={t("auth.email")}
@@ -52,11 +59,13 @@ export function Login({
       />
       {error && <p className="error">{error}</p>}
       <button type="submit" disabled={busy || !email || !password}>
-        {busy ? t("auth.signingIn") : t("auth.signIn")}
+        {busy ? t("auth.signingIn") : unlockFor ? t("auth.unlock") : t("auth.signIn")}
       </button>
-      <button type="button" className="linky" onClick={onEnrol}>
-        {t("enrol.have")}
-      </button>
+      {!unlockFor && (
+        <button type="button" className="linky" onClick={onEnrol}>
+          {t("enrol.have")}
+        </button>
+      )}
     </form>
   );
 }

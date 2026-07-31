@@ -2,7 +2,7 @@ import { useI18n } from "../i18n";
 import { useState } from "react";
 import type { Me, Project, Shell } from "../api";
 
-export type View = "profiles" | "proxies" | "trash";
+export type View = "profiles" | "proxies" | "trash" | "team";
 
 export function Sidebar({
   projects,
@@ -47,6 +47,14 @@ export function Sidebar({
       )}
 
       <nav>
+        {!local && (
+          <button
+            className={view === "team" ? "nav active" : "nav"}
+            onClick={() => onView("team")}
+          >
+            <span>{t("nav.team")}</span>
+          </button>
+        )}
         {local && (
           <>
             {/* Sections first, projects under them: the sections are where an

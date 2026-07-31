@@ -8,6 +8,7 @@ import { CommandPalette, type Command } from "./components/CommandPalette";
 import { ProfileTable } from "./components/ProfileTable";
 import { Proxies } from "./components/Proxies";
 import { Trash } from "./components/Trash";
+import { Team } from "./components/Team";
 import { ServerSetup } from "./components/ServerSetup";
 import { Enrol } from "./components/Enrol";
 import { Settings } from "./components/Settings";
@@ -147,6 +148,18 @@ export function App() {
       />
     ) : (
       <ServerSetup onDone={setShell} />
+    );
+  }
+
+  // Signed in, and holding nothing that can open a profile. The session came
+  // back from the keychain; the organisation key never does, by design.
+  if (!local && !shell.org_key_ready) {
+    return (
+      <Login
+        onSuccess={() => void api.shell().then(setShell)}
+        onEnrol={() => setEnrolling(true)}
+        unlockFor={shell.last_email}
+      />
     );
   }
 
@@ -367,7 +380,9 @@ export function App() {
               ? t("trash.title")
               : view === "proxies"
                 ? t("nav.proxies")
-                : (active?.name ?? t("nav.profiles"))}
+                : view === "team"
+                  ? t("nav.team")
+                  : (active?.name ?? t("nav.profiles"))}
           </h1>
           {view === "profiles" && (
             <span className="muted">{t("app.profileCount", { n: profiles.length })}</span>
@@ -528,6 +543,8 @@ export function App() {
             and saying the latter to someone who has been granted nothing sends
             them looking for a profile list that was never theirs. */}
         {view === "proxies" && <Proxies profiles={profiles} />}
+
+        {view === "team" && <Team projects={projects} />}
 
         {view === "trash" && (
           <Trash
