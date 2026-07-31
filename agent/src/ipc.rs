@@ -426,6 +426,49 @@ impl Agent {
                 Ok(json!({ "project_id": project_id, "profiles": count }))
             }
 
+            // Seal a profile into a bundle, and open one back.
+            //
+            // Here before sync needs it, and reachable on its own, because the
+            // encryption is the part that has to be right: a sync layer built
+            // on top of an untested seal would be discovered wrong by a server
+            // holding readable cookies.
+            "profile.pack" => {
+                let id = str_param(&params, "id")?;
+                {
+                    let running = self.running.lock().await;
+                    if running.contains_key(&id) {
+                        anyhow::bail!(
+                            "close the profile first — a browser writes its cookie jar on its \
+                             own schedule, and a bundle taken mid-run restores logged out"
+                        );
+                    }
+                }
+                let sealed = crate::bundle::pack(&paths::profile_dir(&id), self.store.vault())?;
+                let out = paths::data_dir().join("bundles");
+                std::fs::create_dir_all(&out)?;
+                let path = out.join(format!("{id}.bundle"));
+                std::fs::write(&path, &sealed.bytes)?;
+                Ok(json!({
+                    "path": path.display().to_string(),
+                    "bytes": sealed.bytes.len(),
+                    "sha256": sealed.sha256,
+                    "wrapped_key": sealed.wrapped_key,
+                }))
+            }
+
+            "profile.unpack" => {
+                let id = str_param(&params, "id")?;
+                let path = std::path::PathBuf::from(str_param(&params, "path")?);
+                let wrapped_key = str_param(&params, "wrapped_key")?;
+                let files = crate::bundle::unpack(
+                    &std::fs::read(&path)?,
+                    &wrapped_key,
+                    self.store.vault(),
+                    &paths::profile_dir(&id),
+                )?;
+                Ok(json!({ "files": files }))
+            }
+
             "profiles.trash" => {
                 // Carries `running: false` explicitly. Nothing in the trash can
                 // be open, but the shell reads one shape for both listings, and

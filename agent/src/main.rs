@@ -7,6 +7,7 @@
 //! Only the pieces that stand on their own today are wired up; see
 //! docs/09-roadmap.md for what is still missing.
 
+mod bundle;
 mod ipc;
 mod launcher;
 mod paths;

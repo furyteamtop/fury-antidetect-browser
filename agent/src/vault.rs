@@ -100,6 +100,18 @@ impl Vault {
     pub fn available(&self) -> bool {
         self.key.is_some()
     }
+
+    /// A vault with a known key, so tests never touch the real keychain — and
+    /// never leave an entry behind on the machine that ran them.
+    #[cfg(test)]
+    pub fn for_tests(key: [u8; 32]) -> Self {
+        Self { key: Some(key) }
+    }
+
+    #[cfg(test)]
+    pub fn for_tests_without_key() -> Self {
+        Self { key: None }
+    }
 }
 
 fn load_or_create() -> Option<[u8; 32]> {

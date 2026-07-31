@@ -359,6 +359,12 @@ impl Store {
         p
     }
 
+    /// The machine key, shared rather than rebuilt: a second vault would seal
+    /// values the first could not open.
+    pub fn vault(&self) -> &crate::vault::Vault {
+        &self.vault
+    }
+
     /// Whether secrets are actually being sealed, for the interface to report.
     pub fn vault_available(&self) -> bool {
         self.vault.available()
