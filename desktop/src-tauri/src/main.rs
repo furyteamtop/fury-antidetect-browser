@@ -57,11 +57,24 @@ fn main() {
                 .user_agent(concat!("fury-desktop/", env!("CARGO_PKG_VERSION")))
                 .build()?;
 
+            // Touch the credential store once, here, where a failure is
+            // visible. keyring 4 marks its store "initialised" *before* it
+            // builds one (v1.rs), so a single transient failure — a locked
+            // keychain, a denied prompt — poisons the process: every later
+            // Entry::new skips setup and fails against a store that was never
+            // installed. Probing at startup turns that into one line in the log
+            // at the moment it happens, instead of a session that silently
+            // stops being remembered.
+            if let Err(e) = keyring::Entry::new("dev.fury.desktop", "startup-probe") {
+                eprintln!("keychain unavailable — sessions will not be remembered: {e}");
+            }
+
             app.manage(AppState {
                 http,
                 settings: Mutex::new(settings),
                 config_dir,
                 session,
+                locks: Default::default(),
             });
             Ok(())
         })

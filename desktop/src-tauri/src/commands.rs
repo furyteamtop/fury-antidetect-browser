@@ -16,6 +16,7 @@
 //! (`api.ts`) whether the call went through Rust or, in browser development
 //! mode, through fetch.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -31,6 +32,15 @@ pub struct AppState {
     pub settings: Mutex<Settings>,
     pub config_dir: PathBuf,
     pub session: Session,
+
+    /// Lock tokens held by this process, by profile id.
+    ///
+    /// Kept here for the same reason as the session token. A lock token
+    /// authorises a bundle upload that overwrites whatever a force-released
+    /// holder had — handing it to the webview would undo the one property this
+    /// whole layer exists to establish. The agent will take these over when it
+    /// lands; until then they are what lets `unlock` prove it is the holder.
+    pub locks: Mutex<HashMap<String, String>>,
 }
 
 /// A failed call, in the same shape the browser transport produces.
@@ -188,9 +198,12 @@ pub fn shell_state(state: State<'_, AppState>) -> Shell {
 pub async fn set_server(state: State<'_, AppState>, url: String) -> R<Shell> {
     let normalised = settings::normalise_server_url(&url).map_err(ApiErr::local)?;
 
-    // /v1/me without a token: a Fury server answers 401 with a JSON body. Any
-    // 2xx/4xx JSON response proves something is listening and speaking our
-    // dialect; a connection error does not.
+    // /v1/me with no token. A Fury server answers exactly 401 with
+    // {"error":"unauthenticated"} — see server/src/error.rs. Checking for that
+    // pair rather than "some JSON with an error key" matters: half the APIs on
+    // the internet return an error object, and accepting one of those here would
+    // save an address that fails much later, during sign-in, where it reads as a
+    // wrong password.
     let probe = state
         .http
         .get(format!("{normalised}/v1/me"))
@@ -205,12 +218,18 @@ pub async fn set_server(state: State<'_, AppState>, url: String) -> R<Shell> {
         })?;
 
     let status = probe.status();
-    let looks_like_fury = probe
+    let body: Option<serde_json::Value> = probe
         .text()
         .await
         .ok()
-        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .is_some_and(|v| v.get("error").is_some() || v.get("user_id").is_some());
+        .and_then(|t| serde_json::from_str(&t).ok());
+
+    let looks_like_fury = status == reqwest::StatusCode::UNAUTHORIZED
+        && body
+            .as_ref()
+            .and_then(|v| v.get("error"))
+            .and_then(serde_json::Value::as_str)
+            == Some("unauthenticated");
 
     if !looks_like_fury {
         return Err(ApiErr::local(format!(
@@ -313,35 +332,68 @@ pub async fn profiles(state: State<'_, AppState>, project_id: String) -> R<Vec<P
         .await
 }
 
+/// What the server grants, in full. Only part of it crosses to the webview.
+#[derive(Deserialize)]
+struct LockGrant {
+    lock_token: String,
+    expires_at: String,
+    restrictions: serde_json::Value,
+}
+
+/// What the interface is told: when the lock lapses, and how a launch would be
+/// constrained. Not the token.
+#[derive(Serialize)]
+pub struct LockHeld {
+    pub expires_at: String,
+    pub restrictions: serde_json::Value,
+    /// Seconds until the lock lapses unless something renews it. Nothing does
+    /// yet — the heartbeat belongs to the agent (docs/01) — so the interface has
+    /// to be able to say so rather than imply the lock is durable.
+    pub renewed: bool,
+}
+
 #[tauri::command]
-pub async fn lock(
-    state: State<'_, AppState>,
-    profile_id: String,
-    force: bool,
-) -> R<serde_json::Value> {
+pub async fn lock(state: State<'_, AppState>, profile_id: String, force: bool) -> R<LockHeld> {
     let body = serde_json::json!({
         "machine_id": state.machine_id(),
         "machine_name": settings::machine_name(),
         "force": force,
     });
-    state
+    let grant: LockGrant = state
         .call(
             reqwest::Method::POST,
             &format!("/v1/profiles/{profile_id}/lock"),
             Body::Json(body),
             true,
         )
-        .await
+        .await?;
+
+    state
+        .locks
+        .lock()
+        .unwrap()
+        .insert(profile_id, grant.lock_token);
+
+    Ok(LockHeld {
+        expires_at: grant.expires_at,
+        restrictions: grant.restrictions,
+        renewed: false,
+    })
 }
 
 #[tauri::command]
-pub async fn unlock(state: State<'_, AppState>, profile_id: String) -> R<serde_json::Value> {
-    state
+pub async fn unlock(state: State<'_, AppState>, profile_id: String) -> R<()> {
+    let _: serde_json::Value = state
         .call(
             reqwest::Method::POST,
             &format!("/v1/profiles/{profile_id}/unlock"),
             Body::None,
             true,
         )
-        .await
+        .await?;
+    // Dropped only after the server agreed. Forgetting it on a failed release
+    // would leave this process unable to prove it is the holder of a lock it
+    // still has.
+    state.locks.lock().unwrap().remove(&profile_id);
+    Ok(())
 }

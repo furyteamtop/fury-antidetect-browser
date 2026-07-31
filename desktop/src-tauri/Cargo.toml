@@ -20,10 +20,26 @@ tauri = { version = "2", features = [] }
 # stale view of the other's work. See the comment in main.rs.
 tauri-plugin-single-instance = "2"
 
-# rustls rather than the platform TLS stack: a self-hosted server often sits
-# behind a certificate the OS store has to be taught about, and one TLS
-# implementation across macOS and Windows means one set of failures to explain.
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# rustls for one TLS implementation across macOS and Windows — one set of
+# failures to explain instead of two.
+#
+# The roots must come from the OS, not from webpki-roots. `rustls-tls` alone
+# resolves to `rustls-tls-webpki-roots`, which compiles in Mozilla's list and
+# ignores the platform trust store entirely — so an admin who installs their
+# organisation's internal CA into the System keychain would still get a TLS
+# failure, reported by set_server as "nothing answered". Internal CAs are the
+# normal case for a self-hosted product, not the exception.
+#
+# default-features = false also drops charset, http2 and system-proxy, so they
+# are named explicitly. system-proxy is what makes the app work behind a
+# corporate proxy configured in System Settings rather than in the environment.
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls-native-roots",
+    "charset",
+    "http2",
+    "system-proxy",
+] }
 
 anyhow.workspace = true
 serde.workspace = true

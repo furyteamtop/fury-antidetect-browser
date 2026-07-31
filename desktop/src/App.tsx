@@ -90,10 +90,13 @@ export function App() {
         .filter(([, on]) => on)
         .map(([k]) => k);
       // The agent is not wired up yet, so say exactly that rather than
-      // pretending a browser opened.
+      // pretending a browser opened — and say that the lock lapses, since
+      // nothing renews it until the agent owns the heartbeat. "Held until
+      // 05:19" alone would read as a promise.
       setError(
-        `Lock held until ${new Date(res.expires_at).toLocaleTimeString()}. ` +
-          `The local agent is not connected yet, so nothing was launched. ` +
+        `Lock taken; it lapses at ${new Date(res.expires_at).toLocaleTimeString()}` +
+          `${res.renewed ? "" : " and nothing is renewing it yet"}. ` +
+          `The local agent is not connected, so nothing was launched. ` +
           `Restrictions it would apply: ${applied.length ? applied.join(", ") : "none"}.`,
       );
       await refreshProfiles();

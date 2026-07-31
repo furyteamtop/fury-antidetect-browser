@@ -77,10 +77,14 @@ export interface Shell {
   native: boolean;
 }
 
+/** Note what is absent: the lock token. It authorises overwriting a bundle,
+ *  so in the desktop build it stays in Rust — the interface only needs to know
+ *  when the lock lapses and how a launch would be constrained. */
 export interface LockResult {
-  lock_token: string;
   expires_at: string;
   restrictions: Record<string, boolean>;
+  /** False while nothing renews the lock. The heartbeat belongs to the agent. */
+  renewed: boolean;
 }
 
 const TOKEN_KEY = "fury.token";
