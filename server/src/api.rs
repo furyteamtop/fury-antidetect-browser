@@ -32,6 +32,7 @@ pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/v1/auth/login", post(login))
         .route("/v1/auth/logout", post(logout))
+        .route("/v1/me", get(whoami))
         .route("/v1/projects", get(list_projects))
         .route("/v1/projects/{project_id}/profiles", get(list_profiles))
         .route("/v1/projects/{project_id}/grants", post(grant_access))
@@ -87,6 +88,28 @@ async fn login(
     .await?;
 
     Ok(Json(json!({ "token": raw, "user_id": user_id })))
+}
+
+/// Who the presented token belongs to.
+///
+/// The login response already carries this, but a client that restarts holds
+/// only a token. Without this endpoint it cannot tell whether a lock is its own
+/// or a colleague's — and "you are already in this profile" versus "take it away
+/// from someone" must never be the same button.
+async fn whoami(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+) -> ApiResult<Json<serde_json::Value>> {
+    let (email,): (String,) = sqlx::query_as("SELECT email FROM users WHERE id = $1")
+        .bind(caller.user_id)
+        .fetch_one(&state.db)
+        .await?;
+    Ok(Json(json!({
+        "user_id": caller.user_id,
+        "email": email,
+        "org_id": caller.org_id,
+        "role": caller.role,
+    })))
 }
 
 async fn logout(State(state): State<Arc<AppState>>, caller: Caller) -> ApiResult<Json<serde_json::Value>> {
@@ -163,12 +186,14 @@ async fn list_profiles(
     let rows: Vec<(
         Uuid, String, Vec<String>, String, i32,
         Option<Uuid>, Option<String>, Option<String>, Option<String>, Option<String>,
-        Option<Uuid>, Option<String>, Option<String>,
+        Option<Uuid>, Option<String>, Option<String>, Option<String>, Option<String>,
     )> = sqlx::query_as(
-        r#"
+        &format!(
+            r#"
         SELECT f.id, f.name, f.tags, f.persona_id, f.current_version,
                x.id, x.name, x.kind::text, x.host, x.last_country,
-               l.user_id, u.email, l.machine_name
+               l.user_id, u.email, l.machine_name,
+               {acquired}, {expires}
         FROM profiles f
         LEFT JOIN proxies x ON x.id = f.proxy_id AND x.deleted_at IS NULL
         LEFT JOIN profile_locks l ON l.profile_id = f.id AND l.expires_at > now()
@@ -176,6 +201,9 @@ async fn list_profiles(
         WHERE f.project_id = $1 AND f.deleted_at IS NULL
         ORDER BY f.name
         "#,
+            acquired = rfc3339("l.acquired_at"),
+            expires = rfc3339("l.expires_at"),
+        ),
     )
     .bind(project_id)
     .fetch_all(&state.db)
@@ -187,7 +215,7 @@ async fn list_profiles(
             |(
                 id, name, tags, persona_id, current_version,
                 proxy_id, proxy_name, proxy_kind, proxy_host, proxy_country,
-                lock_user, lock_email, lock_machine,
+                lock_user, lock_email, lock_machine, lock_acquired, lock_expires,
             )| {
                 ProfileSummary {
                     id,
@@ -217,8 +245,8 @@ async fn list_profiles(
                         user_id: uid,
                         user_email: lock_email.unwrap_or_default(),
                         machine_name: lock_machine.unwrap_or_default(),
-                        acquired_at: String::new(),
-                        expires_at: String::new(),
+                        acquired_at: lock_acquired.unwrap_or_default(),
+                        expires_at: lock_expires.unwrap_or_default(),
                     }),
                     permissions: perms.to_vec(),
                 }
@@ -227,6 +255,21 @@ async fn list_profiles(
         .collect();
 
     Ok(Json(out))
+}
+
+/// SQL that renders a `timestamptz` as RFC 3339 in UTC.
+///
+/// Every timestamp crossing the wire goes through this. The first version used
+/// `to_char(..., 'OF')`, which writes a whole-hour offset as `+00` — legal in
+/// Postgres, not legal in RFC 3339, and `new Date()` in the UI answered
+/// `Invalid Date`. Converting to UTC and appending a literal `Z` removes the
+/// variability instead of trying to spell the offset correctly: there is one
+/// possible output shape, and it parses everywhere.
+///
+/// The argument is always a column reference written in this file, never
+/// anything derived from a request.
+fn rfc3339(column: &str) -> String {
+    format!(r#"to_char({column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')"#)
 }
 
 /// Keeps enough of a hostname to tell two proxies apart, not enough to reuse
@@ -404,9 +447,10 @@ async fn acquire_lock(
     let restrictions = LaunchRestrictions::for_perms(perms);
 
     // Reported back so the agent knows when its heartbeat must land.
-    let expires_at: (String,) = sqlx::query_as(
-        "SELECT to_char(expires_at, 'YYYY-MM-DD\"T\"HH24:MI:SSOF') FROM profile_locks          WHERE profile_id = $1",
-    )
+    let expires_at: (String,) = sqlx::query_as(&format!(
+        "SELECT {} FROM profile_locks WHERE profile_id = $1",
+        rfc3339("expires_at")
+    ))
     .bind(profile_id)
     .fetch_one(&state.db)
     .await?;

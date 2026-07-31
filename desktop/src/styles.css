@@ -1,0 +1,296 @@
+/* Deliberately plain. This is an operator's tool that stays open all day, so
+   density and legibility beat decoration — the AdsPower reference in docs/12 is
+   a two-pane layout with a wide table, and that is what this is. */
+
+:root {
+  --bg: #14161a;
+  --panel: #1b1e24;
+  --line: #2a2f38;
+  --text: #e6e8ec;
+  --muted: #8b93a1;
+  --accent: #d94f2b;
+  --warn: #e0a030;
+  --ok: #4caf7d;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  height: 100vh;
+}
+
+/* ---- sidebar ---------------------------------------------------------- */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 14px 10px;
+}
+
+.brand {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  padding: 2px 8px 14px;
+}
+
+.sidebar nav {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.section {
+  padding: 6px 8px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nav:hover {
+  background: #22262e;
+}
+
+.nav.active {
+  background: #2b3038;
+}
+
+.count {
+  color: var(--muted);
+}
+
+.foot {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+/* ---- main ------------------------------------------------------------- */
+
+.main {
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.head h1 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--warn);
+  border-radius: 6px;
+  background: #20242b;
+}
+
+/* ---- table ------------------------------------------------------------ */
+
+.grid {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.grid th {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  text-align: left;
+}
+
+.grid td {
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.grid tr:hover td {
+  background: #191c22;
+}
+
+.name {
+  font-weight: 600;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.tags span {
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: #2b3038;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* ---- state ------------------------------------------------------------ */
+
+.lock {
+  color: var(--warn);
+}
+
+.free {
+  color: var(--ok);
+}
+
+.warn {
+  color: var(--warn);
+}
+
+.mono {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 11px;
+}
+
+.empty {
+  color: var(--muted);
+  padding: 4px 8px;
+}
+
+.pad {
+  padding: 24px 10px;
+}
+
+/* ---- controls --------------------------------------------------------- */
+
+button {
+  padding: 5px 11px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #2b3038;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #343a44;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--muted);
+}
+
+button.danger {
+  border-color: #6b2a1c;
+  background: #3a1d15;
+  color: #f0a08c;
+}
+
+/* ---- login ------------------------------------------------------------ */
+
+.login {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 280px;
+  margin: 18vh auto 0;
+}
+
+.login h1 {
+  margin: 0 0 6px;
+  color: var(--accent);
+  font-size: 26px;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+.login input {
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+}
+
+.login button {
+  padding: 9px;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.error {
+  margin: 0;
+  color: #f0a08c;
+}
+
+/* Your own lock reads as ordinary state, not as a warning — the colour
+   difference is the fastest way to tell "I have this open" from "someone else
+   does", which is the question the column exists to answer. */
+.mineLock {
+  color: var(--ok);
+}
