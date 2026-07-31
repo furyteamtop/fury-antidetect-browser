@@ -796,3 +796,63 @@ input::placeholder {
   align-items: center;
   gap: var(--s-2);
 }
+
+/* ---- command palette --------------------------------------------------- */
+
+.paletteScrim {
+  /* Near the top, not centred: the eye is already there after ⌘K, and a
+     centred box makes the list jump as it grows and shrinks. */
+  align-items: flex-start;
+  padding-top: 14vh;
+}
+
+.palette {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 92vw);
+  max-height: 60vh;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+.paletteInput {
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  padding: var(--s-4);
+  font-size: 15px;
+}
+
+.paletteInput:focus {
+  border-color: transparent;
+  border-bottom-color: var(--line);
+}
+
+.paletteList {
+  overflow-y: auto;
+  padding: var(--s-1);
+}
+
+.paletteRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  width: 100%;
+  padding: 9px var(--s-3);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  text-align: left;
+}
+
+.paletteRow.on {
+  background: var(--hover);
+}
+
+.paletteRow > span:first-child {
+  flex: 1;
+}

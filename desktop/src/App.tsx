@@ -3,6 +3,7 @@ import { useI18n } from "./i18n";
 import { api, ApiError, type Me, type Profile, type Project, type Shell } from "./api";
 import { Login } from "./components/Login";
 import { ProfileDialog } from "./components/ProfileDialog";
+import { CommandPalette, type Command } from "./components/CommandPalette";
 import { ProfileTable } from "./components/ProfileTable";
 import { Trash } from "./components/Trash";
 import { ServerSetup } from "./components/ServerSetup";
@@ -26,6 +27,7 @@ export function App() {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [view, setView] = useState<"profiles" | "trash">("profiles");
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Applied at the root before anything renders, so the first paint is already
   // the right theme rather than a flash of the wrong one.
@@ -34,6 +36,19 @@ export function App() {
 
   useEffect(() => {
     void api.shell().then(setShell);
+  }, []);
+
+  // ⌘K, or Ctrl+K where there is no command key. Registered on the window so it
+  // works from anywhere, including with focus in the search field.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   const local = shell?.mode === "local";
@@ -185,6 +200,12 @@ export function App() {
     }
   };
 
+  const commands: Command[] = [
+    { id: "act:new", label: t("cmd.newProfile"), run: () => setEditing(null) },
+    { id: "act:settings", label: t("cmd.settings"), run: () => setSettingsOpen(true) },
+    { id: "act:trash", label: t("cmd.trash"), run: () => setView("trash") },
+  ];
+
   return (
     <div className="app">
       <Sidebar
@@ -334,6 +355,30 @@ export function App() {
               }
             />
           </div>
+        )}
+
+        {paletteOpen && (
+          <CommandPalette
+            actions={[
+              ...commands,
+              ...profiles.map((p) => ({
+                id: `run:${p.id}`,
+                label: `${p.running ? t("cmd.closeProfile") : t("cmd.openProfile")} ${p.name}`,
+                hint: p.proxy?.display,
+                run: () => void (p.running ? onStop(p) : onLaunch(p)),
+              })),
+              ...projects.map((p) => ({
+                id: `go:${p.id}`,
+                label: p.name,
+                hint: t("app.projects"),
+                run: () => {
+                  setActive(p);
+                  setView("profiles");
+                },
+              })),
+            ]}
+            onClose={() => setPaletteOpen(false)}
+          />
         )}
 
         {settingsOpen && (

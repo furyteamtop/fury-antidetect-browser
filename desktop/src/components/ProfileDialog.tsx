@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
 import { api, type LocalProxy, type Persona, type Preview, type Profile } from "../api";
-import { ProxyDialog } from "./ProxyDialog";
 
 const TABS = ["General", "Proxy", "Device", "Advanced"] as const;
 const TAB_KEYS = {
@@ -41,7 +40,24 @@ export function ProfileDialog({
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [newProxy, setNewProxy] = useState(false);
+  // "configure" edits the fields below and saves a proxy with the profile;
+  // "saved" picks one that already exists. AdsPower's split, and it is the
+  // right one: the first proxy anyone adds is added while making a profile, and
+  // sending them elsewhere to do it loses whatever they had typed.
+  const [proxyMode, setProxyMode] = useState<"configure" | "saved">(
+    editing?.proxy ? "saved" : "configure",
+  );
+  const [pxKind, setPxKind] = useState("socks5");
+  const [pxHost, setPxHost] = useState("");
+  const [pxPort, setPxPort] = useState("");
+  const [pxUser, setPxUser] = useState("");
+  const [pxPass, setPxPass] = useState("");
+  const [pxRotate, setPxRotate] = useState("");
+  const [pxChecker, setPxChecker] = useState("");
+  const [pxCheck, setPxCheck] = useState<{
+    ok: boolean; error?: string; ip?: string; country?: string;
+    city?: string; timezone?: string; ms?: number;
+  } | null>(null);
 
   const [name, setName] = useState(editing?.name ?? "");
   const [tags, setTags] = useState((editing?.tags ?? []).join(", "));
@@ -80,12 +96,30 @@ export function ProfileDialog({
   }, [personaId, timezone, languages, editing?.fp_seed]);
 
   const problems = preview?.problems ?? [];
-  const proxy = proxies.find((p) => p.id === proxyId) ?? null;
 
   const save = async () => {
     setBusy(true);
     setError(null);
     try {
+      // A proxy typed inline is saved first, so the profile can point at it.
+      let useProxyId = proxyId;
+      if (proxyMode === "configure" && pxComplete) {
+        const saved = await api.saveProxy({
+          id: "",
+          name: `${pxHost.trim()}:${pxPort}`,
+          kind: pxKind,
+          host: pxHost.trim(),
+          port: Number(pxPort),
+          username: pxUser || null,
+          password: pxPass || null,
+          last_country: pxCheck?.country ?? null,
+          last_ip: pxCheck?.ip ?? null,
+          rotate_url: pxRotate.trim() || null,
+          checker_url: pxChecker.trim() || null,
+        });
+        useProxyId = saved.id;
+      }
+
       await api.saveProfile({
         id: editing?.id ?? "",
         project_id: projectId,
@@ -97,7 +131,7 @@ export function ProfileDialog({
         // never moves afterwards. Changing it would give a warmed account a
         // different fingerprint, which is the one thing it must never do.
         fp_seed: editing?.fp_seed ?? 0,
-        proxy: proxyId ? { id: proxyId } : null,
+        proxy: useProxyId ? { id: useProxyId } : null,
         timezone,
         languages: splitList(languages),
         start_urls: splitList(startUrls, "\n"),
@@ -111,23 +145,14 @@ export function ProfileDialog({
     }
   };
 
+  const pxComplete = pxHost.trim() !== "" && Number(pxPort) > 0;
+  const pxUrl = () => {
+    const auth = pxUser ? `${encodeURIComponent(pxUser)}:${encodeURIComponent(pxPass)}@` : "";
+    return `${pxKind}://${auth}${pxHost.trim()}:${Number(pxPort)}`;
+  };
+
   return (
     <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      {newProxy && (
-        <ProxyDialog
-          editing={null}
-          onClose={() => setNewProxy(false)}
-          onSaved={async () => {
-            setNewProxy(false);
-            // Select what was just created: nobody adds a proxy inside a
-            // profile for any other reason.
-            const list = await api.proxies();
-            setProxies(list);
-            const added = list.find((p) => !proxies.some((old) => old.id === p.id));
-            if (added) setProxyId(added.id);
-          }}
-        />
-      )}
       <div className="modal" role="dialog" aria-modal="true">
         <div className="modalHead">
           <h2>{editing ? t("pd.edit") : t("pd.new")}</h2>
@@ -205,13 +230,27 @@ export function ProfileDialog({
             {tab === "Proxy" && (
               <>
                 <div className="field">
-                  <label htmlFor="p-proxy">{t("pd.proxy")}</label>
-                  <div>
-                    {/* Adding one lives here rather than in the toolbar: a
-                        proxy is wanted at the moment a profile needs an exit,
-                        and a button somewhere else means leaving this dialog,
-                        losing what has been typed, and coming back. */}
-                    <div className="row">
+                  <label>{t("pd.proxy")}</label>
+                  <div className="segmented">
+                    <button
+                      aria-pressed={proxyMode === "configure"}
+                      onClick={() => setProxyMode("configure")}
+                    >
+                      {t("px.configure")}
+                    </button>
+                    <button
+                      aria-pressed={proxyMode === "saved"}
+                      onClick={() => setProxyMode("saved")}
+                    >
+                      {t("px.saved")}
+                    </button>
+                  </div>
+                </div>
+
+                {proxyMode === "saved" ? (
+                  <div className="field">
+                    <label htmlFor="p-proxy">{t("px.saved")}</label>
+                    <div>
                       <select
                         id="p-proxy"
                         value={proxyId}
@@ -224,29 +263,133 @@ export function ProfileDialog({
                           </option>
                         ))}
                       </select>
-                      <button style={{ whiteSpace: "nowrap" }} onClick={() => setNewProxy(true)}>
-                        {t("px.newInline")}
-                      </button>
-                    </div>
-                    {/* Not a recommendation. The agent refuses to launch without
-                        one, because the core is started pointing at a relay and
-                        traffic would otherwise leave from this machine's own
-                        address. */}
-                    {!proxyId && (
-                      <p className="hint">
-                        {t("pd.proxyRequired")}
-                      </p>
-                    )}
-                  </div>
-                </div>
-                {proxy && (
-                  <div className="field">
-                    <label>{t("pd.exit")}</label>
-                    <div className="mono muted">
-                      {proxy.host}:{proxy.port}
-                      {proxy.last_country ? ` · ${proxy.last_country}` : ""}
+                      {!proxyId && <p className="hint">{t("pd.proxyRequired")}</p>}
                     </div>
                   </div>
+                ) : (
+                  <>
+                    <div className="field">
+                      <label>{t("px.type")}</label>
+                      <div className="segmented">
+                        {["socks5", "http", "https"].map((k) => (
+                          <button key={k} aria-pressed={pxKind === k} onClick={() => setPxKind(k)}>
+                            {k}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="field">
+                      <label htmlFor="px-host">{t("px.address")}</label>
+                      <div>
+                        <div className="row">
+                          <input
+                            id="px-host"
+                            value={pxHost}
+                            placeholder="exit.provider.net"
+                            onChange={(e) => setPxHost(e.target.value)}
+                          />
+                          <input
+                            style={{ width: 92 }}
+                            value={pxPort}
+                            placeholder="1080"
+                            inputMode="numeric"
+                            onChange={(e) => setPxPort(e.target.value.replace(/\D/g, ""))}
+                          />
+                          <button
+                            style={{ whiteSpace: "nowrap" }}
+                            disabled={busy || !pxComplete}
+                            onClick={async () => {
+                              setBusy(true);
+                              setPxCheck(null);
+                              try {
+                                setPxCheck(await api.checkProxy(pxUrl(), pxChecker));
+                              } finally {
+                                setBusy(false);
+                              }
+                            }}
+                          >
+                            {busy ? t("px.checking") : t("px.checkButton")}
+                          </button>
+                        </div>
+                        {pxCheck && (
+                          <div
+                            className={pxCheck.ok ? "verdict good" : "verdict bad"}
+                            style={{ marginTop: "var(--s-2)" }}
+                          >
+                            {pxCheck.ok
+                              ? [pxCheck.ip, pxCheck.country, pxCheck.city, pxCheck.timezone]
+                                  .filter(Boolean)
+                                  .join(" · ")
+                              : pxCheck.error}
+                          </div>
+                        )}
+                        {/* The exit's zone is what the profile has to agree
+                            with, so the check offers it rather than leaving the
+                            operator to copy it across two tabs. */}
+                        {pxCheck?.ok && pxCheck.timezone && pxCheck.timezone !== timezone && (
+                          <p className="hint">
+                            {t("px.setTimezone", { tz: pxCheck.timezone })}{" "}
+                            <button
+                              className="linky"
+                              style={{ fontSize: 12 }}
+                              onClick={() => setTimezone(pxCheck.timezone!)}
+                            >
+                              →
+                            </button>
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="field">
+                      <label htmlFor="px-user">{t("px.credentials")}</label>
+                      <div className="row">
+                        <input
+                          id="px-user"
+                          value={pxUser}
+                          placeholder={t("px.user")}
+                          autoComplete="off"
+                          onChange={(e) => setPxUser(e.target.value)}
+                        />
+                        <input
+                          value={pxPass}
+                          placeholder={t("px.password")}
+                          type="password"
+                          autoComplete="off"
+                          onChange={(e) => setPxPass(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="field">
+                      <label htmlFor="px-rotate">{t("px.rotate")}</label>
+                      <div>
+                        <input
+                          id="px-rotate"
+                          value={pxRotate}
+                          placeholder="https://provider.example/rotate?key=…"
+                          autoComplete="off"
+                          onChange={(e) => setPxRotate(e.target.value)}
+                        />
+                        <p className="hint">{t("px.rotateHint")}</p>
+                      </div>
+                    </div>
+
+                    <div className="field">
+                      <label htmlFor="px-checker">{t("px.checker")}</label>
+                      <div>
+                        <input
+                          id="px-checker"
+                          value={pxChecker}
+                          placeholder={t("px.checkerDefault")}
+                          autoComplete="off"
+                          onChange={(e) => setPxChecker(e.target.value)}
+                        />
+                        <p className="hint">{t("px.checkerHint")}</p>
+                      </div>
+                    </div>
+                  </>
                 )}
               </>
             )}

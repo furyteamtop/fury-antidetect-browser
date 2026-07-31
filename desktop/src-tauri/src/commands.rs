@@ -400,6 +400,8 @@ pub struct UiProfile {
     /// Zero in team mode: the server never exposes a seed, and nothing in the
     /// interface may invent one.
     pub fp_seed: i64,
+    /// Local mode only; a team server has no group concept yet.
+    pub group_name: Option<String>,
     pub proxy: Option<UiProxy>,
     pub permissions: Vec<String>,
     pub lock: Option<serde_json::Value>,
@@ -478,6 +480,7 @@ pub async fn profiles(state: State<'_, AppState>, project_id: String) -> R<Vec<U
                 tags: p.tags,
                 persona_id: p.persona_id,
                 fp_seed: p.fp_seed,
+                group_name: p.group_name,
             })
             .collect());
     }
@@ -499,6 +502,7 @@ pub async fn profiles(state: State<'_, AppState>, project_id: String) -> R<Vec<U
             tags: p.tags,
             persona_id: p.persona_id,
             fp_seed: 0,
+            group_name: None,
             proxy: p.proxy.map(|x| UiProxy {
                 id: x.id.to_string(),
                 name: x.name,
@@ -690,6 +694,7 @@ pub async fn trash() -> R<Vec<UiProfile>> {
             tags: p.tags,
             persona_id: p.persona_id,
             fp_seed: p.fp_seed,
+            group_name: p.group_name,
         })
         .collect())
 }

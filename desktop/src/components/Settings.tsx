@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { api, type Shell } from "../api";
 import { languages, useI18n, type Language } from "../i18n";
 import { type Theme, themes, useTheme } from "../theme";
@@ -18,6 +19,9 @@ export function Settings({
 }) {
   const [theme, setTheme] = useTheme();
   const { t, language, setLanguage } = useI18n();
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   return (
     <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -72,9 +76,38 @@ export function Settings({
                 <p>
                   {t("set.notConnected")}
                 </p>
-                <p className="hint">
-                  {t("set.notConnectedHint")}
-                </p>
+                <p className="hint">{t("set.notConnectedHint")}</p>
+                {/* The address goes in here rather than behind a first-run wall.
+                    Connecting is a decision made once a team exists, which is
+                    usually long after the app was installed. */}
+                <div className="row" style={{ maxWidth: 420 }}>
+                  <input
+                    value={url}
+                    placeholder={t("set.serverPlaceholder")}
+                    spellCheck={false}
+                    onChange={(e) => setUrl(e.target.value)}
+                  />
+                  <button
+                    className="primary"
+                    disabled={busy || !url.trim()}
+                    onClick={async () => {
+                      setBusy(true);
+                      setError(null);
+                      try {
+                        onChanged(await api.setServer(url));
+                        onClose();
+                      } catch (e) {
+                        setError((e as Error).message);
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    {busy ? t("srv.checking") : t("set.connect")}
+                  </button>
+                </div>
+                {error && <p className="error">{error}</p>}
+                <p className="hint">{t("set.howTo")}</p>
               </>
             ) : (
               <>

@@ -33,10 +33,30 @@
 S3-совместимое хранилище (MinIO) понадобится позже, для синхронизации бандлов —
 пока она не реализована, оно не нужно.
 
-## Установка
+## Быстрый путь: docker compose
 
 ```bash
 git clone https://github.com/fury-browser/fury && cd fury
+cp .env.example .env          # задайте FURY_DB_PASSWORD
+docker compose up -d
+```
+
+Всё. Поднимается Postgres и сервер, миграции применяются сами при старте.
+Сервер слушает `127.0.0.1:8901` — наружу его выводит обратный прокси, см. TLS
+ниже.
+
+Проверьте:
+
+```bash
+curl -s http://127.0.0.1:8901/v1/me
+```
+
+Ответ должен быть ровно `{"error":"unauthenticated"}` с кодом 401 — приложение
+использует это как признак «здесь Fury».
+
+## Установка без docker
+
+```bash
 cargo build --release -p fury-server
 ```
 
