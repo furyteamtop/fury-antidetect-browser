@@ -32,6 +32,8 @@ pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/v1/auth/login", post(login))
         .route("/v1/auth/logout", post(logout))
+        .route("/v1/auth/enroll", post(complete_enrollment))
+        .route("/v1/auth/enroll/{code}", get(peek_enrollment))
         .route("/v1/me", get(whoami))
         .route("/v1/projects", get(list_projects))
         .route("/v1/projects/{project_id}/profiles", get(list_profiles))
@@ -61,15 +63,17 @@ async fn login(
     State(state): State<Arc<AppState>>,
     Json(req): Json<LoginRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let row: Option<(Uuid, String)> =
-        sqlx::query_as("SELECT id, password_hash FROM users WHERE email = $1 AND disabled_at IS NULL")
-            .bind(&req.email)
-            .fetch_optional(&state.db)
-            .await?;
+    let row: Option<(Uuid, String, Vec<u8>, Vec<u8>)> = sqlx::query_as(
+        "SELECT id, password_hash, wrapped_private_key, kdf_salt \
+         FROM users WHERE email = $1 AND disabled_at IS NULL",
+    )
+    .bind(&req.email)
+    .fetch_optional(&state.db)
+    .await?;
 
     // One failure mode for "no such user" and "wrong password", or the endpoint
     // becomes a way to discover who has an account.
-    let Some((user_id, stored)) = row else {
+    let Some((user_id, stored, wrapped_private_key, kdf_salt)) = row else {
         // Still spend the time an Argon2 verification would take. Returning
         // instantly for unknown addresses is a timing oracle over the user list.
         let _ = auth::verify_password(&req.password, "$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHQ$0000000000000000000000000000000000000000000");
@@ -91,7 +95,264 @@ async fn login(
     .execute(&state.db)
     .await?;
 
-    Ok(Json(json!({ "token": raw, "user_id": user_id })))
+    // The wrapped keys travel with the session, because the client needs them
+    // on every machine and holding them locally would mean a second place they
+    // can be lost. They are useless to anyone who intercepts them: the private
+    // key opens only under a key derived from the password, and the ORK opens
+    // only under the private key.
+    let org: Option<(Uuid, Option<Vec<u8>>, String)> = sqlx::query_as(
+        "SELECT org_id, wrapped_ork, role::text FROM org_members WHERE user_id = $1 LIMIT 1",
+    )
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    use base64::Engine;
+    let b64 = |v: &[u8]| base64::engine::general_purpose::STANDARD.encode(v);
+
+    Ok(Json(json!({
+        "token": raw,
+        "user_id": user_id,
+        "wrapped_private_key": b64(&wrapped_private_key),
+        "kdf_salt": b64(&kdf_salt),
+        "org_id": org.as_ref().map(|(id, _, _)| *id),
+        "role": org.as_ref().map(|(_, _, r)| r.clone()),
+        // None means enrolled but not yet handed the organisation key: they can
+        // sign in and see the shape of the team, and decrypt nothing.
+        "wrapped_ork": org.as_ref().and_then(|(_, ork, _)| ork.as_deref()).map(b64),
+    })))
+}
+
+// ---------------------------------------------------------------------------
+// enrolment
+// ---------------------------------------------------------------------------
+
+/// An invitation as stored. `org_id` and `org_name` are exclusive: one joins an
+/// existing organisation, the other creates it — see the check constraint in
+/// migration 0003.
+#[derive(sqlx::FromRow)]
+struct Invitation {
+    id: Uuid,
+    email: String,
+    org_name: Option<String>,
+    org_id: Option<Uuid>,
+    role: String,
+}
+
+/// What an invitation is for, before anyone commits to it.
+///
+/// Shown so the person typing a code sees "you are joining My team as owner"
+/// rather than a password field and a hope. It reveals the invited address to
+/// whoever holds the code — who already holds the code, and could simply use
+/// it.
+async fn peek_enrollment(
+    State(state): State<Arc<AppState>>,
+    Path(code): Path<String>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let row: Option<Invitation> = sqlx::query_as(
+        "SELECT id, email, org_name, org_id, role::text AS role \
+         FROM enrollments \
+         WHERE code_hash = $1 AND used_at IS NULL AND expires_at > now()",
+    )
+    .bind(crate::enroll::hash_code(&code))
+    .fetch_optional(&state.db)
+    .await?;
+
+    // Expired, spent and never-existed are one answer. Distinguishing them
+    // turns this endpoint into a way to test codes.
+    let Some(inv) = row else {
+        return Err(ApiError::NotFound);
+    };
+    let Invitation { email, org_name, org_id, role, .. } = inv;
+
+    let org = match (org_name, org_id) {
+        (Some(name), _) => name,
+        (None, Some(id)) => {
+            sqlx::query_scalar::<_, String>("SELECT name FROM organizations WHERE id = $1")
+                .bind(id)
+                .fetch_one(&state.db)
+                .await?
+        }
+        (None, None) => return Err(ApiError::NotFound),
+    };
+
+    Ok(Json(json!({
+        "email": email,
+        "organization": org,
+        "role": role,
+        // An owner brings the organisation key into being; everyone else waits
+        // to be handed it. The client needs to know which job it has.
+        "creates_org_key": role == "owner",
+    })))
+}
+
+/// Everything the client generated, in one request.
+///
+/// The server checks the code and stores the material. It cannot read any of
+/// it: `wrapped_private_key` is sealed under a key derived from the password on
+/// the client, and `wrapped_ork` is sealed to the public key. What arrives here
+/// as `password` is used for one thing — the Argon2id login hash — and is not
+/// the input to either wrapping, which uses a separate salt the client keeps.
+#[derive(Deserialize)]
+pub struct EnrollRequest {
+    code: String,
+    password: String,
+    /// base64, all of them. The server never parses these beyond decoding.
+    public_key: String,
+    wrapped_private_key: String,
+    kdf_salt: String,
+    /// Present when the invitation creates the organisation, absent otherwise.
+    #[serde(default)]
+    wrapped_ork: Option<String>,
+    #[serde(default)]
+    machine_name: String,
+}
+
+async fn complete_enrollment(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<EnrollRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    use base64::Engine;
+    let b64 = |what: &str, v: &str| -> Result<Vec<u8>, ApiError> {
+        base64::engine::general_purpose::STANDARD
+            .decode(v)
+            .map_err(|_| ApiError::BadRequest(format!("{what} is not base64")))
+    };
+
+    let public_key = b64("public_key", &req.public_key)?;
+    let wrapped_private_key = b64("wrapped_private_key", &req.wrapped_private_key)?;
+    let kdf_salt = b64("kdf_salt", &req.kdf_salt)?;
+    let wrapped_ork = req
+        .wrapped_ork
+        .as_deref()
+        .map(|v| b64("wrapped_ork", v))
+        .transpose()?;
+
+    // X25519. A key of the wrong length would be stored happily and fail years
+    // later, when someone tries to wrap the ORK to it.
+    if public_key.len() != 32 {
+        return Err(ApiError::BadRequest(
+            "public_key must be 32 bytes — X25519".into(),
+        ));
+    }
+    if req.password.len() < 12 {
+        return Err(ApiError::BadRequest(
+            "the password must be at least 12 characters: it is the only thing standing \
+             between a stolen laptop and this organisation's accounts"
+                .into(),
+        ));
+    }
+
+    // One transaction from here: a half-enrolled owner is an organisation
+    // nobody can enter and the code cannot be spent again to fix it.
+    let mut tx = state.db.begin().await?;
+
+    let row: Option<Invitation> = sqlx::query_as(
+        "SELECT id, email, org_name, org_id, role::text AS role FROM enrollments \
+         WHERE code_hash = $1 AND used_at IS NULL AND expires_at > now() \
+         FOR UPDATE",
+    )
+    .bind(crate::enroll::hash_code(&req.code))
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let Some(Invitation { id: enrollment_id, email, org_name, org_id, role }) = row else {
+        return Err(ApiError::BadRequest(
+            "this invitation is not valid — it may have been used already, or expired".into(),
+        ));
+    };
+
+    let owner = role == "owner";
+    if owner && wrapped_ork.is_none() {
+        return Err(ApiError::BadRequest(
+            "an owner enrolment must carry the wrapped organisation key".into(),
+        ));
+    }
+
+    // An organisation is created at the moment it acquires an owner, never
+    // before: a bootstrap abandoned halfway leaves nothing behind.
+    let org_id = match (org_id, org_name) {
+        (Some(id), _) => id,
+        (None, Some(name)) => {
+            let id = Uuid::now_v7();
+            sqlx::query("INSERT INTO organizations (id, name) VALUES ($1, $2)")
+                .bind(id)
+                .bind(&name)
+                .execute(&mut *tx)
+                .await?;
+            id
+        }
+        (None, None) => return Err(ApiError::Internal(anyhow::anyhow!("enrolment targets no org"))),
+    };
+
+    let user_id = Uuid::now_v7();
+    let password_hash = auth::hash_password(&req.password)
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{e}")))?;
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, public_key, wrapped_private_key, kdf_salt) \
+         VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .bind(&public_key)
+    .bind(&wrapped_private_key)
+    .bind(&kdf_salt)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| match &e {
+        // The address is taken. Saying so is not a leak: whoever holds this
+        // invitation was told the address it was issued for.
+        sqlx::Error::Database(db) if db.is_unique_violation() => {
+            ApiError::BadRequest(format!("{email} already has an account on this server"))
+        }
+        _ => ApiError::Db(e),
+    })?;
+
+    sqlx::query(
+        "INSERT INTO org_members (org_id, user_id, role, wrapped_ork, ork_generation) \
+         VALUES ($1, $2, $3::org_role, $4, $5)",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(&role)
+    .bind(&wrapped_ork)
+    // A member with no key yet has no generation either — it is set when the
+    // key is handed over, and must record which generation was handed.
+    .bind(wrapped_ork.as_ref().map(|_| 1i32))
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query("UPDATE enrollments SET used_at = now() WHERE id = $1")
+        .bind(enrollment_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // Signed in on the way out. Asking someone to type the password they just
+    // chose, into the same window, teaches them nothing.
+    let (raw, digest) = auth::new_token();
+    sqlx::query(
+        "INSERT INTO sessions (token_hash, user_id, expires_at, machine_name) \
+         VALUES ($1, $2, now() + ($3 || ' hours')::interval, $4)",
+    )
+    .bind(&digest)
+    .bind(user_id)
+    .bind(auth::SESSION_TTL_HOURS.to_string())
+    .bind(&req.machine_name)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    tracing::info!(%user_id, %org_id, %role, "enrolled");
+    Ok(Json(json!({
+        "token": raw,
+        "user_id": user_id,
+        "org_id": org_id,
+        "role": role,
+        "has_org_key": wrapped_ork.is_some(),
+    })))
 }
 
 /// Who the presented token belongs to.

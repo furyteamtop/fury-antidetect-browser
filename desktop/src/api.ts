@@ -186,6 +186,17 @@ function describe(status: number, body: any): string {
 // ---------------------------------------------------------------------------
 
 /** Rust rejects with the serialised ApiErr — {status, body, message}. */
+/** What an invitation code is for. `creates_org_key` is the server's word, not
+ *  the client's: a member who decided for themselves that they were an owner
+ *  would generate a second organisation key, and their data would then be
+ *  readable by nobody. */
+export type Invitation = {
+  email: string;
+  organization: string;
+  role: string;
+  creates_org_key: boolean;
+};
+
 async function cmd<T>(name: string, args: Record<string, unknown> = {}): Promise<T> {
   try {
     return await invoke<T>(name, args);
@@ -268,6 +279,29 @@ export const api = {
       );
     }
     return cmd<Shell>("set_server", { url });
+  },
+
+  /** What an invitation code is for, before anyone types a password. The
+   *  address travels with the call because this is how someone reaches a server
+   *  for the first time — there is nothing in settings yet. */
+  async invitation(url: string, code: string): Promise<Invitation> {
+    if (!isDesktop) {
+      return Promise.reject(
+        new ApiError(0, "Enrolment generates keys in Rust and is desktop-only."),
+      );
+    }
+    return cmd<Invitation>("invitation", { url, code });
+  },
+
+  /** Redeem it. The password is passed to Rust and no further: the keys are
+   *  generated there, and only wrapped material reaches the server. */
+  async enrol(url: string, code: string, password: string, createsOrg: boolean): Promise<Me> {
+    if (!isDesktop) {
+      return Promise.reject(
+        new ApiError(0, "Enrolment generates keys in Rust and is desktop-only."),
+      );
+    }
+    return cmd<Me>("enrol", { url, code, password, createsOrg });
   },
 
   async login(email: string, password: string): Promise<Me> {

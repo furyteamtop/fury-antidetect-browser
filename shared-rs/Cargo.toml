@@ -10,3 +10,12 @@ serde_json.workspace = true
 uuid.workspace = true
 thiserror.workspace = true
 sha2.workspace = true
+rand.workspace = true
+
+# The key hierarchy (keys.rs). X25519 for handing the organisation key to a new
+# member, XChaCha20-Poly1305 for everything sealed under a symmetric key, and
+# Argon2id to turn a password into one.
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+chacha20poly1305 = "0.10"
+argon2 = "0.5"
+hkdf = "0.12"

@@ -9,6 +9,7 @@ import { ProfileTable } from "./components/ProfileTable";
 import { Proxies } from "./components/Proxies";
 import { Trash } from "./components/Trash";
 import { ServerSetup } from "./components/ServerSetup";
+import { Enrol } from "./components/Enrol";
 import { Settings } from "./components/Settings";
 import { Sidebar, type View } from "./components/Sidebar";
 import { useTheme } from "./theme";
@@ -19,6 +20,10 @@ export function App() {
   // and whether there is a live session. In local mode there is no session and
   // no account — that is the point of it.
   const [shell, setShell] = useState<Shell | null>(null);
+  // Redeeming an invitation is reachable from the sign-in screen and, unlike
+  // it, works before this machine has a server configured — the code carries
+  // the address. So it is its own state rather than a branch of `signed_in`.
+  const [enrolling, setEnrolling] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [active, setActive] = useState<Project | null>(null);
@@ -115,9 +120,24 @@ export function App() {
 
   if (!shell) return <div className="splash">Fury</div>;
 
+  if (enrolling) {
+    return (
+      <Enrol
+        onDone={() => {
+          setEnrolling(false);
+          void api.shell().then(setShell);
+        }}
+        onCancel={() => setEnrolling(false)}
+      />
+    );
+  }
+
   if (!local && !shell.signed_in) {
     return shell.server_url ? (
-      <Login onSuccess={() => void api.shell().then(setShell)} />
+      <Login
+        onSuccess={() => void api.shell().then(setShell)}
+        onEnrol={() => setEnrolling(true)}
+      />
     ) : (
       <ServerSetup onDone={setShell} />
     );
@@ -129,9 +149,12 @@ export function App() {
     try {
       const res = await api.launch(profile.id, force);
       if (!res.launched) {
-        // Team mode: the agent cannot fetch a bundle from a server yet, so all
-        // that happened was taking the lock. Saying "opening…" would leave the
-        // operator waiting for a window that is not coming.
+        // Team mode: all that happened was taking the lock. Saying "opening…"
+        // would leave the operator waiting for a window that is not coming.
+        //
+        // The agent can pull and push bundles now. What is still missing is the
+        // server handing over what a launch needs — persona, seed and the proxy
+        // credentials, which are stored encrypted under the organisation key.
         const applied = Object.entries(res.restrictions ?? {})
           .filter(([, on]) => on)
           .map(([k]) => k);
@@ -139,7 +162,8 @@ export function App() {
           `Lock taken; it lapses at ${
             res.expires_at ? new Date(res.expires_at).toLocaleTimeString() : "soon"
           } and nothing is renewing it yet. Profiles from a server cannot be launched ` +
-            `yet — that needs bundle sync. Restrictions it would apply: ` +
+            `yet — the server has no endpoint that hands the agent a profile's proxy ` +
+            `credentials. Restrictions it would apply: ` +
             `${applied.length ? applied.join(", ") : "none"}.`,
         );
       }
@@ -535,6 +559,10 @@ export function App() {
             onExport={exportProject}
             onImport={importProject}
             onChanged={setShell}
+            onEnrol={() => {
+              setSettingsOpen(false);
+              setEnrolling(true);
+            }}
             onClose={() => setSettingsOpen(false)}
           />
         )}

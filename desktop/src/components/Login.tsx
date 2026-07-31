@@ -2,7 +2,15 @@ import { useState } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
 
-export function Login({ onSuccess }: { onSuccess: () => void }) {
+export function Login({
+  onSuccess,
+  onEnrol,
+}: {
+  onSuccess: () => void;
+  /** There is no registration form, so the only way to a first account is an
+   *  invitation — and this screen is where someone holding one arrives. */
+  onEnrol: () => void;
+}) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +53,9 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
       {error && <p className="error">{error}</p>}
       <button type="submit" disabled={busy || !email || !password}>
         {busy ? t("auth.signingIn") : t("auth.signIn")}
+      </button>
+      <button type="button" className="linky" onClick={onEnrol}>
+        {t("enrol.have")}
       </button>
     </form>
   );

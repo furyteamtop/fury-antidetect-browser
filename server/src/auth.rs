@@ -70,8 +70,7 @@ pub fn verify_password(password: &str, stored: &str) -> bool {
         .is_ok()
 }
 
-/// Used by the seeding command and by user creation, which land next.
-#[allow(dead_code)]
+/// The stored form of a login password.
 pub fn hash_password(password: &str) -> anyhow::Result<String> {
     use argon2::password_hash::{PasswordHasher, SaltString};
     let salt = SaltString::generate(&mut rand::rngs::OsRng);

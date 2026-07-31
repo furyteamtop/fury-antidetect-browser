@@ -14,6 +14,7 @@ export function Settings({
   onExport,
   onImport,
   onChanged,
+  onEnrol,
   onClose,
 }: {
   shell: Shell;
@@ -21,6 +22,10 @@ export function Settings({
   onExport: () => void;
   onImport: () => void;
   onChanged: (s: Shell) => void;
+  /** Someone handed an invitation has no account to sign in with yet, and the
+   *  code already carries the server address — so this is a way past the
+   *  connect field, not through it. */
+  onEnrol: () => void;
   onClose: () => void;
 }) {
   const [theme, setTheme] = useTheme();
@@ -113,6 +118,9 @@ export function Settings({
                   </button>
                 </div>
                 {error && <p className="error">{error}</p>}
+                <button type="button" className="linky" onClick={onEnrol}>
+                  {t("enrol.have")}
+                </button>
                 <p className="hint">{t("set.howTo")}</p>
               </>
             ) : (

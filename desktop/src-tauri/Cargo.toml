@@ -50,3 +50,5 @@ tokio.workspace = true
 uuid.workspace = true
 keyring = "4"
 whoami = "1"
+base64 = "0.22"
+tracing.workspace = true

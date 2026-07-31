@@ -7,6 +7,7 @@
 
 mod api;
 mod auth;
+mod enroll;
 mod error;
 mod rbac_guard;
 
@@ -32,17 +33,21 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://fury:fury@localhost/fury".to_string());
+    // One subcommand, and it is the one a self-hoster needs before the server is
+    // any use to them: there is no registration form, so the first account is
+    // invited from the shell of the machine running the database.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
+        Some("invite") => return enroll::cli(&args[1..]).await,
+        Some(other) => anyhow::bail!("unknown command: {other}\n\nusage:\n  fury-server\n  fury-server invite --email you@example.com --org \"My team\""),
+        None => {}
+    }
+
     let bind: SocketAddr = std::env::var("BIND")
         .unwrap_or_else(|_| "127.0.0.1:8080".to_string())
         .parse()?;
 
-    let db = PgPoolOptions::new()
-        .max_connections(16)
-        .connect(&database_url)
-        .await?;
-
+    let db = connect().await?;
     sqlx::migrate!("./migrations").run(&db).await?;
 
     let state = Arc::new(AppState { db });
@@ -60,4 +65,15 @@ async fn main() -> anyhow::Result<()> {
 
 async fn healthz() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "ok" }))
+}
+
+/// The database, wherever `DATABASE_URL` says. Shared by the server and the
+/// `invite` command so a self-hoster configures one thing, not two.
+pub async fn connect() -> anyhow::Result<PgPool> {
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://fury:fury@localhost/fury".to_string());
+    Ok(PgPoolOptions::new()
+        .max_connections(16)
+        .connect(&database_url)
+        .await?)
 }

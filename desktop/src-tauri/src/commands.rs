@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::session::Session;
+use crate::crypto;
 use crate::settings::{self, Settings};
 
 pub struct AppState {
@@ -41,6 +42,14 @@ pub struct AppState {
     /// whole layer exists to establish. The agent will take these over when it
     /// lands; until then they are what lets `unlock` prove it is the holder.
     pub locks: Mutex<HashMap<String, String>>,
+
+    /// The organisation key, unwrapped at sign-in and held only in memory.
+    ///
+    /// Never written to disk and never handed to the webview — it opens every
+    /// proxy credential and every profile bundle in the organisation, so it
+    /// lives exactly as long as the process and no longer. Signing out drops
+    /// it; so does quitting. That is the intended cost of the design.
+    pub org_key: Mutex<Option<[u8; 32]>>,
 }
 
 /// A failed call, in the same shape the browser transport produces.
@@ -314,6 +323,9 @@ pub async fn login(state: State<'_, AppState>, email: String, password: String) 
     #[derive(Deserialize)]
     struct LoginOk {
         token: String,
+        wrapped_private_key: String,
+        kdf_salt: String,
+        wrapped_ork: Option<String>,
     }
 
     let body = serde_json::json!({
@@ -327,8 +339,116 @@ pub async fn login(state: State<'_, AppState>, email: String, password: String) 
         .await?;
     state.session.store(&ok.token);
 
+    // Unwrap the organisation key while the password is still in hand — it is
+    // the only moment it exists in this process. A failure here is not fatal to
+    // signing in: someone whose key has not been handed over yet still has an
+    // account, and should be able to see the team rather than a login error.
+    match crypto::unlock_org_key(&password, &ok.kdf_salt, &ok.wrapped_private_key, ok.wrapped_ork.as_deref()) {
+        Ok(key) => *state.org_key.lock().unwrap() = key,
+        Err(e) => {
+            tracing::warn!(error = %e, "signed in without the organisation key");
+            *state.org_key.lock().unwrap() = None;
+        }
+    }
+
     // Fetch identity immediately: every later screen needs it, and a login that
     // succeeds but whose session cannot be used should fail here, visibly.
+    state
+        .call(reqwest::Method::GET, "/v1/me", Body::None, true)
+        .await
+}
+
+/// What an invitation code is for, before anyone types a password.
+#[tauri::command]
+pub async fn invitation(state: State<'_, AppState>, url: String, code: String) -> R<serde_json::Value> {
+    // The server is not configured yet at this point — this is how someone
+    // reaches a server for the first time — so the address comes in with the
+    // call rather than from settings.
+    let base = settings::normalise_server_url(&url).map_err(ApiErr::local)?;
+    let sanitised: String = code.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+    let resp = state
+        .http
+        .get(format!("{base}/v1/auth/enroll/{sanitised}"))
+        .send()
+        .await
+        .map_err(|e| ApiErr::local(format!("Could not reach {base}: {e}")))?;
+
+    if resp.status() == 404 {
+        return Err(ApiErr::local(
+            "This invitation is not valid. It may have been used already, or expired.",
+        ));
+    }
+    resp.json()
+        .await
+        .map_err(|e| ApiErr::local(format!("The server answered something unexpected: {e}")))
+}
+
+/// Complete an invitation: generate the keys, post the wrapped results, sign in.
+#[tauri::command]
+pub async fn enrol(
+    state: State<'_, AppState>,
+    url: String,
+    code: String,
+    password: String,
+    creates_org: bool,
+) -> R<Me> {
+    let base = settings::normalise_server_url(&url).map_err(ApiErr::local)?;
+
+    // Everything secret is made here and stays here. What crosses the wire is
+    // wrapped under a key the server never receives.
+    let e = crypto::enrol(&password, creates_org)
+        .map_err(|e| ApiErr::local(format!("Could not generate keys: {e}")))?;
+
+    #[derive(Deserialize)]
+    struct EnrolOk {
+        token: String,
+    }
+
+    let resp = state
+        .http
+        .post(format!("{base}/v1/auth/enroll"))
+        .json(&serde_json::json!({
+            "code": code,
+            "password": password,
+            "public_key": e.public_key,
+            "wrapped_private_key": e.wrapped_private_key,
+            "kdf_salt": e.kdf_salt,
+            "wrapped_ork": e.wrapped_ork,
+            "machine_name": settings::machine_name(),
+        }))
+        .send()
+        .await
+        .map_err(|err| ApiErr::local(format!("Could not reach {base}: {err}")))?;
+
+    let status = resp.status().as_u16();
+    let body: serde_json::Value = resp.json().await.unwrap_or(serde_json::Value::Null);
+    if status >= 400 {
+        return Err(ApiErr {
+            status,
+            message: body
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("The server refused the invitation.")
+                .to_string(),
+            body,
+        });
+    }
+    let ok: EnrolOk = serde_json::from_value(body)
+        .map_err(|err| ApiErr::local(format!("The server answered something unexpected: {err}")))?;
+
+    // The server is only remembered once enrolment succeeded. A half-configured
+    // address left behind by a failed attempt would send the next launch to a
+    // login screen for a server the person has no account on.
+    {
+        let mut s = state.settings.lock().unwrap();
+        s.server_url = Some(base.clone());
+        s.save(&state.config_dir)
+            .map_err(|err| ApiErr::local(format!("Could not save settings: {err}")))?;
+    }
+    state.session.bind(&base);
+    state.session.store(&ok.token);
+    *state.org_key.lock().unwrap() = e.org_key;
+
     state
         .call(reqwest::Method::GET, "/v1/me", Body::None, true)
         .await
@@ -343,6 +463,10 @@ pub async fn logout(state: State<'_, AppState>) -> R<()> {
         .call(reqwest::Method::POST, "/v1/auth/logout", Body::None, true)
         .await;
     state.session.clear();
+    // The organisation key goes with the session. Leaving it in memory would
+    // mean a signed-out application that can still open every credential it
+    // saw — which is exactly the state "sign out" is asked for.
+    *state.org_key.lock().unwrap() = None;
     match revoked {
         Ok(_) => Ok(()),
         Err(e) if e.status == 401 => Ok(()),

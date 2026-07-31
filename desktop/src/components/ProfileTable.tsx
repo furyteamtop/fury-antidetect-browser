@@ -102,8 +102,12 @@ export function ProfileTable({
                 {p.proxy ? (
                   <>
                     <div className="mono">{p.proxy.display}</div>
+                    {/* A country appears once the proxy has been checked. Until
+                        then the line says so — it used to render a bare "?",
+                        which reads as a broken value rather than a fact not yet
+                        known. */}
                     <div className="muted small">
-                      {p.proxy.country ?? "?"}
+                      {p.proxy.country ?? t("row.proxyUnchecked")}
                       {/* The server masks the host for anyone without
                           reveal_secrets; say so, or a masked value reads like a
                           bug rather than a boundary. */}

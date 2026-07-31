@@ -17,6 +17,7 @@ uuid.workspace = true
 time.workspace = true
 sha2.workspace = true
 rand.workspace = true
+base64 = "0.22"
 
 axum = "0.8"
 argon2 = "0.5"

@@ -12,6 +12,7 @@
 
 mod agent;
 mod commands;
+mod crypto;
 mod session;
 mod settings;
 
@@ -76,12 +77,15 @@ fn main() {
                 config_dir,
                 session,
                 locks: Default::default(),
+                org_key: Default::default(),
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::shell_state,
             commands::set_server,
+            commands::invitation,
+            commands::enrol,
             commands::disconnect_server,
             commands::login,
             commands::logout,
