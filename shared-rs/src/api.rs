@@ -76,6 +76,11 @@ pub struct AcquireLockResponse {
     /// force-unlocked holder from overwriting newer state.
     pub lock_token: String,
     pub expires_at: String,
+    /// How the agent must harden this launch. Computed server-side from the
+    /// caller's permissions — these flags are the technical half of "an
+    /// operator cannot take the data home", so they are never trusted from the
+    /// client.
+    pub restrictions: crate::rbac::LaunchRestrictions,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

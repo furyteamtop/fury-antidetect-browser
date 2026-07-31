@@ -340,19 +340,29 @@ async fn acquire_lock(
 
     let (raw, digest) = auth::new_token();
 
-    // One statement, so two agents racing cannot both win. The DELETE only
-    // fires for an expired lock or an authorised force, and the INSERT is the
-    // arbiter either way.
+    // One statement, so two agents racing cannot both win.
+    //
+    // ON CONFLICT DO UPDATE with a WHERE, not a CTE that deletes first: a
+    // DELETE and an INSERT in the same statement see the same snapshot, so the
+    // INSERT still conflicts with the row the DELETE just removed. Measured —
+    // the first version made an authorised force-unlock return 409, which is
+    // precisely the case it existed to serve.
+    //
+    // The WHERE decides who may take over: an expired lock is free for anyone
+    // with launch, a live one only yields to an authorised force.
     let inserted: Option<(i32,)> = sqlx::query_as(
         r#"
-        WITH cleared AS (
-            DELETE FROM profile_locks
-            WHERE profile_id = $1 AND (expires_at <= now() OR $5)
-        )
         INSERT INTO profile_locks
             (profile_id, user_id, token_hash, machine_name, machine_id, expires_at)
         VALUES ($1, $2, $3, $4, $6, now() + interval '90 seconds')
-        ON CONFLICT (profile_id) DO NOTHING
+        ON CONFLICT (profile_id) DO UPDATE
+        SET user_id = EXCLUDED.user_id,
+            token_hash = EXCLUDED.token_hash,
+            machine_name = EXCLUDED.machine_name,
+            machine_id = EXCLUDED.machine_id,
+            acquired_at = now(),
+            expires_at = EXCLUDED.expires_at
+        WHERE profile_locks.expires_at <= now() OR $5
         RETURNING 1
         "#,
     )
@@ -393,9 +403,19 @@ async fn acquire_lock(
     // technical half of "an operator cannot take the data home".
     let restrictions = LaunchRestrictions::for_perms(perms);
 
+    // Reported back so the agent knows when its heartbeat must land.
+    let expires_at: (String,) = sqlx::query_as(
+        "SELECT to_char(expires_at, 'YYYY-MM-DD\"T\"HH24:MI:SSOF') FROM profile_locks          WHERE profile_id = $1",
+    )
+    .bind(profile_id)
+    .fetch_one(&state.db)
+    .await?;
+    let expires_at = expires_at.0;
+
     Ok(Json(AcquireLockResponse {
         lock_token: raw,
-        expires_at: serde_json::to_string(&restrictions).unwrap_or_default(),
+        expires_at: expires_at.to_string(),
+        restrictions,
     }))
 }
 
