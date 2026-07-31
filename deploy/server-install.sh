@@ -24,6 +24,22 @@ HOSTNAME="${HOSTNAME:?set HOSTNAME to the name this server answers to}"
 SRC="${SRC:-/opt/fury/src}"
 say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 
+# Swap, on a box that has none.
+#
+# The smallest VPS worth renting has 4 GB, and linking this server with thin LTO
+# on two cores comes close enough to that to fail on a bad day — as an OOM kill
+# in the middle of a build, which reads as a mysterious hang rather than as "out
+# of memory". Two gigabytes of file is cheap insurance, and Postgres is happier
+# with it there afterwards.
+if [ "$(swapon --show --noheadings | wc -l)" -eq 0 ]; then
+    say "Swap"
+    fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
+    chmod 600 /swapfile
+    mkswap /swapfile >/dev/null
+    swapon /swapfile
+    grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+
 say "Packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq

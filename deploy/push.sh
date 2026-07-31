@@ -4,9 +4,12 @@
 #
 #   ./deploy/push.sh root@203.0.113.7 203-0-113-7.sslip.io [~/.ssh/id_ed25519]
 #
-# Only the two crates the server is built from travel. The rest of the
-# repository is a 39 GB Chromium checkout and a desktop application, neither of
-# which has any business on a server.
+# Only what the server is built from travels. `shared/` is not a crate and is
+# easy to forget — shared-rs `include_str!`s the persona files out of it at
+# compile time, so leaving it behind fails the build a long way in, with an
+# error about a missing JSON file rather than a missing directory. The rest of
+# the repository is a 39 GB Chromium checkout and a desktop application, neither
+# of which has any business on a server.
 set -euo pipefail
 
 TARGET="${1:?usage: push.sh user@host hostname [ssh-key]}"
@@ -24,7 +27,7 @@ echo "==> copying source"
 rsync -az --delete \
     -e "$(printf '%q ' "${SSH[@]}")" \
     --exclude 'target/' \
-    ./server ./shared-rs ./deploy \
+    ./server ./shared-rs ./shared ./deploy \
     "$TARGET:/opt/fury/src/"
 
 echo "==> installing"
