@@ -3,6 +3,7 @@ import { api, type LocalProxy, type Profile } from "../api";
 import { useI18n } from "../i18n";
 import { useAsk } from "./Ask";
 import { ProxyForm } from "./ProxyForm";
+import { ProxyPaste } from "./ProxyPaste";
 
 /** The proxies this machine knows about.
  *
@@ -16,6 +17,7 @@ export function Proxies({ profiles }: { profiles: Profile[] }) {
   const { ask, dialog } = useAsk();
   const [rows, setRows] = useState<LocalProxy[]>([]);
   const [editing, setEditing] = useState<LocalProxy | null | undefined>(undefined);
+  const [pasting, setPasting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -40,6 +42,7 @@ export function Proxies({ profiles }: { profiles: Profile[] }) {
         <button className="primary" onClick={() => setEditing(null)}>
           {t("px.newOne")}
         </button>
+        <button onClick={() => setPasting(true)}>{t("pp.paste")}</button>
         <div className="spacer" />
         <button className="ghost" onClick={() => void load()}>
           {t("bar.refresh")}
@@ -119,6 +122,10 @@ export function Proxies({ profiles }: { profiles: Profile[] }) {
             await load();
           }}
         />
+      )}
+
+      {pasting && (
+        <ProxyPaste onClose={() => setPasting(false)} onSaved={() => void load()} />
       )}
     </>
   );

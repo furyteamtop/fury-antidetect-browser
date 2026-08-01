@@ -1412,6 +1412,95 @@ pub async fn delete_proxy(state: State<'_, AppState>, id: String) -> R<serde_jso
         .await
 }
 
+/// Make many profiles from one template.
+///
+/// Local only for now, and it says so rather than half-working. The server path
+/// is a different shape entirely — every profile needs its proxy credentials
+/// sealed under the organisation key before it is written, and doing that two
+/// hundred times over HTTP has a partial-failure story this does not have yet.
+#[tauri::command]
+pub async fn create_profiles(
+    state: State<'_, AppState>,
+    count: u32,
+    name_pattern: String,
+    template: serde_json::Value,
+) -> R<serde_json::Value> {
+    if mode_of(&state) != "local" {
+        return Err(ApiErr::local(
+            "Creating profiles in bulk is not available on a team server yet. \
+             Make them on this machine and move them, or add them one at a time."
+                .to_string(),
+        ));
+    }
+    Ok(crate::agent::call(
+        "profiles.createMany",
+        serde_json::json!({ "count": count, "name_pattern": name_pattern, "template": template }),
+    )
+    .await?)
+}
+
+/// Copy a profile's setup, never its identity. See the agent for what that
+/// means and why a clone with the same seed would be one machine twice.
+#[tauri::command]
+pub async fn clone_profile(
+    state: State<'_, AppState>,
+    id: String,
+    count: u32,
+    name: Option<String>,
+) -> R<serde_json::Value> {
+    if mode_of(&state) != "local" {
+        return Err(ApiErr::local(
+            "Cloning is not available on a team server yet.".to_string(),
+        ));
+    }
+    let mut params = serde_json::json!({ "id": id, "count": count });
+    if let Some(name) = name.filter(|n| !n.trim().is_empty()) {
+        params["name"] = serde_json::json!(name);
+    }
+    Ok(crate::agent::call("profiles.clone", params).await?)
+}
+
+/// A pasted supplier block.
+#[tauri::command]
+pub async fn import_proxies(
+    state: State<'_, AppState>,
+    text: String,
+    name_prefix: String,
+) -> R<serde_json::Value> {
+    if mode_of(&state) != "local" {
+        return Err(ApiErr::local(
+            "Importing a proxy list into a team server is not available yet — each proxy's \
+             credentials have to be sealed under the organisation key, which this path does \
+             not do."
+                .to_string(),
+        ));
+    }
+    Ok(crate::agent::call(
+        "proxies.importMany",
+        serde_json::json!({ "text": text, "name_prefix": name_prefix }),
+    )
+    .await?)
+}
+
+/// Cookies out of a profile, and cookies in.
+///
+/// Works in both modes: the agent opens the profile through the ordinary launch
+/// path, so a team profile still pulls its bundle, takes its lock and pushes
+/// what changed.
+#[tauri::command]
+pub async fn export_cookies(id: String) -> R<serde_json::Value> {
+    Ok(crate::agent::call("profile.cookies.export", serde_json::json!({ "id": id })).await?)
+}
+
+#[tauri::command]
+pub async fn import_cookies(id: String, cookies: serde_json::Value) -> R<serde_json::Value> {
+    Ok(crate::agent::call(
+        "profile.cookies.import",
+        serde_json::json!({ "id": id, "cookies": cookies }),
+    )
+    .await?)
+}
+
 #[tauri::command]
 pub async fn save_profile(
     state: State<'_, AppState>,

@@ -3,6 +3,8 @@ import { useI18n } from "./i18n";
 import { api, ApiError, type Me, type Profile, type Project, type Shell } from "./api";
 import { Login } from "./components/Login";
 import { ProfileDialog } from "./components/ProfileDialog";
+import { BulkProfiles } from "./components/BulkProfiles";
+import { Cookies } from "./components/Cookies";
 import { useAsk } from "./components/Ask";
 import { CommandPalette, type Command } from "./components/CommandPalette";
 import { ProfileTable } from "./components/ProfileTable";
@@ -35,6 +37,9 @@ export function App() {
   const [query, setQuery] = useState("");
   const [tag, setTag] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  /** `undefined` closed, `null` making new ones, a profile means copying it. */
+  const [bulk, setBulk] = useState<Profile | null | undefined>(undefined);
+  const [cookiesFor, setCookiesFor] = useState<Profile | null>(null);
   const [view, setView] = useState<View>("profiles");
   const [openOnly, setOpenOnly] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -450,7 +455,14 @@ export function App() {
           <div className="toolbar">
             {/* No "New profile" here. It is the first thing in the sidebar,
                 permanently, and a second copy of the primary action a few
-                pixels away is two places to look for one decision. */}
+                pixels away is two places to look for one decision.
+
+                Making MANY is a different decision and does belong here: it is
+                the one people reach for after the first few profiles, and it
+                acts on the project this toolbar is already filtering. */}
+            {local && (
+              <button onClick={() => setBulk(null)}>{t("bp.title")}</button>
+            )}
             <input
               className="search"
               placeholder={t("bar.search")}
@@ -562,6 +574,27 @@ export function App() {
                         project, because the project is what carries access. */}
                     {local && <option value={"\u0000none"}>{t("bar.moveOut")}</option>}
                   </select>
+                )}
+                {/* One profile, not many. Copying acts on a single source and
+                    cookies belong to a single jar, so offering either for a
+                    multi-selection would mean guessing which one was meant. */}
+                {chosen.length === 1 && (
+                  <>
+                    {/* Copying is local-only for now, because the server path
+                        has to seal the proxy credentials again and does not
+                        yet. Cookies work in both: the agent opens the profile
+                        through the ordinary launch, so a team profile still
+                        pulls its bundle, takes its lock and pushes what
+                        changed. */}
+                    {local && (
+                      <button className="ghost" onClick={() => setBulk(chosen[0])}>
+                        {t("bp.clone")}
+                      </button>
+                    )}
+                    <button className="ghost" onClick={() => setCookiesFor(chosen[0])}>
+                      {t("ck.cookies")}
+                    </button>
+                  </>
                 )}
                 <button className="ghost" onClick={() => setSelected(new Set())}>
                   {t("bar.clearSelection")}
@@ -681,6 +714,23 @@ export function App() {
               await refreshProfiles();
             }}
           />
+        )}
+
+        {bulk !== undefined && (
+          <BulkProfiles
+            cloneOf={bulk}
+            projectId={active?.id ?? null}
+            onClose={() => setBulk(undefined)}
+            onDone={async () => {
+              setSelected(new Set());
+              await load();
+              await refreshProfiles();
+            }}
+          />
+        )}
+
+        {cookiesFor && (
+          <Cookies profile={cookiesFor} onClose={() => setCookiesFor(null)} />
         )}
       </main>
     </div>

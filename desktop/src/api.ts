@@ -482,6 +482,41 @@ export const api = {
   saveProfile: (profile: unknown): Promise<{ id: string }> =>
     cmd<{ id: string }>("save_profile", { profile }),
   deleteProfile: (id: string): Promise<unknown> => cmd("delete_profile", { id }),
+
+  /** Many profiles from one template. Each gets its own seed and its own
+   *  persona — see the agent for why that is the whole safety property. */
+  createProfiles: (
+    count: number,
+    namePattern: string,
+    template: unknown,
+  ): Promise<{ created: string[]; failed: { n: number; error: string }[] }> =>
+    cmd("create_profiles", { count, namePattern, template }),
+
+  /** Copies the setup, never the identity: same persona and proxy, a fresh
+   *  seed, no browser data. */
+  cloneProfile: (
+    id: string,
+    count: number,
+    name?: string,
+  ): Promise<{ created: string[]; failed: { n: number; error: string }[] }> =>
+    cmd("clone_profile", { id, count, name: name || null }),
+
+  /** A pasted supplier block. Every line is reported back with its number. */
+  importProxies: (
+    text: string,
+    namePrefix: string,
+  ): Promise<{
+    saved: { id: string; line: number; host: string; port: number; shape: string }[];
+    rejected: { line: number; error: string }[];
+  }> => cmd("import_proxies", { text, namePrefix }),
+
+  exportCookies: (id: string): Promise<{ cookies: unknown[] }> =>
+    cmd("export_cookies", { id }),
+  importCookies: (
+    id: string,
+    cookies: unknown[],
+  ): Promise<{ imported: number; session_only: number; skipped: number }> =>
+    cmd("import_cookies", { id, cookies }),
   exportProject: (id: string, path: string, passphrase: string, withData = true):
     Promise<{ path: string; bytes: number }> =>
     cmd("export_project", { id, path, passphrase, withData }),
