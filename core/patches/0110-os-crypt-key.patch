@@ -32,13 +32,16 @@ diff --git a/components/fury/key_provider/fury_key.h b/components/fury/key_provi
 new file mode 100644
 --- /dev/null
 +++ b/components/fury/key_provider/fury_key.h
-@@ -0,0 +1,54 @@
+@@ -0,0 +1,56 @@
 +// Copyright 2026 The Fury Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
 +
 +#ifndef COMPONENTS_FURY_KEY_PROVIDER_FURY_KEY_H_
 +#define COMPONENTS_FURY_KEY_PROVIDER_FURY_KEY_H_
++
++#include <stddef.h>
++#include <stdint.h>
 +
 +#include <array>
 +#include <optional>
@@ -61,9 +64,8 @@ new file mode 100644
 +// reach this header; only the browser-side key provider uses it.
 +class FuryKey {
 + public:
-+  // AES-128-CBC, to match what the platform providers hand the cookie store.
-+  // See fury_key_provider.cc for why the algorithm is not a free choice.
-+  static constexpr size_t kSize = 16;
++  // AES-256-GCM. See fury_key_provider.h for why not CBC.
++  static constexpr size_t kSize = 32;
 +
 +  // Reads the key from the descriptor named by --fury-oscrypt-fd, if that
 +  // switch is present. Call once, in the browser process, before OSCryptAsync
@@ -91,17 +93,16 @@ diff --git a/components/fury/key_provider/fury_key.cc b/components/fury/key_prov
 new file mode 100644
 --- /dev/null
 +++ b/components/fury/key_provider/fury_key.cc
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,78 @@
 +// Copyright 2026 The Fury Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
 +
-+#include "components/fury/fury_key.h"
++#include "components/fury/key_provider/fury_key.h"
 +
 +#include "base/command_line.h"
 +#include "base/files/file.h"
 +#include "base/logging.h"
-+#include "base/no_destructor.h"
 +#include "base/strings/string_number_conversions.h"
 +
 +namespace fury {
@@ -114,10 +115,13 @@ new file mode 100644
 +// copy of this string, as it does for every switch it passes.
 +constexpr char kOsCryptFdSwitch[] = "fury-oscrypt-fd";
 +
++// A function-local static rather than base::NoDestructor: the type is
++// trivially destructible, and NoDestructor static-asserts against exactly that
++// — it exists to avoid destructor registration for types that would otherwise
++// need it, which this does not.
 +std::optional<std::array<uint8_t, FuryKey::kSize>>& Storage() {
-+  static base::NoDestructor<std::optional<std::array<uint8_t, FuryKey::kSize>>>
-+      key;
-+  return *key;
++  static std::optional<std::array<uint8_t, FuryKey::kSize>> key;
++  return key;
 +}
 +
 +}  // namespace
@@ -172,7 +176,7 @@ diff --git a/components/fury/key_provider/fury_key_provider.h b/components/fury/
 new file mode 100644
 --- /dev/null
 +++ b/components/fury/key_provider/fury_key_provider.h
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,77 @@
 +// Copyright 2026 The Fury Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -209,18 +213,29 @@ new file mode 100644
 +//
 +// # Why the answers to the interface below are not free choices
 +//
-+// `IsCompatibleWithOsCryptSync()` must be true. The cookie store asks for its
-+// encryptor with `Option::kEncryptSyncCompat`, and that option selects
-+// `provider_for_os_crypt_sync_compatible_encryption_` — which only providers
-+// answering true ever set. A provider that answers false is still consulted for
-+// DECRYPTION but never used to encrypt cookies, so the patch would apply
-+// cleanly, compile, run, and change nothing about the file it was written for.
++// `UseForEncryption()` must be true and the precedence must be the highest
++// registered, because the main cookie jar takes its encryptor with
++// `Option::kNone` (network_context.cc, CookieEncryptionProviderImpl) and that
++// selects `provider_for_encryption_` — the highest-precedence provider that
++// answered with a key.
 +//
-+// The algorithm follows from that: AES-128-CBC with a 16-byte key, which is
-+// what the platform providers hand the cookie store today. This is not a
-+// weakening — it is the same algorithm Chrome already uses for this file — and
-+// the bundle that leaves the machine is separately sealed with
-+// XChaCha20-Poly1305 under the organisation key.
++// `IsCompatibleWithOsCryptSync()` must ALSO be true, for a second set of files:
++// extension cookies, the password reuse manager, the GCM driver and the device
++// OAuth2 token store all ask with `Option::kEncryptSyncCompat`, which selects
++// `provider_for_os_crypt_sync_compatible_encryption_` — a slot only providers
++// answering true ever fill. Answering false would leave all four still
++// encrypted under the machine's own key, which is the state this patch exists
++// to end. The flag's literal meaning is vacuous in M150: `components/os_crypt/sync`
++// does not exist in this checkout and nothing includes it, so all the answer
++// does now is decide which provider backs that option.
++//
++// AES-256-GCM, not the AES-128-CBC the platform providers use. GCM is
++// authenticated, so a key that is merely WRONG fails cleanly. CBC does not:
++// `Encryptor` will happily unpad garbage, and the cookie store's own defence
++// against that is a SHA-256(domain) prefix check — after which it still treats
++// the row as unreadable and deletes the whole eTLD+1 group. The point of this
++// patch is to stop that deletion happening, so the algorithm that makes a wrong
++// key ambiguous is the wrong one to choose.
 +class FuryKeyProvider : public os_crypt_async::KeyProvider {
 + public:
 +  FuryKeyProvider();
@@ -280,7 +295,7 @@ new file mode 100644
 +  std::move(callback).Run(
 +      kFuryKeyTag,
 +      os_crypt_async::Encryptor::Key(*key,
-+                                     os_crypt_async::mojom::Algorithm::kAES128CBC));
++                                     os_crypt_async::mojom::Algorithm::kAES256GCM));
 +}
 +
 +bool FuryKeyProvider::UseForEncryption() {
