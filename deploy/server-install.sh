@@ -139,6 +139,16 @@ DATABASE_URL=postgres://fury:${DB_PASS}@127.0.0.1:5432/fury
 BIND=127.0.0.1:8901
 FURY_BUNDLE_DIR=/var/lib/fury/bundles
 RUST_LOG=fury_server=info,tower_http=warn
+# Whether a stranger who finds this address may make themselves an account.
+#
+# Off. A self-hosted server is somebody's own machine, and "yes" is not a
+# default anyone should inherit by installing something. Set it to 1 to run a
+# server other people can join, then restart: systemctl restart fury-server.
+#
+# It is less alarming than it sounds — every sign-up creates its OWN
+# organisation, and an organisation is the boundary every query already filters
+# on, so a stranger cannot address anything of yours. What they cost you is rows.
+FURY_OPEN_SIGNUP=0
 ENV
 chmod 0640 /etc/fury/fury.env; chown root:fury /etc/fury/fury.env
 

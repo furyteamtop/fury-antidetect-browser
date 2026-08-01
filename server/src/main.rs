@@ -22,6 +22,17 @@ use sqlx::PgPool;
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
+    /// Whether a stranger may make themselves an account.
+    ///
+    /// Off unless `FURY_OPEN_SIGNUP=1`. A self-hosted server is somebody's own
+    /// machine, and the default for "may anyone who finds this address join"
+    /// is no. Turning it on is what makes a server a service.
+    ///
+    /// It is not as dangerous as it sounds: every sign-up creates its OWN
+    /// organisation, so a stranger who joins can see nothing of anyone else's
+    /// — the organisation is the boundary, and there is no way to reach across
+    /// it. What they cost you is rows.
+    pub open_signup: bool,
 }
 
 #[tokio::main]
@@ -54,7 +65,15 @@ async fn main() -> anyhow::Result<()> {
     let db = connect().await?;
     sqlx::migrate!("./migrations").run(&db).await?;
 
-    let state = Arc::new(AppState { db });
+    // Anything but "1"/"true" is off, including a typo. A setting that opens
+    // the door should not be openable by accident.
+    let open_signup = std::env::var("FURY_OPEN_SIGNUP")
+        .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    if open_signup {
+        tracing::warn!("FURY_OPEN_SIGNUP is on: anyone who can reach this server can make an account");
+    }
+    let state = Arc::new(AppState { db, open_signup });
     let app = Router::new()
         .route("/healthz", get(healthz))
         .merge(api::routes())

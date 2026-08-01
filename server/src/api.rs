@@ -34,6 +34,8 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/v1/auth/logout", post(logout))
         .route("/v1/auth/enroll", post(complete_enrollment))
         .route("/v1/auth/enroll/{code}", get(peek_enrollment))
+        .route("/v1/auth/signup", post(signup))
+        .route("/v1/server", get(server_info))
         .route("/v1/me", get(whoami))
         .route("/v1/projects", get(list_projects).post(create_project))
         .route(
@@ -188,6 +190,163 @@ struct Invitation {
 /// rather than a password field and a hope. It reveals the invited address to
 /// whoever holds the code — who already holds the code, and could simply use
 /// it.
+/// What a launcher can learn before anyone signs in.
+///
+/// One unauthenticated fact: whether this server lets a stranger make an
+/// account. The launcher needs it to decide whether to offer the button, and
+/// offering a button that always fails is its own kind of lie.
+///
+/// Deliberately nothing else. A server's name, its size, who is on it — all of
+/// that would turn an address into a thing worth scanning for.
+async fn server_info(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    Json(json!({ "open_signup": state.open_signup }))
+}
+
+#[derive(Deserialize)]
+pub struct SignupRequest {
+    email: String,
+    password: String,
+    /// What to call the organisation this creates. Theirs alone.
+    org_name: String,
+    /// base64, as in enrolment. The server never parses these beyond decoding.
+    public_key: String,
+    wrapped_private_key: String,
+    kdf_salt: String,
+    /// Required: a sign-up always creates an organisation, so it always creates
+    /// an owner, and an owner without the wrapped key owns nothing openable.
+    wrapped_ork: String,
+    #[serde(default)]
+    machine_name: String,
+}
+
+/// Make an account with no invitation.
+///
+/// The only way onto a server used to be a code issued from its shell, which is
+/// right for a team someone runs and wrong for a product someone downloads: a
+/// person who installs Fury and wants their profiles on a server had nowhere to
+/// go. This is that path.
+///
+/// Every sign-up creates its OWN organisation, with the caller as owner. That is
+/// the whole safety story and it is structural rather than a check: an
+/// organisation is the boundary every query already filters on, so a stranger
+/// who signs up on your server cannot address anything of yours. They cost you
+/// rows and nothing else.
+async fn signup(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<SignupRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    if !state.open_signup {
+        return Err(ApiError::BadRequest(
+            "this server does not take open sign-ups. Ask whoever runs it for an \
+             invitation, or set FURY_OPEN_SIGNUP=1 if it is yours"
+                .into(),
+        ));
+    }
+
+    use base64::Engine;
+    let b64 = |what: &str, v: &str| -> Result<Vec<u8>, ApiError> {
+        base64::engine::general_purpose::STANDARD
+            .decode(v)
+            .map_err(|_| ApiError::BadRequest(format!("{what} is not base64")))
+    };
+    let public_key = b64("public_key", &req.public_key)?;
+    let wrapped_private_key = b64("wrapped_private_key", &req.wrapped_private_key)?;
+    let kdf_salt = b64("kdf_salt", &req.kdf_salt)?;
+    let wrapped_ork = b64("wrapped_ork", &req.wrapped_ork)?;
+
+    let email = req.email.trim().to_ascii_lowercase();
+    if !email.contains('@') || email.len() < 3 {
+        return Err(ApiError::BadRequest("that is not an email address".into()));
+    }
+    let org_name = req.org_name.trim();
+    if org_name.is_empty() {
+        return Err(ApiError::BadRequest("the organisation needs a name".into()));
+    }
+    // Same rule and the same sentence as enrolment: one requirement, said once.
+    if req.password.len() < 12 {
+        return Err(ApiError::BadRequest(
+            "the password must be at least 12 characters: it is the only thing standing \
+             between a stolen laptop and this organisation's accounts"
+                .into(),
+        ));
+    }
+    if public_key.len() != 32 {
+        return Err(ApiError::BadRequest(
+            "public_key must be 32 bytes — X25519".into(),
+        ));
+    }
+
+    // One transaction: a user without an organisation cannot sign in and cannot
+    // be repaired from the outside.
+    let mut tx = state.db.begin().await?;
+
+    let user_id = Uuid::now_v7();
+    let password_hash = auth::hash_password(&req.password)
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("{e}")))?;
+
+    sqlx::query(
+        "INSERT INTO users (id, email, password_hash, public_key, wrapped_private_key, kdf_salt) \
+         VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(user_id)
+    .bind(&email)
+    .bind(&password_hash)
+    .bind(&public_key)
+    .bind(&wrapped_private_key)
+    .bind(&kdf_salt)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| match &e {
+        sqlx::Error::Database(db) if db.is_unique_violation() => ApiError::BadRequest(
+            "that address already has an account on this server. Sign in instead".into(),
+        ),
+        _ => ApiError::Db(e),
+    })?;
+
+    let org_id = Uuid::now_v7();
+    sqlx::query("INSERT INTO organizations (id, name) VALUES ($1, $2)")
+        .bind(org_id)
+        .bind(org_name)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query(
+        "INSERT INTO org_members (org_id, user_id, role, wrapped_ork, ork_generation) \
+         VALUES ($1, $2, 'owner'::org_role, $3, 1)",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(&wrapped_ork)
+    .execute(&mut *tx)
+    .await?;
+
+    // Signed in on the way out, as enrolment does. Asking someone to retype the
+    // password they chose ten seconds ago, into the same window, teaches them
+    // nothing.
+    let (raw, digest) = auth::new_token();
+    sqlx::query(
+        "INSERT INTO sessions (token_hash, user_id, expires_at, machine_name) \
+         VALUES ($1, $2, now() + ($3 || ' hours')::interval, $4)",
+    )
+    .bind(&digest)
+    .bind(user_id)
+    .bind(auth::SESSION_TTL_HOURS.to_string())
+    .bind(&req.machine_name)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    tracing::info!(%user_id, %org_id, "signed up");
+    Ok(Json(json!({
+        "token": raw,
+        "user_id": user_id,
+        "org_id": org_id,
+        "role": "owner",
+        "has_org_key": true,
+    })))
+}
+
 async fn peek_enrollment(
     State(state): State<Arc<AppState>>,
     Path(code): Path<String>,

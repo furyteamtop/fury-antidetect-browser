@@ -13,6 +13,7 @@ import { Trash } from "./components/Trash";
 import { Users } from "./components/Users";
 import { ServerSetup } from "./components/ServerSetup";
 import { Enrol } from "./components/Enrol";
+import { Signup } from "./components/Signup";
 import { Settings } from "./components/Settings";
 import { Sidebar, type View } from "./components/Sidebar";
 import { useTheme } from "./theme";
@@ -27,6 +28,7 @@ export function App() {
   // it, works before this machine has a server configured — the code carries
   // the address. So it is its own state rather than a branch of `signed_in`.
   const [enrolling, setEnrolling] = useState(false);
+  const [signingUp, setSigningUp] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [active, setActive] = useState<Project | null>(null);
@@ -167,6 +169,18 @@ export function App() {
 
   if (!shell) return <div className="splash">Fury</div>;
 
+  if (signingUp) {
+    return (
+      <Signup
+        onDone={() => {
+          setSigningUp(false);
+          void api.shell().then(setShell);
+        }}
+        onCancel={() => setSigningUp(false)}
+      />
+    );
+  }
+
   if (enrolling) {
     return (
       <Enrol
@@ -184,9 +198,10 @@ export function App() {
       <Login
         onSuccess={() => void api.shell().then(setShell)}
         onEnrol={() => setEnrolling(true)}
+        onSignup={() => setSigningUp(true)}
       />
     ) : (
-      <ServerSetup onDone={setShell} />
+      <ServerSetup onDone={setShell} onSignup={() => setSigningUp(true)} />
     );
   }
 
@@ -201,6 +216,7 @@ export function App() {
       <Login
         onSuccess={() => void api.shell().then(setShell)}
         onEnrol={() => setEnrolling(true)}
+        onSignup={() => setSigningUp(true)}
         unlockFor={shell.last_email}
       />
     );

@@ -6,7 +6,16 @@ import { api, type Shell } from "../api";
  *  app cannot do anything until someone says where their server is. The address
  *  is checked before it is saved, because a typo'd host otherwise surfaces one
  *  screen later as a failed sign-in, which reads as "wrong password". */
-export function ServerSetup({ onDone }: { onDone: (shell: Shell) => void }) {
+export function ServerSetup({
+  onDone,
+  onSignup,
+}: {
+  onDone: (shell: Shell) => void;
+  /** This screen assumes an account already exists on the address typed in.
+   *  Somebody who has none needs the other door, and it has to be on this
+   *  screen — it is the first one a new install shows. */
+  onSignup: () => void;
+}) {
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -43,6 +52,9 @@ export function ServerSetup({ onDone }: { onDone: (shell: Shell) => void }) {
       {error && <p className="error">{error}</p>}
       <button type="submit" disabled={busy || !url.trim()}>
         {busy ? t("srv.checking") : t("srv.connect")}
+      </button>
+      <button type="button" className="linky" onClick={onSignup}>
+        {t("signup.start")}
       </button>
     </form>
   );

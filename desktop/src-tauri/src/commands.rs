@@ -496,6 +496,109 @@ pub async fn invitation(state: State<'_, AppState>, url: String, code: String) -
         .map_err(|e| ApiErr::local(format!("The server answered something unexpected: {e}")))
 }
 
+/// Whether a server takes open sign-ups, asked before anyone has an account.
+///
+/// Unauthenticated on purpose: the launcher has to know whether to offer the
+/// button, and an old server that has never heard of this endpoint answers 404 —
+/// which reads as "no", correctly.
+#[tauri::command]
+pub async fn server_allows_signup(state: State<'_, AppState>, url: String) -> R<bool> {
+    let base = settings::normalise_server_url(&url).map_err(ApiErr::local)?;
+    let resp = state
+        .http
+        .get(format!("{base}/v1/server"))
+        .send()
+        .await
+        .map_err(|e| ApiErr::local(format!("Could not reach {base}: {e}")))?;
+    if !resp.status().is_success() {
+        return Ok(false);
+    }
+    let body: serde_json::Value = resp.json().await.unwrap_or(serde_json::Value::Null);
+    Ok(body.get("open_signup").and_then(|v| v.as_bool()).unwrap_or(false))
+}
+
+/// Make an account on a server that takes them, with no invitation.
+///
+/// The same key generation as enrolment, and deliberately the same function:
+/// the difference between the two is who vouched for the address, not what the
+/// client makes. A sign-up always creates an organisation, so it always creates
+/// the organisation key — `creates_org` is true and cannot be otherwise.
+#[tauri::command]
+pub async fn signup(
+    state: State<'_, AppState>,
+    url: String,
+    email: String,
+    password: String,
+    org_name: String,
+) -> R<Me> {
+    let base = settings::normalise_server_url(&url).map_err(ApiErr::local)?;
+
+    let e = crypto::enrol(&password, true)
+        .map_err(|e| ApiErr::local(format!("Could not generate keys: {e}")))?;
+    let wrapped_ork = e.wrapped_ork.clone().ok_or_else(|| {
+        ApiErr::local("Could not generate the organisation key.".to_string())
+    })?;
+
+    let resp = state
+        .http
+        .post(format!("{base}/v1/auth/signup"))
+        .json(&serde_json::json!({
+            "email": email,
+            "password": password,
+            "org_name": org_name,
+            "public_key": e.public_key,
+            "wrapped_private_key": e.wrapped_private_key,
+            "kdf_salt": e.kdf_salt,
+            "wrapped_ork": wrapped_ork,
+            "machine_name": settings::machine_name(),
+        }))
+        .send()
+        .await
+        .map_err(|err| ApiErr::local(format!("Could not reach {base}: {err}")))?;
+
+    let status = resp.status().as_u16();
+    let body: serde_json::Value = resp.json().await.unwrap_or(serde_json::Value::Null);
+    if status >= 400 {
+        return Err(ApiErr {
+            status,
+            message: body
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("The server refused the sign-up.")
+                .to_string(),
+            body,
+            code: None,
+        });
+    }
+
+    let token = body
+        .get("token")
+        .and_then(|t| t.as_str())
+        .ok_or_else(|| ApiErr::local("The server answered without a session.".to_string()))?
+        .to_string();
+
+    // Remembered only once it worked — see the same note on enrol.
+    {
+        let mut s = state.settings.lock().unwrap();
+        s.server_url = Some(base.clone());
+        s.last_email = Some(email);
+        s.save(&state.config_dir)
+            .map_err(|err| ApiErr::local(format!("Could not save settings: {err}")))?;
+    }
+    state.session.bind(&base);
+    state.session.store(&token);
+    *state.org_key.lock().unwrap() = e.org_key;
+    if let Some(k) = e.org_key.as_ref() {
+        if state.settings.lock().unwrap().remember_org_key {
+            state.session.store_org_key(k);
+        }
+    }
+
+    state
+        .call(reqwest::Method::GET, "/v1/me", Body::None, true)
+        .await
+}
+
 /// Complete an invitation: generate the keys, post the wrapped results, sign in.
 #[tauri::command]
 pub async fn enrol(

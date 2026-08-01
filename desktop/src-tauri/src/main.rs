@@ -89,6 +89,8 @@ fn main() {
             commands::set_server,
             commands::invitation,
             commands::enrol,
+            commands::signup,
+            commands::server_allows_signup,
             commands::disconnect_server,
             commands::login,
             commands::logout,

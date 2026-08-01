@@ -319,6 +319,16 @@ export const api = {
 
   /** Redeem it. The password is passed to Rust and no further: the keys are
    *  generated there, and only wrapped material reaches the server. */
+  /** Whether a server takes open sign-ups. An old server that never heard of
+   *  the question answers no, which is the right answer. */
+  serverAllowsSignup: (url: string): Promise<boolean> =>
+    cmd<boolean>("server_allows_signup", { url }),
+
+  /** Make an account with no invitation, on a server that allows it. Creates
+   *  an organisation with you as its owner. */
+  signup: (url: string, email: string, password: string, orgName: string): Promise<Me> =>
+    cmd<Me>("signup", { url, email, password, orgName }),
+
   async enrol(url: string, code: string, password: string, createsOrg: boolean): Promise<Me> {
     if (!isDesktop) {
       return Promise.reject(

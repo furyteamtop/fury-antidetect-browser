@@ -5,12 +5,17 @@ import { api } from "../api";
 export function Login({
   onSuccess,
   onEnrol,
+  onSignup,
   unlockFor,
 }: {
   onSuccess: () => void;
   /** There is no registration form, so the only way to a first account is an
    *  invitation — and this screen is where someone holding one arrives. */
   onEnrol: () => void;
+  /** No account anywhere yet. Only useful against a server that takes open
+   *  sign-ups, which most will not — the screen behind this asks before it
+   *  offers a form. */
+  onSignup: () => void;
   /** Set when the session is alive but the organisation key is not: the app was
    *  restarted, and the key lives in memory for exactly as long as the process
    *  that holds it. This is the same form doing a different job — the password
@@ -62,9 +67,18 @@ export function Login({
         {busy ? t("auth.signingIn") : unlockFor ? t("auth.unlock") : t("auth.signIn")}
       </button>
       {!unlockFor && (
-        <button type="button" className="linky" onClick={onEnrol}>
-          {t("enrol.have")}
-        </button>
+        <>
+          {/* Two doors, and they are not the same one. An invitation joins a
+              team that exists; a sign-up makes a new one. Someone who picks
+              the wrong one ends up owning an organisation of one and wondering
+              where their colleague's profiles went. */}
+          <button type="button" className="linky" onClick={onEnrol}>
+            {t("enrol.have")}
+          </button>
+          <button type="button" className="linky" onClick={onSignup}>
+            {t("signup.start")}
+          </button>
+        </>
       )}
     </form>
   );
