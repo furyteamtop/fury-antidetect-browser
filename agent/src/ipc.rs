@@ -161,6 +161,19 @@ impl Agent {
         Ok(())
     }
 
+    /// The same dispatch the socket uses, for the local HTTP API.
+    ///
+    /// Deliberately the same and not a parallel surface: two implementations of
+    /// "launch a profile" is one of them being separately wrong, and the one
+    /// nobody exercises is the one that rots.
+    pub async fn dispatch_public(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        self.dispatch(method, params).await
+    }
+
     async fn dispatch(
         &self,
         method: &str,
@@ -574,8 +587,18 @@ impl Agent {
                             .ok_or_else(|| anyhow::anyhow!("profile_key must be 64 hex characters"))
                     })
                     .transpose()?;
-                self.launch(&str_param(&params, "id")?, server, lock_token, inline, profile_key)
-                    .await
+                // Off unless asked for. A debugging port nobody requested is a
+                // way into the browser nobody is watching.
+                let cdp = params.get("cdp").and_then(|v| v.as_bool()).unwrap_or(false);
+                self.launch(
+                    &str_param(&params, "id")?,
+                    server,
+                    lock_token,
+                    inline,
+                    profile_key,
+                    cdp,
+                )
+                .await
             }
             "profile.stop" => self.stop(&str_param(&params, "id")?).await,
 
@@ -614,6 +637,7 @@ impl Agent {
         lock_token: Option<String>,
         inline: Option<Profile>,
         profile_key: Option<[u8; 32]>,
+        cdp: bool,
     ) -> anyhow::Result<serde_json::Value> {
         {
             let mut running = self.running.lock().await;
@@ -727,8 +751,22 @@ impl Agent {
         };
         let config = persona.derive_core_config(profile.fp_seed as u64, &ctx);
 
+        // Local mode has no roles to enforce: whoever can reach this socket
+        // owns the machine and the data. Restrictions are a team-server concept
+        // and are computed there.
+        let restrictions = fury_shared::rbac::LaunchRestrictions::for_perms(
+            fury_shared::rbac::PermSet::full_profile_work(),
+        );
+        // Asked for, and allowed. A profile whose restrictions deny CDP passes
+        // no flag, so waiting for a file the browser will never write would
+        // stall every such launch for the length of the timeout.
+        let wants_cdp = cdp && !restrictions.deny_cdp;
+
         let dir = paths::profile_dir(&profile.id);
         std::fs::create_dir_all(&dir)?;
+        // Left behind by the previous run, and indistinguishable from this
+        // one's once the browser is up.
+        let _ = std::fs::remove_file(dir.join("DevToolsActivePort"));
 
         // Pull before launching, not after. A browser started on stale data and
         // then overwritten mid-session is worse than one that waited: the pages
@@ -773,14 +811,30 @@ impl Agent {
             // Local mode has no roles to enforce: whoever can reach this socket
             // owns the machine and the data. Restrictions are a team-server
             // concept and are computed there.
-            restrictions: fury_shared::rbac::LaunchRestrictions::for_perms(
-                fury_shared::rbac::PermSet::full_profile_work(),
-            ),
+            restrictions: restrictions.clone(),
             start_urls: &start_urls,
-            debug_port: None,
+            // Port 0 asks Chromium to pick one and write it to
+            // DevToolsActivePort in the profile directory. Choosing a free port
+            // here instead would race: something else can take it between the
+            // check and the exec, and the failure lands as a browser that
+            // started without CDP for no visible reason.
+            debug_port: wants_cdp.then_some(0),
         })?;
 
         let pid = child.id();
+
+        // The address a script attaches to, if one was asked for.
+        //
+        // Read from the file rather than guessed: line one is the port, line two
+        // is the browser's WebSocket path, and both are what Puppeteer's
+        // connect_over_cdp wants. Absent after a second and a half means the
+        // core refused the flag — deny_cdp does exactly that — and the answer
+        // says so by carrying no endpoint rather than a wrong one.
+        let cdp_endpoint = if wants_cdp {
+            devtools_endpoint(&dir).await
+        } else {
+            None
+        };
         // Only for a profile this machine owns. A team profile's last-opened
         // time belongs to the server, which already records the launch in its
         // audit log when the lock is taken.
@@ -811,7 +865,15 @@ impl Agent {
         );
 
         tracing::info!(profile = %profile.name, pid, relay_port, "launched");
-        Ok(serde_json::json!({ "pid": pid, "relay_port": relay_port }))
+        let mut out = serde_json::json!({ "pid": pid, "relay_port": relay_port });
+        if let Some((port, ws)) = cdp_endpoint {
+            out["debug_port"] = serde_json::json!(port);
+            out["ws_endpoint"] = serde_json::json!(ws);
+            // Both names, because the two libraries people actually use spell
+            // it differently and neither accepts the other's.
+            out["ws"] = serde_json::json!({ "puppeteer": ws, "selenium": ws });
+        }
+        Ok(out)
     }
 
     async fn stop(&self, profile_id: &str) -> anyhow::Result<serde_json::Value> {
@@ -884,6 +946,37 @@ impl Agent {
         entry.relay.abort();
         Ok(serde_json::json!({ "stopped": true, "uploaded_version": pushed }))
     }
+}
+
+/// Where Chromium wrote the port it chose, and the browser's WebSocket path.
+///
+/// Polled rather than waited on once: the file appears a moment after the
+/// process does, and how long that takes depends on whether the profile
+/// directory is cold.
+async fn devtools_endpoint(profile_dir: &std::path::Path) -> Option<(u16, String)> {
+    let path = profile_dir.join("DevToolsActivePort");
+    // Twenty seconds, because that is what a cold start costs: a fresh profile
+    // directory, a first run, and a machine doing other things. Measured at
+    // about six on a warm one, and the first version waited one and a half and
+    // reported no endpoint for a browser that was about to publish one.
+    //
+    // The file survives a previous run, so a stale one would be read as this
+    // run's. Removed before the browser starts — see `launch`.
+    for _ in 0..200 {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let mut lines = text.lines();
+        let (Some(port), Some(ws_path)) = (lines.next(), lines.next()) else {
+            continue;
+        };
+        let Ok(port) = port.trim().parse::<u16>() else {
+            continue;
+        };
+        return Some((port, format!("ws://127.0.0.1:{port}{}", ws_path.trim())));
+    }
+    None
 }
 
 fn str_param(params: &serde_json::Value, name: &str) -> anyhow::Result<String> {

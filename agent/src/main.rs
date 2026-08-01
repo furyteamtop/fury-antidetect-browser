@@ -8,6 +8,7 @@
 //! docs/09-roadmap.md for what is still missing.
 
 mod bundle;
+mod http;
 mod ipc;
 mod launcher;
 mod paths;
@@ -25,6 +26,17 @@ use std::time::Duration;
 use fury_shared::fingerprint::samples;
 use relay::{Credentials, Relay, Upstream};
 
+/// The port for the local automation API, or `None` when it is off.
+///
+/// `FURY_API_PORT=35000` turns it on; `0` and anything unparseable leave it
+/// off, so a typo fails closed.
+fn api_port() -> Option<u16> {
+    std::env::var("FURY_API_PORT")
+        .ok()
+        .and_then(|v| v.trim().parse::<u16>().ok())
+        .filter(|p| *p > 0)
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -36,7 +48,23 @@ async fn main() -> anyhow::Result<()> {
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
-        Some("serve") => ipc::Agent::new().await?.serve().await,
+        Some("serve") => {
+            let agent = ipc::Agent::new().await?;
+
+            // Only when asked for. See http.rs: a loopback port is reachable
+            // from a page the browser itself opens, and the defences are worth
+            // nothing on a machine whose owner never wanted the port.
+            if let Some(port) = api_port() {
+                let for_api = std::sync::Arc::clone(&agent);
+                tokio::spawn(async move {
+                    if let Err(e) = http::serve(for_api, port).await {
+                        tracing::error!(error = %e, "the local API stopped");
+                    }
+                });
+            }
+
+            agent.serve().await
+        }
         Some("relay") => cmd_relay(&args[1..]).await,
         Some("launch") => cmd_launch(&args[1..]).await,
         Some("check-fingerprint") => cmd_check_fingerprint(&args[1..]),
