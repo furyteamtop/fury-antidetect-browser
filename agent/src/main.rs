@@ -242,6 +242,10 @@ async fn cmd_launch(args: &[String]) -> anyhow::Result<()> {
             fury_shared::rbac::PermSet::full_profile_work(),
         ),
         start_urls: &urls,
+        // The bare CLI has no organisation key and no profile key, so there is
+        // nothing to derive one from — the machine's own keychain keeps the
+        // cookies, as it does for any profile that never leaves.
+        os_crypt_key: None,
         ui_locale: &ui_locale,
         // Opt-in: CDP is full cookie access, so it is never on by default even
         // for a local launch.

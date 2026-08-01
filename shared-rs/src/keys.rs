@@ -232,6 +232,51 @@ fn getrandom(buf: &mut [u8]) {
     rand::rngs::OsRng.fill_bytes(buf);
 }
 
+/// The key the browser encrypts a profile's cookies and passwords with.
+///
+/// # Why this exists and what it replaces
+///
+/// Chromium encrypts cookie values under a key belonging to the MACHINE — a
+/// random keychain password on macOS, DPAPI on Windows. A profile bundle
+/// carries the ciphertext but not that key, so a colleague who unpacks a shared
+/// profile cannot read it. Chromium does not skip the rows it cannot read: it
+/// runs `DELETE FROM cookies WHERE host_key = ?` for the whole eTLD+1 group,
+/// "for data consistency". The emptied jar is then packed and pushed, and a
+/// warmed session is gone for everyone.
+///
+/// Derived from the profile's own key — the one the bundle is sealed under, and
+/// which every machine holding the organisation key derives identically. That is
+/// what makes the ciphertext portable: the key travels by being derivable, not
+/// by being carried.
+///
+/// A separate label from the bundle's, so this is a sibling of the bundle key
+/// rather than the same value used twice. Reusing one key for two purposes is
+/// how a weakness in either becomes a weakness in both, and these two have
+/// different lifetimes: a bundle can be re-sealed under a new key at any time,
+/// while this one cannot change without the browser rewriting every row it
+/// protects.
+pub fn os_crypt_key(profile_key: &[u8; KEY_LEN], profile_id: &str) -> [u8; KEY_LEN] {
+    subkey(profile_key, "fury-oscrypt-v1", profile_id)
+}
+
+/// A name for a key that is safe to write down.
+///
+/// Eight bytes of HKDF over the key, hex. Recorded beside a profile so the agent
+/// can tell "this profile was encrypted with the key I am about to hand over"
+/// from "this profile was encrypted with a different one" — and refuse the
+/// second rather than let the browser answer it by deleting the cookie jar.
+///
+/// Not the key, and not reversible to it: a marker file sits inside the bundle
+/// and inside the profile directory, both of which are more readable than the
+/// key itself should ever be.
+pub fn key_fingerprint(key: &[u8; KEY_LEN]) -> String {
+    let hk = hkdf::Hkdf::<sha2::Sha256>::new(None, key);
+    let mut out = [0u8; 8];
+    hk.expand(b"fury-oscrypt-id-v1", &mut out)
+        .expect("8 bytes is within HKDF-SHA256's output range");
+    out.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -382,5 +427,40 @@ mod tests {
         // And with the wrong password, nothing at all.
         let wrong = user_key("a password nobody else has ", &salt).unwrap();
         assert!(unwrap(&wrong, &wrapped_private).is_err());
+    }
+
+    #[test]
+    fn the_cookie_key_is_per_profile_and_not_the_bundle_key() {
+        let ork = new_org_key();
+        let a = os_crypt_key(&ork, "profile-a");
+        let b = os_crypt_key(&ork, "profile-b");
+        assert_ne!(a, b, "two profiles must not share a cookie key");
+        assert_eq!(a, os_crypt_key(&ork, "profile-a"), "and it must be stable");
+
+        // Every machine holding the organisation key derives the same one —
+        // that is the entire point, and it is what makes a bundle portable.
+        assert_eq!(a, os_crypt_key(&ork.clone(), "profile-a"));
+
+        // Separate from the bundle subkey it is derived beside. One key for
+        // two purposes makes a weakness in either a weakness in both.
+        assert_ne!(a, subkey(&ork, "fury-profile-v1", "profile-a"));
+
+        // A different profile key cannot derive it — which is what stops one
+        // colleague's access to profile A from opening profile B's jar.
+        assert_ne!(a, os_crypt_key(&new_org_key(), "profile-a"));
+    }
+
+    #[test]
+    fn a_key_fingerprint_names_the_key_without_being_it() {
+        let ork = new_org_key();
+        let key = os_crypt_key(&ork, "p");
+        let id = key_fingerprint(&key);
+        assert_eq!(id.len(), 16, "eight bytes as hex");
+        assert_eq!(id, key_fingerprint(&key), "stable");
+        assert_ne!(id, key_fingerprint(&os_crypt_key(&ork, "q")));
+        // It is written to disk beside the profile, so it must not carry the
+        // key: no run of the fingerprint may appear in the key's own hex.
+        let key_hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
+        assert!(!key_hex.contains(&id));
     }
 }

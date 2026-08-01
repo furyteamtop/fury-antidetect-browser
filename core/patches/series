@@ -186,35 +186,36 @@
 # 0100-css-media-features.patch
 
 # --- storage ----------------------------------------------------------------
-# Derives the os_crypt key from the profile DEK instead of the OS keychain, so
-# a bundle is portable between machines and operating systems.
+# Derives the os_crypt key from the profile's own key instead of the machine's
+# keychain, so the cookie ciphertext inside a bundle can be read wherever the
+# bundle can be opened.
 #
-# NO LONGER BLOCKED, AND NO LONGER OPTIONAL. The old note said
-# components/os_crypt/sync/ is gone in M150 and left it there. That is true and
-# it is not the whole story: async/ replaced it, and async/ was built to be
-# extended. os_crypt_async::KeyProvider
-# (components/os_crypt/async/browser/key_provider.h) is an interface, and
-# chrome/browser/browser_process_impl.cc:1530-1580 is a plain
-# `providers.emplace_back(precedence, ...)` list with DPAPI at 10 and app-bound
-# at 15. A Fury provider fed from FuryConfig goes in beside them.
+# WRITTEN. Three things it had to get right, each of which would otherwise have
+# produced a patch that applies cleanly and does nothing:
 #
-# Why it is urgent rather than a nicety. Cookie values are encrypted under a key
-# that is per MACHINE — a random keychain password on macOS, DPAPI or an
-# app-bound key on Windows — and the bundle carries the ciphertext. So a team
-# profile opened on a second machine cannot decrypt its own cookies. Chromium
-# does not skip the rows it cannot read: LoadCookiesForDomains
-# (net/extras/sqlite/sqlite_persistent_cookie_store.cc:916-935) runs
-# `DELETE FROM cookies WHERE host_key = ?` for EVERY host in that eTLD+1 group,
-# "for data consistency". Then agent/src/ipc.rs stop() packs the emptied jar and
-# pushes it as a new server version. A colleague opening a shared profile
-# destroys its warmed session for the whole team, silently, and the destruction
-# is what gets saved.
+#   IsCompatibleWithOsCryptSync() must be TRUE. The main cookie jar takes its
+#   encryptor with Option::kNone and so follows precedence, but extension
+#   cookies, the password reuse manager, the GCM driver and the device OAuth2
+#   token store all ask with kEncryptSyncCompat — a slot only providers
+#   answering true ever fill. False would leave all four on the machine key.
 #
-# Until it lands, the workaround is the cookie path built in agent/src/cookies.rs:
-# cookies move over CDP as plaintext JSON, which is machine-independent, and a
-# profile can be re-seeded on the new machine. That is a workaround and not a
-# fix — nothing stops the delete from happening on the first cross-machine open.
-# 0110-os-crypt-key.patch
+#   AES-256-GCM, not the AES-128-CBC the platform providers use. GCM is
+#   authenticated, so a wrong key fails cleanly; CBC will unpad garbage and
+#   leave the cookie store to notice via its SHA-256(domain) check — after
+#   which it still deletes the whole eTLD+1 group.
+#
+#   The key travels on its own descriptor, never in the fingerprint config.
+#   That config is republished into shared memory for EVERY child process
+#   including renderers, and the renderer is the one process on the machine
+#   that runs the visited site's code.
+#
+# What this patch does NOT fix: a key that is simply wrong still destroys the
+# jar, because net::CookieCryptoDelegate::DecryptString takes no flags and has
+# no way to say "unavailable" rather than "corrupt". That case is caught in the
+# agent instead — it records the key's fingerprint beside the profile and
+# refuses to launch on a mismatch, which is the only answer that leaves the
+# data intact.
+0110-os-crypt-key.patch
 
 # --- misc js ----------------------------------------------------------------
 0120-performance-memory.patch

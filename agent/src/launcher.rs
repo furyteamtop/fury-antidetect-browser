@@ -45,6 +45,23 @@ pub struct LaunchSpec<'a> {
     /// Only set when the caller is allowed CDP at all; see `LaunchRestrictions`.
     pub debug_port: Option<u16>,
 
+    /// The key the core encrypts this profile's cookies with, or `None` to
+    /// leave that to the machine's own keychain.
+    ///
+    /// Present for every profile that has one, which after patch 0110 is every
+    /// profile. The point is that it does NOT come from this machine: it is
+    /// derived from the profile's own key material, so the ciphertext in the
+    /// cookie jar can be read wherever the bundle can be opened. Without it, a
+    /// colleague unpacking a shared profile cannot decrypt its cookies — and
+    /// Chromium answers that by DELETING them, then Fury packs the empty jar
+    /// and pushes it.
+    ///
+    /// Travels on its own descriptor, not in the fingerprint config: that
+    /// config is republished into shared memory for every child process,
+    /// renderers included, and the renderer is the one process on the machine
+    /// that runs the visited site's code.
+    pub os_crypt_key: Option<[u8; 32]>,
+
     /// The UI locale, one of Chrome's shipped ones. See `fury_shared::locale`.
     ///
     /// This is what makes `Intl.DateTimeFormat().resolvedOptions().locale`,
@@ -133,6 +150,12 @@ pub fn build_args(spec: &LaunchSpec) -> Vec<String> {
         format!("--lang={}", spec.ui_locale),
     ];
 
+    // fd 4, for the same reason fd 3 carries the config: a key on the command
+    // line is a key any other process on the machine can read out of `ps`.
+    if spec.os_crypt_key.is_some() {
+        args.push("--fury-oscrypt-fd=4".to_string());
+    }
+
     if spec.restrictions.lock_devtools {
         args.push("--fury-lock-devtools".to_string());
     }
@@ -185,8 +208,21 @@ pub fn spawn(spec: &LaunchSpec) -> Result<std::process::Child, LaunchError> {
     let carrier = config_carrier(spec.config)?;
     attach_config_fd(&mut cmd, &carrier);
 
+    // The key rides the same way and for the same reason. Kept alive until
+    // after spawn, like the config: the child inherits a copy across fork, but
+    // only while this one is still open.
+    let key_carrier = match spec.os_crypt_key {
+        Some(key) => {
+            let file = anonymous_file(&key)?;
+            attach_fd(&mut cmd, &file, 4);
+            Some(file)
+        }
+        None => None,
+    };
+
     let child = cmd.spawn()?;
     drop(carrier);
+    drop(key_carrier);
     Ok(child)
 }
 
@@ -200,11 +236,20 @@ pub fn spawn(spec: &LaunchSpec) -> Result<std::process::Child, LaunchError> {
 /// to pass anyway.
 #[cfg(unix)]
 fn config_carrier(config: &serde_json::Value) -> Result<std::fs::File, LaunchError> {
-    use std::os::unix::fs::OpenOptionsExt;
-
     let json = serde_json::to_vec(config).map_err(|e| {
         LaunchError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
     })?;
+    anonymous_file(&json)
+}
+
+/// A file with `bytes` in it that exists only as a descriptor.
+///
+/// Created 0600 and unlinked immediately, so it is never nameable by another
+/// process even for the moment it takes to spawn — the same reason the config
+/// does not travel in argv.
+#[cfg(unix)]
+fn anonymous_file(bytes: &[u8]) -> Result<std::fs::File, LaunchError> {
+    use std::os::unix::fs::OpenOptionsExt;
 
     // Named uniquely only long enough to be opened; 0600 so that even in that
     // window nobody else can read it.
@@ -222,7 +267,7 @@ fn config_carrier(config: &serde_json::Value) -> Result<std::fs::File, LaunchErr
         .open(&path)?;
     std::fs::remove_file(&path)?;
 
-    file.write_all(&json)?;
+    file.write_all(bytes)?;
     file.rewind()?;
     Ok(file)
 }
@@ -232,6 +277,11 @@ static NEXT_CARRIER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32
 
 #[cfg(unix)]
 fn attach_config_fd(cmd: &mut std::process::Command, carrier: &std::fs::File) {
+    attach_fd(cmd, carrier, 3)
+}
+
+#[cfg(unix)]
+fn attach_fd(cmd: &mut std::process::Command, carrier: &std::fs::File, target: i32) {
     use std::os::fd::AsRawFd;
     use std::os::unix::process::CommandExt;
 
@@ -241,7 +291,7 @@ fn attach_config_fd(cmd: &mut std::process::Command, carrier: &std::fs::File) {
     // the new descriptor, which is precisely why 3 survives the exec.
     unsafe {
         cmd.pre_exec(move || {
-            if libc::dup2(src, 3) == -1 {
+            if libc::dup2(src, target) == -1 {
                 return Err(std::io::Error::last_os_error());
             }
             Ok(())
@@ -298,6 +348,7 @@ mod tests {
             restrictions,
             start_urls: &[],
             debug_port: Some(9222),
+            os_crypt_key: None,
             ui_locale: "de",
         }
     }
@@ -356,6 +407,27 @@ mod tests {
         // Not networking, but the same class of problem: a build setting that
         // silently makes this browser behave unlike the one it claims to be.
         assert!(args.iter().any(|a| a == "--disable-field-trial-config"));
+    }
+
+    #[test]
+    fn the_cookie_key_is_offered_only_when_there_is_one() {
+        // A profile with no key of its own must not claim a descriptor that
+        // carries nothing: the core would read zero bytes, log, and fall back —
+        // but the switch would be there in `ps` saying otherwise.
+        let cfg = sample_config();
+        let r = LaunchRestrictions::for_perms(PermSet::full_profile_work());
+        let mut spec = spec_for(r.clone(), &cfg);
+        assert!(!build_args(&spec).iter().any(|a| a.starts_with("--fury-oscrypt-fd")));
+
+        spec.os_crypt_key = Some([7u8; 32]);
+        let args = build_args(&spec);
+        assert!(args.iter().any(|a| a == "--fury-oscrypt-fd=4"), "{args:?}");
+        // And never in argv itself. The whole reason it travels on a descriptor
+        // is that `ps` is readable by every process on the machine.
+        assert!(
+            !args.iter().any(|a| a.contains("07070707")),
+            "the key must not appear on the command line"
+        );
         // The other UDP path out. Without it a page reads the real address
         // through ICE, and every profile on the machine reports the same one.
         assert!(args

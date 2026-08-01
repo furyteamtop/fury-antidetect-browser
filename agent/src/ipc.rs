@@ -1128,6 +1128,37 @@ impl Agent {
             None => crate::bundle::Sealer::Machine(self.store.vault()),
         };
 
+        // The key the browser will encrypt this profile's cookies with, and the
+        // guard that stops a wrong one destroying them.
+        //
+        // Only for a profile that has a key of its own — a team profile. A local
+        // one keeps using the machine's keychain, which is what it does today
+        // and which is correct for something that never leaves.
+        //
+        // The guard matters more than the key. Chromium does not skip a cookie
+        // row it cannot decrypt: it deletes every row in that eTLD+1 group, and
+        // `stop` then packs the emptied jar and pushes it. So a mismatch has to
+        // be caught HERE, before the browser sees the directory, because after
+        // that the damage is done and saved. Refusing to launch is the only
+        // answer that leaves the data intact.
+        let os_crypt_key = profile_key
+            .map(|k| fury_shared::keys::os_crypt_key(&k, &profile.id));
+        let key_marker = dir.join("Fury Key Id");
+        if let Some(key) = os_crypt_key.as_ref() {
+            let want = fury_shared::keys::key_fingerprint(key);
+            if let Ok(found) = std::fs::read_to_string(&key_marker) {
+                let found = found.trim();
+                if !found.is_empty() && found != want {
+                    anyhow::bail!(
+                        "this profile's cookies were encrypted with a different key, and \
+                         opening it now would make the browser delete them. That happens when \
+                         the organisation key has been replaced since the profile was last \
+                         used. Ask an owner to hand you the current key, then try again"
+                    );
+                }
+            }
+        }
+
         let mut pulled_version = 0;
         if let Some(srv) = server.as_ref() {
             match srv.fetch_bundle(&profile.id).await? {
@@ -1162,6 +1193,7 @@ impl Agent {
             // concept and are computed there.
             restrictions: restrictions.clone(),
             start_urls: &start_urls,
+            os_crypt_key,
             ui_locale: &ui_locale,
             // Port 0 asks Chromium to pick one and write it to
             // DevToolsActivePort in the profile directory. Choosing a free port
@@ -1214,6 +1246,21 @@ impl Agent {
                 heartbeat,
             },
         );
+
+        // Written only once the browser is actually up: a marker recorded for a
+        // launch that failed would refuse the next, correct one.
+        //
+        // It goes inside the profile directory, so it travels in the bundle. A
+        // colleague unpacking it finds the fingerprint of the key they are about
+        // to derive — matching, when they hold the current organisation key, and
+        // not matching when the key has been replaced since. The second case is
+        // the one worth catching, and this is what catches it.
+        if let Some(key) = os_crypt_key.as_ref() {
+            let id = fury_shared::keys::key_fingerprint(key);
+            if let Err(e) = std::fs::write(&key_marker, &id) {
+                tracing::warn!(error = %e, "could not record the cookie key id");
+            }
+        }
 
         tracing::info!(profile = %profile.name, pid, relay_port, "launched");
         let mut out = serde_json::json!({ "pid": pid, "relay_port": relay_port });
