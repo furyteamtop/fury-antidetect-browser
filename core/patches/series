@@ -112,35 +112,27 @@
 
 # --- time & locale ----------------------------------------------------------
 0080-timezone-icu.patch
-# NOT NEEDED. The lever already exists and it is --lang.
+# WRITTEN, after being wrongly retired. The reasoning that retired it was that
+# --lang already sets ICU's default locale in every process, traced through
+# chrome_command_line_pref_store.cc:50, render_process_host_impl.cc:3734 and
+# chrome_main_delegate.cc:1449. The trace was right about Windows and wrong
+# about macOS, and reading it was not the same as running it.
 #
-# Intl resolves against ICU's process-global default locale: Isolate::
-# DefaultLocale() (v8/src/execution/isolate.cc:8025) constructs a bare
-# icu::Locale, which is uloc_getDefault(). Chromium sets that from --lang, in
-# every process — the browser turns the switch into the kApplicationLocale pref
-# (chrome_command_line_pref_store.cc:50), passes it down to each child
-# (render_process_host_impl.cc:3734), and each child calls SetICUDefaultLocale
-# with it (chrome_main_delegate.cc:1449 via l10n_util.cc:591). Nothing overrides
-# it on mac or windows: OverrideLocaleWithCocoaLocale is never called in Chrome,
-# and the Windows path tries --lang before the UI language list.
+# Measured on a build of this tree: with --lang=de and the German resources
+# present and loaded, Intl.DateTimeFormat().resolvedOptions().locale reported
+# "ru" — the host's own language — and (123456.789).toLocaleString() came out
+# "123 456,789". With this patch the same build reports "de" and "123.456,789".
 #
-# Measured both ways. baselines/final.json is a Fury capture with
-# navigator.languages = en-US,en, a Windows persona and America/New_York, and it
-# reports locale.locale = "ru" and numbers as "123 456,789" — the developer's
-# Mac locale, inherited because the launcher passed no --lang at all. And
-# baselines/chrome-150-macos-arm64.json, real Chrome, reports languages
-# "ru-RU,ru,en-US,en" with locale "ru": the UI locale IS the Intl locale, bare,
-# with no region. AdsPower's capture agrees.
+# Shaped exactly like 0080, and called next to it: LocaleController is
+# Chromium's own answer to "make every context agree on a locale", and it
+# notifies each isolate and every worker thread. A locale set on the main
+# thread alone is a contradiction a page finds inside a Worker in one line.
 #
-# agent/src/launcher.rs now passes --lang from fury_shared::locale, which is
-# generated from Chrome's own shipped .pak set and its own IDS_ACCEPT_LANGUAGES
-# values. A patch here would be a second mechanism for one fact.
-#
-# NOT a Linux-safe answer: GetApplicationLocaleInternalNonMac ignores --lang
-# under USE_GLIB and reads LANGUAGE/LC_ALL/LC_MESSAGES/LANG instead. If Fury
-# ever ships a Linux build, this line comes back — or the launcher sets those
-# variables on the child.
-# 0081-intl-locale.patch
+# The launcher still passes --lang. That is not redundancy: the browser's own
+# UI language should match what the profile claims, and a German exit whose
+# menus are in Russian is a seam of its own. --lang decides the chrome, this
+# decides the fact a page can read.
+0081-intl-locale.patch
 #
 # NOT WRITTEN, and the old note here was wrong about where to look. Blink's
 # modules/geolocation/ is indeed gone in M150, but the API did not leave Blink:

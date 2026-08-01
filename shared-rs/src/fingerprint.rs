@@ -498,6 +498,7 @@ pub const CORE_CONFIG_KEYS: &[&str] = &[
     "gpu.webgpu.features",
     "gpu.webgpu.limits.",
     "gpu.webgpu.vendor",
+    "locale.locale",
     "locale.timezone",
     "mediaDevices.",
     "navigator.deviceMemory",

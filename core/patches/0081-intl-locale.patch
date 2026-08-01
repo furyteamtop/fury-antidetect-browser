@@ -1,0 +1,102 @@
+diff --git a/third_party/blink/renderer/core/core_initializer.cc b/third_party/blink/renderer/core/core_initializer.cc
+index 948451b578..620b5f2032 100644
+--- a/third_party/blink/renderer/core/core_initializer.cc
++++ b/third_party/blink/renderer/core/core_initializer.cc
+@@ -59,6 +59,7 @@
+ #include "third_party/blink/renderer/core/preferences/preference_values.h"
+ #include "third_party/blink/renderer/core/script_type_names.h"
+ #include "third_party/blink/renderer/core/svg_names.h"
++#include "third_party/blink/renderer/core/inspector/locale_controller.h"
+ #include "third_party/blink/renderer/core/timezone/timezone_controller.h"
+ #include "third_party/blink/renderer/core/trustedtypes/trusted_type_policy_factory.h"
+ #include "third_party/blink/renderer/core/trustedtypes/trusted_types_names.h"
+@@ -173,6 +174,10 @@ void CoreInitializer::Initialize() {
+   ScriptStateImpl::Init();
+ 
+   TimeZoneController::Init();
++  // Beside the timezone, and for the same reason: both are read by the same
++  // detectors, in the same breath, and a profile that gets one right and the
++  // other wrong is more conspicuous than one that spoofs neither.
++  LocaleController::Init();
+ 
+   FontGlobalContext::Init();
+ 
+diff --git a/third_party/blink/renderer/core/inspector/locale_controller.cc b/third_party/blink/renderer/core/inspector/locale_controller.cc
+index c9e43639f1..e75356f7e3 100644
+--- a/third_party/blink/renderer/core/inspector/locale_controller.cc
++++ b/third_party/blink/renderer/core/inspector/locale_controller.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "third_party/blink/renderer/core/inspector/locale_controller.h"
+ 
++#include "components/fury/fury_config.h"
++
+ #include "base/i18n/rtl.h"
+ #include "third_party/blink/renderer/core/workers/worker_or_worklet_global_scope.h"
+ #include "third_party/blink/renderer/core/workers/worker_thread.h"
+@@ -41,6 +43,45 @@ void NotifyLocaleChangeOnWorkerThread(WorkerThread* worker_thread) {
+ LocaleController::LocaleController()
+     : embedder_locale_(String(icu::Locale::getDefault().getName())) {}
+ 
++// static
++void LocaleController::Init() {
++  // Why this patch exists at all, when --lang looked like it should do the job.
++  //
++  // Intl resolves against ICU's process-global default locale, and Chromium
++  // sets that from the application locale — which on Windows comes from --lang
++  // but on macOS does not: measured on a build of this tree, `--lang=de` left
++  // Intl.DateTimeFormat().resolvedOptions().locale reporting "ru", the host's
++  // own language, and (123456.789).toLocaleString() formatting as "123 456,789".
++  // The German resources were present and loaded; the switch simply never
++  // reached SetICUDefaultLocale. The launcher still passes --lang, because the
++  // browser's own UI language should match what the profile claims, but the
++  // fact a page can read has to be set here.
++  //
++  // UpdateLocale, not SetLocaleOverride: the latter refuses when another agent
++  // holds an override, and DevTools is entitled to take one later. This is the
++  // embedder's own starting value, so it becomes what SetLocaleOverride("")
++  // restores to — which is why embedder_locale_ is rewritten with it.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<std::string> locale = config->GetString("locale.locale")) {
++      if (!locale->empty()) {
++        // A locale ICU cannot parse would leave the process on the host's,
++        // silently. Checked here so the failure is a log line rather than a
++        // profile that looks configured and is not.
++        icu::Locale probe(locale->c_str());
++        const char* language = probe.getLanguage();
++        if (!language || *language == '\0') {
++          LOG(ERROR) << "fury: invalid locale " << *locale;
++          return;
++        }
++        String id = String::FromUtf8(*locale);
++        base::AutoLock locker(instance().lock_);
++        instance().UpdateLocale(id);
++        instance().embedder_locale_ = id;
++      }
++    }
++  }
++}
++
+ String LocaleController::SetLocaleOverride(const String& locale,
+                                            bool is_claiming_override) {
+   base::AutoLock locker(lock_);
+diff --git a/third_party/blink/renderer/core/inspector/locale_controller.h b/third_party/blink/renderer/core/inspector/locale_controller.h
+index 168cdbb872..3355b2508a 100644
+--- a/third_party/blink/renderer/core/inspector/locale_controller.h
++++ b/third_party/blink/renderer/core/inspector/locale_controller.h
+@@ -14,6 +14,15 @@ class LocaleController {
+  public:
+   static LocaleController& instance();
+ 
++  // Adopt the locale the profile claims, once, before any page script runs.
++  //
++  // The mirror of TimeZoneController::Init, and called beside it. Both exist
++  // because a value that disagrees between the main frame and a worker is a
++  // contradiction a page finds in one line, and this class is Chromium's own
++  // answer to that for locale: it sets the ICU default AND notifies every
++  // isolate and every worker thread.
++  static void Init();
++
+   LocaleController(const LocaleController&) = delete;
+   LocaleController& operator=(const LocaleController&) = delete;
+ 
