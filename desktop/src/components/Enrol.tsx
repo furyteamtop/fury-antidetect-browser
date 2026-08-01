@@ -101,7 +101,7 @@ export function Enrol({
         <button type="submit" disabled={busy || !url.trim() || !code.trim()}>
           {busy ? t("enrol.checking") : t("enrol.continue")}
         </button>
-        <button type="button" className="linky" onClick={onCancel}>
+        <button type="button" className="alt" onClick={onCancel}>
           {t("enrol.back")}
         </button>
       </form>

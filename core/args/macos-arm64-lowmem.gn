@@ -95,3 +95,9 @@ use_lld = true
 # Also passed as --disable-field-trial-config at launch, so binaries built
 # before this line still behave.
 disable_fieldtrial_testing_config = true
+
+# Keep ninja. autoninja in this depot_tools prefers Siso and then refuses an
+# output directory ninja created — "run gn clean", which throws away every
+# object file. Saying so here is cheaper than losing a build to a default that
+# changed upstream.
+use_siso = false

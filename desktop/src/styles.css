@@ -568,6 +568,26 @@ input::placeholder {
   font-weight: 560;
 }
 
+/* The ways in that are not the primary one.
+ *
+ * `.linky` cannot do this job here: it is a single class and `.login button` is
+ * a class plus an element, so the filled background wins the cascade and every
+ * button on the screen came out orange — three primary actions, none of them
+ * obviously the one to press. Outlined instead: still a button, visibly not
+ * THE button, and the two alternatives look identical to each other because
+ * they are alternatives to each other. */
+.login button.alt {
+  border-color: var(--line-strong);
+  background: transparent;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.login button.alt:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--hover);
+}
+
 /* ---- modal ------------------------------------------------------------- */
 
 .scrim {

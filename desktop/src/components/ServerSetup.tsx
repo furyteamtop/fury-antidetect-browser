@@ -53,7 +53,7 @@ export function ServerSetup({
       <button type="submit" disabled={busy || !url.trim()}>
         {busy ? t("srv.checking") : t("srv.connect")}
       </button>
-      <button type="button" className="linky" onClick={onSignup}>
+      <button type="button" className="alt" onClick={onSignup}>
         {t("signup.start")}
       </button>
     </form>

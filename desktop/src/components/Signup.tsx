@@ -133,7 +133,7 @@ export function Signup({
       )}
 
       {error && <p className="error center">{error}</p>}
-      <button type="button" onClick={onCancel}>
+      <button type="button" className="alt" onClick={onCancel}>
         {t("enrol.back")}
       </button>
     </form>

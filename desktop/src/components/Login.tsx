@@ -72,10 +72,10 @@ export function Login({
               team that exists; a sign-up makes a new one. Someone who picks
               the wrong one ends up owning an organisation of one and wondering
               where their colleague's profiles went. */}
-          <button type="button" className="linky" onClick={onEnrol}>
+          <button type="button" className="alt" onClick={onEnrol}>
             {t("enrol.have")}
           </button>
-          <button type="button" className="linky" onClick={onSignup}>
+          <button type="button" className="alt" onClick={onSignup}>
             {t("signup.start")}
           </button>
         </>
