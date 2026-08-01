@@ -112,10 +112,61 @@
 
 # --- time & locale ----------------------------------------------------------
 0080-timezone-icu.patch
-0081-intl-locale.patch
-# Blocked on investigation: third_party/blink/renderer/modules/geolocation/ does
-# not exist in M150 and the API has moved. Find it before writing anything —
-# guessing at a location is how a patch applies cleanly and does nothing.
+# NOT NEEDED. The lever already exists and it is --lang.
+#
+# Intl resolves against ICU's process-global default locale: Isolate::
+# DefaultLocale() (v8/src/execution/isolate.cc:8025) constructs a bare
+# icu::Locale, which is uloc_getDefault(). Chromium sets that from --lang, in
+# every process — the browser turns the switch into the kApplicationLocale pref
+# (chrome_command_line_pref_store.cc:50), passes it down to each child
+# (render_process_host_impl.cc:3734), and each child calls SetICUDefaultLocale
+# with it (chrome_main_delegate.cc:1449 via l10n_util.cc:591). Nothing overrides
+# it on mac or windows: OverrideLocaleWithCocoaLocale is never called in Chrome,
+# and the Windows path tries --lang before the UI language list.
+#
+# Measured both ways. baselines/final.json is a Fury capture with
+# navigator.languages = en-US,en, a Windows persona and America/New_York, and it
+# reports locale.locale = "ru" and numbers as "123 456,789" — the developer's
+# Mac locale, inherited because the launcher passed no --lang at all. And
+# baselines/chrome-150-macos-arm64.json, real Chrome, reports languages
+# "ru-RU,ru,en-US,en" with locale "ru": the UI locale IS the Intl locale, bare,
+# with no region. AdsPower's capture agrees.
+#
+# agent/src/launcher.rs now passes --lang from fury_shared::locale, which is
+# generated from Chrome's own shipped .pak set and its own IDS_ACCEPT_LANGUAGES
+# values. A patch here would be a second mechanism for one fact.
+#
+# NOT a Linux-safe answer: GetApplicationLocaleInternalNonMac ignores --lang
+# under USE_GLIB and reads LANGUAGE/LC_ALL/LC_MESSAGES/LANG instead. If Fury
+# ever ships a Linux build, this line comes back — or the launcher sets those
+# variables on the child.
+# 0081-intl-locale.patch
+#
+# NOT WRITTEN, and the old note here was wrong about where to look. Blink's
+# modules/geolocation/ is indeed gone in M150, but the API did not leave Blink:
+# it is at third_party/blink/renderer/core/geolocation/ (19 files), and M150
+# added a second web-visible consumer, the <geolocation> element in
+# core/html/html_geolocation_element.cc.
+#
+# Do NOT write it against Blink, and do NOT reuse device.mojom.
+# GeolocationContext::SetOverride (what CDP Emulation.setGeolocationOverride and
+# WebDriver BiDi both drive). That override freezes position.timestamp at the
+# instant it was set and delivers exactly one position per binding before going
+# silent, which starves watchPosition() in a way no real device does — upstream's
+# own unit test shows it.
+#
+# The seam is one layer lower: ContentBrowserClient::OverrideSystemLocationProvider(),
+# wired into the in-process device service at content/browser/device/device_service.cc:109.
+# A persona provider there sits exactly where CoreLocation and the network
+# location provider sit — downstream of the real permission gate, upstream of
+# the caching and the QueryNextPosition handshake — so everything else stays
+# stock Chromium and a denied permission still fails the way it really fails.
+#
+# Two things to settle before writing it. Patch 0090 forces
+# permissions.query({name:'geolocation'}) to "prompt" unconditionally, which
+# only becomes a contradiction once geolocation actually returns positions. And
+# a fixed coordinate repeated forever with no jitter is its own signal — real
+# hardware moves the last decimal places between fixes.
 # 0082-geolocation.patch
 
 # --- permissions ------------------------------------------------------------

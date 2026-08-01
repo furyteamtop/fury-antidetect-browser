@@ -33,3 +33,16 @@ enable_print_preview = true
 
 use_lld = true
 chrome_pgo_phase = 1
+
+# --- match real Chrome's feature set ----------------------------------------
+# An unbranded build applies testing/variations/fieldtrial_testing_config.json
+# by default (variations_field_trial_creator.cc:142), which force-enables
+# features that real stable Chrome ships disabled. ReduceAcceptLanguage and
+# ReduceAcceptLanguageHTTP are both in there for mac and windows, and they trim
+# Accept-Language to one language while navigator.languages still reports the
+# full list — a browser contradicting itself, from a build setting rather than
+# from anything in the patches.
+#
+# Also passed as --disable-field-trial-config at launch, so binaries built
+# before this line still behave.
+disable_fieldtrial_testing_config = true

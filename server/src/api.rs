@@ -1133,12 +1133,14 @@ async fn create_profile(
     let seed = fury_shared::persona::seed::from_hex(&req.fp_seed).ok_or_else(|| {
         ApiError::BadRequest("fp_seed must be sixteen hex characters".into())
     })?;
-    if req.timezone.trim().is_empty() {
-        return Err(ApiError::BadRequest("a profile needs a timezone".into()));
-    }
-    if req.languages.is_empty() {
-        return Err(ApiError::BadRequest("a profile needs at least one language".into()));
-    }
+    // An empty timezone or language list is now a decision rather than an
+    // omission: it means the profile follows its exit, and the agent resolves
+    // both from the address the proxy actually leaves through. That is the
+    // better default — a profile whose zone was pinned by hand months ago and
+    // whose proxy has since moved country is exactly the contradiction the zone
+    // was set to avoid.
+    //
+    // Stored as NULL and '{}' respectively, which is what launch_spec reads.
     if !fury_shared::catalogue::all().iter().any(|p| p.id == req.persona_id) {
         return Err(ApiError::BadRequest(format!(
             "no persona called {:?} — the client and the server ship different catalogues",
@@ -1178,7 +1180,7 @@ async fn create_profile(
     .bind(&req.tags)
     .bind(&req.persona_id)
     .bind(fury_shared::persona::seed::to_bytes(seed).as_slice())
-    .bind(&req.timezone)
+    .bind(Some(req.timezone.trim()).filter(|t| !t.is_empty()))
     .bind(&req.languages)
     .bind(req.proxy_id)
     .bind(&req.start_urls)
@@ -1410,11 +1412,8 @@ async fn edit_profile(
     if req.name.trim().is_empty() {
         return Err(ApiError::BadRequest("a profile needs a name".into()));
     }
-    if req.timezone.trim().is_empty() || req.languages.is_empty() {
-        return Err(ApiError::BadRequest(
-            "a profile needs a timezone and at least one language".into(),
-        ));
-    }
+    // Empty means "follow the exit" here too — clearing the field is how an
+    // operator hands the decision back to the proxy. See create_profile.
 
     // Changing which exit a profile uses is its own permission: it is the one
     // edit that changes where the account appears to be.
@@ -1452,7 +1451,7 @@ async fn edit_profile(
     .bind(req.name.trim())
     .bind(&req.notes)
     .bind(&req.tags)
-    .bind(&req.timezone)
+    .bind(Some(req.timezone.trim()).filter(|t| !t.is_empty()))
     .bind(&req.languages)
     .bind(req.proxy_id)
     .bind(&req.start_urls)
@@ -2303,18 +2302,24 @@ async fn launch_spec(state: &AppState, profile_id: Uuid) -> ApiResult<fury_share
             "the proxy on this profile has no stored credentials. It was created before              credentials were sealed, or by a client that could not seal them — open it in              Proxies and save it again ({px_id})"
         )));
     };
-    let Some(timezone) = row.timezone else {
-        return Err(ApiError::BadRequest(
-            "this profile has no timezone. A browser claiming UTC while its exit is in Berlin              is the cheapest thing there is to notice"
-                .into(),
-        ));
-    };
-    if row.languages.is_empty() {
-        return Err(ApiError::BadRequest(
-            "this profile has no languages. Accept-Language is sent on every request, and an              empty one is not a value any real browser produces"
-                .into(),
-        ));
-    }
+    // Absence is the instruction: no stored timezone means the profile follows
+    // its exit, and the agent resolves the zone from the address the proxy
+    // actually leaves through — which it can do and this server cannot, having
+    // never seen the exit and holding no proxy credentials.
+    //
+    // One rule, and the same one a local profile uses. This used to refuse a
+    // NULL outright, so the shell always sent a string, so the agent's
+    // follow-the-exit branch was dead code for every team profile: the feature
+    // existed and only local profiles could reach it.
+    //
+    // Deliberately NOT keyed on the `auto_timezone` / `auto_locale` columns
+    // that have sat in the schema since the first migration. Nothing had ever
+    // read them, every existing row has them TRUE by default, and honouring
+    // them now would discard the timezone every one of those profiles has
+    // stored. Two representations of one fact, one of which is stale — the
+    // migration beside this change drops them.
+    let timezone = row.timezone;
+    let languages = (!row.languages.is_empty()).then_some(row.languages);
 
     let fp_seed = fury_shared::persona::seed::from_bytes(&row.fp_seed)
         .map(fury_shared::persona::seed::to_hex)
@@ -2331,7 +2336,7 @@ async fn launch_spec(state: &AppState, profile_id: Uuid) -> ApiResult<fury_share
         persona_id: row.persona_id,
         fp_seed,
         timezone,
-        languages: row.languages,
+        languages,
         start_urls: row.start_urls,
         proxy: fury_shared::api::SealedProxy {
             id: px_id,

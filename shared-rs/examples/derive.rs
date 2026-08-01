@@ -6,6 +6,7 @@ fn main() {
     let ctx = fury_shared::ProfileContext {
         timezone: "America/New_York".into(),
         languages: vec!["en-US".into(), "en".into()],
+        ui_locale: "en-US".into(),
         chrome_major: 150,
         chrome_full_version: "150.0.7871.187".into(),
     };

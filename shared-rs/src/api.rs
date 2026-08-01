@@ -105,8 +105,23 @@ pub struct LaunchSpec {
     /// Sixteen lowercase hex characters — see `persona::seed` for why this is
     /// pinned rather than left to each side's own integer type.
     pub fp_seed: String,
-    pub timezone: String,
-    pub languages: Vec<String>,
+    /// `None` means "follow the exit" — the profile has `auto_timezone` set and
+    /// the agent resolves the zone from the address the proxy actually leaves
+    /// through.
+    ///
+    /// It has to be expressible. Before this was an `Option` the server refused
+    /// to launch a profile with no timezone, so the shell always sent a string,
+    /// so the agent's follow-the-exit branch was unreachable for every team
+    /// profile — the feature existed and only local profiles could use it. The
+    /// `auto_timezone` and `auto_locale` columns have been in the schema since
+    /// the first migration and nothing had ever read them.
+    pub timezone: Option<String>,
+    /// `None` means "follow the exit", as above.
+    ///
+    /// Not an empty `Vec`: an empty list is a profile that sends no
+    /// Accept-Language at all, which is a value no browser produces, and the
+    /// two must not collapse into the same wire form.
+    pub languages: Option<Vec<String>>,
     pub start_urls: Vec<String>,
     pub proxy: SealedProxy,
 }

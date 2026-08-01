@@ -7,6 +7,7 @@ pub mod api;
 pub mod catalogue;
 pub mod fingerprint;
 pub mod keys;
+pub mod locale;
 pub mod persona;
 pub mod rbac;
 

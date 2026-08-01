@@ -85,6 +85,8 @@ async fn main() -> anyhow::Result<()> {
                        --seed N            profile seed (default 1)\n        \
                        --proxy URL         upstream proxy; everything goes through it\n        \
                        --timezone ZONE     IANA zone the profile reports\n        \
+                       --country CC        ISO country: sets --lang and the UI locale\n                              \
+                                           to what a Chrome installed there sends\n        \
                        --lang a,b          BCP-47 list, most preferred first\n        \
                        --profile-dir DIR   user-data-dir (default a temp dir)\n        \
                        --core PATH         core binary (or set FURY_CORE)\n        \
@@ -174,13 +176,33 @@ async fn cmd_launch(args: &[String]) -> anyhow::Result<()> {
         }
     };
 
+    // `--country DE` is the short way to say all of it: the languages a German
+    // Chrome sends and the UI locale it runs as, straight out of the generated
+    // table. `--lang` still overrides, for testing a combination on purpose.
+    let country_locale = opt("--country")
+        .as_deref()
+        .and_then(fury_shared::locale::for_country);
+    let locale = country_locale.unwrap_or(fury_shared::locale::FALLBACK);
+
+    let languages: Vec<String> = match opt("--lang") {
+        Some(l) => l.split(',').map(str::trim).map(str::to_string).collect(),
+        None => locale.languages.iter().map(|s| (*s).to_string()).collect(),
+    };
+    // Follows the languages, whether they came from --country or --lang, so a
+    // hand-run launch cannot end up formatting dates in a language it does not
+    // claim to speak.
+    let ui_locale = match (&country_locale, opt("--lang")) {
+        (Some(l), None) => l.ui.to_string(),
+        _ => fury_shared::locale::ui_locale_for(languages.first().map(|s| s.as_str())),
+    };
+
     let ctx = fury_shared::persona::ProfileContext {
         // TODO: resolve from the relay's effective exit IP, per docs/05. Until
-        // that lands the operator has to say, and a mismatch is on them.
+        // that lands the operator has to say, and a mismatch is on them. The
+        // launch path in ipc.rs does resolve it; this is the bare CLI.
         timezone: opt("--timezone").unwrap_or_else(|| "Europe/Berlin".into()),
-        languages: opt("--lang")
-            .map(|l| l.split(',').map(str::to_string).collect())
-            .unwrap_or_else(|| vec!["de-DE".into(), "de".into(), "en-US".into(), "en".into()]),
+        languages,
+        ui_locale: ui_locale.clone(),
         chrome_major: CHROME_MAJOR,
         chrome_full_version: CHROME_FULL_VERSION.to_string(),
     };
@@ -219,6 +241,7 @@ async fn cmd_launch(args: &[String]) -> anyhow::Result<()> {
             fury_shared::rbac::PermSet::full_profile_work(),
         ),
         start_urls: &urls,
+        ui_locale: &ui_locale,
         // Opt-in: CDP is full cookie access, so it is never on by default even
         // for a local launch.
         debug_port: opt("--debug-port").and_then(|p| p.parse().ok()),

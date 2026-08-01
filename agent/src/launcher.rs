@@ -44,6 +44,21 @@ pub struct LaunchSpec<'a> {
     pub start_urls: &'a [String],
     /// Only set when the caller is allowed CDP at all; see `LaunchRestrictions`.
     pub debug_port: Option<u16>,
+
+    /// The UI locale, one of Chrome's shipped ones. See `fury_shared::locale`.
+    ///
+    /// This is what makes `Intl.DateTimeFormat().resolvedOptions().locale`,
+    /// `toLocaleString`, collation and every other ICU-backed answer agree with
+    /// the languages the profile announces — and it needs no patch, because
+    /// `--lang` is the switch Chrome already uses for exactly this. Measured
+    /// against the captures in tools/detect-suite/baselines: a real Chrome
+    /// answering `navigator.languages = ru-RU,ru,en-US,en` reports `locale.locale
+    /// = ru`, and so does AdsPower. The UI locale IS the Intl locale.
+    ///
+    /// It has to be a shipped locale. ResourceBundle finds no .pak for anything
+    /// else and quietly falls back to en-US, which would leave a profile
+    /// announcing German and formatting numbers in English.
+    pub ui_locale: &'a str,
 }
 
 /// Build the argument vector for the core.
@@ -82,6 +97,40 @@ pub fn build_args(spec: &LaunchSpec) -> Vec<String> {
         // Switch name from content_switches.cc, policy string from
         // webrtc_ip_handling_policy.cc, both in the vendored tree.
         "--force-webrtc-ip-handling-policy=disable_non_proxied_udp".to_string(),
+        // Turn off Chromium's field-trial testing config.
+        //
+        // Not a tuning knob — a divergence from real Chrome that our own build
+        // settings create. `is_chrome_branded = false` means GOOGLE_CHROME_
+        // BRANDING is off, and `ShouldUseFieldTrialTestingConfig`
+        // (variations_field_trial_creator.cc:142) then applies
+        // testing/variations/fieldtrial_testing_config.json by default. That
+        // file force-enables features real stable Chrome ships disabled —
+        // `ReduceAcceptLanguage` and `ReduceAcceptLanguageHTTP` among them, on
+        // mac and windows both, and those two cut Accept-Language down to a
+        // single language. A browser announcing four languages in JS and one in
+        // its headers contradicts itself, and it took reading the build config
+        // to find, because nothing about it is visible in the source of the
+        // patches.
+        //
+        // Also set as `disable_fieldtrial_testing_config = true` in core/args.
+        // One decision, stated where it belongs and again where it takes effect
+        // today: the GN flag is right and needs a rebuild, and this switch works
+        // on the binaries that already exist.
+        "--disable-field-trial-config".to_string(),
+        // The Intl locale, and the browser's own UI language with it — which is
+        // the honest pairing. A German exit whose menus are in German and whose
+        // dates format in German is a German install; one that formats dates in
+        // English is a spoof with a seam.
+        //
+        // Reaches every renderer without a patch: the browser turns --lang into
+        // the kApplicationLocale pref (chrome_command_line_pref_store.cc:50),
+        // hands it back down to each child (render_process_host_impl.cc:3734),
+        // and each child calls SetICUDefaultLocale with it
+        // (chrome_main_delegate.cc:1449 via l10n_util.cc:591). V8 reads the ICU
+        // default for Intl (isolate.cc:8025). Nothing overrides it on either
+        // platform we ship: OverrideLocaleWithCocoaLocale is never called in
+        // Chrome, and the Windows path tries --lang before the UI language list.
+        format!("--lang={}", spec.ui_locale),
     ];
 
     if spec.restrictions.lock_devtools {
@@ -233,6 +282,7 @@ mod tests {
             &fury_shared::persona::ProfileContext {
                 timezone: "Europe/Berlin".into(),
                 languages: vec!["de-DE".into(), "de".into()],
+                ui_locale: "de".into(),
                 chrome_major: 150,
                 chrome_full_version: "150.0.7871.187".into(),
             },
@@ -248,6 +298,7 @@ mod tests {
             restrictions,
             start_urls: &[],
             debug_port: Some(9222),
+            ui_locale: "de",
         }
     }
 
@@ -264,6 +315,37 @@ mod tests {
     }
 
     #[test]
+    fn the_ui_locale_reaches_the_core_and_matches_the_config() {
+        // The two halves of one fact. `--lang` is what sets the ICU default and
+        // therefore every Intl answer; `locale.locale` is what the config says
+        // the profile claims. They are computed from one value on purpose, and
+        // a launch where they disagree is a browser announcing German and
+        // formatting numbers in Russian — which is what the capture in
+        // baselines/final.json actually shows, and what this guards.
+        let cfg = sample_config();
+        let r = LaunchRestrictions::for_perms(PermSet::full_profile_work());
+        let spec = spec_for(r, &cfg);
+        let args = build_args(&spec);
+
+        assert!(
+            args.iter().any(|a| a == "--lang=de"),
+            "no --lang in {args:?}"
+        );
+        assert_eq!(
+            cfg["locale"]["locale"], "de",
+            "the config must claim the locale the core is launched with"
+        );
+
+        // And it must be a locale Chrome ships strings for. Anything else and
+        // ResourceBundle silently falls back to en-US, leaving the browser
+        // formatting in a language the profile never claimed.
+        assert_eq!(
+            fury_shared::locale::ui_locale_for(Some(spec.ui_locale)),
+            spec.ui_locale
+        );
+    }
+
+    #[test]
     fn everything_routes_through_the_relay() {
         let cfg = sample_config();
         let r = LaunchRestrictions::for_perms(PermSet::full_profile_work());
@@ -271,6 +353,9 @@ mod tests {
 
         assert!(args.iter().any(|a| a == "--proxy-server=http://127.0.0.1:41000"));
         assert!(args.iter().any(|a| a == "--disable-quic"));
+        // Not networking, but the same class of problem: a build setting that
+        // silently makes this browser behave unlike the one it claims to be.
+        assert!(args.iter().any(|a| a == "--disable-field-trial-config"));
         // The other UDP path out. Without it a page reads the real address
         // through ICE, and every profile on the machine reports the same one.
         assert!(args

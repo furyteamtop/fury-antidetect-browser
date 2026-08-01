@@ -148,6 +148,21 @@ pub struct ProfileContext {
     pub timezone: String,
     /// BCP-47 list, most preferred first.
     pub languages: Vec<String>,
+    /// The UI locale the core runs as — one of Chrome's shipped ones.
+    ///
+    /// Not a second opinion about `languages`: it is derived from them by
+    /// `locale::ui_locale_for`, computed once by the caller, and used twice —
+    /// here, and as `--lang` on the core's command line. `--lang` is what
+    /// actually makes `Intl` agree, because it is the lever Chrome itself uses;
+    /// this copy exists so the config is a faithful record of what the profile
+    /// claims rather than a partial one.
+    ///
+    /// Measured: tools/detect-suite/baselines/final.json is a Fury capture with
+    /// `navigator.languages = en-US,en`, a Windows persona and America/New_York
+    /// — reporting `locale.locale = ru` and formatting numbers `123 456,789`,
+    /// because the core inherited the developer's Mac locale. Timezone and
+    /// languages were both already right. This is the field that was missing.
+    pub ui_locale: String,
     /// Chromium major version this build ships.
     pub chrome_major: u32,
     /// Full four-part version, for the high-entropy Client Hints.
@@ -259,7 +274,11 @@ impl Persona {
             "fonts": self.fonts,
             "locale": {
                 "timezone": ctx.timezone,
-                "locale": ctx.languages.first().cloned().unwrap_or_default(),
+                // The UI locale, not the first language tag. They differ: a
+                // German profile announces `de-DE` and Intl resolves `de`,
+                // which is what real Chrome reports and what this used to get
+                // wrong.
+                "locale": ctx.ui_locale,
             },
             // Independent streams per vector: adding a new noised surface later
             // must not shift the canvas fingerprint of existing profiles.
@@ -575,6 +594,7 @@ mod tests {
         ProfileContext {
             timezone: "America/New_York".into(),
             languages: vec!["en-US".into(), "en".into()],
+            ui_locale: "en-US".into(),
             chrome_major: 150,
             chrome_full_version: "150.0.7871.187".into(),
         }

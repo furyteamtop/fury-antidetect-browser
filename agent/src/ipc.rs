@@ -377,21 +377,29 @@ impl Agent {
             "profile.preview" => {
                 let persona = crate::personas::load(&str_param(&params, "persona_id")?)?;
                 let seed = params.get("fp_seed").and_then(|v| v.as_i64()).unwrap_or(1);
+                let languages: Vec<String> = params
+                    .get("languages")
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_else(|| vec!["en-US".into(), "en".into()]);
                 let ctx = fury_shared::persona::ProfileContext {
                     timezone: params
                         .get("timezone")
                         .and_then(|v| v.as_str())
                         .unwrap_or("UTC")
                         .to_string(),
-                    languages: params
-                        .get("languages")
-                        .and_then(|v| v.as_array())
-                        .map(|a| {
-                            a.iter()
-                                .filter_map(|v| v.as_str().map(str::to_string))
-                                .collect()
-                        })
-                        .unwrap_or_else(|| vec!["en-US".into(), "en".into()]),
+                    // The preview is what the profile WILL claim, so it resolves
+                    // the UI locale exactly as the launch does. A preview that
+                    // showed a different locale from the launch would be worse
+                    // than no preview: it is read as a check that passed.
+                    ui_locale: fury_shared::locale::ui_locale_for(
+                        languages.first().map(|s| s.as_str()),
+                    ),
+                    languages,
                     chrome_major: crate::CHROME_MAJOR,
                     chrome_full_version: crate::CHROME_FULL_VERSION.to_string(),
                 };
@@ -699,53 +707,93 @@ impl Agent {
             );
         }
 
-        // A profile with no timezone of its own follows its exit.
+        // A profile that pins neither its timezone nor its languages follows its
+        // exit for both, and both come out of one lookup.
         //
         // Claiming UTC while leaving through Berlin is the cheapest thing a
         // detector checks: one subtraction between
         // Intl.DateTimeFormat().resolvedOptions().timeZone and the geolocation
-        // of the address the request came from. The stored answer is used when
-        // there is one, and asked for when there is not — a second in front of
-        // a launch is worth less than an account.
-        let timezone = match profile.timezone.clone() {
-            Some(tz) => tz,
-            None => {
-                let known = proxy.last_timezone.clone();
-                let resolved = match known {
-                    Some(tz) => Some(tz),
-                    None => match Self::resolve_exit(&proxy.url(), proxy.checker_url.as_deref()).await {
-                        Ok((ip, country, tz)) => {
-                            let _ = self
-                                .store
-                                .record_exit(&proxy.id, ip.as_deref(), country.as_deref(), tz.as_deref())
-                                .await;
-                            tz
-                        }
-                        Err(e) => {
-                            tracing::warn!(error = %e, "could not resolve the proxy exit");
-                            None
-                        }
-                    },
-                };
-                // UTC only when the exit could not be reached at all. It is a
-                // guess, and the log says so rather than letting a launch look
-                // like it followed something.
-                resolved.unwrap_or_else(|| {
-                    tracing::warn!(
-                        profile = %profile.name,
-                        "launching with UTC: this profile follows its exit and the exit did not answer"
-                    );
-                    "UTC".into()
-                })
+        // of the address the request came from. Announcing `en-US,en` from that
+        // same Berlin exit is the same check one field over — Accept-Language
+        // against the exit country — and it used to be hardcoded here.
+        //
+        // Asked for once. The stored answer is used when there is one; a second
+        // in front of a launch is worth less than an account, but two seconds
+        // for two questions with one answer is waste.
+        let want_timezone = profile.timezone.is_none();
+        let want_languages = profile.languages.is_none();
+        let mut exit_country = proxy.last_country.clone();
+        let mut exit_timezone = proxy.last_timezone.clone();
+
+        if (want_timezone && exit_timezone.is_none()) || (want_languages && exit_country.is_none())
+        {
+            match Self::resolve_exit(&proxy.url(), proxy.checker_url.as_deref()).await {
+                Ok((ip, country, tz)) => {
+                    let _ = self
+                        .store
+                        .record_exit(&proxy.id, ip.as_deref(), country.as_deref(), tz.as_deref())
+                        .await;
+                    // Only overwrite with an answer. A checker that returns a
+                    // timezone and no country must not blank a country we
+                    // already had.
+                    exit_country = country.or(exit_country);
+                    exit_timezone = tz.or(exit_timezone);
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "could not resolve the proxy exit");
+                }
             }
+        }
+
+        let timezone = profile.timezone.clone().unwrap_or_else(|| {
+            // UTC only when the exit could not be reached at all. It is a guess,
+            // and the log says so rather than letting a launch look like it
+            // followed something.
+            exit_timezone.clone().unwrap_or_else(|| {
+                tracing::warn!(
+                    profile = %profile.name,
+                    "launching with UTC: this profile follows its exit and the exit did not answer"
+                );
+                "UTC".into()
+            })
+        });
+
+        // What a Chrome installed in that country would say. Not our opinion of
+        // it: `fury_shared::locale` is generated from Chromium's own shipped
+        // locales and its own IDS_ACCEPT_LANGUAGES values, so a German exit
+        // gets `de-DE,de,en-US,en` because that is the string Chrome ships for
+        // a German install — including the English tail, which is why this does
+        // not make the profile look like a monolingual German.
+        let exit_locale = exit_country
+            .as_deref()
+            .and_then(fury_shared::locale::for_country);
+        if want_languages && exit_locale.is_none() {
+            tracing::warn!(
+                profile = %profile.name,
+                country = ?exit_country,
+                "launching with en-US: this profile follows its exit and the exit country \
+                 is unknown or has no locale row"
+            );
+        }
+        let locale = exit_locale.unwrap_or(fury_shared::locale::FALLBACK);
+
+        let languages = profile.languages.clone().unwrap_or_else(|| {
+            locale.languages.iter().map(|s| (*s).to_string()).collect()
+        });
+
+        // The UI locale for --lang, which is how a real Chrome ends up with a
+        // matching ICU default. A profile that pins its own languages picks the
+        // UI locale from the first of them, so the two never disagree; see
+        // `ui_locale_for`.
+        let ui_locale = match &profile.languages {
+            Some(langs) => fury_shared::locale::ui_locale_for(langs.first().map(|s| s.as_str())),
+            None => locale.ui.to_string(),
         };
 
         let ctx = fury_shared::persona::ProfileContext {
             timezone,
-            languages: profile
-                .languages
-                .clone()
-                .unwrap_or_else(|| vec!["en-US".into(), "en".into()]),
+            languages,
+            ui_locale: ui_locale.clone(),
             chrome_major: crate::CHROME_MAJOR,
             chrome_full_version: crate::CHROME_FULL_VERSION.to_string(),
         };
@@ -813,6 +861,7 @@ impl Agent {
             // concept and are computed there.
             restrictions: restrictions.clone(),
             start_urls: &start_urls,
+            ui_locale: &ui_locale,
             // Port 0 asks Chromium to pick one and write it to
             // DevToolsActivePort in the profile directory. Choosing a free port
             // here instead would race: something else can take it between the
