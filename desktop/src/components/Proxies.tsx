@@ -12,17 +12,7 @@ import { ProxyPaste } from "./ProxyPaste";
  *  three accounts, and the place to see that is here — the "used by" column is
  *  the one number that matters, since several accounts behind one address is
  *  the oldest farm signal there is. */
-export function Proxies({
-  profiles,
-  local,
-}: {
-  profiles: Profile[];
-  /** Pasting a list is local-only: a team proxy's credentials have to be
-   *  sealed under the organisation key before they are stored, and that path
-   *  does not do it yet. Hidden rather than shown-and-refusing — a control that
-   *  always fails is its own kind of lie. */
-  local: boolean;
-}) {
+export function Proxies({ profiles }: { profiles: Profile[] }) {
   const { t, say } = useI18n();
   const { ask, dialog } = useAsk();
   const [rows, setRows] = useState<LocalProxy[]>([]);
@@ -52,9 +42,7 @@ export function Proxies({
         <button className="primary" onClick={() => setEditing(null)}>
           {t("px.newOne")}
         </button>
-        {local && (
-          <button onClick={() => setPasting(true)}>{t("pp.paste")}</button>
-        )}
+        <button onClick={() => setPasting(true)}>{t("pp.paste")}</button>
         <div className="spacer" />
         <button className="ghost" onClick={() => void load()}>
           {t("bar.refresh")}

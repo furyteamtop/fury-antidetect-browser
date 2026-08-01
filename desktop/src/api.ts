@@ -489,16 +489,18 @@ export const api = {
     count: number,
     namePattern: string,
     template: unknown,
-  ): Promise<{ created: string[]; failed: { n: number; error: string }[] }> =>
+  ): Promise<{ created: unknown[]; failed: { n: number; error: string }[] }> =>
     cmd("create_profiles", { count, namePattern, template }),
 
   /** Copies the setup, never the identity: same persona and proxy, a fresh
    *  seed, no browser data. */
+  /** The copy is made where the profile lives — the agent locally, the server
+   *  in team mode — because only they hold the fields the listing omits. */
   cloneProfile: (
     id: string,
     count: number,
     name?: string,
-  ): Promise<{ created: string[]; failed: { n: number; error: string }[] }> =>
+  ): Promise<{ created: unknown[]; failed?: { n: number; error: string }[] }> =>
     cmd("clone_profile", { id, count, name: name || null }),
 
   /** A pasted supplier block. Every line is reported back with its number. */
@@ -507,7 +509,7 @@ export const api = {
     namePrefix: string,
   ): Promise<{
     saved: { id: string; line: number; host: string; port: number; shape: string }[];
-    rejected: { line: number; error: string }[];
+    rejected: { line: number; error: string; code?: string }[];
   }> => cmd("import_proxies", { text, namePrefix }),
 
   exportCookies: (id: string): Promise<{ cookies: unknown[] }> =>

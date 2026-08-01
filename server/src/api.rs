@@ -50,6 +50,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         )
         .route("/v1/profiles", get(list_all_profiles))
         .route("/v1/profiles/move", post(move_profiles))
+        .route("/v1/profiles/{profile_id}/clone", post(clone_profile))
         .route("/v1/profiles/trash", get(list_trash))
         .route("/v1/profiles/{profile_id}/restore", post(restore_profile))
         .route("/v1/profiles/{profile_id}/purge", axum::routing::delete(purge_profile))
@@ -1190,6 +1191,113 @@ async fn create_profile(
 
     audit(&state, &caller, "profile.create", Some(id), json!({ "name": req.name })).await?;
     Ok(Json(json!({ "id": id })))
+}
+
+#[derive(Deserialize)]
+pub struct CloneProfileRequest {
+    count: u32,
+    /// `{n}` is replaced by the copy's number. Absent means "<name> copy {n}".
+    #[serde(default)]
+    name: Option<String>,
+}
+
+/// Copy a profile's setup, never its identity.
+///
+/// Done here rather than in the client because the client does not have the
+/// profile: the listing carries a name, tags, persona and proxy, and not the
+/// timezone, languages, notes or start URLs. A copy assembled from the listing
+/// would be silently missing four fields somebody had set on purpose.
+///
+/// What is NOT copied is the seed. It drives the canvas, audio and geometry
+/// noise, so two profiles sharing one are byte-identical to any site that reads
+/// a canvas and the accounts are linked for as long as they exist. A fresh one
+/// per copy, generated here, is the whole point of the feature being a copy
+/// rather than a duplicate. The bundle is not copied either — cookies ARE the
+/// logged-in account, so a copy carrying them would be a second window on one
+/// account instead of a second account.
+async fn clone_profile(
+    State(state): State<Arc<AppState>>,
+    caller: Caller,
+    Path(profile_id): Path<Uuid>,
+    Json(req): Json<CloneProfileRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    if !(1..=500).contains(&req.count) {
+        return Err(ApiError::BadRequest("count must be between 1 and 500".into()));
+    }
+
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        project_id: Uuid,
+        name: String,
+        notes: String,
+        tags: Vec<String>,
+        persona_id: String,
+        timezone: Option<String>,
+        languages: Vec<String>,
+        proxy_id: Option<Uuid>,
+        start_urls: Vec<String>,
+    }
+
+    let source: Row = sqlx::query_as(
+        "SELECT project_id, name, notes, tags, persona_id, timezone, languages, proxy_id, \
+                start_urls \
+         FROM profiles WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL",
+    )
+    .bind(profile_id)
+    .bind(caller.org_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(ApiError::NotFound)?;
+
+    // Creating, not editing: the permission that matters is the one for adding
+    // a profile to the project the copies land in.
+    rbac_guard::require(&state.db, caller.user_id, source.project_id, Perm::CreateProfile).await?;
+
+    let pattern = match req.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        Some(n) if n.contains("{n}") => n.to_string(),
+        Some(n) => format!("{n} {{n}}"),
+        None => format!("{} copy {{n}}", source.name),
+    };
+
+    let mut created = Vec::new();
+    for i in 1..=req.count {
+        let id = Uuid::now_v7();
+        let seed: u64 = {
+            use rand::Rng;
+            rand::thread_rng().gen()
+        };
+        sqlx::query(
+            "INSERT INTO profiles (id, org_id, project_id, name, notes, tags, persona_id, \
+                                   fp_seed, timezone, languages, proxy_id, start_urls, created_by) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+        )
+        .bind(id)
+        .bind(caller.org_id)
+        .bind(source.project_id)
+        .bind(pattern.replace("{n}", &i.to_string()))
+        .bind(&source.notes)
+        .bind(&source.tags)
+        .bind(&source.persona_id)
+        .bind(fury_shared::persona::seed::to_bytes(seed).as_slice())
+        .bind(source.timezone.as_deref())
+        .bind(&source.languages)
+        .bind(source.proxy_id)
+        .bind(&source.start_urls)
+        .bind(caller.user_id)
+        .execute(&state.db)
+        .await?;
+        created.push(id);
+    }
+
+    audit(
+        &state,
+        &caller,
+        "profile.clone",
+        Some(profile_id),
+        json!({ "count": req.count }),
+    )
+    .await?;
+    Ok(Json(json!({ "created": created })))
 }
 
 #[derive(Deserialize)]

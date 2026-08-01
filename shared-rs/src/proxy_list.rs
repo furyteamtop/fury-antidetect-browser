@@ -66,23 +66,28 @@ impl ParsedProxy {
     }
 }
 
+/// Why a line could not be read.
+///
+/// Carries a stable `code` as well as the sentence. The sentence is written
+/// here because this crate is where the reason is actually known, and it is
+/// what a script or the CLI prints; the code is what lets the desktop app say
+/// the same thing in the operator's own language. Without it the app would show
+/// an English sentence beside a Russian interface, which is how the rest of the
+/// notices got complained about.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ParseError {
-    /// Said in full sentences on purpose: this is shown next to the line it
-    /// came from, to someone who pasted two hundred of them.
-    Message(String),
+pub struct ParseError {
+    pub code: &'static str,
+    pub message: String,
 }
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ParseError::Message(m) => write!(f, "{m}"),
-        }
+        write!(f, "{}", self.message)
     }
 }
 
-fn err(m: impl Into<String>) -> ParseError {
-    ParseError::Message(m.into())
+fn err(code: &'static str, m: impl Into<String>) -> ParseError {
+    ParseError { code, message: m.into() }
 }
 
 /// One entry per non-empty, non-comment line, in the order they appeared.
@@ -109,7 +114,7 @@ pub fn parse_block(text: &str) -> Vec<(usize, Result<ParsedProxy, ParseError>)> 
 pub fn parse_line(line: &str) -> Result<ParsedProxy, ParseError> {
     let line = line.trim();
     if line.is_empty() {
-        return Err(err("empty line"));
+        return Err(err("empty", "empty line"));
     }
 
     if let Some((scheme, rest)) = line.split_once("://") {
@@ -173,24 +178,29 @@ pub fn parse_line(line: &str) -> Result<ParsedProxy, ParseError> {
                     shape: Shape::HostPortUserPass,
                 }),
                 (_, Some(_)) => Err(err(
+                    "reversed",
                     "this looks like user:pass:host:port. Fury reads four fields as \
                      host:port:user:pass, so rewrite the line that way or use \
                      http://user:pass@host:port",
                 )),
-                _ => Err(err(format!(
-                    "expected host:port:user:pass, and {:?} is not a port",
-                    parts[1]
-                ))),
+                _ => Err(err(
+                    "notAPort",
+                    format!("expected host:port:user:pass, and {:?} is not a port", parts[1]),
+                )),
             }
         }
         3 => Err(err(
+            "threeFields",
             "three fields is not a shape Fury reads. Use host:port, \
              host:port:user:pass, or http://user:pass@host:port",
         )),
-        n => Err(err(format!(
-            "{n} fields separated by colons. Use host:port, host:port:user:pass, \
-             or http://user:pass@host:port"
-        ))),
+        n => Err(err(
+            "wrongFieldCount",
+            format!(
+                "{n} fields separated by colons. Use host:port, host:port:user:pass, \
+                 or http://user:pass@host:port"
+            ),
+        )),
     }
 }
 
@@ -202,13 +212,15 @@ fn normalise_scheme(scheme: &str) -> Result<String, ParseError> {
         // remotely, so these are the same thing here.
         "socks5" | "socks5h" => Ok("socks5".into()),
         "socks4" | "socks4a" => Err(err(
+            "socks4",
             "socks4 has no authentication and no remote DNS, so a profile using one \
              would resolve names on this machine and leak the operator's resolver. \
              Use socks5",
         )),
-        other => Err(err(format!(
-            "{other:?} is not a proxy scheme Fury speaks. Use http, https or socks5"
-        ))),
+        other => Err(err(
+            "badScheme",
+            format!("{other:?} is not a proxy scheme Fury speaks. Use http, https or socks5"),
+        )),
     }
 }
 
@@ -222,9 +234,9 @@ fn split_at_sign(rest: &str) -> Result<(Option<String>, Option<String>, &str), P
     // username and authenticate as nobody.
     let (u, p) = auth
         .split_once(':')
-        .ok_or_else(|| err("credentials before @ must be user:pass"))?;
+        .ok_or_else(|| err("badCredentials", "credentials before @ must be user:pass"))?;
     if u.is_empty() {
-        return Err(err("the username before @ is empty"));
+        return Err(err("emptyUsername", "the username before @ is empty"));
     }
     Ok((Some(u.to_string()), Some(p.to_string()), hostport))
 }
@@ -235,18 +247,18 @@ fn split_host_port(hostport: &str) -> Result<(String, u16), ParseError> {
     if let Some(inner) = hostport.strip_prefix('[') {
         let (host, rest) = inner
             .split_once(']')
-            .ok_or_else(|| err("an IPv6 address needs its closing bracket: [address]:port"))?;
+            .ok_or_else(|| err("unclosedBracket", "an IPv6 address needs its closing bracket: [address]:port"))?;
         let port = rest
             .strip_prefix(':')
-            .ok_or_else(|| err("an IPv6 proxy needs a port: [address]:port"))?;
+            .ok_or_else(|| err("noPortV6", "an IPv6 proxy needs a port: [address]:port"))?;
         return Ok((host.to_string(), parse_port(port)?));
     }
 
     let (host, port) = hostport
         .rsplit_once(':')
-        .ok_or_else(|| err(format!("{hostport:?} has no port")))?;
+        .ok_or_else(|| err("noPort", format!("{hostport:?} has no port")))?;
     if host.is_empty() {
-        return Err(err("the host is empty"));
+        return Err(err("emptyHost", "the host is empty"));
     }
     Ok((host.to_string(), parse_port(port)?))
 }
@@ -255,9 +267,9 @@ fn parse_port(s: &str) -> Result<u16, ParseError> {
     let port: u16 = s
         .trim()
         .parse()
-        .map_err(|_| err(format!("{s:?} is not a port number")))?;
+        .map_err(|_| err("notANumber", format!("{s:?} is not a port number")))?;
     if port == 0 {
-        return Err(err("port 0 is not a port a proxy can listen on"));
+        return Err(err("zeroPort", "port 0 is not a port a proxy can listen on"));
     }
     Ok(port)
 }

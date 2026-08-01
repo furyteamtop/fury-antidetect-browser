@@ -287,9 +287,15 @@ impl Agent {
                                 ),
                             }
                         }
-                        Err(e) => {
-                            rejected.push(json!({ "line": line_no, "error": e.to_string() }))
-                        }
+                        Err(e) => rejected.push(json!({
+                            "line": line_no,
+                            "error": e.message,
+                            // A stable name for the reason, so the desktop can
+                            // say it in the operator's own language rather than
+                            // printing an English sentence beside a Russian
+                            // interface.
+                            "code": e.code,
+                        })),
                     }
                 }
                 Ok(json!({ "saved": saved, "rejected": rejected }))

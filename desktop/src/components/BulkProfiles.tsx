@@ -2,7 +2,10 @@ import { useEffect, useState } from "react";
 import { api, type LocalProxy, type Profile } from "../api";
 import { useI18n } from "../i18n";
 
-type Made = { created: string[]; failed: { n: number; error: string }[] };
+// `created` is only ever counted. Locally the agent returns ids; on a team
+// server each entry is whatever the create endpoint answered, and pinning that
+// shape here would make this file break whenever the server's does.
+type Made = { created: unknown[]; failed?: { n: number; error: string }[] };
 
 /** Making many profiles at once, and copying one.
  *
@@ -19,12 +22,17 @@ type Made = { created: string[]; failed: { n: number; error: string }[] };
 export function BulkProfiles({
   cloneOf,
   projectId,
+  local,
   onClose,
   onDone,
 }: {
   /** Present when copying an existing profile rather than making new ones. */
   cloneOf: Profile | null;
   projectId: string | null;
+  /** A team profile must have a project and a proxy — the server refuses
+   *  otherwise, and refusing here means one sentence instead of N identical
+   *  failures. */
+  local: boolean;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -50,7 +58,17 @@ export function BulkProfiles({
   }, [cloning]);
 
   const n = Number(count);
-  const valid = Number.isInteger(n) && n >= 1 && n <= 500;
+  const inRange = Number.isInteger(n) && n >= 1 && n <= 500;
+  // On a team server the project is what carries access and the proxy is what
+  // the browser goes through; the create endpoint requires both.
+  const missing = cloning || local
+    ? null
+    : !projectId
+      ? t("bp.needProject")
+      : !proxyId
+        ? t("bp.needProxy")
+        : null;
+  const valid = inRange && missing === null;
   // {n} is substituted by the agent, so the preview has to do the same
   // substitution or it would promise a name nobody gets.
   const preview = (i: number) =>
@@ -77,7 +95,7 @@ export function BulkProfiles({
                     style={{ width: 92 }}
                     onChange={(e) => setCount(e.target.value)}
                   />
-                  {!valid && count !== "" && <p className="error">{t("bp.countRange")}</p>}
+                  {!inRange && count !== "" && <p className="error">{t("bp.countRange")}</p>}
                 </div>
               </div>
 
@@ -92,7 +110,7 @@ export function BulkProfiles({
                   />
                   <p className="hint">
                     {t("bp.namesHint")}{" "}
-                    {valid && (
+                    {inRange && (
                       <span className="mono">
                         {preview(1)} … {preview(n)}
                       </span>
@@ -144,17 +162,18 @@ export function BulkProfiles({
                 {cloning ? t("bp.cloneKeeps") : t("bp.personas")}
               </p>
               <p className="hint">{t("bp.seeds")}</p>
+              {missing && <p className="error">{missing}</p>}
             </>
           )}
 
           {made && (
             <>
               <p>{t("bp.made", { n: made.created.length })}</p>
-              {made.failed.length > 0 && (
+              {(made.failed?.length ?? 0) > 0 && (
                 <div className="settingsGroup">
-                  <h2>{t("bp.failed", { n: made.failed.length })}</h2>
+                  <h2>{t("bp.failed", { n: made.failed?.length ?? 0 })}</h2>
                   <ul className="hint" style={{ paddingLeft: "1.2em", lineHeight: 1.7 }}>
-                    {made.failed.map((f) => (
+                    {(made.failed ?? []).map((f) => (
                       <li key={f.n}>
                         {preview(f.n)}: {f.error}
                       </li>

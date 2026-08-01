@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
-import { useI18n } from "../i18n";
+import { dictionary, useI18n } from "../i18n";
 
 type Result = Awaited<ReturnType<typeof api.importProxies>>;
 
@@ -24,6 +24,7 @@ export function ProxyPaste({
   onSaved: () => void;
 }) {
   const { t } = useI18n();
+  const dict = dictionary();
   const [text, setText] = useState("");
   const [prefix, setPrefix] = useState("");
   const [busy, setBusy] = useState(false);
@@ -113,7 +114,13 @@ export function ProxyPaste({
                   <ul className="hint" style={{ paddingLeft: "1.2em", lineHeight: 1.7 }}>
                     {result.rejected.map((r) => (
                       <li key={r.line}>
-                        {t("pp.lineN", { n: r.line })}: {r.error}
+                        {/* The code is the parser's own name for the reason;
+                            the English sentence it also sends is the fallback
+                            for a reason nobody has translated yet. */}
+                        {t("pp.lineN", { n: r.line })}:{" "}
+                        {r.code && `pp.why.${r.code}` in dict
+                          ? t(`pp.why.${r.code}` as never)
+                          : r.error}
                       </li>
                     ))}
                   </ul>

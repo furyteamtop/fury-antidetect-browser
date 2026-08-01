@@ -460,9 +460,7 @@ export function App() {
                 Making MANY is a different decision and does belong here: it is
                 the one people reach for after the first few profiles, and it
                 acts on the project this toolbar is already filtering. */}
-            {local && (
-              <button onClick={() => setBulk(null)}>{t("bp.title")}</button>
-            )}
+            <button onClick={() => setBulk(null)}>{t("bp.title")}</button>
             <input
               className="search"
               placeholder={t("bar.search")}
@@ -580,17 +578,9 @@ export function App() {
                     multi-selection would mean guessing which one was meant. */}
                 {chosen.length === 1 && (
                   <>
-                    {/* Copying is local-only for now, because the server path
-                        has to seal the proxy credentials again and does not
-                        yet. Cookies work in both: the agent opens the profile
-                        through the ordinary launch, so a team profile still
-                        pulls its bundle, takes its lock and pushes what
-                        changed. */}
-                    {local && (
-                      <button className="ghost" onClick={() => setBulk(chosen[0])}>
-                        {t("bp.clone")}
-                      </button>
-                    )}
+                    <button className="ghost" onClick={() => setBulk(chosen[0])}>
+                      {t("bp.clone")}
+                    </button>
                     <button className="ghost" onClick={() => setCookiesFor(chosen[0])}>
                       {t("ck.cookies")}
                     </button>
@@ -610,7 +600,7 @@ export function App() {
         {/* No project selected is not the same as a project with no profiles,
             and saying the latter to someone who has been granted nothing sends
             them looking for a profile list that was never theirs. */}
-        {view === "proxies" && <Proxies profiles={profiles} local={local} />}
+        {view === "proxies" && <Proxies profiles={profiles} />}
 
         {view === "users" && (
           <Users
@@ -720,6 +710,7 @@ export function App() {
           <BulkProfiles
             cloneOf={bulk}
             projectId={active?.id ?? null}
+            local={local}
             onClose={() => setBulk(undefined)}
             onDone={async () => {
               setSelected(new Set());

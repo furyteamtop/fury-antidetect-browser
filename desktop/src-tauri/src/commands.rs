@@ -1412,95 +1412,6 @@ pub async fn delete_proxy(state: State<'_, AppState>, id: String) -> R<serde_jso
         .await
 }
 
-/// Make many profiles from one template.
-///
-/// Local only for now, and it says so rather than half-working. The server path
-/// is a different shape entirely — every profile needs its proxy credentials
-/// sealed under the organisation key before it is written, and doing that two
-/// hundred times over HTTP has a partial-failure story this does not have yet.
-#[tauri::command]
-pub async fn create_profiles(
-    state: State<'_, AppState>,
-    count: u32,
-    name_pattern: String,
-    template: serde_json::Value,
-) -> R<serde_json::Value> {
-    if mode_of(&state) != "local" {
-        return Err(ApiErr::local(
-            "Creating profiles in bulk is not available on a team server yet. \
-             Make them on this machine and move them, or add them one at a time."
-                .to_string(),
-        ));
-    }
-    Ok(crate::agent::call(
-        "profiles.createMany",
-        serde_json::json!({ "count": count, "name_pattern": name_pattern, "template": template }),
-    )
-    .await?)
-}
-
-/// Copy a profile's setup, never its identity. See the agent for what that
-/// means and why a clone with the same seed would be one machine twice.
-#[tauri::command]
-pub async fn clone_profile(
-    state: State<'_, AppState>,
-    id: String,
-    count: u32,
-    name: Option<String>,
-) -> R<serde_json::Value> {
-    if mode_of(&state) != "local" {
-        return Err(ApiErr::local(
-            "Cloning is not available on a team server yet.".to_string(),
-        ));
-    }
-    let mut params = serde_json::json!({ "id": id, "count": count });
-    if let Some(name) = name.filter(|n| !n.trim().is_empty()) {
-        params["name"] = serde_json::json!(name);
-    }
-    Ok(crate::agent::call("profiles.clone", params).await?)
-}
-
-/// A pasted supplier block.
-#[tauri::command]
-pub async fn import_proxies(
-    state: State<'_, AppState>,
-    text: String,
-    name_prefix: String,
-) -> R<serde_json::Value> {
-    if mode_of(&state) != "local" {
-        return Err(ApiErr::local(
-            "Importing a proxy list into a team server is not available yet — each proxy's \
-             credentials have to be sealed under the organisation key, which this path does \
-             not do."
-                .to_string(),
-        ));
-    }
-    Ok(crate::agent::call(
-        "proxies.importMany",
-        serde_json::json!({ "text": text, "name_prefix": name_prefix }),
-    )
-    .await?)
-}
-
-/// Cookies out of a profile, and cookies in.
-///
-/// Works in both modes: the agent opens the profile through the ordinary launch
-/// path, so a team profile still pulls its bundle, takes its lock and pushes
-/// what changed.
-#[tauri::command]
-pub async fn export_cookies(id: String) -> R<serde_json::Value> {
-    Ok(crate::agent::call("profile.cookies.export", serde_json::json!({ "id": id })).await?)
-}
-
-#[tauri::command]
-pub async fn import_cookies(id: String, cookies: serde_json::Value) -> R<serde_json::Value> {
-    Ok(crate::agent::call(
-        "profile.cookies.import",
-        serde_json::json!({ "id": id, "cookies": cookies }),
-    )
-    .await?)
-}
-
 #[tauri::command]
 pub async fn save_profile(
     state: State<'_, AppState>,
@@ -1745,4 +1656,213 @@ pub async fn create_project(state: State<'_, AppState>, name: String) -> R<serde
             true,
         )
         .await
+}
+
+// ---------------------------------------------------------------------------
+// working in bulk
+// ---------------------------------------------------------------------------
+//
+// All three of these delegate to the single-item command beside them rather
+// than growing a second path. On a team server that is not a tidiness
+// preference: `save_profile` is where a profile's project and seed are decided
+// and `save_proxy` is where credentials get sealed under the organisation key,
+// and a bulk path that reimplemented either would be the one that quietly
+// stopped sealing.
+//
+// The cost is that these are N round trips rather than one request, so partial
+// failure is the normal outcome and every one of them reports which items
+// failed and why — a count alone would leave someone guessing which of two
+// hundred to redo.
+
+/// Make many profiles from one template.
+#[tauri::command]
+pub async fn create_profiles(
+    state: State<'_, AppState>,
+    count: u32,
+    name_pattern: String,
+    template: serde_json::Value,
+) -> R<serde_json::Value> {
+    if !(1..=500).contains(&count) {
+        return Err(ApiErr::local(
+            "Between 1 and 500. Five hundred profiles is already more than a person can \
+             supervise, and a typo in that field should not fill the database."
+                .to_string(),
+        ));
+    }
+
+    // The agent does the whole loop in one call when the profiles are local:
+    // one round trip over a socket beats five hundred.
+    if mode_of(&state) == "local" {
+        return Ok(crate::agent::call(
+            "profiles.createMany",
+            serde_json::json!({
+                "count": count,
+                "name_pattern": name_pattern,
+                "template": template,
+            }),
+        )
+        .await?);
+    }
+
+    let pattern = naming(&name_pattern, template.get("name").and_then(|v| v.as_str()));
+    // Absent means spread them across the catalogue by how common each machine
+    // is — see `catalogue::pick_weighted`. Picked here rather than on the
+    // server because the server has no reason to hold that policy.
+    let pick = template
+        .get("persona_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .is_empty();
+
+    let mut created = Vec::new();
+    let mut failed = Vec::new();
+    for i in 1..=count {
+        let mut one = template.clone();
+        one["id"] = serde_json::json!("");
+        one["name"] = serde_json::json!(pattern.replace("{n}", &i.to_string()));
+        if pick {
+            one["persona_id"] =
+                serde_json::json!(fury_shared::catalogue::pick_weighted(rand::random()).id);
+        }
+        match save_profile(state.clone(), one).await {
+            Ok(v) => created.push(v),
+            Err(e) => failed.push(serde_json::json!({ "n": i, "error": e.message })),
+        }
+    }
+    Ok(serde_json::json!({ "created": created, "failed": failed }))
+}
+
+/// Copy a profile's setup, never its identity.
+///
+/// One call in both modes, and in both the copy is made where the profile
+/// actually lives. That is not symmetry for its own sake: the team listing
+/// carries a name, tags, persona and proxy and NOT the timezone, languages,
+/// notes or start URLs, so a copy assembled on this side would be silently
+/// missing four fields somebody set on purpose. The agent and the server each
+/// read their own row and generate a fresh seed per copy.
+#[tauri::command]
+pub async fn clone_profile(
+    state: State<'_, AppState>,
+    id: String,
+    count: u32,
+    name: Option<String>,
+) -> R<serde_json::Value> {
+    if !(1..=500).contains(&count) {
+        return Err(ApiErr::local("Between 1 and 500.".to_string()));
+    }
+    let name = name.filter(|n| !n.trim().is_empty());
+
+    if mode_of(&state) == "local" {
+        let mut params = serde_json::json!({ "id": id, "count": count });
+        if let Some(name) = name {
+            params["name"] = serde_json::json!(name);
+        }
+        return Ok(crate::agent::call("profiles.clone", params).await?);
+    }
+
+    state
+        .call(
+            reqwest::Method::POST,
+            &format!("/v1/profiles/{id}/clone"),
+            Body::Json(serde_json::json!({ "count": count, "name": name })),
+            true,
+        )
+        .await
+}
+
+/// A pasted supplier block.
+#[tauri::command]
+pub async fn import_proxies(
+    state: State<'_, AppState>,
+    text: String,
+    name_prefix: String,
+) -> R<serde_json::Value> {
+    if mode_of(&state) == "local" {
+        return Ok(crate::agent::call(
+            "proxies.importMany",
+            serde_json::json!({ "text": text, "name_prefix": name_prefix }),
+        )
+        .await?);
+    }
+
+    // Parsed here, with the same parser the agent uses — one reading of a line,
+    // whichever mode the operator happens to be in. Then each one goes through
+    // `save_proxy`, which is what seals the credentials.
+    let prefix = name_prefix.trim();
+    let mut saved = Vec::new();
+    let mut rejected = Vec::new();
+    for (line, parsed) in fury_shared::proxy_list::parse_block(&text) {
+        match parsed {
+            Ok(p) => {
+                let name = if prefix.is_empty() {
+                    format!("{}:{}", p.host, p.port)
+                } else {
+                    format!("{prefix} {}:{}", p.host, p.port)
+                };
+                let body = serde_json::json!({
+                    "id": "",
+                    "name": name,
+                    "kind": p.scheme,
+                    "host": p.host,
+                    "port": p.port,
+                    "username": p.username,
+                    "password": p.password,
+                });
+                match save_proxy(state.clone(), body).await {
+                    Ok(v) => saved.push(serde_json::json!({
+                        "id": v.get("id").cloned().unwrap_or(serde_json::Value::Null),
+                        "line": line,
+                        "host": p.host,
+                        "port": p.port,
+                        "shape": format!("{:?}", p.shape),
+                    })),
+                    Err(e) => {
+                        rejected.push(serde_json::json!({ "line": line, "error": e.message }))
+                    }
+                }
+            }
+            Err(e) => rejected.push(
+                serde_json::json!({ "line": line, "error": e.message, "code": e.code }),
+            ),
+        }
+    }
+    Ok(serde_json::json!({ "saved": saved, "rejected": rejected }))
+}
+
+/// The name pattern, with `{n}` guaranteed to be in it.
+///
+/// Without a placeholder the number is appended rather than dropped: two
+/// hundred profiles sharing one name is a list nobody can work in.
+fn naming(pattern: &str, fallback: Option<&str>) -> String {
+    let pattern = pattern.trim();
+    if pattern.contains("{n}") {
+        return pattern.to_string();
+    }
+    if !pattern.is_empty() {
+        return format!("{pattern} {{n}}");
+    }
+    match fallback.map(str::trim).filter(|f| !f.is_empty()) {
+        Some(f) => format!("{f} {{n}}"),
+        None => "Profile {n}".to_string(),
+    }
+}
+
+/// Cookies out of a profile, and cookies in.
+///
+/// Both modes: the agent opens the profile through the ordinary launch path, so
+/// a team profile still pulls its bundle, takes its lock and pushes what
+/// changed.
+#[tauri::command]
+pub async fn export_cookies(id: String) -> R<serde_json::Value> {
+    Ok(crate::agent::call("profile.cookies.export", serde_json::json!({ "id": id })).await?)
+}
+
+#[tauri::command]
+pub async fn import_cookies(id: String, cookies: serde_json::Value) -> R<serde_json::Value> {
+    Ok(crate::agent::call(
+        "profile.cookies.import",
+        serde_json::json!({ "id": id, "cookies": cookies }),
+    )
+    .await?)
 }

@@ -364,6 +364,23 @@ const en = {
   "pp.shape.HostPort": "host:port",
   "pp.shape.HostPortUserPass": "host:port:user:pass",
   "pp.shape.AtSign": "user:pass@host:port",
+  // Why a pasted line was refused. Keyed by the parser's own code so the
+  // sentence can be said in the operator's language; see shared-rs/proxy_list.
+  "pp.why.reversed": "This looks like user:pass:host:port. Fury reads four fields as host:port:user:pass — rewrite the line that way, or use http://user:pass@host:port.",
+  "pp.why.notAPort": "Expected host:port:user:pass, and the second field is not a port number.",
+  "pp.why.threeFields": "Three fields is not a shape Fury reads. Use host:port, host:port:user:pass, or http://user:pass@host:port.",
+  "pp.why.wrongFieldCount": "Wrong number of colon-separated fields. Use host:port, host:port:user:pass, or http://user:pass@host:port.",
+  "pp.why.socks4": "socks4 has no authentication and no remote DNS, so a profile using one would resolve names on this machine and leak your resolver. Use socks5.",
+  "pp.why.badScheme": "Not a proxy scheme Fury speaks. Use http, https or socks5.",
+  "pp.why.badCredentials": "The credentials before @ must be user:pass.",
+  "pp.why.emptyUsername": "The username before @ is empty.",
+  "pp.why.unclosedBracket": "An IPv6 address needs its closing bracket: [address]:port.",
+  "pp.why.noPortV6": "An IPv6 proxy needs a port: [address]:port.",
+  "pp.why.noPort": "No port.",
+  "pp.why.emptyHost": "The host is empty.",
+  "pp.why.notANumber": "That is not a port number.",
+  "pp.why.zeroPort": "Port 0 is not a port a proxy can listen on.",
+  "pp.why.empty": "Empty line.",
 
   // Many profiles at once, and copying one.
   "bp.title": "New profiles",
@@ -385,6 +402,8 @@ const en = {
   "bp.made": "{n} created.",
   "bp.failed": "{n} failed",
   "bp.clone": "Duplicate",
+  "bp.needProject": "Pick a project in the sidebar first. On a team server a profile lives in a project, because the project is what carries access to it.",
+  "bp.needProxy": "Choose a proxy. A team profile has to have one — everything the browser does goes through it, and the server refuses a profile that could not launch.",
 
   // Cookies.
   "ck.cookies": "Cookies",
@@ -403,6 +422,14 @@ const en = {
 } as const;
 
 export type Key = keyof typeof en;
+
+/** The English table, for the one case a component has to ASK whether a key
+ *  exists: the proxy parser names its reasons with codes, and a code nobody has
+ *  translated yet must fall back to the sentence the parser sent rather than
+ *  render as a raw key. */
+export function dictionary(): Record<string, string> {
+  return en;
+}
 
 /** Russian.
  *
@@ -748,6 +775,21 @@ const ru: Record<Key, string> = {
   "pp.shape.HostPort": "host:port",
   "pp.shape.HostPortUserPass": "host:port:user:pass",
   "pp.shape.AtSign": "user:pass@host:port",
+  "pp.why.reversed": "Похоже на user:pass:host:port. Fury читает четыре поля как host:port:user:pass — перепишите строку так или используйте http://user:pass@host:port.",
+  "pp.why.notAPort": "Ожидалось host:port:user:pass, а второе поле — не номер порта.",
+  "pp.why.threeFields": "Три поля — это не та форма, которую Fury читает. Используйте host:port, host:port:user:pass или http://user:pass@host:port.",
+  "pp.why.wrongFieldCount": "Неверное число полей через двоеточие. Используйте host:port, host:port:user:pass или http://user:pass@host:port.",
+  "pp.why.socks4": "У socks4 нет авторизации и нет удалённого DNS: профиль на нём резолвил бы имена на этой машине и выдал бы ваш резолвер. Используйте socks5.",
+  "pp.why.badScheme": "Такую схему прокси Fury не понимает. Используйте http, https или socks5.",
+  "pp.why.badCredentials": "Учётные данные перед @ должны быть в виде user:pass.",
+  "pp.why.emptyUsername": "Имя пользователя перед @ пустое.",
+  "pp.why.unclosedBracket": "У IPv6-адреса нет закрывающей скобки: [адрес]:порт.",
+  "pp.why.noPortV6": "IPv6-прокси нужен порт: [адрес]:порт.",
+  "pp.why.noPort": "Нет порта.",
+  "pp.why.emptyHost": "Пустой хост.",
+  "pp.why.notANumber": "Это не номер порта.",
+  "pp.why.zeroPort": "Порт 0 — не тот порт, на котором может слушать прокси.",
+  "pp.why.empty": "Пустая строка.",
 
   "bp.title": "Новые профили",
   "bp.cloneTitle": "Копия «{name}»",
@@ -768,6 +810,8 @@ const ru: Record<Key, string> = {
   "bp.made": "Создано: {n}.",
   "bp.failed": "Не удалось: {n}",
   "bp.clone": "Дублировать",
+  "bp.needProject": "Сначала выберите проект слева. На командном сервере профиль живёт в проекте, потому что именно проект несёт доступ к нему.",
+  "bp.needProxy": "Выберите прокси. У командного профиля он обязателен — через него идёт всё, что делает браузер, и сервер не создаст профиль, который не сможет запуститься.",
 
   "ck.cookies": "Куки",
   "ck.title": "Куки — {name}",
