@@ -610,7 +610,7 @@ export function App() {
         {/* No project selected is not the same as a project with no profiles,
             and saying the latter to someone who has been granted nothing sends
             them looking for a profile list that was never theirs. */}
-        {view === "proxies" && <Proxies profiles={profiles} />}
+        {view === "proxies" && <Proxies profiles={profiles} local={local} />}
 
         {view === "users" && (
           <Users
