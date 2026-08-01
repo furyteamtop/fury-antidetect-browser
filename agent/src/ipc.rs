@@ -222,6 +222,79 @@ impl Agent {
                 let proxy: Proxy = serde_json::from_value(params)?;
                 Ok(json!({ "id": self.store.upsert_proxy(&proxy).await? }))
             }
+            // A pasted block from a supplier.
+            //
+            // Parsed line by line, and every line reported back with its own
+            // number and its own error — a block of two hundred with three bad
+            // lines should save a hundred and ninety-seven and say which three.
+            // Silently dropping the three is how an operator later finds
+            // profiles pointing at nothing.
+            //
+            // Nothing is checked against the network here. Two hundred proxy
+            // checks is two hundred round trips through two hundred different
+            // exits, which takes minutes; the operator can select and check
+            // afterwards, and a proxy that saves is not a proxy that works.
+            "proxies.importMany" => {
+                let text = str_param(&params, "text")?;
+                let prefix = params
+                    .get("name_prefix")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+
+                let mut saved = Vec::new();
+                let mut rejected = Vec::new();
+                for (line_no, parsed) in fury_shared::proxy_list::parse_block(&text) {
+                    match parsed {
+                        Ok(p) => {
+                            // The name has to be unique enough to pick out of a
+                            // list. host:port is what a person recognises, and
+                            // the prefix is there for "acme batch 3".
+                            let name = if prefix.is_empty() {
+                                format!("{}:{}", p.host, p.port)
+                            } else {
+                                format!("{prefix} {}:{}", p.host, p.port)
+                            };
+                            let proxy = Proxy {
+                                id: String::new(),
+                                name,
+                                kind: p.scheme.clone(),
+                                host: p.host.clone(),
+                                port: p.port,
+                                username: p.username.clone(),
+                                password: p.password.clone(),
+                                last_country: None,
+                                last_ip: None,
+                                last_timezone: None,
+                                rotate_url: None,
+                                checker_url: None,
+                            };
+                            match self.store.upsert_proxy(&proxy).await {
+                                Ok(id) => saved.push(json!({
+                                    "id": id,
+                                    "line": line_no,
+                                    "host": p.host,
+                                    "port": p.port,
+                                    // Shown back before anything is used: the
+                                    // difference between host:port:user:pass and
+                                    // user:pass:host:port is invisible in the
+                                    // result and expensive when guessed wrong.
+                                    "shape": format!("{:?}", p.shape),
+                                })),
+                                Err(e) => rejected.push(
+                                    json!({ "line": line_no, "error": e.to_string() }),
+                                ),
+                            }
+                        }
+                        Err(e) => {
+                            rejected.push(json!({ "line": line_no, "error": e.to_string() }))
+                        }
+                    }
+                }
+                Ok(json!({ "saved": saved, "rejected": rejected }))
+            }
+
             // Does this exit actually work, and where does it come out?
             //
             // The one place the agent talks to a third party, and only when
