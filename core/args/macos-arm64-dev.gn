@@ -1,0 +1,68 @@
+# GN args — macOS arm64, for verifying a patch rather than shipping one.
+#
+# NOT the build to measure a fingerprint against. Everything below trades away
+# some resemblance to real Chrome for speed, and resemblance to real Chrome is
+# the product. Use macos-arm64.gn for anything the detect-suite reads.
+#
+# What this IS for: the edit-compile-check loop on a patch whose behaviour has
+# nothing to do with fingerprints — 0110's cookie key, the DevTools lock, the
+# automation traces. There the only question is "does the code do what it says",
+# and waiting hours to ask it is the whole problem.
+
+target_os = "mac"
+target_cpu = "arm64"
+
+is_official_build = false
+is_debug = false
+symbol_level = 0
+blink_symbol_level = 0
+dcheck_always_on = false
+chrome_pgo_phase = 0
+
+# The reason this file exists.
+#
+# A normal build links one enormous binary, and that single step is the slowest
+# thing in the loop: change one line in components/fury and you still wait for
+# the whole of chrome to be linked again. A component build produces many small
+# dylibs instead, so the relink after a one-file change is seconds.
+#
+# The cost is that the output is not a shippable layout and its startup and
+# memory behaviour differ from a release build. Neither matters for asking
+# whether a key provider registers.
+is_component_build = true
+
+# Measured on the remaining work of a full build: pdfium plus its satellites is
+# about 1285 compile steps and extensions about 817, so together roughly a tenth
+# of what is left. Worth taking here and nowhere else — a browser without them
+# is not the browser anyone runs.
+enable_pdf = false
+enable_extensions = false
+
+# Kept, even here. A build without these cannot decode H.264 or AAC while real
+# Chrome can, and two lines of JavaScript tell them apart — so a build missing
+# them is not a build any conclusion transfers from.
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"
+
+# De-Google, as everywhere else. A verification build that phoned home would be
+# a verification build that leaks.
+is_chrome_branded = false
+use_official_google_api_keys = false
+google_api_key = ""
+google_default_client_id = ""
+google_default_client_secret = ""
+enable_reporting = false
+
+# See the note in macos-arm64-lowmem.gn: an unbranded build applies Chromium's
+# field-trial testing config by default, which force-enables features real
+# stable Chrome ships disabled.
+disable_fieldtrial_testing_config = true
+
+# Keep ninja. autoninja in this depot_tools prefers Siso and then refuses an
+# output directory ninja created.
+use_siso = false
+
+# NOT set: cc_wrapper. A compiler cache looks like the obvious answer and is
+# not one here — this build compiles with -fmodules, and neither ccache nor
+# sccache supports clang modules. They either decline to cache or return the
+# wrong object, and the second is worse than no cache at all.
