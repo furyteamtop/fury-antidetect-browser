@@ -585,14 +585,20 @@ async fn delete_project(
         )));
     }
 
-    let profiles: i64 = sqlx::query_scalar(
+    // rows_affected, not RETURNING. `RETURNING 1` in Postgres is an `integer`,
+    // and this read it as `i64` — so sqlx refused to decode it and the whole
+    // delete failed with a 500, but ONLY for a project that had profiles: an
+    // empty one returns no rows, so nothing is decoded and nothing goes wrong.
+    // "The empty project deletes and the full one does not" is exactly how it
+    // was reported.
+    let profiles = sqlx::query(
         "UPDATE profiles SET deleted_at = now() \
-         WHERE project_id = $1 AND deleted_at IS NULL RETURNING 1",
+         WHERE project_id = $1 AND deleted_at IS NULL",
     )
     .bind(project_id)
-    .fetch_all(&mut *tx)
-    .await
-    .map(|r: Vec<i64>| r.len() as i64)?;
+    .execute(&mut *tx)
+    .await?
+    .rows_affected() as i64;
 
     let updated = sqlx::query(
         "UPDATE projects SET deleted_at = now() \

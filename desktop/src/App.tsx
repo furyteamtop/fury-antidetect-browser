@@ -101,7 +101,13 @@ export function App() {
     if (ready) void load();
   }, [ready, load]);
 
-  const refreshProfiles = useCallback(async () => {
+  // `scope` overrides which project's rows to load, for the one case the state
+  // cannot answer: a caller that has just deleted the active project. React
+  // applies setActive on the next render, so this callback still closes over
+  // the old value and would ask the server for a project that no longer
+  // exists — which answers 404, and 404 renders as "not found, or you no
+  // longer have access" next to a delete that in fact worked.
+  const refreshProfiles = useCallback(async (scope?: string | null) => {
     if (!ready) {
       setProfiles([]);
       return;
@@ -115,7 +121,7 @@ export function App() {
       // Profiles view: the master list an operator actually works from, with a
       // project as a filter over it rather than the only way in.
       const [rows, list, current] = await Promise.all([
-        api.profiles(active?.id),
+        api.profiles(scope === undefined ? active?.id : (scope ?? undefined)),
         api.projects(),
         // The shell too, on every poll rather than only at startup.
         //
@@ -392,13 +398,23 @@ export function App() {
             danger: true,
           });
           if (go === null) return;
-          await api.deleteProject(p.id);
+          try {
+            await api.deleteProject(p.id);
+          } catch (e) {
+            // Reported rather than swallowed. Without this the delete failed
+            // in silence and the project simply stayed in the sidebar, which
+            // is indistinguishable from a click that did not register.
+            setError(say(e));
+            return;
+          }
           setActive(null);
           await load();
           // The rows change too, not just the sidebar: every profile that was
           // in this project is now in none, and until this ran the table went
           // on naming a project that no longer exists.
-          await refreshProfiles();
+          //
+          // `null` explicitly: see refreshProfiles.
+          await refreshProfiles(null);
         }}
         onNewProject={async () => {
           const name = await ask({

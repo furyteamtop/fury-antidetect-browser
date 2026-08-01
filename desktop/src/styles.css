@@ -392,6 +392,13 @@ button {
   background: var(--raised);
   cursor: pointer;
   transition: background 90ms ease, border-color 90ms ease;
+  /* A label never wraps, and a button never shrinks below it.
+     Russian labels are routinely half again as long as their English
+     originals — "Create invitation" against "Создать приглашение" — and inside
+     a flex row the longer one wrapped to two lines and doubled the button's
+     height. That reads as a broken control rather than a long word. */
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 button:hover:not(:disabled) {

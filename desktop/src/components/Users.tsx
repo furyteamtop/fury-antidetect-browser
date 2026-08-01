@@ -257,7 +257,7 @@ export function Users({
         {t("team.invite")}
       </h2>
       <p className="hint">{t("team.inviteHint")}</p>
-      <div className="row" style={{ maxWidth: 560 }}>
+      <div className="row" style={{ maxWidth: 680 }}>
         <input
           type="email"
           placeholder={t("auth.email")}
