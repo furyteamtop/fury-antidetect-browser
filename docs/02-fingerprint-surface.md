@@ -244,9 +244,16 @@ Windows-персона на 34 шрифта, запущенная на macOS, г
 `Intl.Collator`, `Intl.NumberFormat`, `Intl.DisplayNames`, `Intl.ListFormat`,
 `navigator.geolocation`.
 
-Патч: `v8/src/objects/js-date-time-format.cc`, `blink/renderer/modules/geolocation/`.
+Патч: `0080` таймзона через ICU, `0081` локаль через `LocaleController`.
 V8 берёт таймзону из ICU — надёжнее задавать через `ICU_TIMEZONE` на уровне процесса и
 дополнительно патчить, чтобы `TZ` из окружения не протекала.
+
+Гео — не Blink. `blink/renderer/modules/geolocation/` в M150 больше нет, а править
+`core/geolocation/` всё равно было бы неверно: патч `0082` подставляет
+`device::LocationProvider` через `ContentBrowserClient::OverrideSystemLocation
+Provider()`, то есть ровно туда, где стоит CoreLocation. Всё, что выше — кеш,
+разрешения, отказы — остаётся стоковым Chromium. Координаты берутся из того же
+запроса, что и таймзона, поэтому часы и позиция не могут разойтись.
 
 Всё выводится из IP прокси автоматически. Правило: **никогда не запускать профиль,
 если таймзона не совпадает с гео IP** — это самый дешёвый и самый распространённый детект.
