@@ -188,10 +188,32 @@
 # --- storage ----------------------------------------------------------------
 # Derives the os_crypt key from the profile DEK instead of the OS keychain, so
 # a bundle is portable between machines and operating systems.
-# Blocked on the same kind of investigation: components/os_crypt/sync/ is gone
-# in M150, only components/os_crypt/common/os_crypt_switches.h remains. This one
-# is not a fingerprint vector at all — it makes profile bundles portable between
-# machines (docs/06) — so it belongs with the sync work rather than here.
+#
+# NO LONGER BLOCKED, AND NO LONGER OPTIONAL. The old note said
+# components/os_crypt/sync/ is gone in M150 and left it there. That is true and
+# it is not the whole story: async/ replaced it, and async/ was built to be
+# extended. os_crypt_async::KeyProvider
+# (components/os_crypt/async/browser/key_provider.h) is an interface, and
+# chrome/browser/browser_process_impl.cc:1530-1580 is a plain
+# `providers.emplace_back(precedence, ...)` list with DPAPI at 10 and app-bound
+# at 15. A Fury provider fed from FuryConfig goes in beside them.
+#
+# Why it is urgent rather than a nicety. Cookie values are encrypted under a key
+# that is per MACHINE — a random keychain password on macOS, DPAPI or an
+# app-bound key on Windows — and the bundle carries the ciphertext. So a team
+# profile opened on a second machine cannot decrypt its own cookies. Chromium
+# does not skip the rows it cannot read: LoadCookiesForDomains
+# (net/extras/sqlite/sqlite_persistent_cookie_store.cc:916-935) runs
+# `DELETE FROM cookies WHERE host_key = ?` for EVERY host in that eTLD+1 group,
+# "for data consistency". Then agent/src/ipc.rs stop() packs the emptied jar and
+# pushes it as a new server version. A colleague opening a shared profile
+# destroys its warmed session for the whole team, silently, and the destruction
+# is what gets saved.
+#
+# Until it lands, the workaround is the cookie path built in agent/src/cookies.rs:
+# cookies move over CDP as plaintext JSON, which is machine-independent, and a
+# profile can be re-seeded on the new machine. That is a workaround and not a
+# fix — nothing stops the delete from happening on the first cross-machine open.
 # 0110-os-crypt-key.patch
 
 # --- misc js ----------------------------------------------------------------

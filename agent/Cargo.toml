@@ -47,6 +47,8 @@ chacha20poly1305 = "0.10"
 argon2 = "0.5"
 keyring = "4"
 base64 = "0.22"
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["handshake", "connect"] }
+futures-util = { version = "0.3.33", default-features = false, features = ["sink"] }
 
 [target.'cfg(unix)'.dependencies]
 # dup2 only. std has no equivalent, and the config descriptor has to land on 3.

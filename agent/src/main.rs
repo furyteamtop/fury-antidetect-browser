@@ -8,6 +8,7 @@
 //! docs/09-roadmap.md for what is still missing.
 
 mod bundle;
+mod cookies;
 mod http;
 mod ipc;
 mod launcher;

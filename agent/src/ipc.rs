@@ -61,6 +61,11 @@ struct Running {
     heartbeat: Option<tokio::task::JoinHandle<()>>,
     #[allow(dead_code)] // reported by `status`; kept for the automation API
     relay_port: u16,
+    /// Present when this launch was allowed CDP. Kept so a cookie read on an
+    /// already-open profile reuses the browser that is there rather than
+    /// starting a second one on the same directory — two Chromiums on one
+    /// user-data-dir is how a cookie jar gets corrupted.
+    ws_endpoint: Option<String>,
     /// Must be aborted explicitly when the profile closes.
     ///
     /// Dropping a JoinHandle does not stop the task — tokio detaches it — so
@@ -623,6 +628,93 @@ impl Agent {
             // encryption is the part that has to be right: a sync layer built
             // on top of an untested seal would be discovered wrong by a server
             // holding readable cookies.
+            // Cookies out, and cookies in.
+            //
+            // Both go through the browser rather than through its SQLite file —
+            // see cookies.rs for why the file is not readable out-of-browser on
+            // Windows at all, and why a badly written row costs a whole site's
+            // session rather than one cookie.
+            //
+            // A closed profile is opened for the exchange and closed again.
+            // Deliberately the ordinary launch and the ordinary stop, not a
+            // quiet side path: in team mode the launch pulls the bundle and
+            // takes the lock, and the stop packs and pushes. An import that
+            // spawned its own browser would skip all four, and the cookies
+            // would be on this machine and nowhere else.
+            "profile.cookies.export" | "profile.cookies.import" => {
+                let id = str_param(&params, "id")?;
+                let importing = method.ends_with("import");
+
+                let incoming: Vec<serde_json::Value> = if importing {
+                    let raw = params
+                        .get("cookies")
+                        .ok_or_else(|| anyhow::anyhow!("missing parameter \"cookies\""))?;
+                    serde_json::from_value(raw.clone())
+                        .map_err(|e| anyhow::anyhow!("cookies must be a JSON array: {e}"))?
+                } else {
+                    Vec::new()
+                };
+
+                let open = self
+                    .running
+                    .lock()
+                    .await
+                    .get(&id)
+                    .and_then(|r| r.ws_endpoint.clone());
+
+                let (ws, opened_here) = match open {
+                    Some(ws) => (ws, false),
+                    None => {
+                        if self.running.lock().await.contains_key(&id) {
+                            anyhow::bail!(
+                                "this profile is open without a debugging port, so its cookies \
+                                 cannot be reached. Close it and try again, or launch it with \
+                                 CDP enabled"
+                            );
+                        }
+                        let out = self.launch(&id, None, None, None, None, true).await?;
+                        let ws = out
+                            .get("ws_endpoint")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string)
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "the browser started but never wrote a debugging endpoint, so \
+                                     there is nothing to read cookies through"
+                                )
+                            })?;
+                        (ws, true)
+                    }
+                };
+
+                let result = if importing {
+                    crate::cookies::import(&ws, &incoming).await.map(|r| {
+                        json!({
+                            "imported": r.accepted,
+                            // Named rather than buried: a session cookie does
+                            // not survive the profile closing, and this call
+                            // closes it.
+                            "session_only": r.session_only,
+                            "skipped": r.skipped,
+                        })
+                    })
+                } else {
+                    crate::cookies::export(&ws)
+                        .await
+                        .map(|c| json!({ "cookies": c }))
+                };
+
+                // Closed whatever happened. A browser left running because the
+                // import failed is a locked profile nobody else can open, and
+                // the operator has no reason to know it is there.
+                if opened_here {
+                    if let Err(e) = self.stop(&id).await {
+                        tracing::warn!(error = %e, "could not close the profile after a cookie exchange");
+                    }
+                }
+                result
+            }
+
             "profile.pack" => {
                 let id = str_param(&params, "id")?;
                 {
@@ -1035,6 +1127,7 @@ impl Agent {
             Running {
                 child,
                 relay_port,
+                ws_endpoint: cdp_endpoint.as_ref().map(|(_, ws)| ws.clone()),
                 relay: relay_task,
                 server: server.map(|s| (s, pulled_version)),
                 profile_key,
@@ -1065,23 +1158,27 @@ impl Agent {
                 None => return Ok(serde_json::json!({ "stopped": false })),
             }
         };
-        // Terminate, not kill, when there is something to save. Chromium flushes
-        // its cookie jar on exit, and a bundle packed from a SIGKILLed profile
-        // is the last write the browser managed rather than the session the
-        // operator just finished. Without a server there is nothing to upload,
-        // so the old, faster path stands.
-        if entry.server.is_some() {
-            #[cfg(unix)]
-            unsafe {
-                libc::kill(entry.child.id() as i32, libc::SIGTERM);
+        // Terminate, not kill. Chromium flushes its cookie jar on exit, and a
+        // profile directory taken from a SIGKILLed browser holds the last write
+        // it happened to manage rather than the session the operator just
+        // finished.
+        //
+        // This used to apply only when there was a server to upload to, on the
+        // reasoning that a local profile has nothing to push. It has something
+        // to LOSE: the directory is the account. Measured — an import that
+        // wrote two cookies over CDP and closed the profile exported zero
+        // afterwards, because the browser never got to write them down. Local
+        // profiles were quietly dropping the tail of every session.
+        #[cfg(unix)]
+        unsafe {
+            libc::kill(entry.child.id() as i32, libc::SIGTERM);
+        }
+        // Bounded: a browser that will not close must not hold the UI.
+        for _ in 0..50 {
+            if entry.child.try_wait()?.is_some() {
+                break;
             }
-            // Bounded: a browser that will not close must not hold the UI.
-            for _ in 0..50 {
-                if entry.child.try_wait()?.is_some() {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         }
         let _ = entry.child.kill();
         let _ = entry.child.wait();
