@@ -194,7 +194,7 @@ const en = {
     "Leave empty to follow the proxy's exit — resolved at launch, so it can never disagree with the address the traffic comes from.",
   "pd.languages": "Languages",
   "pd.languagesHint":
-    "Leave empty for the persona's own languages. This is what a site reads as navigator.languages and sends as Accept-Language.",
+    "Leave empty to follow the proxy's exit — the languages a Chrome installed in that country sends. This is what a site reads as navigator.languages and sends as Accept-Language, and it also sets the browser's own language, so dates and numbers format to match.",
   "pd.noise": "Noise",
   "pd.noiseHint":
     "Canvas, audio and element geometry are perturbed with a seed of this profile's own. There is no switch to turn it off: an un-noised canvas is byte-identical to the host machine, which is what makes several commercial browsers trivially linkable.",
@@ -522,7 +522,7 @@ const ru: Record<Key, string> = {
     "Оставьте пустым, чтобы следовать за выходом прокси — определяется при запуске и потому не может разойтись с адресом, с которого идёт трафик.",
   "pd.languages": "Языки",
   "pd.languagesHint":
-    "Оставьте пустым — возьмутся языки самой персоны. Это то, что сайт читает как navigator.languages и отправляет в Accept-Language.",
+    "Оставьте пустым, чтобы следовать за выходом прокси — возьмутся языки, которые отправляет Chrome, установленный в этой стране. Это то, что сайт читает как navigator.languages и отправляет в Accept-Language; заодно задаётся язык самого браузера, поэтому даты и числа форматируются в тон.",
   "pd.noise": "Шум",
   "pd.noiseHint":
     "Canvas, звук и геометрия элементов зашумляются сидом самого профиля. Выключателя нет: незашумлённый canvas байт-в-байт совпадает с хостом, и именно поэтому профили нескольких коммерческих браузеров связываются между собой в одну строку.",
