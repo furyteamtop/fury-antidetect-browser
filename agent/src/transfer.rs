@@ -366,6 +366,7 @@ mod tests {
                 last_country: Some("DE".into()),
                 last_ip: None,
                 last_timezone: None,
+                last_location: None,
                 rotate_url: None,
                 checker_url: None,
             })
@@ -384,6 +385,7 @@ mod tests {
             last_country: None,
             last_ip: None,
             last_timezone: None,
+            last_location: None,
             rotate_url: None,
             checker_url: None,
         });

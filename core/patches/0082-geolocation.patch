@@ -1,0 +1,438 @@
+diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
+--- a/chrome/browser/BUILD.gn
++++ b/chrome/browser/BUILD.gn
+@@ -2309,6 +2309,7 @@ static_library("browser") {
+     "//components/optimization_guide/public/mojom",
+     "//components/origin_trials:browser",
+     "//components/origin_trials:common",
++    "//components/fury/location",
+     "//components/os_crypt/async/browser",
+     "//components/page_info/core:proto",
+     "//components/page_load_metrics/browser",
+diff --git a/chrome/browser/DEPS b/chrome/browser/DEPS
+--- a/chrome/browser/DEPS
++++ b/chrome/browser/DEPS
+@@ -247,6 +247,7 @@ include_rules = [
+   "+components/optimization_guide",
+   "+components/optimization_guide/optimization_guide_internals",
+   "+components/origin_trials",
++  "+components/fury",
+   "+components/os_crypt/async",
+   "+components/ownership",
+   "+components/page_image_service",
+diff --git a/components/fury/location/BUILD.gn b/components/fury/location/BUILD.gn
+new file mode 100644
+index 0000000000..c096e75063
+--- /dev/null
++++ b/components/fury/location/BUILD.gn
+@@ -0,0 +1,23 @@
++# Copyright 2026 The Fury Authors
++# Use of this source code is governed by a BSD-style license that can be
++# found in the LICENSE file.
++
++# The position a profile reports.
++#
++# Its own target and its own directory, like key_provider next door and for the
++# same reason: //components/fury is linked into Blink, and nothing a renderer
++# links should be able to reach the browser-side device stack. Only
++# //chrome/browser depends on this.
++source_set("location") {
++  sources = [
++    "fury_location_provider.cc",
++    "fury_location_provider.h",
++  ]
++
++  deps = [
++    "//base",
++    "//components/fury",
++    "//services/device/public/cpp/geolocation",
++    "//services/device/public/mojom",
++  ]
++}
+diff --git a/components/fury/location/fury_location_provider.h b/components/fury/location/fury_location_provider.h
+new file mode 100644
+index 0000000000..c0ac0b8f50
+--- /dev/null
++++ b/components/fury/location/fury_location_provider.h
+@@ -0,0 +1,144 @@
++// Copyright 2026 The Fury Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef COMPONENTS_FURY_LOCATION_FURY_LOCATION_PROVIDER_H_
++#define COMPONENTS_FURY_LOCATION_FURY_LOCATION_PROVIDER_H_
++
++#include <memory>
++#include <optional>
++
++#include "base/timer/timer.h"
++#include "services/device/public/cpp/geolocation/location_provider.h"
++#include "services/device/public/mojom/geoposition.mojom.h"
++
++namespace fury {
++
++// Answers navigator.geolocation with where the profile's proxy comes out.
++//
++// # Why here and not somewhere easier
++//
++// There is a ready-made override one layer up — device.mojom.GeolocationContext
++// ::SetOverride, which is what CDP's Emulation.setGeolocationOverride drives —
++// and it is the wrong tool. It freezes position.timestamp at the instant it was
++// set, and it delivers one position per binding and then goes silent, which
++// leaves watchPosition() waiting forever. No real device behaves like that.
++//
++// A LocationProvider sits exactly where CoreLocation and the network provider
++// sit: downstream of the permission gate, upstream of the caching and the
++// delivery machinery. Everything above it stays stock Chromium, so a page that
++// asks twice, or watches, or is denied, gets whatever Chromium would have given
++// it — only the coordinates differ.
++//
++// # What it deliberately does not fill in
++//
++// Altitude, altitude accuracy, heading and speed keep the mojom's "unavailable"
++// defaults, which is what a desktop without GPS reports. A machine that
++// answered with a heading and a speed would be claiming to be moving, and a
++// browser that is moving is a browser on a phone.
++class FuryLocationProvider : public device::LocationProvider {
++ public:
++  // A position the config asks for and this class is willing to report.
++  struct Fix {
++    double latitude;
++    double longitude;
++    double accuracy;
++  };
++
++  // Returns nullptr unless the config carries a position, so an ordinary launch
++  // and a profile with no resolvable exit both fall through to the platform's
++  // own provider rather than to a made-up point.
++  static std::unique_ptr<device::LocationProvider> MaybeCreate();
++
++  // What `MaybeCreate` will do, without doing it.
++  //
++  // Exists because a second decision has to be made from the same answer, and
++  // the two must not be able to disagree. The browser also suppresses the OS
++  // location permission when a persona position is configured — see
++  // ChromeContentBrowserClient::GetGeolocationSystemPermissionManager — and on
++  // macOS the platform provider CHECK-fails without that manager. If this said
++  // yes where `MaybeCreate` said no, the browser would suppress the manager,
++  // create no custom provider, fall through to the platform one, and crash.
++  // Coordinates out of range are exactly such a case, which is why the range
++  // check lives in here rather than at the call site.
++  static std::optional<Fix> ConfiguredFix();
++
++  ~FuryLocationProvider() override;
++
++  FuryLocationProvider(const FuryLocationProvider&) = delete;
++  FuryLocationProvider& operator=(const FuryLocationProvider&) = delete;
++
++ private:
++  explicit FuryLocationProvider(Fix fix);
++
++  // device::LocationProvider:
++  void FillDiagnostics(device::mojom::GeolocationDiagnostics& diagnostics) override;
++  void SetUpdateCallback(const LocationProviderUpdateCallback& callback) override;
++  void StartProvider(bool high_accuracy) override;
++  void StopProvider() override;
++  const device::mojom::GeopositionResult* GetPosition() override;
++  void OnPermissionGranted() override;
++
++  // Builds a fix stamped with the current time, and hands it to the callback.
++  //
++  // Stamped when it is delivered rather than once at construction: a timestamp
++  // frozen at browser start is the tell that gives away the easy override, and
++  // it costs nothing to be honest about when the answer was produced.
++  void Emit();
++
++  const Fix fix_;
++
++  // Keeps emitting for as long as the provider is running.
++  //
++  // Not decoration, and not a heartbeat for its own sake: Blink keeps exactly
++  // one QueryNextPosition outstanding per frame, so a page that already holds a
++  // watchPosition and then calls getCurrentPosition is waiting on the NEXT
++  // update, not on a cached one. A provider that spoke once per start cycle
++  // left that call hanging until its timeout — measured, and it is a check in
++  // verify-0082.py now.
++  //
++  // Every provider Chromium ships repeats. CoreLocation pushes on CLLocation
++  // manager's own cadence, which on a stationary Mac is about once a second;
++  // the network provider re-resolves whenever the WiFi scan updates, on a
++  // 2/5/10-minute ladder. One second follows the platform providers our
++  // personas claim to be running — macOS and Windows both push at roughly that
++  // rate — and it costs nothing, because the fix is already in memory and
++  // producing it touches neither the network nor a sensor.
++  base::RepeatingTimer timer_;
++
++  LocationProviderUpdateCallback callback_;
++  device::mojom::GeopositionResultPtr position_;
++  bool running_ = false;
++
++  // Recorded, and deliberately NOT used as a gate on delivery.
++  //
++  // The header contract says the opposite — location_provider.h:37-40: "No
++  // LocationProviderUpdateCallback can be run ... until OnPermissionGranted()
++  // has been called." Gating on it was the first version, and it produced a
++  // browser where navigator.geolocation timed out forever. The reason is that
++  // OnPermissionGranted traces back to UserDidOptIntoLocationServices, which
++  // only fires from GeolocationPermissionContext::UpdateTabContext — the path a
++  // user's click on the permission bubble takes. A page granted geolocation
++  // through CDP (Browser.grantPermissions, i.e. every Puppeteer and Playwright
++  // script ever written) never walks it, so the latch stays false for the life
++  // of the browser and nothing is ever delivered.
++  //
++  // Chromium's own macOS provider resolves the same tension the same way:
++  // CoreLocationProvider::OnPermissionGranted is `// Nothing to do here.`
++  // (core_location_provider.cc:67-69) and it emits whatever CoreLocation
++  // pushes. Matching the platform provider is the point — a browser that
++  // answers where Chrome answers and stays silent where Chrome stays silent.
++  //
++  // Nothing is opened up by this. The permission that protects the user is a
++  // layer above and is untouched: GeolocationImpl::OnPermissionUpdated drops
++  // the subscription and returns kPermissionDenied for a page that was refused
++  // (geolocation_impl.cc:170-180), and providers are only ever started once a
++  // client exists, which requires the site permission to have been granted.
++  // Verified rather than argued: the denied-origin case is a check in
++  // verify-0082.py and it still answers PERMISSION_DENIED.
++  bool permission_granted_ = false;
++};
++
++}  // namespace fury
++
++#endif  // COMPONENTS_FURY_LOCATION_FURY_LOCATION_PROVIDER_H_
+diff --git a/components/fury/location/fury_location_provider.cc b/components/fury/location/fury_location_provider.cc
+new file mode 100644
+index 0000000000..c49ca91107
+--- /dev/null
++++ b/components/fury/location/fury_location_provider.cc
+@@ -0,0 +1,150 @@
++// Copyright 2026 The Fury Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "components/fury/location/fury_location_provider.h"
++
++#include <utility>
++
++#include "base/functional/bind.h"
++#include "base/logging.h"
++#include "base/time/time.h"
++#include "components/fury/fury_config.h"
++
++namespace fury {
++
++namespace {
++
++// Metres. What a desktop reports when the fix came from the network and the
++// network had nothing better than the address to go on — no GPS, no WiFi scan
++// worth sending. Used when the config does not say, which is the ordinary case.
++//
++// Deliberately coarse, and coarse in a way that agrees with where the number
++// came from. Fury resolves the position from the proxy exit, so it knows a city
++// and not a doorway; claiming ten metres would be claiming hardware and a scan
++// that this machine never performed, and would sit oddly beside coordinates
++// that are visibly a city centre. Twenty kilometres says "I worked this out
++// from my address", which is true, and is the same thing the address itself
++// says to anyone who looks it up.
++constexpr double kDefaultAccuracyMeters = 20000.0;
++
++// How often a running provider repeats its fix. See the note on `timer_`.
++constexpr base::TimeDelta kUpdateInterval = base::Seconds(1);
++
++}  // namespace
++
++// static
++std::optional<FuryLocationProvider::Fix> FuryLocationProvider::ConfiguredFix() {
++  const FuryConfig* config = FuryConfig::Get();
++  if (!config) {
++    return std::nullopt;
++  }
++  std::optional<double> latitude = config->GetDouble("geolocation.latitude");
++  std::optional<double> longitude = config->GetDouble("geolocation.longitude");
++  if (!latitude || !longitude) {
++    // No position configured. Fall through to the platform provider rather
++    // than inventing one: a profile whose exit could not be resolved should
++    // behave like a machine, not like a machine pretending to be elsewhere.
++    return std::nullopt;
++  }
++  if (*latitude < -90.0 || *latitude > 90.0 || *longitude < -180.0 ||
++      *longitude > 180.0) {
++    LOG(ERROR) << "fury: geolocation out of range, ignoring";
++    return std::nullopt;
++  }
++
++  double accuracy =
++      config->GetDouble("geolocation.accuracy").value_or(kDefaultAccuracyMeters);
++  if (accuracy <= 0.0) {
++    accuracy = kDefaultAccuracyMeters;
++  }
++
++  return Fix{*latitude, *longitude, accuracy};
++}
++
++// static
++std::unique_ptr<device::LocationProvider> FuryLocationProvider::MaybeCreate() {
++  std::optional<Fix> fix = ConfiguredFix();
++  if (!fix) {
++    return nullptr;
++  }
++  return std::unique_ptr<device::LocationProvider>(
++      new FuryLocationProvider(*fix));
++}
++
++FuryLocationProvider::FuryLocationProvider(Fix fix) : fix_(fix) {}
++
++FuryLocationProvider::~FuryLocationProvider() = default;
++
++void FuryLocationProvider::FillDiagnostics(
++    device::mojom::GeolocationDiagnostics& diagnostics) {
++  diagnostics.provider_state =
++      running_ ? device::mojom::GeolocationDiagnostics::ProviderState::
++                     kHighAccuracy
++               : device::mojom::GeolocationDiagnostics::ProviderState::kStopped;
++}
++
++void FuryLocationProvider::SetUpdateCallback(
++    const LocationProviderUpdateCallback& callback) {
++  callback_ = callback;
++}
++
++void FuryLocationProvider::StartProvider(bool high_accuracy) {
++  running_ = true;
++  // high_accuracy is ignored on purpose. A desktop has one source of position
++  // and it does not get better when asked nicely; a provider that returned a
++  // tighter accuracy for enableHighAccuracy would be claiming hardware this
++  // machine does not have.
++  Emit();
++  // May be called again to change the accuracy setting, so this has to be safe
++  // to call on an already-running timer. base::RepeatingTimer::Start resets it.
++  timer_.Start(FROM_HERE, kUpdateInterval,
++               base::BindRepeating(&FuryLocationProvider::Emit,
++                                   base::Unretained(this)));
++}
++
++void FuryLocationProvider::StopProvider() {
++  timer_.Stop();
++  running_ = false;
++}
++
++const device::mojom::GeopositionResult* FuryLocationProvider::GetPosition() {
++  return position_.get();
++}
++
++void FuryLocationProvider::OnPermissionGranted() {
++  permission_granted_ = true;
++  Emit();
++}
++
++void FuryLocationProvider::Emit() {
++  if (!running_) {
++    return;
++  }
++
++  auto position = device::mojom::Geoposition::New();
++  position->latitude = fix_.latitude;
++  position->longitude = fix_.longitude;
++  position->accuracy = fix_.accuracy;
++  // Altitude, altitude_accuracy, heading and speed keep their defaults, which
++  // the mojom defines as the "unavailable" values and Blink turns into null.
++  position->timestamp = base::Time::Now();
++
++  position_ = device::mojom::GeopositionResult::NewPosition(std::move(position));
++
++  // The same coordinates every time with a fresh timestamp, which is not
++  // laziness — it is what upstream does, checked rather than assumed.
++  // NetworkLocationProvider caches positions keyed by the set of visible WiFi
++  // APs (position_cache.h:19), and on a cache hit it clones the stored position
++  // and overwrites only the timestamp, with the comment "The timestamp of a
++  // position fix is determined by the timestamp of the source data update"
++  // (network_location_provider.cc:283-289). A stationary desktop on an
++  // unchanging network therefore reports byte-identical latitude, longitude and
++  // accuracy for as long as it sits there. Adding jitter would be imitating a
++  // phone, and a phone is not what the rest of this persona claims to be.
++  if (callback_) {
++    callback_.Run(this, position_.Clone());
++  }
++}
++
++}  // namespace fury
+diff --git a/chrome/browser/chrome_content_browser_client.h b/chrome/browser/chrome_content_browser_client.h
+index 7e779ca9e7..1298c5fca7 100644
+--- a/chrome/browser/chrome_content_browser_client.h
++++ b/chrome/browser/chrome_content_browser_client.h
+@@ -473,6 +473,11 @@ class ChromeContentBrowserClient : public content::ContentBrowserClient {
+   GetSystemSharedURLLoaderFactory() override;
+   network::mojom::NetworkContext* GetSystemNetworkContext() override;
+   std::string GetGeolocationApiKey() override;
++  // Fury: the position a profile reports follows its proxy exit, the same way
++  // its clock and its locale do. Returns nullptr when no position is
++  // configured, which leaves the platform provider in place.
++  std::unique_ptr<device::LocationProvider> OverrideSystemLocationProvider()
++      override;
+ 
+ #if BUILDFLAG(OS_LEVEL_GEOLOCATION_PERMISSION_SUPPORTED)
+   device::GeolocationSystemPermissionManager*
+diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
+index edab63d18f..bf9cb8b837 100644
+--- a/chrome/browser/chrome_content_browser_client.cc
++++ b/chrome/browser/chrome_content_browser_client.cc
+@@ -223,6 +223,7 @@
+ #include "chrome/common/webui_url_utils.h"
+ #include "chrome/grit/generated_resources.h"
+ #include "chrome/installer/util/google_update_settings.h"
++#include "components/fury/location/fury_location_provider.h"
+ #include "components/autofill/core/common/autofill_features.h"
+ #include "components/autofill/core/common/autofill_switches.h"
+ #include "components/blocked_content/popup_blocker.h"
+@@ -3942,6 +3943,16 @@ ChromeContentBrowserClient::GetSystemNetworkContext() {
+   return g_browser_process->system_network_context_manager()->GetContext();
+ }
+ 
++std::unique_ptr<device::LocationProvider>
++ChromeContentBrowserClient::OverrideSystemLocationProvider() {
++  // Nothing above this line changes. The provider slots in where CoreLocation
++  // and the network provider slot in — downstream of the permission gate, so a
++  // page that was never allowed still gets nothing, and upstream of the caching
++  // and delivery, so watchPosition and a denial behave exactly as Chromium
++  // makes them behave.
++  return fury::FuryLocationProvider::MaybeCreate();
++}
++
+ std::string ChromeContentBrowserClient::GetGeolocationApiKey() {
+ #if BUILDFLAG(IS_CHROMEOS)
+   if (ash::features::IsCrosSeparateGeoApiKeyEnabled()) {
+@@ -3954,6 +3965,35 @@ std::string ChromeContentBrowserClient::GetGeolocationApiKey() {
+ #if BUILDFLAG(OS_LEVEL_GEOLOCATION_PERMISSION_SUPPORTED)
+ device::GeolocationSystemPermissionManager*
+ ChromeContentBrowserClient::GetGeolocationSystemPermissionManager() {
++  // Part of patch 0082, and the part without which the rest of it does nothing.
++  //
++  // On macOS and Windows the operating system has its own opinion about whether
++  // this application may read location, and Chromium asks it FIRST — before any
++  // provider is consulted at all. GeolocationProviderImpl::OnClientsChanged
++  // returns early while the system status is anything but kAllowed
++  // (geolocation_provider_impl.cc:297-300), so on a Mac that has never granted
++  // Fury access to Location Services, every getCurrentPosition times out and
++  // the custom provider is never asked for anything. Measured exactly that:
++  // position "Timeout expired" with a perfectly good position sitting in the
++  // config.
++  //
++  // Returning nullptr here makes the constructor take its other branch and set
++  // the status to kAllowed (geolocation_provider_impl.cc:238-243). That is not
++  // a lie told to the OS — it is declining to ask a question whose answer is
++  // irrelevant, because with a persona position configured no OS sensor is ever
++  // touched. It also means no location indicator appears in the menu bar, which
++  // is right: nothing is using the machine's location.
++  //
++  // Only when a position is actually configured, and gated on the same
++  // predicate the provider itself uses. The two must agree: on Apple,
++  // LocationProviderManager::NewSystemLocationProvider CHECKs this manager is
++  // present (location_provider_manager.cc:385), and it is only unreachable
++  // because a custom provider forces kCustomOnly. Suppress the manager without
++  // supplying a provider and the browser crashes the first time a page asks
++  // where it is.
++  if (fury::FuryLocationProvider::ConfiguredFix()) {
++    return nullptr;
++  }
+   return device::GeolocationSystemPermissionManager::GetInstance();
+ }
+ #endif

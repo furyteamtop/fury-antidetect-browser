@@ -89,6 +89,7 @@ async fn main() -> anyhow::Result<()> {
                        --country CC        ISO country: sets --lang and the UI locale\n                              \
                                            to what a Chrome installed there sends\n        \
                        --lang a,b          BCP-47 list, most preferred first\n        \
+                       --geo lat,lng       position the profile reports\n        \
                        --profile-dir DIR   user-data-dir (default a temp dir)\n        \
                        --core PATH         core binary (or set FURY_CORE)\n        \
                        --url URL           page to open\n        \
@@ -204,6 +205,9 @@ async fn cmd_launch(args: &[String]) -> anyhow::Result<()> {
         timezone: opt("--timezone").unwrap_or_else(|| "Europe/Berlin".into()),
         languages,
         ui_locale: ui_locale.clone(),
+        // The bare CLI resolves no exit; --geo takes "lat,lng" for testing one
+        // on purpose.
+        geolocation: opt("--geo").as_deref().and_then(ipc::parse_location),
         chrome_major: CHROME_MAJOR,
         chrome_full_version: CHROME_FULL_VERSION.to_string(),
     };

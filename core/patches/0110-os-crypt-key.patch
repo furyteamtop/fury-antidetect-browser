@@ -310,7 +310,6 @@ new file mode 100644
 +
 +}  // namespace fury
 diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
-index 311a3dfebc..5dece3addb 100644
 --- a/chrome/browser/BUILD.gn
 +++ b/chrome/browser/BUILD.gn
 @@ -2309,6 +2309,7 @@ static_library("browser") {
@@ -318,21 +317,9 @@ index 311a3dfebc..5dece3addb 100644
      "//components/origin_trials:browser",
      "//components/origin_trials:common",
 +    "//components/fury/key_provider",
+     "//components/fury/location",
      "//components/os_crypt/async/browser",
      "//components/page_info/core:proto",
-     "//components/page_load_metrics/browser",
-diff --git a/chrome/browser/DEPS b/chrome/browser/DEPS
-index dffc7f0012..c6a38169b8 100644
---- a/chrome/browser/DEPS
-+++ b/chrome/browser/DEPS
-@@ -247,6 +247,7 @@ include_rules = [
-   "+components/optimization_guide",
-   "+components/optimization_guide/optimization_guide_internals",
-   "+components/origin_trials",
-+  "+components/fury",
-   "+components/os_crypt/async",
-   "+components/ownership",
-   "+components/page_image_service",
 diff --git a/chrome/browser/browser_process_impl.cc b/chrome/browser/browser_process_impl.cc
 index 3389caba30..7f79cdd85a 100644
 --- a/chrome/browser/browser_process_impl.cc

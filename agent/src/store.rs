@@ -58,6 +58,11 @@ pub struct Proxy {
     /// detector runs.
     #[serde(default)]
     pub last_timezone: Option<String>,
+    /// Where the exit says it is, as "lat,lng". The same lookup that answers
+    /// with a timezone answers with this; a profile whose clock follows Berlin
+    /// while its geolocation follows the host is the contradiction the timezone
+    /// work existed to remove, one field over.
+    pub last_location: Option<String>,
     /// A URL that makes the provider hand out a new exit IP.
     ///
     /// Mobile and rotating residential proxies are sold this way, and an
@@ -230,6 +235,10 @@ impl Store {
             "ALTER TABLE proxies ADD COLUMN rotate_url TEXT",
             "ALTER TABLE proxies ADD COLUMN checker_url TEXT",
             "ALTER TABLE proxies ADD COLUMN last_timezone TEXT",
+            // "lat,lng" exactly as the checker reports it. Stored as text rather
+            // than two reals because it is only ever handed on whole, and a pair
+            // of columns invites one of them being set without the other.
+            "ALTER TABLE proxies ADD COLUMN last_location TEXT",
         ] {
             let _ = sqlx::query(stmt).execute(&self.pool).await;
         }
@@ -474,14 +483,16 @@ impl Store {
         ip: Option<&str>,
         country: Option<&str>,
         timezone: Option<&str>,
+        location: Option<&str>,
     ) -> anyhow::Result<()> {
         sqlx::query(
-            "UPDATE proxies SET last_ip = ?, last_country = ?, last_timezone = ?, checked_at = ? \
-             WHERE id = ?",
+            "UPDATE proxies SET last_ip = ?, last_country = ?, last_timezone = ?, \
+                    last_location = ?, checked_at = ? WHERE id = ?",
         )
         .bind(ip)
         .bind(country)
         .bind(timezone)
+        .bind(location)
         .bind(now())
         .bind(proxy_id)
         .execute(&self.pool)
@@ -533,7 +544,7 @@ impl Store {
                     x.id AS px_id, x.name AS px_name, x.kind AS px_kind, x.host AS px_host,
                     x.port AS px_port, x.username AS px_user, x.password AS px_pass,
                     x.last_country AS px_country, x.last_ip AS px_ip,
-                    x.last_timezone AS px_tz
+                    x.last_timezone AS px_tz, x.last_location AS px_loc
              FROM profiles f
              LEFT JOIN projects p ON p.id = f.project_id AND p.deleted_at IS NULL
              LEFT JOIN proxies x ON x.id = f.proxy_id AND x.deleted_at IS NULL
@@ -591,7 +602,7 @@ impl Store {
                     x.id AS px_id, x.name AS px_name, x.kind AS px_kind, x.host AS px_host,
                     x.port AS px_port, x.username AS px_user, x.password AS px_pass,
                     x.last_country AS px_country, x.last_ip AS px_ip,
-                    x.last_timezone AS px_tz
+                    x.last_timezone AS px_tz, x.last_location AS px_loc
              FROM profiles f
              LEFT JOIN projects p ON p.id = f.project_id AND p.deleted_at IS NULL
              LEFT JOIN proxies x ON x.id = f.proxy_id AND x.deleted_at IS NULL
@@ -677,7 +688,7 @@ impl Store {
                     x.id AS px_id, x.name AS px_name, x.kind AS px_kind, x.host AS px_host,
                     x.port AS px_port, x.username AS px_user, x.password AS px_pass,
                     x.last_country AS px_country, x.last_ip AS px_ip,
-                    x.last_timezone AS px_tz
+                    x.last_timezone AS px_tz, x.last_location AS px_loc
              FROM profiles f
              LEFT JOIN proxies x ON x.id = f.proxy_id AND x.deleted_at IS NULL
              WHERE f.deleted_at IS NOT NULL
@@ -772,6 +783,7 @@ fn row_to_profile(r: sqlx::sqlite::SqliteRow) -> Profile {
             last_country: r.get("px_country"),
             last_ip: r.get("px_ip"),
             last_timezone: r.try_get("px_tz").unwrap_or(None),
+            last_location: r.try_get("px_loc").unwrap_or(None),
             // Not selected in the profile join: a rotation link usually embeds
             // an API key, and no list view has any use for it.
             rotate_url: None,
@@ -792,6 +804,7 @@ fn row_to_proxy(r: &sqlx::sqlite::SqliteRow) -> Proxy {
         last_country: r.get("last_country"),
         last_ip: r.get("last_ip"),
         last_timezone: r.try_get("last_timezone").unwrap_or(None),
+        last_location: r.try_get("last_location").unwrap_or(None),
         rotate_url: r.get("rotate_url"),
         checker_url: r.get("checker_url"),
     }
@@ -923,6 +936,7 @@ mod tests {
                 last_country: None,
                 last_ip: None,
                 last_timezone: None,
+                last_location: None,
                 rotate_url: None,
                 checker_url: None,
             })
@@ -941,6 +955,7 @@ mod tests {
             last_country: None,
             last_ip: None,
             last_timezone: None,
+            last_location: None,
             rotate_url: None,
             checker_url: None,
         });
@@ -1003,13 +1018,14 @@ mod tests {
                 last_country: None,
                 last_ip: None,
                 last_timezone: None,
+                last_location: None,
                 rotate_url: None,
                 checker_url: None,
             })
             .await
             .unwrap();
 
-        s.record_exit(&id, Some("203.0.113.7"), Some("DE"), Some("Europe/Berlin"))
+        s.record_exit(&id, Some("203.0.113.7"), Some("DE"), Some("Europe/Berlin"), Some("52.52,13.405"))
             .await
             .unwrap();
 
@@ -1033,6 +1049,7 @@ mod tests {
             last_country: None,
             last_ip: None,
             last_timezone: None,
+            last_location: None,
             rotate_url: None,
             checker_url: None,
         });
@@ -1065,6 +1082,7 @@ mod tests {
                 last_country: None,
                 last_ip: None,
                 last_timezone: None,
+                last_location: None,
                 rotate_url: None,
                 checker_url: None,
             })
@@ -1083,6 +1101,7 @@ mod tests {
             last_country: None,
             last_ip: None,
             last_timezone: None,
+            last_location: None,
             rotate_url: None,
             checker_url: None,
         });
@@ -1219,6 +1238,7 @@ mod tests {
             last_country: None,
             last_ip: None,
             last_timezone: None,
+            last_location: None,
             rotate_url: None,
             checker_url: None,
         };

@@ -81,6 +81,38 @@ pub struct Agent {
     core: Option<std::path::PathBuf>,
 }
 
+/// What the exit checker can tell us about where a proxy comes out.
+///
+/// Every field optional and independently so: a checker that answers with an
+/// address and no timezone is a real thing, and a struct that made them travel
+/// together would force a caller to choose between using nothing and using a
+/// guess.
+#[derive(Debug, Default, Clone)]
+pub struct ExitFacts {
+    pub ip: Option<String>,
+    pub country: Option<String>,
+    pub timezone: Option<String>,
+    /// "lat,lng" as reported. Kept as the checker wrote it so that whatever
+    /// stores it and whatever reads it cannot disagree about rounding.
+    pub location: Option<String>,
+}
+
+/// Split "lat,lng" into a pair, or nothing.
+///
+/// Refuses anything outside the real ranges rather than clamping. A clamped
+/// coordinate is a coordinate somebody typed wrong, and answering a page with
+/// latitude 90 because the input said 900 is worse than answering with an
+/// error — a browser sitting exactly on the north pole is a browser nobody has.
+pub fn parse_location(raw: &str) -> Option<(f64, f64)> {
+    let (lat, lng) = raw.trim().split_once(',')?;
+    let lat: f64 = lat.trim().parse().ok()?;
+    let lng: f64 = lng.trim().parse().ok()?;
+    if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lng) {
+        return None;
+    }
+    Some((lat, lng))
+}
+
 impl Agent {
     pub async fn new() -> anyhow::Result<Arc<Self>> {
         paths::ensure_data_dir()?;
@@ -267,6 +299,7 @@ impl Agent {
                                 last_country: None,
                                 last_ip: None,
                                 last_timezone: None,
+                                last_location: None,
                                 rotate_url: None,
                                 checker_url: None,
                             };
@@ -354,7 +387,7 @@ impl Agent {
                     let s = |k: &str| body.get(k).and_then(|v| v.as_str());
                     let _ = self
                         .store
-                        .record_exit(id, s("ip"), s("country"), s("timezone"))
+                        .record_exit(id, s("ip"), s("country"), s("timezone"), s("loc"))
                         .await;
                 }
 
@@ -613,6 +646,10 @@ impl Agent {
                     ui_locale: fury_shared::locale::ui_locale_for(
                         languages.first().map(|s| s.as_str()),
                     ),
+                    // The preview has no proxy to ask, so it cannot know where
+                    // the profile will come out. Showing a position here would
+                    // be showing one the launch may not use.
+                    geolocation: None,
                     languages,
                     chrome_major: crate::CHROME_MAJOR,
                     chrome_full_version: crate::CHROME_FULL_VERSION.to_string(),
@@ -922,7 +959,7 @@ impl Agent {
     async fn resolve_exit(
         url: &str,
         checker_url: Option<&str>,
-    ) -> anyhow::Result<(Option<String>, Option<String>, Option<String>)> {
+    ) -> anyhow::Result<ExitFacts> {
         let endpoint = checker_url
             .map(str::to_string)
             .filter(|s| !s.trim().is_empty())
@@ -936,7 +973,17 @@ impl Agent {
 
         let body: serde_json::Value = client.get(&endpoint).send().await?.json().await?;
         let s = |k: &str| body.get(k).and_then(|v| v.as_str()).map(str::to_string);
-        Ok((s("ip"), s("country"), s("timezone")))
+        // `loc` is "lat,lng" and was being thrown away. It comes from the same
+        // request as the timezone and describes the same place, which is exactly
+        // the property geolocation needs: a profile whose clock follows Berlin
+        // while its position follows the host machine is the contradiction the
+        // timezone work existed to remove, one field over.
+        Ok(ExitFacts {
+            ip: s("ip"),
+            country: s("country"),
+            timezone: s("timezone"),
+            location: s("loc").filter(|v| parse_location(v).is_some()),
+        })
     }
 
     async fn launch(
@@ -1025,20 +1072,33 @@ impl Agent {
         let want_languages = profile.languages.is_none();
         let mut exit_country = proxy.last_country.clone();
         let mut exit_timezone = proxy.last_timezone.clone();
+        let mut exit_location = proxy.last_location.clone();
 
-        if (want_timezone && exit_timezone.is_none()) || (want_languages && exit_country.is_none())
+        // The position joins the same lookup: one round trip answers where the
+        // exit is, what time it is there and what language it speaks, and asking
+        // separately would let the three drift apart.
+        if (want_timezone && exit_timezone.is_none())
+            || (want_languages && exit_country.is_none())
+            || exit_location.is_none()
         {
             match Self::resolve_exit(&proxy.url(), proxy.checker_url.as_deref()).await {
-                Ok((ip, country, tz)) => {
+                Ok(facts) => {
                     let _ = self
                         .store
-                        .record_exit(&proxy.id, ip.as_deref(), country.as_deref(), tz.as_deref())
+                        .record_exit(
+                            &proxy.id,
+                            facts.ip.as_deref(),
+                            facts.country.as_deref(),
+                            facts.timezone.as_deref(),
+                            facts.location.as_deref(),
+                        )
                         .await;
                     // Only overwrite with an answer. A checker that returns a
                     // timezone and no country must not blank a country we
                     // already had.
-                    exit_country = country.or(exit_country);
-                    exit_timezone = tz.or(exit_timezone);
+                    exit_country = facts.country.or(exit_country);
+                    exit_timezone = facts.timezone.or(exit_timezone);
+                    exit_location = facts.location.or(exit_location);
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "could not resolve the proxy exit");
@@ -1095,6 +1155,8 @@ impl Agent {
             timezone,
             languages,
             ui_locale: ui_locale.clone(),
+            // Same lookup as the timezone, so the two cannot disagree.
+            geolocation: exit_location.as_deref().and_then(parse_location),
             chrome_major: crate::CHROME_MAJOR,
             chrome_full_version: crate::CHROME_FULL_VERSION.to_string(),
         };
@@ -1392,6 +1454,27 @@ fn str_param(params: &serde_json::Value, name: &str) -> anyhow::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_coordinate_is_taken_or_refused_but_never_repaired() {
+        assert_eq!(parse_location("60.1695,24.9354"), Some((60.1695, 24.9354)));
+        // ipinfo sends it with no space; other checkers pad it. Both are the
+        // same place and both must parse, because a profile that silently
+        // reports the host machine's position because of a space is exactly the
+        // failure this whole field exists to prevent.
+        assert_eq!(parse_location("  -33.87, 151.21 "), Some((-33.87, 151.21)));
+        assert_eq!(parse_location("0,0"), Some((0.0, 0.0)));
+
+        // Refused rather than clamped or reordered. A checker that answers with
+        // a longitude where the latitude goes is a checker we do not understand,
+        // and using half of what it said is how a profile ends up somewhere its
+        // address is not.
+        assert_eq!(parse_location("900,10"), None);
+        assert_eq!(parse_location("24.9354,60.1695,7"), None);
+        assert_eq!(parse_location("60.1695"), None);
+        assert_eq!(parse_location("Helsinki"), None);
+        assert_eq!(parse_location(""), None);
+    }
 
     #[test]
     fn a_missing_parameter_is_named() {

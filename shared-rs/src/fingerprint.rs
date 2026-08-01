@@ -490,6 +490,9 @@ pub const CORE_CONFIG_KEYS: &[&str] = &[
     "clientHints.wow64",
     "engine.jsHeapSizeLimit",
     "fonts",
+    "geolocation.accuracy",
+    "geolocation.latitude",
+    "geolocation.longitude",
     "gpu.webglExtensions",
     "gpu.webglParams.",
     "gpu.webgpu.architecture",
@@ -533,6 +536,15 @@ pub const CORE_CONFIG_KEYS: &[&str] = &[
 /// `derive_core_config`. Absent means that vector falls through to stock
 /// Chromium: a leak, tracked as persona-data work, and a smaller lie than a
 /// browser with no speaker.
+///
+/// `geolocation` is absent when the exit checker could not place the proxy —
+/// and absent is the right answer there, not a fallback coordinate. Patch 0082
+/// creates no provider without it, so the machine's own location service
+/// answers, exactly as it would in a browser with no Fury in it. Inventing a
+/// position from the country alone would drop the profile in the middle of a
+/// country while its address resolves to a city, which is worse than not
+/// knowing: geolocation needs a permission prompt to be read at all, and the
+/// site that bothers to ask is the site that checks it against the IP.
 const OPTIONAL_BRANCHES: &[(&str, &[&str])] = &[
     (
         "gpu.webgpu",
@@ -547,6 +559,14 @@ const OPTIONAL_BRANCHES: &[(&str, &[&str])] = &[
     ),
     ("speech", &["speech.voices"]),
     ("mediaDevices", &["mediaDevices."]),
+    (
+        "geolocation",
+        &[
+            "geolocation.accuracy",
+            "geolocation.latitude",
+            "geolocation.longitude",
+        ],
+    ),
 ];
 
 /// Checks that a core config carries everything the core will look for.

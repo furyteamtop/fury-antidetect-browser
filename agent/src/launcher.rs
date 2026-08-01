@@ -333,6 +333,7 @@ mod tests {
                 timezone: "Europe/Berlin".into(),
                 languages: vec!["de-DE".into(), "de".into()],
                 ui_locale: "de".into(),
+                geolocation: Some((52.52, 13.405)),
                 chrome_major: 150,
                 chrome_full_version: "150.0.7871.187".into(),
             },

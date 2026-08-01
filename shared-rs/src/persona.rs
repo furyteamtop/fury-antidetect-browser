@@ -163,6 +163,15 @@ pub struct ProfileContext {
     /// because the core inherited the developer's Mac locale. Timezone and
     /// languages were both already right. This is the field that was missing.
     pub ui_locale: String,
+    /// Where the exit says it is, as (latitude, longitude), or `None` when the
+    /// exit could not be resolved.
+    ///
+    /// `None` is not a failure to paper over. Patch 0082 falls through to the
+    /// platform's own provider when no position is configured, so a profile
+    /// whose exit is unknown answers like the machine it is running on rather
+    /// than like a machine somewhere invented. Answering with a guess is how a
+    /// profile ends up claiming Berlin while its clock says New York.
+    pub geolocation: Option<(f64, f64)>,
     /// Chromium major version this build ships.
     pub chrome_major: u32,
     /// Full four-part version, for the high-entropy Client Hints.
@@ -360,6 +369,12 @@ impl Persona {
         // in. "prompt" rather than "denied": a site that asks and is refused
         // instantly, every time, on a browser with no history of refusing, is
         // its own signal.
+        //
+        // A starting state, not a standing answer. Patch 0090 substitutes these
+        // only while the real permission is still undecided, so a user who
+        // clicks Allow gets "granted" back from permissions.query afterwards —
+        // which is both true and, since patch 0082 made geolocation actually
+        // answer, the only self-consistent thing to report.
         config["permissions"] = serde_json::json!({
             "notifications": "prompt",
             "geolocation": "prompt",
@@ -373,6 +388,21 @@ impl Persona {
         config["engine"] = serde_json::json!({
             "jsHeapSizeLimit": js_heap_limit(self.memory_gb),
         });
+
+        // Only when there is one. An absent key is what tells the core to leave
+        // the platform provider alone — see FuryLocationProvider::MaybeCreate.
+        if let Some((lat, lng)) = ctx.geolocation {
+            config["geolocation"] = serde_json::json!({
+                "latitude": lat,
+                "longitude": lng,
+                // Metres, and deliberately coarse. The exit checker knows a
+                // city, not a doorway, and a desktop with no GPS derives its
+                // position from the network — an accuracy of five metres from a
+                // machine that has never seen a satellite is a claim about
+                // hardware it does not have.
+                "accuracy": 20_000.0,
+            });
+        }
 
         // The traces an automated Chrome leaves that a driven-but-hidden one
         // should not. On unconditionally: a profile that wants to be driven
@@ -595,6 +625,7 @@ mod tests {
             timezone: "America/New_York".into(),
             languages: vec!["en-US".into(), "en".into()],
             ui_locale: "en-US".into(),
+            geolocation: Some((40.7128, -74.0060)),
             chrome_major: 150,
             chrome_full_version: "150.0.7871.187".into(),
         }

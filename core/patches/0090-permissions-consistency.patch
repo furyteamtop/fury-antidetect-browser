@@ -1,5 +1,5 @@
 diff --git a/third_party/blink/renderer/modules/notifications/notification.cc b/third_party/blink/renderer/modules/notifications/notification.cc
-index 643d833935..bae76114a8 100644
+index 643d833935..85f3066853 100644
 --- a/third_party/blink/renderer/modules/notifications/notification.cc
 +++ b/third_party/blink/renderer/modules/notifications/notification.cc
 @@ -30,6 +30,8 @@
@@ -11,7 +11,7 @@ index 643d833935..bae76114a8 100644
  #include <memory>
  #include <utility>
  
-@@ -436,6 +438,30 @@ V8NotificationPermission Notification::permission(ExecutionContext* context) {
+@@ -436,6 +438,37 @@ V8NotificationPermission Notification::permission(ExecutionContext* context) {
    mojom::blink::PermissionStatus status =
        NotificationManager::From(context)->GetPermissionStatus();
  
@@ -26,15 +26,22 @@ index 643d833935..bae76114a8 100644
 +  // The two APIs use different words for the same states — Permissions says
 +  // prompt, Notification says default — so the mapping happens here rather than
 +  // by forcing a shared literal.
-+  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
-+    if (std::optional<std::string> want =
-+            config->GetString("permissions.notifications")) {
-+      if (*want == "granted") {
-+        status = mojom::blink::PermissionStatus::GRANTED;
-+      } else if (*want == "denied") {
-+        status = mojom::blink::PermissionStatus::DENIED;
-+      } else if (*want == "prompt") {
-+        status = mojom::blink::PermissionStatus::ASK;
++  //
++  // Only while the real state is still ASK. The persona describes the profile
++  // nobody has answered a prompt in yet, not a permanent answer: once the user
++  // clicks Allow or Block, that decision is the truth and overriding it would
++  // be the contradiction, not the fix. See the same guard in permissions.cc.
++  if (status == mojom::blink::PermissionStatus::ASK) {
++    if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++      if (std::optional<std::string> want =
++              config->GetString("permissions.notifications")) {
++        if (*want == "granted") {
++          status = mojom::blink::PermissionStatus::GRANTED;
++        } else if (*want == "denied") {
++          status = mojom::blink::PermissionStatus::DENIED;
++        } else if (*want == "prompt") {
++          status = mojom::blink::PermissionStatus::ASK;
++        }
 +      }
 +    }
 +  }
@@ -43,7 +50,7 @@ index 643d833935..bae76114a8 100644
    // iframes. This should be reflected in calls getting permission status.
    //
 diff --git a/third_party/blink/renderer/modules/permissions/permissions.cc b/third_party/blink/renderer/modules/permissions/permissions.cc
-index 7dfb580705..b30141a7f2 100644
+index 7dfb580705..a8a8af242e 100644
 --- a/third_party/blink/renderer/modules/permissions/permissions.cc
 +++ b/third_party/blink/renderer/modules/permissions/permissions.cc
 @@ -4,6 +4,8 @@
@@ -99,7 +106,7 @@ index 7dfb580705..b30141a7f2 100644
  void Permissions::TaskComplete(
      ScriptPromiseResolver<PermissionStatus>* resolver,
      mojom::blink::PermissionDescriptorPtr descriptor,
-@@ -270,6 +309,37 @@ void Permissions::TaskComplete(
+@@ -270,6 +309,49 @@ void Permissions::TaskComplete(
        resolver->GetExecutionContext()->IsContextDestroyed())
      return;
  
@@ -112,23 +119,35 @@ index 7dfb580705..b30141a7f2 100644
 +  // this API and "default" from that one for the same state. They use different
 +  // vocabularies for identical states, and forcing them to the same literal
 +  // string would create the contradiction the check exists to catch.
-+  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
-+    if (const char* key = FuryPermissionConfigKey(descriptor->name)) {
-+      if (std::optional<std::string> want =
-+              config->GetString(std::string("permissions.") + key)) {
-+        std::optional<mojom::blink::PermissionStatus> status;
-+        if (*want == "granted") {
-+          status = mojom::blink::PermissionStatus::GRANTED;
-+        } else if (*want == "denied") {
-+          status = mojom::blink::PermissionStatus::DENIED;
-+        } else if (*want == "prompt") {
-+          status = mojom::blink::PermissionStatus::ASK;
-+        }
-+        if (status) {
-+          result->status = *status;
-+        } else {
-+          LOG(ERROR) << "fury: permissions." << key << " must be granted, "
-+                     << "denied or prompt; got " << *want;
++  //
++  // Only while the real state is still ASK — the state of a profile that has
++  // never been asked, which is what the persona describes. Patch 0082 is why
++  // the guard is here: with a location provider actually answering
++  // getCurrentPosition, an unconditional override meant a site could prompt,
++  // watch the user click Allow, receive a position, and then read "prompt"
++  // back from permissions.query. That is a contradiction no real browser can
++  // produce, and it was ours. A decision the user has made is the truth, and
++  // reporting it is not a leak: every browser reports it. Mirrored in
++  // notification.cc, which has to make the same call for its own vocabulary.
++  if (result->status == mojom::blink::PermissionStatus::ASK) {
++    if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++      if (const char* key = FuryPermissionConfigKey(descriptor->name)) {
++        if (std::optional<std::string> want =
++                config->GetString(std::string("permissions.") + key)) {
++          std::optional<mojom::blink::PermissionStatus> status;
++          if (*want == "granted") {
++            status = mojom::blink::PermissionStatus::GRANTED;
++          } else if (*want == "denied") {
++            status = mojom::blink::PermissionStatus::DENIED;
++          } else if (*want == "prompt") {
++            status = mojom::blink::PermissionStatus::ASK;
++          }
++          if (status) {
++            result->status = *status;
++          } else {
++            LOG(ERROR) << "fury: permissions." << key << " must be granted, "
++                       << "denied or prompt; got " << *want;
++          }
 +        }
 +      }
 +    }

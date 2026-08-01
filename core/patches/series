@@ -134,38 +134,67 @@
 # decides the fact a page can read.
 0081-intl-locale.patch
 #
-# NOT WRITTEN, and the old note here was wrong about where to look. Blink's
-# modules/geolocation/ is indeed gone in M150, but the API did not leave Blink:
-# it is at third_party/blink/renderer/core/geolocation/ (19 files), and M150
-# added a second web-visible consumer, the <geolocation> element in
-# core/html/html_geolocation_element.cc.
+# Where the profile says it is, taken from where its proxy comes out.
 #
-# Do NOT write it against Blink, and do NOT reuse device.mojom.
-# GeolocationContext::SetOverride (what CDP Emulation.setGeolocationOverride and
-# WebDriver BiDi both drive). That override freezes position.timestamp at the
-# instant it was set and delivers exactly one position per binding before going
-# silent, which starves watchPosition() in a way no real device does — upstream's
-# own unit test shows it.
+# NOT written against Blink, and NOT device.mojom.GeolocationContext::SetOverride
+# (what CDP Emulation.setGeolocationOverride and WebDriver BiDi drive). That
+# override freezes position.timestamp at the instant it was set and delivers one
+# position per binding before going silent, which starves watchPosition() in a
+# way no real device does.
 #
-# The seam is one layer lower: ContentBrowserClient::OverrideSystemLocationProvider(),
-# wired into the in-process device service at content/browser/device/device_service.cc:109.
-# A persona provider there sits exactly where CoreLocation and the network
-# location provider sit — downstream of the real permission gate, upstream of
-# the caching and the QueryNextPosition handshake — so everything else stays
-# stock Chromium and a denied permission still fails the way it really fails.
+# The seam is one layer lower: ContentBrowserClient::OverrideSystemLocation
+# Provider(), wired into the in-process device service at
+# content/browser/device/device_service.cc:109. A provider there sits where
+# CoreLocation and the network provider sit, so the caching, the QueryNextPosition
+# handshake and every failure path stay stock Chromium.
 #
-# Two things to settle before writing it. Patch 0090 forces
-# permissions.query({name:'geolocation'}) to "prompt" unconditionally, which
-# only becomes a contradiction once geolocation actually returns positions. And
-# a fixed coordinate repeated forever with no jitter is its own signal — real
-# hardware moves the last decimal places between fixes.
-# 0082-geolocation.patch
+# THE PART THAT IS NOT OBVIOUS, and without which the patch applies, links and
+# does nothing: on macOS and Windows the OS has its own location permission and
+# Chromium asks it FIRST. GeolocationProviderImpl::OnClientsChanged returns
+# before starting any provider while that status is not kAllowed
+# (geolocation_provider_impl.cc:297-300), so on a Mac that has never granted
+# this binary Location Services access, the custom provider is constructed,
+# started, and never asked for anything — every call ends in "Timeout expired".
+# So the patch also returns nullptr from GetGeolocationSystemPermissionManager()
+# when a position is configured, which makes that constructor take its other
+# branch and record kAllowed. Both decisions read the same predicate,
+# FuryLocationProvider::ConfiguredFix: on Apple the platform provider CHECKs the
+# manager is present, and it is only unreachable because a custom provider
+# forces kCustomOnly. Suppress the manager without supplying a provider and the
+# browser crashes the first time a page asks where it is.
+#
+# The provider does NOT gate delivery on OnPermissionGranted, though the header
+# contract says to (location_provider.h:37-40). That callback traces back to
+# UserDidOptIntoLocationServices, which only fires when a user clicks the
+# permission bubble — a page granted geolocation over CDP never walks that path,
+# so the latch stays false and nothing is delivered, forever. Chromium's own
+# macOS provider makes the same call: CoreLocationProvider::OnPermissionGranted
+# is "// Nothing to do here." The permission that protects the user is a layer
+# above and untouched; the denied case is a check in verify-0082.py.
+#
+# It repeats every second, which is not a heartbeat for its own sake: Blink keeps
+# one QueryNextPosition outstanding per frame, so a getCurrentPosition issued
+# while a watchPosition is open waits for the NEXT update. Emitting once left it
+# hanging — measured, then fixed, then measured again.
+#
+# On the jitter question the old note raised: no jitter, and that is what
+# upstream does. NetworkLocationProvider caches by WiFi AP set and on a hit
+# re-sends the identical coordinates with only the timestamp refreshed
+# (network_location_provider.cc:283-289). A stationary desktop repeats itself.
+0082-geolocation.patch
 
 # --- permissions ------------------------------------------------------------
 # Touches TWO files, and they must never be split. Overriding only the
 # Permissions API produced query="denied" against Notification.permission=
 # "default" — a genuine contradiction, and exactly the headless tell this check
 # exists to catch. Found by measurement after the first version shipped.
+#
+# Substitutes only while the real permission is still undecided. Unconditional
+# was the first version and 0082 is what made it a lie: with geolocation
+# actually answering, a site could prompt, watch the user click Allow, receive a
+# position, and read "prompt" back from permissions.query in the same page. A
+# persona describes the profile nobody has answered a prompt in; it does not get
+# to overrule an answer the user gave.
 0090-permissions-consistency.patch
 
 # --- css --------------------------------------------------------------------
