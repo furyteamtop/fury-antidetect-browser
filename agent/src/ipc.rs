@@ -349,6 +349,136 @@ impl Agent {
                 let profile: Profile = serde_json::from_value(params)?;
                 Ok(json!({ "id": self.store.upsert_profile(&profile).await? }))
             }
+            // Make many at once. The one-at-a-time dialog is fine for a first
+            // profile and useless for the two hundredth, which is the number
+            // people actually run.
+            //
+            // Every profile gets its OWN seed and its own persona roll. That is
+            // the whole safety property: the seed drives the canvas, audio and
+            // geometry noise, so two profiles sharing one would produce
+            // byte-identical fingerprints and link the accounts to each other
+            // permanently — the exact failure this product exists to prevent,
+            // committed two hundred times in one click. `upsert_profile`
+            // generates the seed when it sees zero; nothing here supplies one.
+            //
+            // Sharing a persona between profiles is fine and is not the same
+            // thing. A persona describes a machine millions of people own.
+            "profiles.createMany" => {
+                let count = params.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
+                if !(1..=500).contains(&count) {
+                    anyhow::bail!(
+                        "count must be between 1 and 500 — 500 profiles is already more \
+                         than a person can supervise, and a typo in this field should not \
+                         fill the database"
+                    );
+                }
+                let template: Profile = serde_json::from_value(
+                    params.get("template").cloned().unwrap_or(serde_json::Value::Null),
+                )
+                .map_err(|e| anyhow::anyhow!("template is not a profile: {e}"))?;
+
+                // "Shop {n}" numbers from 1. Without a placeholder the names are
+                // suffixed, because two hundred profiles called the same thing
+                // is a list nobody can work in.
+                let pattern = params
+                    .get("name_pattern")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                let pattern = if pattern.is_empty() {
+                    if template.name.trim().is_empty() { "Profile {n}".to_string() }
+                    else { format!("{} {{n}}", template.name.trim()) }
+                } else if pattern.contains("{n}") {
+                    pattern
+                } else {
+                    format!("{pattern} {{n}}")
+                };
+
+                // Absent means "spread them over the catalogue by how common
+                // each machine is" — see catalogue::pick_weighted.
+                let pick_persona = template.persona_id.trim().is_empty();
+
+                let mut made = Vec::new();
+                let mut failed = Vec::new();
+                for i in 1..=count {
+                    let mut p = template.clone();
+                    p.id = String::new();
+                    p.fp_seed = 0;
+                    p.name = pattern.replace("{n}", &i.to_string());
+                    if pick_persona {
+                        p.persona_id = fury_shared::catalogue::pick_weighted(rand::random()).id;
+                    }
+                    match self.store.upsert_profile(&p).await {
+                        Ok(id) => made.push(id),
+                        // Partial success is the normal outcome of a loop over a
+                        // database, and reporting only the count would leave an
+                        // operator guessing which of the two hundred to redo.
+                        Err(e) => failed.push(json!({ "n": i, "error": e.to_string() })),
+                    }
+                }
+                Ok(json!({ "created": made, "failed": failed }))
+            }
+
+            // Copy a profile's setup without copying its identity.
+            //
+            // The line this feature lives or dies on: a clone that copies the
+            // seed is not a second account, it is the same machine twice. The
+            // canvas, audio and client-rects noise all derive from the seed, so
+            // two profiles sharing one are byte-identical to every detector that
+            // reads a canvas — which is every one of them. The accounts are then
+            // linked for as long as they exist, and nothing about the interface
+            // would have suggested it.
+            //
+            // So the seed is regenerated, and the browser data is not copied
+            // either: cookies and local storage ARE the logged-in account, and a
+            // clone that carried them would be two windows on one account rather
+            // than two accounts. What is copied is the setup a person spent time
+            // on — persona, proxy, timezone, languages, tags, notes, start URLs.
+            //
+            // The proxy IS shared, deliberately. Two profiles behind one exit is
+            // a normal household; the operator can reassign afterwards, and
+            // silently leaving the copy with no proxy would produce a profile
+            // that refuses to launch for a reason nobody wrote down.
+            "profiles.clone" => {
+                let id = str_param(&params, "id")?;
+                let source = self
+                    .store
+                    .profile(&id)
+                    .await?
+                    .ok_or_else(|| anyhow::anyhow!("no such profile"))?;
+
+                let count = params.get("count").and_then(|v| v.as_u64()).unwrap_or(1);
+                if !(1..=500).contains(&count) {
+                    anyhow::bail!("count must be between 1 and 500");
+                }
+
+                let mut made = Vec::new();
+                let mut failed = Vec::new();
+                for i in 1..=count {
+                    let mut p = source.clone();
+                    p.id = String::new();
+                    // Regenerated by upsert_profile. Explicit rather than
+                    // inherited: this zero is the whole safety property.
+                    p.fp_seed = 0;
+                    p.last_opened_at = None;
+                    p.name = match params.get("name").and_then(|v| v.as_str()) {
+                        Some(pattern) if pattern.contains("{n}") => {
+                            pattern.replace("{n}", &i.to_string())
+                        }
+                        Some(pattern) if count == 1 => pattern.to_string(),
+                        Some(pattern) => format!("{pattern} {i}"),
+                        None if count == 1 => format!("{} copy", source.name),
+                        None => format!("{} copy {i}", source.name),
+                    };
+                    match self.store.upsert_profile(&p).await {
+                        Ok(new_id) => made.push(new_id),
+                        Err(e) => failed.push(json!({ "n": i, "error": e.to_string() })),
+                    }
+                }
+                Ok(json!({ "created": made, "failed": failed }))
+            }
+
             "profiles.move" => {
                 let ids: Vec<String> = params
                     .get("ids")

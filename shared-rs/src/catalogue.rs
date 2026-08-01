@@ -247,6 +247,49 @@ const WINDOWS: &[Variant] = &[
 ];
 
 /// Every persona this build knows about.
+/// Pick a persona in proportion to how common the machine is.
+///
+/// `roll` is any random `u64`; the same roll always gives the same persona, so
+/// this is testable without an RNG and reproducible when a caller wants it.
+///
+/// # Why weighted rather than uniform, and why sharing is fine
+///
+/// Two hundred profiles created at once must look like two hundred people's
+/// computers. Uniform choice would put as many accounts on the rarest machine
+/// in the catalogue as on the commonest, which inverts the real distribution and
+/// makes the rare ones a marker: a detector that sees an unusual configuration
+/// twice in a week has learnt something, and it has learnt it from us.
+///
+/// Sharing a persona between profiles is not the linkability problem it sounds
+/// like. A persona describes a machine millions of people own — that is the
+/// point of the weights. What must never repeat is the profile's own seed,
+/// which drives the canvas, audio and geometry noise, and its exit. Both of
+/// those are per profile and neither comes from here.
+pub fn pick_weighted(roll: u64) -> Persona {
+    let all = all();
+    // Weights are shares of the world's machines, so they sum to well under 1.
+    // Normalising against their own total is what makes this a distribution
+    // over the catalogue rather than over all computers — otherwise most rolls
+    // would fall past the end and land on the last entry.
+    let total: f64 = all.iter().map(|p| p.weight).sum();
+    if total <= 0.0 {
+        return all.into_iter().next().expect("the catalogue is never empty");
+    }
+
+    // 53 bits is the whole mantissa of an f64, so this is a uniform draw in
+    // [0,1) with no rounding cliff at either end.
+    let unit = (roll >> 11) as f64 / (1u64 << 53) as f64;
+    let mut cursor = unit * total;
+    for persona in &all {
+        cursor -= persona.weight;
+        if cursor < 0.0 {
+            return persona.clone();
+        }
+    }
+    // Only reachable through floating-point drift on the last subtraction.
+    all.into_iter().next_back().expect("the catalogue is never empty")
+}
+
 pub fn all() -> Vec<Persona> {
     let mac: Persona = serde_json::from_str(MACOS_BASE).expect("macOS base persona parses");
     let win: Persona = serde_json::from_str(WINDOWS_BASE).expect("Windows base persona parses");
@@ -424,5 +467,55 @@ mod tests {
         assert!(all.len() >= 12, "only {} personas", all.len());
         let macs = all.iter().filter(|p| p.os.name == "macOS").count();
         assert!(macs >= 4 && all.len() - macs >= 6, "families are lopsided");
+    }
+
+    #[test]
+    fn picking_follows_the_population_and_covers_the_catalogue() {
+        // Deterministic sweep rather than an RNG: the same rolls always give
+        // the same answer, so a regression here is reproducible.
+        let all = all();
+        let mut counts = std::collections::BTreeMap::new();
+        let n = 20_000u64;
+        for i in 0..n {
+            // SplitMix64 over the index — a cheap way to get rolls that are
+            // spread over the whole u64 range rather than clustered low.
+            let mut z = i.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+            z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+            let roll = z ^ (z >> 31);
+            *counts.entry(pick_weighted(roll).id).or_insert(0u32) += 1;
+        }
+
+        // Every machine in the catalogue must be reachable. One that is never
+        // picked is a machine nobody gets, which makes the catalogue a lie
+        // about how much variety a bulk create produces.
+        assert_eq!(counts.len(), all.len(), "some personas were never picked: {counts:?}");
+
+        // And the shares must track the weights. The commonest machine must
+        // come up more often than the rarest, or the distribution is inverted
+        // and rare configurations become a marker.
+        let total: f64 = all.iter().map(|p| p.weight).sum();
+        for p in &all {
+            let got = counts[&p.id] as f64 / n as f64;
+            let want = p.weight / total;
+            assert!(
+                (got - want).abs() < 0.01,
+                "{}: picked {:.3} of the time, population share is {:.3}",
+                p.id,
+                got,
+                want
+            );
+        }
+    }
+
+    #[test]
+    fn the_same_roll_always_gives_the_same_machine() {
+        for roll in [0u64, 1, u64::MAX, u64::MAX / 2, 0x0123_4567_89ab_cdef] {
+            assert_eq!(pick_weighted(roll).id, pick_weighted(roll).id);
+        }
+        // Both ends of the range land on a real persona rather than falling off
+        // the loop — the two cases a cumulative walk gets wrong.
+        assert!(!pick_weighted(0).id.is_empty());
+        assert!(!pick_weighted(u64::MAX).id.is_empty());
     }
 }

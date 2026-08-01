@@ -9,6 +9,7 @@ pub mod fingerprint;
 pub mod keys;
 pub mod locale;
 pub mod persona;
+pub mod proxy_list;
 pub mod rbac;
 
 pub use fingerprint::FingerprintConfig;
