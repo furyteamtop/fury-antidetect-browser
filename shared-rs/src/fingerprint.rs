@@ -467,22 +467,39 @@ pub mod samples {
 
 /// Every config path the patched core actually reads.
 ///
-/// Harvested from `core/patches/*.patch` — the `GetString("…")`,
-/// `GetInt("…")`, `GetStringList("…")` call sites. Kept here, next to a test
-/// that checks a derived config supplies all of them, because the failure this
-/// guards against is silent: the core looks up a path, does not find it, and
-/// falls back to stock Chromium behaviour for that vector. Nothing logs, nothing
-/// crashes, and the profile reports the host machine while appearing configured.
+/// Not hand-kept. `core_config_keys_match_the_patches` scans
+/// `core/patches/*.patch` for the read sites and fails if this list has drifted
+/// from them, so adding a patch that reads a new key breaks the build until the
+/// key is both listed here and supplied by `derive_core_config`.
 ///
-/// Regenerate with:
-///   grep -rhoE '(GetString|GetInt|GetDouble|GetBool|GetStringList)\("[^"]+"' \
-///       core/patches/*.patch | sed -E 's/.*\("//;s/"$//' | sort -u
+/// The list existed by hand before, and by hand it was wrong: eleven of the
+/// keys below were missing, which is why a Windows persona once answered with
+/// the host's macOS speech voices. The failure is silent by construction — the
+/// core looks a path up, does not find it, and falls back to stock Chromium for
+/// that one vector. Nothing logs and nothing crashes; the profile reports the
+/// real machine while looking configured.
+///
+/// A trailing dot means a prefix rather than a leaf: the core builds the path at
+/// runtime (`GetInt(std::string("mediaDevices.") + key)`), so what has to exist
+/// is a non-empty object there, not one named key.
 pub const CORE_CONFIG_KEYS: &[&str] = &[
     "audio.outputLatency",
+    "automation.hideTraces",
+    "clientHints.formFactors",
     "clientHints.mobile",
+    "clientHints.wow64",
+    "engine.jsHeapSizeLimit",
     "fonts",
     "gpu.webglExtensions",
+    "gpu.webglParams.",
+    "gpu.webgpu.architecture",
+    "gpu.webgpu.description",
+    "gpu.webgpu.device",
+    "gpu.webgpu.features",
+    "gpu.webgpu.limits.",
+    "gpu.webgpu.vendor",
     "locale.timezone",
+    "mediaDevices.",
     "navigator.deviceMemory",
     "navigator.hardwareConcurrency",
     "navigator.languages",
@@ -492,6 +509,8 @@ pub const CORE_CONFIG_KEYS: &[&str] = &[
     "noise.audioSeed",
     "noise.canvasSeed",
     "noise.clientRectsSeed",
+    "permissions.",
+    "permissions.notifications",
     "screen.availLeft",
     "screen.availTop",
     "screen.chromeHeightDelta",
@@ -499,6 +518,34 @@ pub const CORE_CONFIG_KEYS: &[&str] = &[
     "screen.colorDepth",
     "screen.devicePixelRatio",
     "screen.scrollbarWidth",
+    "speech.voices",
+];
+
+/// Keys whose whole branch is optional, and the branch that decides.
+///
+/// `gpu.webgpu` is absent on a persona from a machine with no WebGPU adapter,
+/// which is a real machine, not a misconfigured one.
+///
+/// `speech` and `mediaDevices` are absent when the persona lists no voices or
+/// no devices. Their patches narrow a real list to the persona's, so an empty
+/// persona would ask for zero of everything — see the note in
+/// `derive_core_config`. Absent means that vector falls through to stock
+/// Chromium: a leak, tracked as persona-data work, and a smaller lie than a
+/// browser with no speaker.
+const OPTIONAL_BRANCHES: &[(&str, &[&str])] = &[
+    (
+        "gpu.webgpu",
+        &[
+            "gpu.webgpu.architecture",
+            "gpu.webgpu.description",
+            "gpu.webgpu.device",
+            "gpu.webgpu.features",
+            "gpu.webgpu.limits.",
+            "gpu.webgpu.vendor",
+        ],
+    ),
+    ("speech", &["speech.voices"]),
+    ("mediaDevices", &["mediaDevices."]),
 ];
 
 /// Checks that a core config carries everything the core will look for.
@@ -510,9 +557,27 @@ pub const CORE_CONFIG_KEYS: &[&str] = &[
 /// fails every lookup, and this is what turns that into a refusal to launch
 /// rather than a browser that quietly reports the real machine.
 pub fn check_core_config(config: &serde_json::Value) -> Result<(), Vec<String>> {
+    // A key inside a branch the config does not carry at all is not missing —
+    // the whole branch was a decision. A key inside a branch that IS there and
+    // is half-filled is missing, and that is the case worth catching.
+    let skipped: Vec<&str> = OPTIONAL_BRANCHES
+        .iter()
+        .filter(|(branch, _)| lookup(config, branch).is_none())
+        .flat_map(|(_, keys)| keys.iter().copied())
+        .collect();
+
     let missing: Vec<String> = CORE_CONFIG_KEYS
         .iter()
-        .filter(|path| lookup(config, path).is_none())
+        .filter(|path| !skipped.contains(path))
+        .filter(|path| match path.strip_suffix('.') {
+            // A prefix the core completes at runtime: what must be there is an
+            // object with something in it. An empty one reads exactly like a
+            // missing one from inside the core, so it fails the same way.
+            Some(prefix) => !lookup(config, prefix).is_some_and(|v| {
+                v.as_object().is_some_and(|o| !o.is_empty())
+            }),
+            None => lookup(config, path).is_none(),
+        })
         .map(|path| format!("the core reads {path}, and this config has no such key"))
         .collect();
 

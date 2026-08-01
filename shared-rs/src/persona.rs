@@ -224,14 +224,23 @@ impl Persona {
                 "mobile": false,
                 "wow64": false,
                 "fullVersion": ctx.chrome_full_version,
+                // Empty is what a desktop Chrome sends. The header exists and
+                // is read; omitting the key left the patch falling back to
+                // whatever the host reports, which on a phone-shaped host
+                // would contradict Sec-CH-UA-Mobile: ?0.
+                "formFactors": Vec::<String>::new(),
             },
             "screen": {
                 "width": self.screen.width,
                 "height": self.screen.height,
                 "availWidth": self.screen.avail_width,
                 "availHeight": self.screen.avail_height,
+                // The menu bar. Zero on Windows, 33 on macOS at the default
+                // scale — and a Windows persona reporting a 33-pixel offset, or
+                // a macOS one reporting none, is a free contradiction against
+                // the platform it just claimed.
                 "availLeft": 0,
-                "availTop": 0,
+                "availTop": if self.os.name == "macOS" { 33 } else { 0 },
                 "colorDepth": self.screen.color_depth,
                 "devicePixelRatio": self.screen.device_pixel_ratio,
                 "chromeHeightDelta": self.chrome_metrics.outer_minus_inner_height,
@@ -290,6 +299,66 @@ impl Persona {
             "UNMASKED_RENDERER_WEBGL".into(),
             self.gpu.webgl_renderer.clone().into(),
         );
+
+        // Everything below is read by a patch that is written, applied and
+        // compiled in, and was reaching a core that had nothing to read.
+        //
+        // A key the core reads and nobody supplies is not a smaller problem
+        // than a wrong value: the patch falls through to stock Chromium, so the
+        // vector reports the real machine while the profile looks configured.
+        // That is how a Windows persona came to answer with the host's macOS
+        // speech voices. See `core_config_keys_match_the_patches`, which reads
+        // the list out of the patches instead of trusting a hand-kept copy.
+        // Both of these are supplied only when the persona has the data, and
+        // that is not squeamishness. Each patch NARROWS a real list to the
+        // persona's, so deriving from an empty persona asks for zero voices and
+        // zero devices — and no desktop has ever reported either. 0041 already
+        // refuses a filter that matches nothing, for that reason; 0060 has no
+        // such guard and would obey, leaving a browser with no microphone, no
+        // camera and no speaker. A profile that leaks the host's device count is
+        // in worse company than one that cannot exist at all.
+        //
+        // So an empty persona leaves the vector on stock Chromium — the leak
+        // this audit set out to close — and closing it is a data job, not a code
+        // one: `shared/personas/*.json` ship with `voices: []` and
+        // `media_devices: []` and need capturing on real machines.
+        if !self.voices.is_empty() {
+            config["speech"] = serde_json::json!({ "voices": self.voices });
+        }
+
+        if !self.media_devices.is_empty() {
+            let count = |kind: &str| {
+                self.media_devices.iter().filter(|d| d.kind == kind).count()
+            };
+            config["mediaDevices"] = serde_json::json!({
+                "audioInputCount": count("audioinput"),
+                "audioOutputCount": count("audiooutput"),
+                "videoInputCount": count("videoinput"),
+            });
+        }
+
+        // What a real Chrome reports on a profile nobody has answered a prompt
+        // in. "prompt" rather than "denied": a site that asks and is refused
+        // instantly, every time, on a browser with no history of refusing, is
+        // its own signal.
+        config["permissions"] = serde_json::json!({
+            "notifications": "prompt",
+            "geolocation": "prompt",
+        });
+
+        // The heap ceiling V8 reports. Not a free number and not a constant:
+        // V8 picks it from physical memory at startup and lands on one of a few
+        // values, so every desktop from 8 GB up genuinely reports the same
+        // 4294705152. What must not happen is a persona claiming 2 GB while
+        // reporting the 16 GB ceiling — see `js_heap_limit` for the tiers.
+        config["engine"] = serde_json::json!({
+            "jsHeapSizeLimit": js_heap_limit(self.memory_gb),
+        });
+
+        // The traces an automated Chrome leaves that a driven-but-hidden one
+        // should not. On unconditionally: a profile that wants to be driven
+        // says so with `cdp`, and that is a different decision.
+        config["automation"] = serde_json::json!({ "hideTraces": true });
 
         if let Some(webgpu) = &self.gpu.webgpu {
             config["gpu"]["webgpu"] = serde_json::json!({
@@ -412,6 +481,19 @@ impl Persona {
 ///
 /// So it is pinned here, in the crate all three depend on: **eight bytes, big
 /// endian, sixteen lowercase hex characters on the wire.**
+/// V8's reported heap ceiling for a machine of this size.
+///
+/// Chrome does not scale this linearly with RAM: it steps, and above 16 GB it
+/// stops growing. The values are what desktop Chrome 150 reports on machines of
+/// each size, so a persona claiming 8 GB answers what an 8 GB machine answers.
+fn js_heap_limit(memory_gb: u32) -> u64 {
+    match memory_gb {
+        0..=2 => 1_073_741_824,
+        3..=4 => 2_197_815_296,
+        _ => 4_294_705_152,
+    }
+}
+
 /// What `gl.getParameter(gl.VENDOR)` returns in every real Chrome.
 pub const WEBGL_VENDOR_CONSTANT: &str = "WebKit";
 /// And `gl.getParameter(gl.RENDERER)`.
@@ -518,6 +600,161 @@ mod tests {
             crate::fingerprint::check_core_config(&derived)
                 .unwrap_or_else(|missing| panic!("persona {name}:\n  {}", missing.join("\n  ")));
         }
+    }
+
+    /// Every key the patches read, read out of the patches.
+    ///
+    /// The point of doing it here rather than by eye: the hand-kept list was
+    /// wrong for eleven keys and nobody noticed, because nothing fails when a
+    /// key is missing — the core just falls back to stock Chromium for that one
+    /// vector. A list maintained by a person tracks what the person remembered;
+    /// this one tracks what the C++ actually asks for.
+    ///
+    /// Three read shapes appear in the patches and all three are found here:
+    ///
+    ///   config->GetString("navigator.platform")          — a plain key
+    ///   apply("permissions.notifications", …)            — through a helper
+    ///   GetInt(std::string("mediaDevices.") + key)       — a runtime prefix
+    ///
+    /// Only added lines (`+`) count: a key that a patch *removes* from stock
+    /// Chromium is not a key the built core reads.
+    fn keys_the_patches_read() -> std::collections::BTreeSet<String> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("core/patches");
+
+        let mut keys = std::collections::BTreeSet::new();
+        let mut patches = 0usize;
+
+        for entry in std::fs::read_dir(&dir).expect("core/patches must exist") {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|e| e.to_str()) != Some("patch") {
+                continue;
+            }
+            patches += 1;
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+
+            // Joined into one line first. The reads are wrapped by clang-format
+            // often enough that a line-at-a-time scan silently misses them —
+            // `GetStringList(` and `"speech.voices"` sit on different lines —
+            // and a scanner that under-reports is worse than none, because it
+            // reports success.
+            let added: String = text
+                .lines()
+                .filter(|l| l.starts_with('+'))
+                .map(|l| &l[1..])
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            let mut rest = added.as_str();
+            while let Some(at) = rest.find('"') {
+                let after = &rest[at + 1..];
+                let Some(close) = after.find('"') else { break };
+                let literal = &after[..close];
+                let before = &rest[..at];
+
+                // A read is a quote preceded by `(`, optional whitespace, and
+                // a call whose name ends in one of these. `std::string("x.")`
+                // counts too, and keeps its trailing dot as the prefix marker.
+                let head = before.trim_end().trim_end_matches('(').trim_end();
+                let is_read = ["GetString", "GetStringList", "GetInt", "GetDouble", "GetBool",
+                               "GetList", "GetDict", "apply"]
+                    .iter()
+                    .any(|f| head.ends_with(f))
+                    && before.trim_end().ends_with('(');
+                let is_prefix = head.ends_with("std::string")
+                    && before.trim_end().ends_with('(')
+                    && literal.ends_with('.')
+                    && after[close + 1..].trim_start().starts_with(')');
+
+                // Skipped: `"gpu.webgpu.limits." #name` is the stringifying
+                // macro, whose halves are separate tokens. The prefix is picked
+                // up from its `std::string(...)` form in the same patch.
+                if (is_read || is_prefix) && !literal.is_empty() {
+                    keys.insert(literal.to_string());
+                }
+                rest = &after[close + 1..];
+            }
+        }
+
+        // A floor, not a count. If this ever reads zero patches it would pass
+        // by finding nothing to disagree with, which is the one way a scanner
+        // like this fails silently.
+        assert!(patches >= 15, "only {patches} patches scanned — wrong directory?");
+        assert!(!keys.is_empty(), "scanned {patches} patches and found no config reads");
+        keys
+    }
+
+    #[test]
+    fn core_config_keys_match_the_patches() {
+        let read = keys_the_patches_read();
+        let listed: std::collections::BTreeSet<String> = crate::fingerprint::CORE_CONFIG_KEYS
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        let unlisted: Vec<_> = read.difference(&listed).collect();
+        let stale: Vec<_> = listed.difference(&read).collect();
+
+        assert!(
+            unlisted.is_empty(),
+            "the core reads these and CORE_CONFIG_KEYS does not list them, so nothing \
+             checks that a config supplies them: {unlisted:?}"
+        );
+        assert!(
+            stale.is_empty(),
+            "CORE_CONFIG_KEYS lists these and no patch reads them — either the patch \
+             was dropped or the key was renamed: {stale:?}"
+        );
+    }
+
+    #[test]
+    fn an_optional_branch_is_all_or_nothing() {
+        // The escape hatch that lets a persona without voices skip `speech`
+        // must not also let a config carry a `speech` that is empty. Absent is
+        // a decision; present-and-half-filled is the bug the guard exists for,
+        // and one rule away from the other.
+        let mut config = load("macos-15-m-series-1728x1117").derive_core_config(1, &ctx());
+        assert!(
+            crate::fingerprint::check_core_config(&config).is_ok(),
+            "the shipped persona has no voices, so no speech branch, and that passes"
+        );
+
+        config["speech"] = serde_json::json!({});
+        let missing = crate::fingerprint::check_core_config(&config)
+            .expect_err("an empty speech branch must not pass");
+        assert!(
+            missing.iter().any(|m| m.contains("speech.voices")),
+            "expected speech.voices to be named, got {missing:?}"
+        );
+
+        config["mediaDevices"] = serde_json::json!({});
+        let missing = crate::fingerprint::check_core_config(&config).unwrap_err();
+        assert!(
+            missing.iter().any(|m| m.contains("mediaDevices.")),
+            "an empty mediaDevices object reads to the core exactly like a missing \
+             one, so it must fail the same way; got {missing:?}"
+        );
+    }
+
+    #[test]
+    fn a_persona_with_devices_reports_their_counts() {
+        // The other half of the rule above: when the data is there it is used,
+        // and the counts are per kind rather than a total.
+        let mut persona = load("macos-15-m-series-1728x1117");
+        for (kind, n) in [("audioinput", 2), ("audiooutput", 3), ("videoinput", 1)] {
+            for _ in 0..n {
+                persona.media_devices.push(super::PersonaMediaDevice {
+                    kind: kind.to_string(),
+                });
+            }
+        }
+        let config = persona.derive_core_config(1, &ctx());
+        assert_eq!(config["mediaDevices"]["audioInputCount"], 2);
+        assert_eq!(config["mediaDevices"]["audioOutputCount"], 3);
+        assert_eq!(config["mediaDevices"]["videoInputCount"], 1);
+        crate::fingerprint::check_core_config(&config).expect("still complete");
     }
 
     #[test]

@@ -327,12 +327,23 @@
     if (!gl) return { __absent: true };
 
     const params = {};
+    const paramTypes = {};
     const names = isV2 ? WEBGL_PARAMS.concat(WEBGL2_PARAMS) : WEBGL_PARAMS;
     for (const name of names) {
       params[name] = safe(() => {
         const v = gl.getParameter(gl[name]);
         if (v && v.length !== undefined && typeof v !== 'string') return Array.from(v).join(',');
         return v;
+      });
+      // The JS type, separately from the value. Joining an array to a string
+      // throws it away, and the type is a fingerprint of its own: MAX_VIEWPORT_
+      // DIMS is an Int32Array on every real implementation and ALIASED_LINE_
+      // WIDTH_RANGE a Float32Array, so an override that returns the right
+      // numbers in the wrong container names the build in one line of script.
+      // Ours did, for exactly as long as this probe could not see it.
+      paramTypes[name] = safe(() => {
+        const v = gl.getParameter(gl[name]);
+        return v === null ? 'null' : v.constructor ? v.constructor.name : typeof v;
       });
     }
 
@@ -393,6 +404,7 @@
     return {
       unmasked,
       params,
+      paramTypes,
       precision,
       render,
       extensions: safe(() => (gl.getSupportedExtensions() || []).sort().join(',')),

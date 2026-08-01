@@ -1,26 +1,3 @@
-diff --git a/third_party/blink/renderer/modules/BUILD.gn b/third_party/blink/renderer/modules/BUILD.gn
-index 3955d4448f..8ac269e307 100644
---- a/third_party/blink/renderer/modules/BUILD.gn
-+++ b/third_party/blink/renderer/modules/BUILD.gn
-@@ -197,6 +197,7 @@ component("modules") {
-   }
- 
-   deps = [
-+    "//components/fury",
-     ":make_modules_generated",
-     "//build:android_buildflags",
-     "//cc",
-diff --git a/third_party/blink/renderer/modules/DEPS b/third_party/blink/renderer/modules/DEPS
-index 875071014b..fe8a93bcf3 100644
---- a/third_party/blink/renderer/modules/DEPS
-+++ b/third_party/blink/renderer/modules/DEPS
-@@ -1,4 +1,6 @@
- include_rules = [
-+    "+components/fury/fury_config.h",
-+    "+components/fury/fury_noise.h",
-     "+base/atomic_sequence_num.h",
-     "+base/memory/scoped_refptr.h",
-     "+base/memory/values_equivalent.h",
 diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 index ceb4c3f606..679a0c45c7 100644
 --- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
@@ -37,7 +14,7 @@ index ceb4c3f606..679a0c45c7 100644
  #include <inttypes.h>
  
  #include <memory>
-@@ -3972,10 +3977,112 @@ void WebGLRenderingContextBase::RecordANGLEImplementation() {
+@@ -3972,10 +3977,136 @@ void WebGLRenderingContextBase::RecordANGLEImplementation() {
                              webgl_angle_implementation);
  }
  
@@ -91,6 +68,14 @@ index ceb4c3f606..679a0c45c7 100644
 +constexpr FuryGlParamName kFuryGlFloatArrayParams[] = {
 +    {GL_ALIASED_LINE_WIDTH_RANGE, "ALIASED_LINE_WIDTH_RANGE"},
 +    {GL_ALIASED_POINT_SIZE_RANGE, "ALIASED_POINT_SIZE_RANGE"},
++};
++
++// Reported as Int32Array — same storage, different JS type, and the type is
++// itself a fingerprint. MAX_VIEWPORT_DIMS answers an Int32Array on every real
++// WebGL implementation, so handing back a Float32Array names this build in one
++// line of script: a worse tell than the value it was hiding. It sat in the
++// float table above until the config-key audit went looking for exactly this.
++constexpr FuryGlParamName kFuryGlIntArrayParams[] = {
 +    {GL_MAX_VIEWPORT_DIMS, "MAX_VIEWPORT_DIMS"},
 +};
 +
@@ -146,11 +131,27 @@ index ceb4c3f606..679a0c45c7 100644
 +        }
 +      }
 +    }
++    if (const char* name = FuryFindName(kFuryGlIntArrayParams, pname)) {
++      if (std::optional<std::string> value = config->GetString(
++              std::string("gpu.webglParams.") + name)) {
++        Vector<int32_t> values;
++        for (const auto& token : base::SplitStringPiece(
++                 *value, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY)) {
++          int parsed = 0;
++          if (base::StringToInt(token, &parsed)) {
++            values.push_back(parsed);
++          }
++        }
++        if (!values.empty()) {
++          return WebGLAny(script_state, DOMInt32Array::Create(values));
++        }
++      }
++    }
 +  }
    const int kIntZero = 0;
    switch (pname) {
      case GL_ACTIVE_TEXTURE:
-@@ -4518,6 +4625,20 @@ WebGLRenderingContextBase::getSupportedExtensions() {
+@@ -4518,6 +4649,20 @@ WebGLRenderingContextBase::getSupportedExtensions() {
      }
    }
  
@@ -171,7 +172,7 @@ index ceb4c3f606..679a0c45c7 100644
    return result;
  }
  
-@@ -5341,6 +5462,31 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
+@@ -5341,6 +5486,31 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
      }
      ContextGL()->ReadPixels(x, y, width, height, format, type, data);
    }
