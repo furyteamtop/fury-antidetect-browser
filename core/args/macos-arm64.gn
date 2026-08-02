@@ -33,8 +33,30 @@ enable_remoting = false
 enable_hangout_services_extension = false
 
 # --- Widevine ----------------------------------------------------------------
-# Cannot be redistributed without a licence from Google. See docs/10.
-# Patch 0061 fakes requestMediaKeySystemAccess so its absence is not detectable.
+# The CDM is a proprietary blob that cannot be redistributed without a licence
+# from Google. See docs/10.
+#
+# The old note here said patch 0061 would fake requestMediaKeySystemAccess so
+# that its absence was not detectable. 0061 was retired on 02.08.2026 — measured
+# against real Chrome 150, 176 codec fields agree exactly, so there was nothing
+# for it to do — and faking DRM was never in its scope anyway. The note outlived
+# the plan.
+#
+# What is true: a build with enable_widevine = false REFUSES
+# com.widevine.alpha, real Chrome accepts it, and the release gate has a check
+# for exactly that which such a build fails. Two lines of JS tell them apart.
+#
+# So this is not "the shippable configuration", it is the configuration for a
+# binary that may be handed to someone else. The support code is open and only
+# the blob is not, which is why the low-memory args build WITH Widevine and
+# core/build/link-widevine.sh stages the blob out of the Chrome already
+# installed on that machine — legal, because it is already there, and not
+# redistributable, because it never leaves.
+#
+# The unsolved half, stated so it is not mistaken for solved: a user who
+# installs a Fury binary built this way gets a browser that fails the DRM check
+# until they stage a CDM from their own Chrome. That staging step needs to
+# happen at install time and it does not exist yet.
 enable_widevine = false
 
 # --- size --------------------------------------------------------------------

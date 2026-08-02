@@ -1,0 +1,104 @@
+Fury Browser
+Copyright 2026 Bogdan Shapovalov and the Fury authors
+
+This product is not affiliated with, endorsed by, or sponsored by Google LLC.
+"Chrome", "Chromium" and "Widevine" are trademarks of Google LLC, used here only
+to name the software this project derives from and interoperates with.
+
+
+1. FURY'S OWN CODE — AGPL-3.0-or-later
+---------------------------------------
+
+agent/, server/, desktop/, shared-rs/, tools/, core/build/, core/args/,
+core/verify/, deploy/ and docs/ are Fury's own work and are licensed under the
+GNU Affero General Public License, version 3 or later. The full text is in
+LICENSE.
+
+The reasoning is in docs/10-legal-licensing.md and it is specific rather than
+ideological: this is a free product in a market of paid competitors, so the
+realistic risk is a competitor taking the work, adding billing, and selling a
+closed service. AGPL's network clause is the term that addresses exactly that.
+
+
+2. THE PATCH SERIES — BSD-3-Clause
+-----------------------------------
+
+core/patches/ is a series of patches against Chromium. Two kinds of content live
+there and they carry the same terms for different reasons.
+
+The context lines in every patch are Google's code, quoted so the patch can be
+applied, and they remain under Chromium's BSD-3-Clause licence.
+
+The lines Fury adds — including the files under components/fury/ that the series
+creates outright — are licensed BSD-3-Clause by choice, not by obligation.
+BSD-3-Clause imposes nothing on the licence of surrounding work, so these could
+have been AGPL. They are not, so that a Chromium built from this series carries
+one consistent set of terms and no copyleft obligation reaches somebody who only
+wanted a browser.
+
+The source files the series adds carry Chromium's own three-line header, which
+refers to "the LICENSE file". Inside the Chromium checkout where that code
+compiles, that resolves to core/src/LICENSE — Chromium's BSD-3-Clause text — and
+not to the LICENSE file in this repository.
+
+
+3. THE SCHEMAS — Apache-2.0
+----------------------------
+
+shared/ contains the persona schema and reference personas, licensed
+Apache-2.0 so that anyone can implement a compatible tool without taking on
+AGPL obligations. This was decided in docs/10-legal-licensing.md and is kept
+deliberately.
+
+
+4. CHROMIUM
+-----------
+
+Chromium is NOT contained in this repository. core/build/fetch.sh downloads a
+pinned revision from Google at build time, under Chromium's own licence and the
+licences of its many third-party dependencies. Nothing in this repository grants
+any rights to that code.
+
+
+5. WIDEVINE — NOT DISTRIBUTED, AND MUST NOT BE
+-----------------------------------------------
+
+The Widevine CDM is a proprietary binary licensed from Google. It is not in this
+repository and cannot be redistributed without a licence.
+
+core/args/macos-arm64-lowmem.gn builds with Widevine support enabled and
+core/build/link-widevine.sh stages libwidevinecdm.dylib out of the Google Chrome
+already installed on the build machine. That is lawful because the blob is
+already licensed onto that machine and because it never leaves it.
+
+The consequence is easy to overlook: a bundle built with those arguments
+CONTAINS the blob, at
+Chromium.app/Contents/Frameworks/Chromium Framework.framework/Versions/*/Libraries/WidevineCdm/.
+Roughly 20 MB. Do not publish, upload or hand on such a build.
+
+core/args/macos-arm64.gn sets enable_widevine = false and produces a bundle that
+may be given to someone else. It also produces a browser that refuses
+com.widevine.alpha where real Chrome accepts it, which is a three-line
+detection. That is an open problem, recorded in the README and in
+core/args/macos-arm64.gn, not a solved one.
+
+
+6. REFERENCE CAPTURES
+----------------------
+
+tools/detect-suite/baselines/ holds three committed captures, all taken on
+macOS arm64: real Chrome 150, an unpatched Chromium 150 build, and one Fury
+profile running a Windows 11 persona through a proxy. They record what those
+browsers report through their own web APIs. The third is the evidence for the
+claims in the README — it is the capture the release gate passes 13 checks on.
+
+They are redacted — the capturing machine's routable IP address, harvested from
+WebRTC ICE candidates, is replaced with 203.0.113.7 from the RFC 5737
+documentation range. Everything else is intentionally intact, because it is the
+measurement: GPU model, screen geometry, installed fonts, audio latency, speech
+voices, timezone. A capture describes the machine that took it. Anyone
+publishing one should understand they are publishing a description of their own
+computer.
+
+Raw captures are not committed. See tools/detect-suite/baselines/.gitignore, and
+`cargo run -p fury-detect -- redact --check` before committing one.

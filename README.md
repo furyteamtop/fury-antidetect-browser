@@ -74,7 +74,7 @@ desktop (Tauri)  ──socket──▶  agent (Rust)  ──spawn──▶  core
      └──HTTPS──▶ server (optional: teams)
 ```
 
-- **core** — Chromium 150 fork, [18 patches](core/patches/); spoofing is in C++,
+- **core** — Chromium 150 fork, [26 patches](core/patches/); spoofing is in C++,
   never injected JavaScript
 - **agent** — the only component holding decrypted secrets: proxy relays,
   launching, the local automation API
@@ -86,7 +86,10 @@ Details in [docs/01](docs/01-architecture.md).
 
 ## Build
 
-The core takes 2–3 hours and ~100 GB. Everything else takes minutes.
+The core takes about six hours and ~100 GB on a 16 GB machine, measured rather
+than estimated. Everything else takes minutes. Incremental rebuilds after the
+first are under a minute; `ccache` and `sccache` do not help, because the build
+uses `-fmodules` and they miss on everything.
 
 ```bash
 git clone https://github.com/fury-browser/fury && cd fury
@@ -149,30 +152,52 @@ the release criteria and exits non-zero on failure, so it drops into CI
 | [11 — Budget](docs/11-budget.md) | What costs money and what does not |
 | [12 — UX reference](docs/12-ui-reference.md) | What to copy from AdsPower, and where to beat it |
 | [13 — Self-hosting](docs/13-self-hosting.md) | Standing up a team server |
+| [14 — Team server](docs/14-team-server.md) | Accounts, enrolment, the RBAC model in practice |
 
 Documents are in Russian; translation is planned.
 
 ## Not done yet
 
+Anything here is a way to be caught or a way to be inconvenienced, and knowing
+about it is worth more than not.
+
 | | |
 |---|---|
-| Creating and editing profiles in the UI | no — only over the agent socket |
-| Entering proxies in the UI | no |
-| Settings, Russian localisation | no |
-| Exporting and importing projects | no |
-| Bundle sync with the server | no |
-| Client-side bundle encryption (vault) | no — this blocks hosted mode |
-| Windows build | never compiled once |
+| Windows and Linux builds | the patches are written for them and have never been compiled there |
 | Code signing and notarisation | no; macOS will complain |
+| Client-side bundle encryption (vault) | no — this blocks hosted mode |
+| Bundle sync with the server | no |
+| WebRTC through the proxy | no. The relay is TCP; patch 0070 puts the browser in the state a real Chrome reaches under the enterprise `WebRTCIPHandlingPolicy` — no ICE candidates at all — rather than let a peer connection go around the proxy and hand the page the real address |
+| QUIC / HTTP-3 | off, same reason. Real Chrome negotiates HTTP/3 where it is offered and Fury never does, which a server advertising `alt-svc` can see |
+| Hiding CDP from a timing check | no. With a debugger attached `console.debug` of a large object takes about thirteen times longer — measured in real Chrome too, so it detects automation rather than Fury, but if you drive a profile that is the thing being hidden |
+| Widevine in a redistributable build | no. The release GN args refuse `com.widevine.alpha` while real Chrome accepts it, which is a three-line detection. The CDM is proprietary; staging it from the user's own Chrome at install time would fix it and is not written |
+| Persona catalogue | 14 machines. More personas means better crowds to hide in, and it is the most useful thing an outside contributor can add |
 
 ## Licensing
 
-- `core/patches/` — derived from Chromium, **BSD-3-Clause** (upstream terms preserved)
-- `server/`, `agent/`, `desktop/` — **AGPL-3.0-or-later**
+Three sets of terms, and they are not interchangeable.
+
+- `agent/`, `server/`, `desktop/`, `shared-rs/`, `tools/`, `core/build/`,
+  `core/args/`, `core/verify/` — **AGPL-3.0-or-later** ([LICENSE](LICENSE))
+- `core/patches/` — derived from Chromium, **BSD-3-Clause**, upstream terms
+  preserved, so a browser built from the series carries one set of terms and no
+  copyleft reaches someone who only wants the browser
+- `shared/` schemas — **Apache-2.0**, so anyone can implement compatibility
 
 AGPL is deliberate: anyone running a service on this code has to publish their
 changes, which is what keeps "free" free. Reasoning in
 [docs/10](docs/10-legal-licensing.md).
+
+Chromium itself is not in this repository — `core/build/fetch.sh` downloads it
+from Google under its own licence.
+
+**Widevine is not distributed here and must not be.** The CDM is a proprietary
+binary. The low-memory GN args build with Widevine support and
+`core/build/link-widevine.sh` stages the blob out of the Chrome already
+installed on the build machine — which is fine because it is already there, and
+only because it never leaves. A bundle built that way contains a 20 MB
+unredistributable library inside
+`Chromium.app/Contents/Frameworks/…/Libraries/WidevineCdm/`. Do not ship it.
 
 ## Acceptable use
 
@@ -182,5 +207,8 @@ legitimate business accounts. Using it for fraud, credential stuffing, phishing
 or evading law enforcement is not supported and not welcome in this issue
 tracker.
 
-Fury is an independent project, not affiliated with Google. Chromium is used
-under its own licence.
+Fury is an independent project, not affiliated with or endorsed by Google, and
+carries no Chrome or Google branding. Chromium is used under its own licence.
+The User-Agent declares Chrome because sites branch on it and a browser that says
+anything else is distinguishable in one line — which is the whole point of the
+exercise, and is what every Chromium fork does.
