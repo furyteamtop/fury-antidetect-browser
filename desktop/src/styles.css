@@ -850,12 +850,45 @@ input::placeholder {
  *
  * min-height: 0 is what actually lets it scroll. Without it a flex child
  * refuses to shrink below its content and overflow-y has nothing to do. */
+/* Fills whatever height the dialog has, rather than a number I picked.
+ *
+ * The first version capped it at 320px, which fitted five and a half cards and
+ * left the bottom half of the dialog empty — a scrollbar next to blank space,
+ * which is the worst of both. The dialog is a fixed height, so the space is
+ * knowable: let the form be a column, let this field be the part that grows,
+ * and the list is exactly as tall as what is left.
+ *
+ * min-height: 0 on every link in that chain is what makes it work. A flex child
+ * defaults to min-height: auto and refuses to shrink below its content, so
+ * overflow-y has nothing to scroll and the whole dialog grows instead — which
+ * is how a HORIZONTAL scrollbar appeared at the bottom of the window. */
 .personaList {
-  max-height: 320px;
-  min-height: 0;
+  flex: 1;
+  min-height: 120px;
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: var(--s-1);
+}
+
+/* Only the tab that has one long list. Every other tab is short fields that
+ * should sit at the top and not be stretched to fill. */
+.form.fill {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.form.fill > .field.grow {
+  flex: 1;
+  min-height: 0;
+  margin-bottom: 0;
+  align-items: stretch;
+}
+
+.form.fill > .field.grow > label {
+  /* The label is aligned to the top of a field that is now as tall as the
+     dialog; without this it would sit in the middle of it. */
+  align-self: start;
 }
 
 .personaCard {

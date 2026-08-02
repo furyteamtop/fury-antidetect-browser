@@ -236,7 +236,7 @@ export function ProfileDialog({
         </div>
 
         <div className="modalBody">
-          <div className="form">
+          <div className={tab === "Device" ? "form fill" : "form"}>
             {tab === "General" && (
               <>
                 <div className="field">
@@ -461,7 +461,7 @@ export function ProfileDialog({
 
             {tab === "Device" && (
               <>
-                <div className="field">
+                <div className="field grow">
                   <label>{t("pd.machine")}</label>
                   <div className="personaList">
                     {personas.map((p) => (
