@@ -200,7 +200,14 @@ fn scrub(text: &str) -> (String, usize) {
                 i = j;
                 continue;
             }
-            if colons >= 2 && dots == 0 && !is_private_v6(&tok) {
+            // A real IPv6 address either uses the :: compression or has all
+            // eight groups. A clock does not. "01:00:00" is three groups of
+            // hex-looking digits with no compression, and the first version of
+            // this rewrote it — turning a timestamp inside a locale capture
+            // into "2001:db8::7" and corrupting the measurement it was
+            // supposed to be protecting.
+            let looks_v6 = tok.contains("::") || colons >= 7;
+            if looks_v6 && colons >= 2 && dots == 0 && !is_private_v6(&tok) {
                 out.push_str("2001:db8::7");
                 n += 1;
                 i = j;
@@ -214,6 +221,28 @@ fn scrub(text: &str) -> (String, usize) {
         i += 1;
     }
     (out, n)
+}
+
+/// Scrubs only the WebRTC subtree.
+///
+/// The first version walked every string in the document, and it corrupted the
+/// capture. "Chrome/150.0.0.0" in the user agent is four dotted decimals none of
+/// which exceeds 255, so it was rewritten to "Chrome/203.0.113.7" — in
+/// navigator.userAgent, navigator.appVersion, the client-hints brand list and
+/// all five per-context copies. The single most important field in a
+/// fingerprint capture, silently replaced, by the tool whose job was to make
+/// the capture safe to publish.
+///
+/// A version string and an IP address are the same shape, and no amount of
+/// cleverness about octet ranges separates them — 8.0.0.0 is a real brand
+/// version and a valid address. So the answer is not a better pattern, it is a
+/// narrower scope: ICE candidates are the only place a capture holds a real
+/// address, and probe.js puts them in exactly one place.
+fn scrub_webrtc(json: &mut Value) -> usize {
+    match json.get_mut("webrtc") {
+        Some(w) => scrub_value(w),
+        None => 0,
+    }
 }
 
 fn scrub_value(v: &mut Value) -> usize {
@@ -251,7 +280,7 @@ fn cmd_redact(args: &[String]) -> Result<()> {
                 Ok(v) => v,
                 Err(_) => continue,
             };
-            let n = scrub_value(&mut json);
+            let n = scrub_webrtc(&mut json);
             if n > 0 {
                 leaked.push((path, n));
             }
@@ -280,7 +309,7 @@ fn cmd_redact(args: &[String]) -> Result<()> {
     let text = std::fs::read_to_string(input).with_context(|| format!("reading {input}"))?;
     let mut json: Value = serde_json::from_str(&text)?;
 
-    let replaced = scrub_value(&mut json);
+    let replaced = scrub_webrtc(&mut json);
 
     let mut removed = Vec::new();
     if let Some(webrtc) = json.get_mut("webrtc").and_then(|v| v.as_object_mut()) {
