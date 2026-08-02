@@ -16,7 +16,10 @@ import urllib.request
 
 
 class WS:
-    def __init__(self, url, timeout=25.0):
+    # 180s, not 25. probe.js runs its collectors in a Worker and three iframes
+    # and waits on each; on a cold profile the whole sweep takes over a minute,
+    # and a socket timeout mid-sweep reads exactly like a browser that hung.
+    def __init__(self, url, timeout=180.0):
         assert url.startswith("ws://"), url
         rest = url[len("ws://"):]
         hostport, _, path = rest.partition("/")

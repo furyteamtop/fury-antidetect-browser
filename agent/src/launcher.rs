@@ -95,7 +95,28 @@ pub fn build_args(spec: &LaunchSpec) -> Vec<String> {
         "--no-first-run".to_string(),
         // Anything that phones home outside the profile proxy is a real-IP leak.
         "--disable-background-networking".to_string(),
-        "--disable-component-update".to_string(),
+        // --disable-component-update is NOT here, and its absence is load-bearing.
+        //
+        // It was, and it broke Widevine on every profile. bundle_widevine_cdm
+        // puts the CDM inside the app bundle, but Chromium REGISTERS it through
+        // the component updater's registration path — so with updates disabled
+        // the blob sits there and nothing ever tells the browser about it.
+        // Measured 02.08.2026: the same binary answers
+        // requestMediaKeySystemAccess("com.widevine.alpha") with "available"
+        // when launched directly and NotSupportedError when launched with this
+        // switch, and removing it from the launcher's own argument set is enough
+        // to bring it back. It was the one gate check failing.
+        //
+        // That cost every profile Netflix, Spotify and Disney+, and it cost the
+        // thing the gate exists to protect: real Chrome accepts Widevine, and a
+        // browser that refuses it is a browser that is not Chrome.
+        //
+        // What it bought, measured the same day: nothing. With the switch and
+        // without it, a browser left alone for 90 seconds opens connections to
+        // the same set of Google addresses. And under Fury every one of those
+        // goes through the relay, because --proxy-server points at it and the
+        // loopback bypass is removed — so the question was never whether the
+        // browser talks, only whose address it talks from.
         "--disable-domain-reliability".to_string(),
         "--disable-breakpad".to_string(),
         "--safebrowsing-disable-auto-update".to_string(),
@@ -441,6 +462,11 @@ mod tests {
         // profile's WebRTC routing is patch 0070's job now, through the
         // preference Chrome actually consults.
         assert!(!args.iter().any(|a| a.contains("webrtc-ip-handling")));
+        // Widevine dies with this switch present — see the note in build_args.
+        // Asserted rather than remembered: it reads like an obvious hardening
+        // flag, and putting it back costs every profile its DRM playback and
+        // fails the release gate.
+        assert!(!args.iter().any(|a| a.contains("disable-component-update")));
         assert!(!args.iter().any(|a| a.contains("--no-proxy-server")));
     }
 
