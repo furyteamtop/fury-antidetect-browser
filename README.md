@@ -174,7 +174,7 @@ about it is worth more than not.
 | QUIC / HTTP-3 | off, same reason. Real Chrome negotiates HTTP/3 where it is offered and Fury never does, which a server advertising `alt-svc` can see |
 | Hiding CDP from a timing check | no. With a debugger attached `console.debug` of a large object takes about thirteen times longer — measured in real Chrome too, so it detects automation rather than Fury, but if you drive a profile that is the thing being hidden |
 | Widevine in a redistributable build | no. The release GN args refuse `com.widevine.alpha` while real Chrome accepts it, which is a three-line detection. The CDM is proprietary; staging it from the user's own Chrome at install time would fix it and is not written |
-| Persona catalogue | 14 machines. More personas means better crowds to hide in, and it is the most useful thing an outside contributor can add |
+| Persona catalogue | 26 machines. More personas means better crowds to hide in, and it is the most useful thing an outside contributor can add — `fury-detect persona <capture.json>` turns a probe capture from your own computer into one |
 
 ## Licensing
 
