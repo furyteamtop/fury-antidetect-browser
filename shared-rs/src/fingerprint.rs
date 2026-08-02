@@ -485,6 +485,10 @@ pub mod samples {
 pub const CORE_CONFIG_KEYS: &[&str] = &[
     "audio.outputLatency",
     "automation.hideTraces",
+    "battery.charging",
+    "battery.chargingTime",
+    "battery.dischargingTime",
+    "battery.level",
     "clientHints.formFactors",
     "clientHints.mobile",
     "clientHints.wow64",

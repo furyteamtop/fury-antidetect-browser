@@ -430,6 +430,34 @@ impl Persona {
             "ipHandlingPolicy": "disable_non_proxied_udp",
         });
 
+        // A desktop on mains, which is what the browser will report to every
+        // page and to every profile alike.
+        //
+        // Not a persona property either, and deliberately not one. The real
+        // battery is a machine-wide, time-varying value: every profile on one
+        // host reads the same level and the same dischargingTime at the same
+        // instant, so it links them to each other no matter how different their
+        // proxies and canvas seeds are. Giving each profile its own invented
+        // battery would trade one problem for a worse one — a level that never
+        // moves while the page watches, or two profiles whose batteries drift
+        // apart at impossible rates.
+        //
+        // So: the tuple carrying no entropy at all, which the largest
+        // population of real machines reports. It is also BatteryStatus's own
+        // default (battery_status.h:23-24) and what every desktop on mains
+        // answers with, and a laptop left plugged in answers with it too — so
+        // it contradicts nothing in the catalogue, MacBooks included.
+        //
+        // -1 means Infinity. JSON has no Infinity, and absent already means
+        // "use the machine's real value" for every key the core reads, so
+        // absent cannot be made to mean it here.
+        config["battery"] = serde_json::json!({
+            "charging": true,
+            "level": 1.0,
+            "chargingTime": 0.0,
+            "dischargingTime": -1.0,
+        });
+
         if let Some(webgpu) = &self.gpu.webgpu {
             config["gpu"]["webgpu"] = serde_json::json!({
                 "vendor": webgpu.vendor,

@@ -1,0 +1,78 @@
+diff --git a/third_party/blink/renderer/modules/battery/battery_dispatcher.cc b/third_party/blink/renderer/modules/battery/battery_dispatcher.cc
+index 86be964c01..b620836d0e 100644
+--- a/third_party/blink/renderer/modules/battery/battery_dispatcher.cc
++++ b/third_party/blink/renderer/modules/battery/battery_dispatcher.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "third_party/blink/renderer/modules/battery/battery_dispatcher.h"
+ 
++#include "components/fury/fury_config.h"
++
+ #include "services/device/public/mojom/battery_status.mojom-blink.h"
+ #include "third_party/blink/public/platform/browser_interface_broker_proxy.h"
+ #include "third_party/blink/public/platform/platform.h"
+@@ -30,6 +32,64 @@ void BatteryDispatcher::OnDidChange(
+ 
+   DCHECK(battery_status);
+ 
++  // Patch 0121. The one vector where matching real Chrome exactly is the
++  // problem rather than the goal.
++  //
++  // Measured 02.08.2026 against real Chrome 150.0.7871.187 on this machine:
++  // both browsers answered navigator.getBattery() with charging=false,
++  // level=0.60, chargingTime=Infinity, dischargingTime=34680. Identical to the
++  // second, because both were reading the same MacBook. Parity is perfect and
++  // parity is worthless here: every profile on one host reports those same
++  // numbers at the same instant, and dischargingTime is a raw seconds count
++  // that ticks down predictably — two profiles opened minutes apart report
++  // values differing by exactly the elapsed time. That links accounts a
++  // separate proxy and a separate canvas seed were keeping apart, and no
++  // parity check can see it.
++  //
++  // The substituted tuple is not invented. {charging: true, chargingTime: 0,
++  // dischargingTime: Infinity, level: 1} is what BatteryStatus's own default
++  // constructor produces (battery_status.h:23-24) and what every desktop on
++  // mains power reports — the largest single population there is, and one that
++  // carries no entropy at all. A MacBook persona left plugged in reports it
++  // too, so it contradicts nothing in the catalogue.
++  //
++  // WHY HERE AND NOT AT THE GETTERS. battery_manager.cc:115-122 compares the
++  // old status against the new one and fires levelchange, chargingchange,
++  // chargingtimechange and dischargingtimechange from the difference. Override
++  // the four getters instead and the values would sit still while the events
++  // kept arriving off the host's real battery — a page that listens for
++  // levelchange and watches level never move has found something far louder
++  // than the leak. Substituting the status the dispatcher publishes means
++  // there is no difference to fire on, because there is genuinely no change.
++  //
++  // And through the BatteryStatus constructor, not into battery_status_: the
++  // constructor rounds level through EnsureTwoSignificantDigits
++  // (battery_status.h:41-49), so a configured level is quantised by the same
++  // code that quantises a real one. A value that skipped it could report a
++  // level no real Chrome can produce, which is evidence of tampering rather
++  // than a failed disguise.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    std::optional<bool> charging = config->GetBool("battery.charging");
++    std::optional<double> level = config->GetDouble("battery.level");
++    std::optional<double> charging_time =
++        config->GetDouble("battery.chargingTime");
++    std::optional<double> discharging_time =
++        config->GetDouble("battery.dischargingTime");
++    if (charging && level && charging_time && discharging_time &&
++        *level >= 0.0 && *level <= 1.0) {
++      // JSON has no Infinity, and an absent key already means "use the real
++      // value" everywhere else in this config (fury_config.h), so it cannot
++      // mean Infinity here. A negative number is the sentinel; it is the one
++      // value seconds cannot legitimately take.
++      auto seconds = [](double v) {
++        return v < 0.0 ? base::TimeDelta::Max() : base::Seconds(v);
++      };
++      UpdateBatteryStatus(BatteryStatus(*charging, seconds(*charging_time),
++                                        seconds(*discharging_time), *level));
++      return;
++    }
++  }
++
+   UpdateBatteryStatus(BatteryStatus(
+       battery_status->charging, base::Seconds(battery_status->charging_time),
+       base::Seconds(battery_status->discharging_time), battery_status->level));

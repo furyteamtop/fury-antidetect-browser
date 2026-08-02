@@ -105,7 +105,25 @@
 # getUserMedia then fails as it would on a machine without one, while
 # advertising a camera that is not there fails in a way no real machine fails.
 0060-media-devices.patch
-0061-media-codecs.patch
+#
+# NOT NEEDED. Measured 02.08.2026 against real Chrome 150.0.7871.187 — the same
+# version this tree forks — with a fresh capture of both browsers:
+# baselines/chrome150-fresh.json and fury150-fresh.json. The probe covers 14
+# mime/codec pairs through BOTH canPlayType and MediaSource.isTypeSupported,
+# plus MediaRecorder's type list and a proprietary-codec flag. 28 fields. Zero
+# differences. H.264, AAC, HEVC, AV1, VP8, VP9, FLAC, Opus, Vorbis, Theora — all
+# identical, including the ones a Chromium build normally lacks.
+#
+# proprietary_codecs=true and ffmpeg_branding="Chrome" in core/args did the
+# entire job, and enable_widevine closed com.widevine.alpha. There is nothing
+# left to patch, and patching would make us DIFFER from Chrome — which is how
+# 0013 plugins and 0100 CSS media features were retired.
+#
+# One caution recorded for anyone who revisits: a codec list on a given
+# OS + Chrome version is the same for every user, so it carries no per-machine
+# entropy to spoof in the first place. Narrowing it per persona would not hide a
+# profile in a crowd, it would remove it from one.
+# 0061-media-codecs.patch
 
 # --- webrtc -----------------------------------------------------------------
 # The most serious hole the product had, and it was hiding behind a switch that
@@ -280,7 +298,59 @@
 
 # --- misc js ----------------------------------------------------------------
 0120-performance-memory.patch
-0121-battery-network-info.patch
+# Was one entry for two APIs. They are two vectors and the house rule says one
+# patch per vector — and the two verdicts came out opposite, which settles it.
+#
+# BATTERY: needed, and needed for a reason a parity check cannot see. Measured
+# 02.08.2026 against real Chrome 150.0.7871.187: both browsers answered
+# navigator.getBattery() with charging=false, level=0.60, chargingTime=Infinity,
+# dischargingTime=34680 — identical to the second, because both were reading
+# this MacBook. Parity is perfect. Parity is also worthless: every profile on one
+# host reads the same numbers at the same instant, and dischargingTime is a raw
+# seconds count that ticks down, so two profiles opened minutes apart report
+# values differing by exactly the elapsed time. That links accounts that a
+# separate proxy and a separate canvas seed were keeping apart.
+#
+# The tuple substituted is BatteryStatus's own default (battery_status.h:23-24)
+# and what every desktop on mains reports — the largest population there is,
+# carrying no entropy at all. A laptop left plugged in reports it too, so it
+# contradicts no persona in the catalogue.
+#
+# The seam is BatteryDispatcher::OnDidChange, and the wrong seam is loud rather
+# than quiet. Override the four getters in battery_manager.cc instead and the
+# values sit still while battery_manager.cc:115-122 keeps comparing the REAL
+# statuses and keeps firing levelchange and chargingchange off the host's cell —
+# a page that listens and watches level never move has found something far
+# louder than the leak. Substituting the status the dispatcher publishes leaves
+# nothing to fire on, because there is genuinely no change. That is the last
+# check in verify-0121.py and it is the one that distinguishes the two.
+#
+# Through the BatteryStatus constructor rather than into battery_status_, so the
+# level goes through EnsureTwoSignificantDigits exactly as a real one does: a
+# value that skipped it could report a level no Chrome can produce, which is
+# evidence of tampering rather than a failed disguise.
+0121-battery-status.patch
+#
+# NETWORK INFORMATION: NOT NEEDED, and this one is a finding rather than a
+# shortcut. rtt and downlink are not leaking the host — they are Chrome's own
+# designed noise. GetRandomMultiplier (network_state_notifier.cc:370-383) draws
+# a per-renderer-process salt once and multiplies both by one of 21 values in
+# [0.90, 1.10], then rounds to 50 ms and 50 kbps buckets. Across all 29 captures
+# in tools/detect-suite/baselines, downlink takes exactly seven values (1.45
+# through 1.75 in 0.05 steps) and rtt takes 100, 150 or 200; effectiveType is
+# "4g" in every single one, ours, Chrome's and AdsPower's alike. Real Chrome's
+# 1.5 and our 1.7 are two draws from one distribution.
+#
+# Pinning them per profile would REMOVE variance that real Chrome has: a profile
+# whose navigator.connection.rtt is identical across reloads while Chrome's moves
+# is a NEW tell, which is the argument verbatim that retired 0200/0210/0220 for
+# JA3. Same reasoning disposes of --force-effective-connection-type.
+#
+# If it is ever revived: NetworkInformation is Exposed=(Window,Worker), so a
+# patch would have to cover workers or produce exactly the cross-context
+# disagreement probe.js exists to catch — a cost battery does not carry, since
+# BatteryManager is Window-only.
+# 0122-network-information.patch
 
 # --- network ----------------------------------------------------------------
 # NOT NEEDED FOR PARITY, and removing them from the plan is a finding rather
