@@ -384,6 +384,38 @@
 # --- automation traces ------------------------------------------------------
 0300-remove-cdc-vars.patch
 0301-runtime-enable-detect.patch
+# Until this patch, LaunchRestrictions::lock_devtools was a hidden button.
+# launcher.rs pushed --fury-lock-devtools on every restricted launch; grep over
+# core/src returned zero occurrences of it. docs/04 insists the restriction must
+# be technical rather than a UI choice, and it was a UI choice — an operator
+# forbidden from taking a profile's data home could open DevTools and read the
+# cookies out of it.
+#
+# TWO decision points, and locking one is worse than locking neither because it
+# looks done. GetEffectiveAvailability is the obvious one;
+# DeveloperToolsPolicyChecker::GetDevToolsAvailabilityForUrl answers kAllowed
+# for any URL in the allowlist preference and IsInspectionAllowed then returns
+# true, so a profile carrying that preference walks around the first guard.
+#
+# Enforced at the READ, not by seeding prefs::kDevToolsAvailability: that
+# preference lives in the Preferences JSON inside the user-data-dir, which is
+# exactly what the restricted operator has a copy of. argv cannot be changed
+# after the browser starts; a file in the profile can be edited between
+# launches.
+#
+# It lands in DevToolsAgentHostImpl::AttachInternal, which every session goes
+# through — so one guard covers --remote-debugging-port, --remote-debugging-pipe
+# and chrome.debugger together, and the endpoint refusing per-attach rather than
+# refusing to listen is the same shape Chrome's own policy produces.
+#
+# What it does NOT stop, said plainly because an undocumented limit gets trusted
+# past: an operator who has the binary can relaunch it by hand without the
+# switch. That is the threat model in docs/04 — a dishonest employee with a
+# profile, not one with root on the machine.
+#
+# The switch string is written independently in Rust and in C++ and nothing
+# checks the two against each other, so verify-0302.py spells it the Rust way on
+# purpose. A drifted name fails open, silently, forever.
 0302-devtools-lock.patch               # honours LaunchRestrictions.lock_devtools
 
 # --- branding ---------------------------------------------------------------

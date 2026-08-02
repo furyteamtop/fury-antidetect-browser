@@ -1,0 +1,128 @@
+diff --git a/chrome/browser/policy/BUILD.gn b/chrome/browser/policy/BUILD.gn
+index 2a2f6a0e0e..9780d98b9f 100644
+--- a/chrome/browser/policy/BUILD.gn
++++ b/chrome/browser/policy/BUILD.gn
+@@ -925,6 +925,7 @@ source_set("impl") {
+     ":path_parser",
+     ":policy_util",
+     "//chrome/browser:browser_features",
++    "//components/fury",
+     "//chrome/browser:browser_process_platform_part",
+     "//chrome/browser/bookmarks",
+     "//chrome/browser/browsing_data",
+diff --git a/chrome/browser/policy/developer_tools_policy_checker.cc b/chrome/browser/policy/developer_tools_policy_checker.cc
+index 0cc29e8ea1..abad7c6e7a 100644
+--- a/chrome/browser/policy/developer_tools_policy_checker.cc
++++ b/chrome/browser/policy/developer_tools_policy_checker.cc
+@@ -4,6 +4,9 @@
+ 
+ #include "chrome/browser/policy/developer_tools_policy_checker.h"
+ 
++#include "base/command_line.h"
++#include "components/fury/fury_switches.h"
++
+ #include "build/build_config.h"
+ #include "chrome/browser/profiles/profile.h"
+ #include "chrome/browser/profiles/profile_keyed_service_factory.h"
+@@ -39,6 +42,17 @@ base::CallbackListSubscription DeveloperToolsPolicyChecker::AddObserver(
+ DeveloperToolsPolicyChecker::DevToolsAvailability
+ DeveloperToolsPolicyChecker::GetDevToolsAvailabilityForUrl(
+     const GURL& url) const {
++  // Patch 0302, and the half that is easy to miss. The allowlist branch three
++  // lines below answers kAllowed for a URL in the allowlist, and
++  // IsInspectionAllowed then returns true — so locking only
++  // GetEffectiveAvailability leaves a per-URL hole that a profile with an
++  // allowlist preference walks straight through. Both decision points, or
++  // neither.
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
++          fury::switches::kLockDevTools)) {
++    return DevToolsAvailability::kDisallowed;
++  }
++
+   URLBlocklist::URLBlocklistState url_state =
+       url_blocklist_manager_.GetURLBlocklistState(url);
+   if (url_state == URLBlocklist::URLBlocklistState::URL_IN_ALLOWLIST) {
+diff --git a/chrome/browser/policy/developer_tools_policy_handler.cc b/chrome/browser/policy/developer_tools_policy_handler.cc
+index f29f137574..6c47e07258 100644
+--- a/chrome/browser/policy/developer_tools_policy_handler.cc
++++ b/chrome/browser/policy/developer_tools_policy_handler.cc
+@@ -4,6 +4,9 @@
+ 
+ #include "chrome/browser/policy/developer_tools_policy_handler.h"
+ 
++#include "base/command_line.h"
++#include "components/fury/fury_switches.h"
++
+ #include <optional>
+ 
+ #include "base/command_line.h"
+@@ -294,6 +297,25 @@ void DeveloperToolsPolicyHandler::ApplyPolicySettings(const PolicyMap& policies,
+ 
+ policy::DeveloperToolsPolicyHandler::Availability
+ DeveloperToolsPolicyHandler::GetEffectiveAvailability(Profile* profile) {
++  // Patch 0302. First statement in the function, and before the ChromeOS
++  // kForceDevToolsAvailable block below, so that nothing can hand the
++  // availability back after the lock has taken it away.
++  //
++  // This is what makes LaunchRestrictions::lock_devtools a technical
++  // restriction rather than a hidden button. Until this patch,
++  // agent/src/launcher.rs pushed --fury-lock-devtools on every restricted
++  // launch and nothing in the browser read it: the operator the RBAC model
++  // says must not be able to read a profile's cookies could open DevTools and
++  // read them.
++  //
++  // Enforced at the READ rather than by seeding prefs::kDevToolsAvailability,
++  // because that preference lives in the Preferences JSON inside the profile
++  // directory — which the operator has, and can edit between launches.
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
++          fury::switches::kLockDevTools)) {
++    return Availability::kDisallowed;
++  }
++
+ #if BUILDFLAG(IS_CHROMEOS)
+   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+   if (command_line->HasSwitch(switches::kForceDevToolsAvailable)) {
+diff --git a/components/fury/fury_switches.cc b/components/fury/fury_switches.cc
+index 25f80d9..65b3ca1 100644
+--- a/components/fury/fury_switches.cc
++++ b/components/fury/fury_switches.cc
+@@ -10,5 +10,10 @@ namespace switches {
+ const char kFingerprintFd[] = "fury-fp-fd";
+ const char kFingerprintHandle[] = "fury-fp-handle";
+ 
++// Must match agent/src/launcher.rs. Nothing in either language checks the other,
++// so verify-0302.py launches with the Rust spelling and asserts the browser
++// refuses — a drifted name would otherwise fail silently and forever.
++const char kLockDevTools[] = "fury-lock-devtools";
++
+ }  // namespace switches
+ }  // namespace fury
+diff --git a/components/fury/fury_switches.h b/components/fury/fury_switches.h
+index 37816cf..e26f94e 100644
+--- a/components/fury/fury_switches.h
++++ b/components/fury/fury_switches.h
+@@ -26,6 +26,24 @@ COMPONENT_EXPORT(FURY) extern const char kFingerprintFd[];
+ // already uses for field trials and histograms.
+ COMPONENT_EXPORT(FURY) extern const char kFingerprintHandle[];
+ 
++// Browser process only. Refuses DevTools and every CDP attach for this launch.
++//
++// A switch and NOT a config key, deliberately. The fingerprint config describes
++// a persona — what the profile claims to be — and it is republished into shared
++// memory for every child process including renderers. This is not a claim about
++// a machine, it is a restriction on an operator, and the two must not share a
++// channel. argv also has the property this needs: it is fixed when the browser
++// starts and nothing running inside the profile can change it afterwards, while
++// a preference lives in a JSON file inside the user-data-dir that anyone with
++// the unpacked profile can edit between launches.
++//
++// What it does not stop, stated plainly because a restriction whose limits are
++// undocumented gets trusted past them: an operator who has the binary can
++// relaunch it by hand without this switch. That is the threat model in
++// docs/04 — a dishonest employee with the profile, not one with root on the
++// machine.
++COMPONENT_EXPORT(FURY) extern const char kLockDevTools[];
++
+ }  // namespace switches
+ }  // namespace fury
+ 
