@@ -934,15 +934,48 @@
       },
       misc: {
         hasBattery: 'getBattery' in navigator,
+        // The values, not just the existence — and the difference between those
+        // two is a leak that sat in every baseline unnoticed. `hasBattery` was
+        // true in real Chrome and in our build, the field matched, and nobody
+        // looked further. Measured 02.08.2026 on this machine: BOTH browsers
+        // report charging=false, level=0.62, dischargingTime≈38000, because both
+        // are reading the same MacBook. Which means every Fury profile on one
+        // host reports the same battery, and dischargingTime is a raw seconds
+        // count that moves predictably — two profiles opened minutes apart
+        // report values differing by exactly the elapsed time. That is a
+        // near-perfect way to link accounts that must never be linked, and it is
+        // invisible to a parity check because our build matches Chrome exactly.
+        battery: null, // filled asynchronously below
         hasNetworkInfo: 'connection' in navigator,
         connectionType: safe(() => navigator.connection && navigator.connection.effectiveType),
         connectionRtt: safe(() => navigator.connection && navigator.connection.rtt),
         connectionDownlink: safe(() => navigator.connection && navigator.connection.downlink),
+        connectionSaveData: safe(() => navigator.connection && navigator.connection.saveData),
         hasComputePressure: 'PressureObserver' in window,
         hasDevicePosture: 'devicePosture' in navigator,
         keyboardLayout: null, // filled asynchronously below
       },
     };
+  }
+
+  async function collectBattery() {
+    if (!('getBattery' in navigator)) return { __absent: true };
+    return await withTimeout(
+      safeAsync(async () => {
+        const b = await navigator.getBattery();
+        return {
+          charging: b.charging,
+          level: b.level,
+          // Infinity does not survive JSON, and the difference between
+          // "Infinity" and null is the whole signal: a desktop on mains reports
+          // dischargingTime = Infinity, a laptop reports a number.
+          chargingTime: Number.isFinite(b.chargingTime) ? b.chargingTime : 'Infinity',
+          dischargingTime: Number.isFinite(b.dischargingTime) ? b.dischargingTime : 'Infinity',
+        };
+      }),
+      6000,
+      'battery'
+    );
   }
 
   async function collectKeyboard() {
@@ -1212,7 +1245,7 @@
 
     const [
       clientHints, webgpu, audio, mediaDevices, drm, webrtc,
-      permissions, speech, keyboard, storage,
+      permissions, speech, keyboard, battery, storage,
       worker, iframeSameOrigin, iframeBlank, iframeSrcdoc,
     ] = await Promise.all([
       collectClientHints(),
@@ -1224,6 +1257,7 @@
       collectPermissions(),
       collectSpeech(),
       collectKeyboard(),
+      collectBattery(),
       collectStorage(),
       collectFromWorker(),
       collectFromIframe('same-origin'),
@@ -1233,6 +1267,7 @@
 
     const engine = collectEngine();
     engine.misc.keyboardLayout = keyboard;
+    engine.misc.battery = battery;
 
     const contexts = {
       main: collectFromMainRealm(),
