@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 //! The vault — one key on this machine, and what it seals.
 //!
 //! # What it protects and what it cannot

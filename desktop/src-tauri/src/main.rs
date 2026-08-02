@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 //! Fury desktop — the native shell.
 //!
 //! Thin by design. The shell owns the window, the connection to the server and

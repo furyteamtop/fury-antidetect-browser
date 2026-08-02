@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 //! fury-detect — compare fingerprint dumps produced by probe.js.
 //!
 //! Phase 0 workflow (docs/09-roadmap.md):

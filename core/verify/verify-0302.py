@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 """Does --fury-lock-devtools actually refuse anything?
 
 Until patch 0302 it did not. agent/src/launcher.rs pushed the switch on every

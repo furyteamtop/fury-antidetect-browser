@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 //! Resolving what a user may do, against the database.
 //!
 //! Two rules that the rest of the server relies on:

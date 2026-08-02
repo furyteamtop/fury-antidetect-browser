@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 //! Where this installation points, and what it calls itself.
 //!
 //! Fury is self-hosted, so there is no address to hard-code: the first thing a

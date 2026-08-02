@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 //! Invitations — the only way an account comes into existence.
 //!
 //! # Why there is no registration form

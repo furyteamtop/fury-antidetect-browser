@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 """Serve probe.html and accept dumps posted back to disk.
 
 Why this exists: capturing a baseline means opening probe.html inside the browser

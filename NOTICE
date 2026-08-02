@@ -74,7 +74,9 @@ already licensed onto that machine and because it never leaves it.
 The consequence is easy to overlook: a bundle built with those arguments
 CONTAINS the blob, at
 Chromium.app/Contents/Frameworks/Chromium Framework.framework/Versions/*/Libraries/WidevineCdm/.
-Roughly 20 MB. Do not publish, upload or hand on such a build.
+Roughly 19 MB. Do not publish, upload or hand on such a build.
+core/build/build.sh checks for it and says so when a build finishes, because a
+warning in a document is not read while a build is running.
 
 core/args/macos-arm64.gn sets enable_widevine = false and produces a bundle that
 may be given to someone else. It also produces a browser that refuses

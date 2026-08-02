@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 //! Profile bundles — what a server is allowed to hold.
 //!
 //! A bundle is one profile's browser data: the cookie jar, local storage, the

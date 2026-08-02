@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 //! Device personas, and deriving a core config from one.
 //!
 //! A persona is a real machine's measured configuration. A profile picks one

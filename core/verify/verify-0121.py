@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 """Does patch 0121 stop every profile on this machine reporting one battery?
 
 The leak was invisible to a parity check, which is why it survived so long:

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 """Generate shared-rs/src/locale.rs from the Chromium tree.
 
 Every number and string in the generated table comes out of core/src. None of

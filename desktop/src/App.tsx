@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "./i18n";
 import { api, ApiError, type Me, type Profile, type Project, type Shell } from "./api";

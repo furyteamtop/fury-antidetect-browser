@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 # The monthly treadmill: move the patch series onto a new Chromium release.
 #
 # Usage: core/build/rebase.sh 151.0.7842.60

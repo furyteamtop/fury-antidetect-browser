@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 # Build the patched Chromium.
 #
 # Usage: core/build/build.sh <target>
@@ -82,6 +85,36 @@ echo "==> autoninja chrome"
 (cd "$SRC" && autoninja -C "$OUT" $JOBS_ARG chrome)
 
 echo "==> Built: $SRC/$OUT"
+
+# Say it where it happens, not only in a design document nobody reads while a
+# build is running.
+#
+# link-widevine.sh already warns that the CDM is proprietary and that
+# redistributing it needs a licence from Google. What nothing said until now is
+# that the bundle sitting in the output directory CONTAINS it — 20 MB of
+# unredistributable binary, staged there by the build that just finished,
+# because the args asked for it.
+if grep -q '^ *bundle_widevine_cdm *= *true' "$SRC/$OUT/args.gn" 2>/dev/null; then
+  CDM="$SRC/$OUT"/*.app/Contents/Frameworks/*.framework/Versions/*/Libraries/WidevineCdm
+  if compgen -G "$CDM" > /dev/null 2>&1; then
+    cat >&2 <<EOF
+
+!! This bundle contains the Widevine CDM.
+
+   $(du -h $CDM 2>/dev/null | tail -1 | cut -f1) of proprietary binary, staged out of the Google Chrome installed on
+   this machine. Using a copy already licensed onto your own machine is one
+   thing; passing the bundle to anyone else is redistribution, and that needs a
+   licence from Google.
+
+   Do not upload, publish or hand on this .app. For a build you can give away,
+   use core/args/macos-arm64.gn — and read the note in it first, because a
+   build without Widevine answers requestMediaKeySystemAccess differently from
+   real Chrome, which is its own problem.
+
+   See NOTICE section 5 and docs/10-legal-licensing.md.
+EOF
+  fi
+fi
 
 if [ "$TARGET" = "macos-arm64" ] && [ -d "$SRC/out/macos-x64" ]; then
   cat <<EOF

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 //! Per-profile local proxy relay.
 //!
 //! The browser is always launched with `--proxy-server=http://127.0.0.1:<port>`

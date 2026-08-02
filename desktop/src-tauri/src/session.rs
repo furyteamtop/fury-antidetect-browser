@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 //! The session token, and the two places it may live.
 //!
 //! In the browser build the token sat in `localStorage`. The argument against

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 //! Fury server — the self-hosted coordination backend.
 //!
 //! Deliberately dumb. It does not generate fingerprints, does not check proxies,

@@ -197,7 +197,8 @@ binary. The low-memory GN args build with Widevine support and
 installed on the build machine — which is fine because it is already there, and
 only because it never leaves. A bundle built that way contains a 20 MB
 unredistributable library inside
-`Chromium.app/Contents/Frameworks/…/Libraries/WidevineCdm/`. Do not ship it.
+`Chromium.app/Contents/Frameworks/…/Libraries/WidevineCdm/`. Do not ship it —
+`core/build/build.sh` says so when such a build finishes.
 
 ## Acceptable use
 

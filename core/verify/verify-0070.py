@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 """Does patch 0070 stop WebRTC handing the page this machine's real address?
 
 The leak this exists to close was measured, not suspected: on 02.08.2026 our

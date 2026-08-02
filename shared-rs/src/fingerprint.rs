@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 //! Fingerprint configuration: the JSON handed to the patched Chromium core.
 //!
 //! Two rules govern everything here:

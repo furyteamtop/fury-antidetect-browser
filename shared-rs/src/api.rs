@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 //! Wire types for the server REST API and the agent local API.
 
 use serde::{Deserialize, Serialize};

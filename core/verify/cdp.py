@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 """A CDP client small enough to trust.
 
 No dependency on `websockets` or node — neither is on this machine, and pulling

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 //! Where the agent keeps things.
 //!
 //! One directory holds the local database, the profile data dirs and the IPC

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 //! Types shared between `fury-server` and `fury-agent`.
 //!
 //! Everything here is transport-agnostic: no axum, no sqlx, no reqwest. Both

@@ -1,0 +1,56 @@
+Copyright 2026 The Fury Authors. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+   * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+   * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+   * Neither the name of The Fury Authors nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+---------------------------------------------------------------------
+
+Why this file is here, and why these terms rather than the AGPL that
+governs the rest of the repository.
+
+The patches in this directory are two kinds of content. The context
+lines — every line a patch quotes so that it can be applied — are
+Google's code, and they stay under Chromium's own BSD-3-Clause licence
+whatever anyone else decides.
+
+The lines Fury adds, including the files under components/fury/ that
+the series creates outright, are BSD-3-Clause by choice. BSD-3-Clause
+imposes nothing on the licence of surrounding or added work, so these
+could have been AGPL alongside the rest of the project. They are not,
+so that a Chromium built from this series carries one consistent set
+of terms, and no copyleft obligation reaches somebody who only wanted
+a browser.
+
+This split was decided in docs/10-legal-licensing.md, which says to
+keep the patches in a separate directory with an explicit LICENSE
+inside it. This is that file.
+
+The source files the series adds carry Chromium's own three-line
+header, referring to "the LICENSE file". Read inside the Chromium
+checkout where that code compiles, it resolves to core/src/LICENSE —
+Chromium's BSD-3-Clause text. Read here, in a patch, it means this
+one. The terms are the same either way, which is the point.

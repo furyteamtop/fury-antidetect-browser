@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 //! Reading a pasted block of proxies.
 //!
 //! Nobody types proxies in one at a time. They arrive as a block from a

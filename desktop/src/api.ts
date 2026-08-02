@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 // The server is the only authority on what a user may do. Nothing here decides
 // permissions; it reads the set the server resolved and renders accordingly.
 //

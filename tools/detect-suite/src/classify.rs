@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 //! How to read a difference between two fingerprint dumps.
 //!
 //! The naive tool says "these 400 fields differ" and is useless. The question is

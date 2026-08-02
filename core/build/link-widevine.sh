@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 # Populate the Widevine CDM from the Chrome already installed on this machine.
 #
 #   core/build/link-widevine.sh [path-to-Chrome.app]

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 //! Permission model.
 //!
 //! Permissions are a bitmask stored in `project_grants.permissions` and

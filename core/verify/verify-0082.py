@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 """Does patch 0082 do what its commit message says?
 
 Runs the built core directly — no agent, no proxy, no relay — so that what

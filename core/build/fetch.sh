@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 # Fetch or update the Chromium source tree at a pinned tag.
 #
 # Usage: core/build/fetch.sh 151.0.7842.60

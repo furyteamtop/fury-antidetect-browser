@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 //! Is there a newer version?
 //!
 //! Asks the release feed and reports; it does not install. Installing an update
