@@ -4,10 +4,15 @@ Two source files, and everything else is generated from them.
 
 | File | What it is | Used for |
 |---|---|---|
-| `logo.png` | the flame F beside the FURY BROWSER wordmark, on transparent or white | README, the site, the About box |
+| `logo.png` | the flame F beside the wordmark, dark type on transparency | README on a light background, the site |
+| `logo-dark.png` | the same with the type inverted, flame untouched | README on a dark background — GitHub has both themes and a black wordmark vanishes in one of them |
 | `icon.png` | the flame F alone in a rounded dark square, **1024×1024** | the macOS app icon, the Windows icon, the Tauri shell, the favicon |
 
-Drop those two in here and run:
+`logo-dark.png` is generated from `logo.png`, not drawn separately: only the
+near-neutral pixels are inverted, so the flame keeps its colours and the two
+files cannot drift apart.
+
+Drop the sources in here and run:
 
 ```bash
 assets/generate.sh

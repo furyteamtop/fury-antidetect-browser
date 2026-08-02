@@ -1,4 +1,7 @@
-# Fury
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
+  <img src="assets/logo.png" alt="Fury" width="420">
+</picture>
 
 Свободный антидетект-браузер с командной работой. Собственный форк Chromium,
 работает без сервера, self-hosted сервер — когда появляется команда. Без

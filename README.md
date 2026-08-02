@@ -1,4 +1,7 @@
-# Fury
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
+  <img src="assets/logo.png" alt="Fury" width="420">
+</picture>
 
 A free, open-source anti-detect browser with real team collaboration. Own
 Chromium fork, works standalone with no server, self-hostable when you need a

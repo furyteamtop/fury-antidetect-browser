@@ -15,11 +15,25 @@ SRC="$HERE/icon.png"
 
 [ -f "$SRC" ] || { echo "!! assets/icon.png not found. See assets/README.md." >&2; exit 1; }
 
-DIMS=$(sips -g pixelWidth -g pixelHeight "$SRC" | awk '/pixel/{print $2}' | paste -sd× -)
-case "$DIMS" in
-  1024×1024) ;;
-  *) echo "!! assets/icon.png is $DIMS; it must be 1024×1024." >&2; exit 1 ;;
-esac
+# Compared as numbers. The first version pasted the two values together with a
+# multiplication sign and matched the result against a literal, which failed on
+# a correct 1024x1024 file because the separator did not survive the round trip.
+W=$(sips -g pixelWidth "$SRC" | awk '/pixelWidth/{print $2}')
+H=$(sips -g pixelHeight "$SRC" | awk '/pixelHeight/{print $2}')
+if [ "$W" != "1024" ] || [ "$H" != "1024" ]; then
+  echo "!! assets/icon.png is ${W}x${H}; it must be 1024x1024." >&2
+  echo "!! macOS builds its whole icon set down from that size." >&2
+  exit 1
+fi
+
+# An icon with no alpha is a black tile in the dock. The source art draws its own
+# rounded square, so the surround must be transparent and not merely dark.
+if [ "$(sips -g hasAlpha "$SRC" | awk '/hasAlpha/{print $2}')" != "yes" ]; then
+  echo "!! assets/icon.png has no alpha channel." >&2
+  echo "!! The area outside the rounded square must be transparent, or macOS" >&2
+  echo "!! shows a black square in the dock." >&2
+  exit 1
+fi
 
 TAURI="$ROOT/desktop/src-tauri/icons"
 mkdir -p "$TAURI"
