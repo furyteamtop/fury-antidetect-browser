@@ -588,6 +588,35 @@ input::placeholder {
   background: var(--hover);
 }
 
+/* The way OUT, which is not a third way in.
+ *
+ * Sign in, join a team and start a team are three doors into the same room;
+ * working locally leaves the building. So it is quieter than the outlined pair
+ * rather than equal to them — no border, no fill, just text — and it sits last.
+ *
+ * `.login button.quiet` and not `.linky`, for the reason two rules above: a
+ * single class loses to `.login button` and the button would come out filled
+ * orange, a fourth primary action on a screen that already had three too many. */
+.login button.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.login button.quiet:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.login .hint {
+  margin: calc(var(--s-2) * -1) 0 0;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: center;
+}
+
 /* ---- modal ------------------------------------------------------------- */
 
 .scrim {

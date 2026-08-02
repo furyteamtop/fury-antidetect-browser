@@ -57,8 +57,26 @@ BRAND="$ROOT/core/branding"
 mkdir -p "$BRAND"
 iconutil -c icns "$ICONSET" -o "$BRAND/app.icns"
 cp "$SRC" "$BRAND/icon-1024.png"
+# AND where the Tauri bundler reads it. tauri.conf.json lists
+# icons/icon.icns, and the first version of this script wrote the .icns only to
+# core/branding — so the shell kept shipping the icon it was built with and the
+# regenerated one went somewhere nothing looked. Visible immediately, and
+# invisible in a diff.
+cp "$BRAND/app.icns" "$TAURI/icon.icns"
 rm -rf "$(dirname "$ICONSET")"
+
+echo "==> Windows .ico"
+python3 - "$SRC" "$TAURI/icon.ico" <<'ICO'
+import sys
+from PIL import Image
+src, out = sys.argv[1], sys.argv[2]
+im = Image.open(src).convert("RGBA")
+# A .ico is a container; Windows picks the size it wants. 256 is the largest it
+# reads and 16 is the smallest it shows.
+im.save(out, sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+ICO
 
 echo "==> Done."
 echo "    desktop/src-tauri/icons/   Tauri shell"
+echo "    desktop/src-tauri/icons/icon.icns  and icon.ico"
 echo "    core/branding/app.icns     patch 0900, when it is written"

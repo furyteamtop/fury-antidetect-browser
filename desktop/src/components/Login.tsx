@@ -9,6 +9,7 @@ export function Login({
   onSuccess,
   onEnrol,
   onSignup,
+  onLocal,
   unlockFor,
 }: {
   onSuccess: () => void;
@@ -19,6 +20,8 @@ export function Login({
    *  sign-ups, which most will not — the screen behind this asks before it
    *  offers a form. */
   onSignup: () => void;
+  /// Called after the server has been forgotten and the shell is local again.
+  onLocal: () => void;
   /** Set when the session is alive but the organisation key is not: the app was
    *  restarted, and the key lives in memory for exactly as long as the process
    *  that holds it. This is the same form doing a different job — the password
@@ -44,6 +47,18 @@ export function Login({
       // "no such user" here would undo that.
       setError(t("auth.wrong"));
     } finally {
+      setBusy(false);
+    }
+  };
+
+  const goLocal = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.disconnectServer();
+      onLocal();
+    } catch (e) {
+      setError(String(e));
       setBusy(false);
     }
   };
@@ -81,6 +96,21 @@ export function Login({
           <button type="button" className="alt" onClick={onSignup}>
             {t("signup.start")}
           </button>
+          {/* The way back out, and it was missing.
+
+              api.disconnectServer() has existed all along — and lived in
+              Settings, which is behind the sign-in. So an operator who
+              connected to a server once and then wanted to work alone was
+              looking at the escape hatch through the door it opens. This screen
+              was a dead end: sign in, join a team, or start one.
+
+              Solo is what the README calls the default and it genuinely is —
+              a fresh install with no server has never asked for an account. The
+              bug was that team mode was a one-way door. */}
+          <button type="button" className="quiet" onClick={goLocal} disabled={busy}>
+            {t("auth.workLocally")}
+          </button>
+          <p className="hint">{t("auth.workLocallyNote")}</p>
         </>
       )}
     </form>

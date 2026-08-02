@@ -202,6 +202,7 @@ export function App() {
         onSuccess={() => void api.shell().then(setShell)}
         onEnrol={() => setEnrolling(true)}
         onSignup={() => setSigningUp(true)}
+        onLocal={() => void api.shell().then(setShell)}
       />
     ) : (
       <ServerSetup onDone={setShell} onSignup={() => setSigningUp(true)} />
@@ -220,6 +221,7 @@ export function App() {
         onSuccess={() => void api.shell().then(setShell)}
         onEnrol={() => setEnrolling(true)}
         onSignup={() => setSigningUp(true)}
+        onLocal={() => void api.shell().then(setShell)}
         unlockFor={shell.last_email}
       />
     );
