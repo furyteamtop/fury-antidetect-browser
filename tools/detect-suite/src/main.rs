@@ -163,7 +163,13 @@ fn is_private_v4(a: &str) -> bool {
         || (p[0] == 169 && p[1] == 254)
         || (p[0] == 100 && (64..=127).contains(&p[1]))
         || p[0] >= 224
-        || a == "203.0.113.7"
+        // The whole documentation block, not just the address we substitute.
+        // RFC 5737 reserves 192.0.2.0/24, 198.51.100.0/24 and 203.0.113.0/24,
+        // and treating only our own placeholder as safe means redacting an
+        // already-redacted file reports changes it did not need to make.
+        || (p[0] == 203 && p[1] == 0 && p[2] == 113)
+        || (p[0] == 192 && p[1] == 0 && p[2] == 2)
+        || (p[0] == 198 && p[1] == 51 && p[2] == 100)
 }
 
 fn is_private_v6(a: &str) -> bool {
@@ -335,6 +341,71 @@ fn cmd_redact(args: &[String]) -> Result<()> {
     println!("  and the ICE candidate types — which is the WebRTC finding itself.");
     println!("Publishing a baseline describes the machine that captured it.");
     Ok(())
+}
+
+#[cfg(test)]
+mod redact_tests {
+    use super::*;
+
+    #[test]
+    fn a_version_string_is_not_an_address() {
+        // The bug this exists to prevent, in the exact shape it shipped in:
+        // Chrome/150.0.0.0 is four dotted decimals, none above 255, none in any
+        // private range — and it is the single most important field in a
+        // capture. The scrubber rewrote it in navigator.userAgent,
+        // navigator.appVersion, the client-hints brand list and all five
+        // per-context copies, across thirty files, and the tool that did it was
+        // the one whose job was to make the capture safe to publish.
+        //
+        // No pattern separates a version from an address: 8.0.0.0 is both.
+        // These assert the scope, which is what actually fixes it.
+        let mut doc: Value = serde_json::json!({
+            "navigator": {
+                "userAgent": "Mozilla/5.0 (Windows NT 10.0) Chrome/150.0.0.0 Safari/537.36",
+            },
+            "clientHints": { "fullVersionList": "Not;A=Brand/8.0.0.0,Chromium/150.0.7871.187" },
+            "locale": { "dateFormatted": "Thu Jan 01 1970 01:00:00 GMT+0100" },
+            "webrtc": {
+                "addresses": ["a1b2.local", "203.0.113.9", "9.9.9.9"],
+                "types": "host,srflx",
+            },
+        });
+        let n = scrub_webrtc(&mut doc);
+
+        assert_eq!(
+            doc["navigator"]["userAgent"],
+            "Mozilla/5.0 (Windows NT 10.0) Chrome/150.0.0.0 Safari/537.36"
+        );
+        assert_eq!(
+            doc["clientHints"]["fullVersionList"],
+            "Not;A=Brand/8.0.0.0,Chromium/150.0.7871.187"
+        );
+        // A clock is three colon-separated groups of hex-looking digits, and an
+        // earlier version turned this one into 2001:db8::7.
+        assert_eq!(doc["locale"]["dateFormatted"], "Thu Jan 01 1970 01:00:00 GMT+0100");
+
+        // And it still does its job.
+        assert_eq!(n, 1, "only the routable address should be replaced: {:?}",
+                   doc["webrtc"]["addresses"]);
+        // 203.0.113.9 is documentation space and stays as it is: redacting an
+        // already-redacted capture must be a no-op.
+        assert_eq!(doc["webrtc"]["addresses"][0], "a1b2.local");
+        assert_eq!(doc["webrtc"]["addresses"][1], "203.0.113.9");
+        assert_eq!(doc["webrtc"]["addresses"][2], "203.0.113.7");
+        // The finding survives the redaction, which is the whole point of
+        // substituting rather than deleting.
+        assert_eq!(doc["webrtc"]["types"], "host,srflx");
+    }
+
+    #[test]
+    fn private_and_documentation_addresses_are_left_alone() {
+        for a in ["192.168.1.4", "10.0.0.7", "127.0.0.1", "169.254.1.1",
+                  "100.64.0.1", "203.0.113.7", "203.0.113.9", "192.0.2.5",
+                  "198.51.100.9", "fe80::1", "::1", "2001:db8::7"] {
+            let mut doc: Value = serde_json::json!({ "webrtc": { "addresses": [a] } });
+            assert_eq!(scrub_webrtc(&mut doc), 0, "{a} should not be rewritten");
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

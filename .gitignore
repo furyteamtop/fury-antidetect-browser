@@ -39,6 +39,11 @@ secrets/
 *.app
 *.zip
 
+# Run logs. collector.log was committed in the initial scaffold and carried an
+# absolute home directory into the history — the only /Users/ string in the whole
+# tracked tree. It is a run log, not source.
+*.log
+
 # OS
 .DS_Store
 Thumbs.db
