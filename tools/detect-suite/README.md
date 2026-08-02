@@ -143,3 +143,28 @@ full surface from [docs/02](../../docs/02-fingerprint-surface.md) layer 3.
 CDP-driven capture. `capture-chrome.sh` covers everything launchable with flags,
 which is all that CI needs; CDP would additionally reach browsers that only
 expose a debugging port.
+
+## Contributing a persona
+
+The catalogue has fourteen machines. Fourteen is a thin crowd, and adding one is
+the single most useful thing somebody with a different computer can do.
+
+Run the probe in an ORDINARY browser on your machine — Chrome, not Fury — then:
+
+```bash
+cargo run -p fury-detect -- persona baselines/your-capture.json > persona.json
+```
+
+It reads the capture, builds a persona, and refuses rather than guesses: no
+unmasked WebGL renderer, no persona; no measured font list, no persona; a
+capture claiming macOS with a Direct3D renderer, no persona. The result is run
+through the same `validate()` the launcher uses, so a file that comes out is a
+file that will launch.
+
+The output is marked `source: "capture"`, not `"measured"`. `measured` is
+reserved for values taken off physical hardware and checked by hand, and
+diluting the stronger word would make it useless.
+
+Before you send it: a persona describes YOUR computer — its GPU, screen, fonts,
+audio latency and installed speech voices. That is what makes it useful and it
+is also what makes it yours. Read the file before you publish it.

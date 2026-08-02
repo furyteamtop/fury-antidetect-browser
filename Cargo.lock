@@ -1433,6 +1433,7 @@ name = "fury-detect"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "fury-shared",
  "serde",
  "serde_json",
 ]

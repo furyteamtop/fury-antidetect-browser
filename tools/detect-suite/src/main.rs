@@ -21,6 +21,8 @@ use anyhow::{Context, Result};
 use classify::{classify, Kind};
 use serde_json::Value;
 
+mod persona;
+
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
@@ -28,6 +30,7 @@ fn main() -> Result<()> {
         Some("gate") => cmd_gate(&args[1..]),
         Some("flatten") => cmd_flatten(&args[1..]),
         Some("redact") => cmd_redact(&args[1..]),
+        Some("persona") => persona::cmd_persona(&args[1..]),
         _ => {
             eprintln!(
                 "fury-detect {}\n\
@@ -38,6 +41,9 @@ fn main() -> Result<()> {
                    fury-detect diff [--mode spoof|identity] <baseline.json> <candidate.json>\n      \
                      identity  same browser twice: nothing may differ\n      \
                      spoof     real Chrome vs Fury: values may differ, behaviour may not\n\
+                 \n  \
+                   fury-detect persona <capture.json> [--id name] [--weight 0.01]\n      \
+                     Turn a probe capture into a persona for the catalogue.\n\
                  \n  \
                    fury-detect redact --check [dir]\n      \
                      Fail if any baseline still carries a routable address.\n\

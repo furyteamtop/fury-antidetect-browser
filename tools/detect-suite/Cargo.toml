@@ -9,6 +9,7 @@ name = "fury-detect"
 path = "src/main.rs"
 
 [dependencies]
+fury-shared = { path = "../../shared-rs" }
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
