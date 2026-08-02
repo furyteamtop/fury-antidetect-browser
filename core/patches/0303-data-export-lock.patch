@@ -1,0 +1,159 @@
+diff --git a/chrome/browser/bookmarks/BUILD.gn b/chrome/browser/bookmarks/BUILD.gn
+index d3b49a390c..e2992b0759 100644
+--- a/chrome/browser/bookmarks/BUILD.gn
++++ b/chrome/browser/bookmarks/BUILD.gn
+@@ -57,6 +57,7 @@ source_set("impl") {
+   public_deps = [ "//chrome/browser:browser_public_dependencies" ]
+ 
+   deps = [
++    "//components/fury",
+     ":bookmarks",
+     "//chrome/browser:browser_process",
+     "//chrome/browser/commerce",
+diff --git a/chrome/browser/bookmarks/bookmark_html_writer.cc b/chrome/browser/bookmarks/bookmark_html_writer.cc
+index e5fb1fd803..3974083d3f 100644
+--- a/chrome/browser/bookmarks/bookmark_html_writer.cc
++++ b/chrome/browser/bookmarks/bookmark_html_writer.cc
+@@ -5,6 +5,9 @@
+ 
+ #include "chrome/browser/bookmarks/bookmark_html_writer.h"
+ 
++#include "base/command_line.h"
++#include "components/fury/fury_switches.h"
++
+ #include <stddef.h>
+ #include <stdint.h>
+ 
+@@ -655,6 +658,14 @@ namespace bookmark_html_writer {
+ void WriteBookmarks(Profile* profile,
+                     const base::FilePath& path,
+                     BookmarksExportCallback callback) {
++  // Patch 0303. The single function both export callers reach — the settings UI
++  // and the bookmarkManagerPrivate extension API — so one refusal covers both.
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
++          fury::switches::kLockDataExport)) {
++    std::move(callback).Run(Result::kCouldNotCreateFile);
++    return;
++  }
++
+   // We allow only one concurrent bookmark export operation per profile.
+   if (profile->GetUserData(kBookmarkFaviconFetcherKey)) {
+     return;
+diff --git a/chrome/browser/extensions/BUILD.gn b/chrome/browser/extensions/BUILD.gn
+index e0eeeb2caf..d7c9dd691c 100644
+--- a/chrome/browser/extensions/BUILD.gn
++++ b/chrome/browser/extensions/BUILD.gn
+@@ -581,6 +581,7 @@ source_set("extensions") {
+     "//components/enterprise/browser/identifiers",
+     "//components/enterprise/browser/promotion",
+     "//components/favicon/content",
++    "//components/fury",
+     "//components/guest_view/buildflags",
+     "//components/guest_view/common",
+     "//components/infobars/content",
+diff --git a/chrome/browser/extensions/api/passwords_private/passwords_private_delegate_impl.cc b/chrome/browser/extensions/api/passwords_private/passwords_private_delegate_impl.cc
+index 1ccdb3ca3f..bc0322ed81 100644
+--- a/chrome/browser/extensions/api/passwords_private/passwords_private_delegate_impl.cc
++++ b/chrome/browser/extensions/api/passwords_private/passwords_private_delegate_impl.cc
+@@ -4,6 +4,9 @@
+ 
+ #include "chrome/browser/extensions/api/passwords_private/passwords_private_delegate_impl.h"
+ 
++#include "base/command_line.h"
++#include "components/fury/fury_switches.h"
++
+ #include <memory>
+ #include <optional>
+ #include <string>
+@@ -599,6 +602,16 @@ void PasswordsPrivateDelegateImpl::RequestPlaintextPassword(
+     api::passwords_private::PlaintextReason reason,
+     PlaintextPasswordCallback callback,
+     content::WebContents* web_contents) {
++  // Patch 0303, and the reason blocking the CSV export alone is not enough.
++  // Reading credentials out one at a time is the same leak as exporting them in
++  // a batch, only slower, and this path is reachable from chrome://settings
++  // whether or not chrome://password-manager is disabled.
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
++          fury::switches::kLockDataExport)) {
++    std::move(callback).Run(std::nullopt);
++    return;
++  }
++
+   AuthenticateUser(
+       web_contents, kPasswordManagerAuthValidity, GetReauthPurpose(reason),
+       base::BindOnce(
+diff --git a/chrome/browser/ui/passwords/settings/BUILD.gn b/chrome/browser/ui/passwords/settings/BUILD.gn
+index 602ed6a77b..7593c1121c 100644
+--- a/chrome/browser/ui/passwords/settings/BUILD.gn
++++ b/chrome/browser/ui/passwords/settings/BUILD.gn
+@@ -23,6 +23,7 @@ source_set("settings") {
+ source_set("impl") {
+   sources = [ "password_manager_porter.cc" ]
+   deps = [
++    "//components/fury",
+     ":settings",
+     "//chrome/browser/profiles:profile",
+     "//chrome/browser/ui/select_file_policy",
+diff --git a/chrome/browser/ui/passwords/settings/password_manager_porter.cc b/chrome/browser/ui/passwords/settings/password_manager_porter.cc
+index d1c942949a..f65d8b8c19 100644
+--- a/chrome/browser/ui/passwords/settings/password_manager_porter.cc
++++ b/chrome/browser/ui/passwords/settings/password_manager_porter.cc
+@@ -4,6 +4,9 @@
+ 
+ #include "chrome/browser/ui/passwords/settings/password_manager_porter.h"
+ 
++#include "base/command_line.h"
++#include "components/fury/fury_switches.h"
++
+ #include <string>
+ #include <vector>
+ 
+@@ -61,6 +64,16 @@ PasswordManagerPorter::~PasswordManagerPorter() {
+ 
+ bool PasswordManagerPorter::Export(
+     base::WeakPtr<content::WebContents> web_contents) {
++  // Patch 0303. At the function that does the work, not at the button that
++  // starts it: the settings page reaches this over Mojo, and a message replayed
++  // by hand — or an extension holding the passwordsPrivate permission — reaches
++  // it without any button at all. Hiding the button would demo perfectly and
++  // protect nothing.
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
++          fury::switches::kLockDataExport)) {
++    return false;
++  }
++
+   if (exporter_ && exporter_->GetProgressStatus() ==
+                        password_manager::ExportProgressStatus::kInProgress) {
+     return false;
+diff --git a/components/fury/fury_switches.cc b/components/fury/fury_switches.cc
+index 65b3ca1..292084b 100644
+--- a/components/fury/fury_switches.cc
++++ b/components/fury/fury_switches.cc
+@@ -14,6 +14,7 @@ const char kFingerprintHandle[] = "fury-fp-handle";
+ // so verify-0302.py launches with the Rust spelling and asserts the browser
+ // refuses — a drifted name would otherwise fail silently and forever.
+ const char kLockDevTools[] = "fury-lock-devtools";
++const char kLockDataExport[] = "fury-lock-data-export";
+ 
+ }  // namespace switches
+ }  // namespace fury
+diff --git a/components/fury/fury_switches.h b/components/fury/fury_switches.h
+index e26f94e..cff2456 100644
+--- a/components/fury/fury_switches.h
++++ b/components/fury/fury_switches.h
+@@ -44,6 +44,15 @@ COMPONENT_EXPORT(FURY) extern const char kFingerprintHandle[];
+ // machine.
+ COMPONENT_EXPORT(FURY) extern const char kLockDevTools[];
+ 
++// Browser process only. Refuses the paths that take a profile's secrets out of
++// it in bulk: the password CSV export, the per-password plaintext reveal, and
++// the bookmark HTML export.
++//
++// Same channel and the same limits as kLockDevTools above. Not a claim about a
++// machine — a restriction on a person — so it does not travel in the persona
++// config that every renderer can see.
++COMPONENT_EXPORT(FURY) extern const char kLockDataExport[];
++
+ }  // namespace switches
+ }  // namespace fury
+ 

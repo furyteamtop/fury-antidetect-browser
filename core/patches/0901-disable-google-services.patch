@@ -1,0 +1,41 @@
+diff --git a/components/safe_browsing/core/common/safe_browsing_prefs.cc b/components/safe_browsing/core/common/safe_browsing_prefs.cc
+index 3921d014f2..2d201ec0ed 100644
+--- a/components/safe_browsing/core/common/safe_browsing_prefs.cc
++++ b/components/safe_browsing/core/common/safe_browsing_prefs.cc
+@@ -275,8 +275,35 @@ void RegisterProfilePrefs(PrefRegistrySimple* registry) {
+       prefs::kSafeBrowsingEsbProtegoPingWithTokenLastLogTime, base::Time());
+   registry->RegisterTimePref(
+       prefs::kSafeBrowsingEsbProtegoPingWithoutTokenLastLogTime, base::Time());
++  // Patch 0901. Off by default, which is one line and two separate wins.
++  //
++  // It is the last endpoint the browser still contacts on its own with Fury's
++  // launch flags, and it contacts it on every download: the client report goes
++  // to a hardcoded sb-ssl.google.com URL, not through anything an API key gates.
++  // For a browser whose entire premise is that traffic leaves through the
++  // profile's proxy and nowhere else, a per-download ping to Google is the
++  // deviation, whatever it is called.
++  //
++  // And it removes a contradiction that was already there. With
++  // --disable-background-networking the Safe Browsing database never downloads
++  // (v4_update_protocol_manager.cc:106-109), so the browser has been protecting
++  // nothing while chrome://settings reported Standard protection and while the
++  // download pings kept going out. Off is the honest state, and it is the state
++  // the settings page will now describe.
++  //
++  // The pref rather than the URL constant, deliberately:
++  // download_protection_delegate_desktop.cc CHECKs the constructed URL is valid,
++  // so blanking the constant crashes the browser at startup. The pref is also
++  // the single gate that client-side phishing detection, the ping manager,
++  // notification telemetry and password protection all read — one flag, one
++  // vector, no traffic.
++  //
++  // A DEFAULT, which is what this registration sets. A profile whose Preferences
++  // file already carries safebrowsing.enabled keeps its own value; Fury creates
++  // profiles fresh, so the default is what every new one gets, and that is the
++  // case this has to be right for.
+   registry->RegisterBooleanPref(
+-      prefs::kSafeBrowsingEnabled, true,
++      prefs::kSafeBrowsingEnabled, false,
+       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+   if (base::FeatureList::IsEnabled(kEsbAsASyncedSetting)) {
+     registry->RegisterBooleanPref(

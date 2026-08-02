@@ -379,11 +379,60 @@
 # passes --disable-quic because UDP would bypass an HTTP relay, and that is our
 # own deviation from Chrome. Closing it needs SOCKS5 UDP ASSOCIATE in the relay,
 # not a Chromium patch. See docs/05.
-0230-disable-quic.patch                # keep until the relay carries UDP
+# NOT A PATCH, and the reasoning matters more than the outcome.
+#
+# --disable-quic in launcher.rs already lands on the identical field a patch
+# would set, so a patch here is redundant rather than wrong. What must NOT be
+# recorded is "we are at parity". We are not: real Chrome 150 negotiates HTTP/3
+# with any server that offers it, and Fury never does. That is a real, unfixed
+# deviation, visible server-side to anyone advertising alt-svc and watching
+# whether the client ever upgrades.
+#
+# It is owned by the proxy architecture, not by the core. relay.rs speaks HTTP
+# CONNECT and SOCKS5 CONNECT, both TCP; QUIC is UDP and would go around it,
+# which is the same hole 0070 just closed for WebRTC.
+#
+# And the exit is not blocked by design, which an earlier note claimed. QUIC
+# proxying is gated on ONE GN default: net/features.gni:70 sets
+# enable_quic_proxy_support = is_debug, and our args set is_debug = false. The
+# MASQUE client (RFC 9298, UDP over HTTP/3) is compiled into the binary
+# unconditionally — net/BUILD.gn lists quic_proxy_datagram_client_socket.{cc,h}
+# with no buildflag guard — and pref_proxy_config_tracker_impl.cc already passes
+# allow_quic_proxy_support through conditionally. So the road out is a GN arg
+# plus a MASQUE-capable relay, not a Chromium patch and not SOCKS5 UDP ASSOCIATE.
+# 0230-disable-quic.patch
 
 # --- automation traces ------------------------------------------------------
 0300-remove-cdc-vars.patch
-0301-runtime-enable-detect.patch
+# NOT WRITTEN, and blocked on a boundary rather than on effort.
+#
+# What was measured first, because three of the four candidate tells turned out
+# not to exist. On M150, with and without Runtime.enable, in our build AND in
+# real Chrome 150: a getter on a logged object never fires, a getter on
+# Error.prototype.stack never fires, and console.log of a regexp calls toString
+# in every configuration including no-CDP — so it is not a CDP tell at all. The
+# classic "Runtime.enable detection" does not reproduce.
+#
+# What DOES reproduce is timing: console.debug of a 500-key object 200 times
+# takes 0.9 ms with no inspector and 11.7 ms with one attached (real Chrome:
+# 0.6 -> 10.2). Identical in both browsers, so it detects "CDP is attached",
+# which for an operator driving a profile is exactly the thing being hidden.
+#
+# The one substantive leak found is narrower: console serialisation of an Error
+# reads .stack, which runs the page's Error.prepareStackTrace. It cannot be
+# closed from Blink. The preview path reads the property through
+# value-mirror.cc's own object->Get, which no embedder hook intercepts — a
+# Blink-side valueSubtype override covers descriptionForError and NOT the
+# preview, so a patch there applies, compiles, links and still leaks. The only
+# layer covering both readers is v8/src/inspector, and //v8 is a separate
+# gclient project with no path to //components/fury: fury::FuryConfig::Get()
+# would not link, and no patch in this series touches v8/ today.
+#
+# So it needs either a v8 patch with its own config channel, or a decision that
+# an operator driving a profile over CDP accepts a timing tell. Written down
+# rather than half-done: a patch that applies and leaks is the failure mode this
+# file exists to prevent.
+# 0301-runtime-enable-detect.patch
 # Until this patch, LaunchRestrictions::lock_devtools was a hidden button.
 # launcher.rs pushed --fury-lock-devtools on every restricted launch; grep over
 # core/src returned zero occurrences of it. docs/04 insists the restriction must
@@ -424,7 +473,76 @@
 # checks the two against each other, so verify-0302.py spells it the Rust way on
 # purpose. A drifted name fails open, silently, forever.
 0302-devtools-lock.patch               # honours LaunchRestrictions.lock_devtools
+# Split out of 0302 rather than riding inside it: different vector, disjoint
+# files, and one patch per vector is what keeps a rebase conflict localisable.
+# lock_data_export was the other switch launcher.rs pushed into the void.
+#
+# THREE refusals, and the third is what makes the first two worth having. The
+# CSV export (PasswordManagerPorter::Export) and the bookmark HTML export
+# (bookmark_html_writer::WriteBookmarks) are the obvious bulk paths, and each is
+# refused at the function that does the work rather than at the button that
+# starts it — the settings page reaches both over Mojo, and a replayed message
+# or an extension holding the permission reaches them with no button at all.
+#
+# The third is PasswordsPrivateDelegateImpl::RequestPlaintextPassword. Reading
+# credentials out one at a time is the same leak as exporting them in a batch,
+# only slower, and it is reachable from chrome://settings whether or not
+# chrome://password-manager is disabled — _api_features.json exposes
+# passwordsPrivate to both hosts. Blocking the WebUI host alone would have
+# demoed perfectly and protected nothing.
+#
+# NOT VERIFIED on a running browser, and that is a gap rather than an omission:
+# all three paths are WebUI or extension surfaces a page cannot reach, so
+# core/verify has no way to drive them over CDP today. The build proves the
+# refusals compile into the binary; nothing yet proves they fire. Deliberately
+# not claimed as done.
+#
+# The file-download whitelist clause in docs/04 is NOT covered here. It is a
+# DownloadPrefs / download-target problem and belongs to its own number.
+0303-data-export-lock.patch
 
 # --- branding ---------------------------------------------------------------
-0900-branding.patch
+# NOT WRITTEN, and blocked on assets rather than on code. The change itself is
+# data, not source: chrome/app/theme/chromium/BRANDING is read by
+# build/util/branding.gni into chrome_product_full_name and the mac bundle id,
+# and everything macOS-facing derives from those — the .app, the .framework, the
+# helper bundles, CFBundleIdentifier, the runtime framework lookup, the crash
+# annotation. No file in chrome/BUILD.gn, app-Info.plist or chrome_constants.cc
+# needs touching. A second edit to chromium_strings.grd covers the About box and
+# chrome://version.
+#
+# What blocks it: the icons. chrome/BUILD.gn bundles app.icns AND Assets.car AND
+# Assets.xcassets/AppIcon.icon, and shipping a rename with Chromium's own icons
+# is worse than not renaming. Those are a design deliverable.
+#
+# THE RULE THAT GOVERNS THIS PATCH, written here so it cannot be lost: nothing a
+# PAGE can read may move. The user agent, navigator.appName, navigator.vendor
+# and the Sec-CH-UA brand list belong to 0011 and must keep saying Chrome.
+# Branding here means what the USER and the OPERATING SYSTEM see, and nothing
+# else. A rename that reaches a page is a detection vector, not branding.
+#
+# And a trap worth knowing before the first attempt: ninja does not delete
+# Chromium.app when the output name changes, so both bundles sit in the output
+# directory afterwards and anyone testing the old path reports that the patch
+# did nothing.
+# 0900-branding.patch
+#
+# ONE LINE, and it closes the last endpoint the browser contacts on its own.
+#
+# Measured against the launch flags we already pass: --disable-background-
+# networking stops the Safe Browsing DATABASE downloading
+# (v4_update_protocol_manager.cc:106-109), but the per-download client report
+# still goes to a hardcoded sb-ssl.google.com URL that no API key gates. So the
+# browser has been protecting nothing while chrome://settings reported Standard
+# protection and while the pings kept leaving. Defaulting kSafeBrowsingEnabled
+# to false removes the traffic and the contradiction together.
+#
+# The pref and NOT the URL constant: download_protection_delegate_desktop.cc
+# CHECKs the constructed URL is valid, so blanking the constant crashes the
+# browser at startup. The pref is also the one gate that client-side phishing,
+# the ping manager, notification telemetry and password protection all read.
+#
+# It sets a DEFAULT. A profile whose Preferences already carry
+# safebrowsing.enabled keeps its own value — Fury creates profiles fresh, so the
+# default is what every new one gets.
 0901-disable-google-services.patch
