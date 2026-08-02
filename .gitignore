@@ -57,3 +57,8 @@ data/
 tmp/
 *.sqlite
 *.sqlite-*
+
+# Icons are generated from assets/icon.png by assets/generate.sh. The sources
+# are committed; the derived sizes are not, so that nobody edits one of them
+# separately and ships an app with two different logos.
+core/branding/
