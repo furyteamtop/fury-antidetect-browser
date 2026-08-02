@@ -1,7 +1,13 @@
 # 02 — Поверхность отпечатка
 
 Полная карта того, что измеряют антибот-системы, и где в исходниках Chromium это править.
-Пути указаны от корня `src/` и актуальны для текущего stable; при ребейзе проверяются заново.
+Пути указаны от корня `src/` и проверены по дереву в `core/src` (Chromium 150.0.7871.187,
+`core/CHROMIUM_VERSION`) 02.08.2026; при ребейзе проверяются заново — прошлая ревизия этого
+файла пережила M150 с тремя путями, которых в дереве уже не было.
+
+Где указан номер патча — это место, которое действительно правится, и его надо сверять с
+`core/patches/series`: там же записано, почему часть векторов патчить НЕ надо. Где номера
+нет — это место, где вектор живёт, а не решение его трогать.
 
 ## Почему нельзя JS-инжектом
 
@@ -76,16 +82,45 @@ net/socket/ssl_client_socket_impl.cc:207   SSL_CTX_set_grease_enabled(ctx_, 1);
 
 ### HTTP/3 / QUIC
 
-Отдельный отпечаток (initial packet, transport parameters). В v1 проще **отключить QUIC**
-(`--disable-quic`), чем поддерживать. Но: реальный Chrome QUIC использует, и его отсутствие
-на Google-сервисах слегка заметно. В v2 — приводить к эталону.
+Отдельный отпечаток (initial packet, transport parameters). Патча нет и не планируется:
+`--disable-quic` из `agent/src/launcher.rs:127` попадает ровно в то поле, которое задал бы
+патч, поэтому патч 0230 здесь избыточен, а не ошибочен — снят с плана, разбор в
+`core/patches/series`.
+
+Чего записывать нельзя — что это паритет. Это не паритет: настоящий Chrome 150 поднимает
+HTTP/3 с любым сервером, который его предлагает, а Fury — никогда. Отклонение реальное и
+незакрытое, и со стороны сервера его видит **любой**, кто анонсирует `Alt-Svc` и смотрит,
+апгрейдится ли клиент, а не только Google.
+
+Владелец проблемы — прокси, не ядро: `agent/src/relay.rs` говорит HTTP CONNECT и SOCKS5
+CONNECT, оба TCP, а QUIC — UDP и прошёл бы мимо (та же дыра, которую 0070 только что закрыл
+для WebRTC). Архитектурно выход не заблокирован, вопреки более ранней записи: проксирование
+QUIC упирается в один GN-дефолт — `net/features.gni:70` задаёт
+`enable_quic_proxy_support = is_debug`, а `core/args/macos-arm64.gn:8` ставит `is_debug = false`.
+MASQUE-клиент (RFC 9298, UDP поверх HTTP/3) собран в бинарник безусловно —
+`net/BUILD.gn:923-924` перечисляет `quic/quic_proxy_datagram_client_socket.{cc,h}` без
+buildflag-гарда. То есть дорога наружу — GN-арг плюс MASQUE-совместимый relay, а не патч
+Chromium и не SOCKS5 UDP ASSOCIATE.
 
 ### HTTP-заголовки
 
 Порядок, регистр, `Accept`, `Accept-Language`, `Accept-Encoding`, и весь набор Client Hints:
 `Sec-CH-UA`, `-Mobile`, `-Platform`, `-Platform-Version`, `-Arch`, `-Bitness`, `-Model`,
 `-Full-Version-List`, `-WoW64`.
-Правится в `net/http/http_request_headers.cc`, `services/network/public/cpp/`.
+Правится не там, где кажется, и в двух разных местах.
+
+`Accept-Language` собирается в //net из профильной преференции, а не из
+`navigator.languages`: патч 0010 перехватывает `HttpUtil::GenerateAcceptLanguageHeader` в
+`net/http/http_util.cc` и подставляет список **на входе**, чтобы лесенку q-значений
+по-прежнему строил код Chromium. Найдено измерением, а не чтением: пока патчился только
+Blink, профиль, настроенный на en-US,en, продолжал слать `Accept-Language: ru-RU,ru;q=0.9`.
+
+Весь набор `Sec-CH-UA-*` вместе со строкой User-Agent — патч 0011 и один файл,
+`components/embedder_support/user_agent_utils.cc`: `GetUserAgentMetadata()` — единственный
+источник и для заголовков, и для `navigator.userAgentData`, поэтому разъехаться они не
+могут по построению.
+
+`net/http/http_request_headers.cc` и `services/network/public/cpp/` серией не трогаются.
 
 > **Обязательно:** значения Client Hints в заголовках и в `navigator.userAgentData
 > .getHighEntropyValues()` должны исходить из одного источника. Расхождение — мгновенный
@@ -104,14 +139,16 @@ TTL, window size, MSS, порядок TCP-опций (p0f). **Из браузе�
 
 | Свойство | Где |
 |---|---|
-| `userAgent`, `appVersion`, `platform`, `oscpu`, `vendor` | `content/common/user_agent.cc`, `third_party/blink/renderer/core/frame/navigator*.cc` |
-| `userAgentData` + `getHighEntropyValues()` | `blink/renderer/core/frame/navigator_ua_data.cc` |
+| `userAgent`, `appVersion`, `vendor` | `components/embedder_support/user_agent_utils.cc` — патч 0011. **`content/common/user_agent.cc` в M150 не существует**; `BuildUserAgentFromProduct` объявлен в `user_agent_utils.h:117` |
+| `platform` | `third_party/blink/renderer/core/execution_context/navigator_base.cc` — патч 0010. `NavigatorBase` живёт в `core/execution_context/`, не в `core/frame/` |
+| `oscpu` | **Вектора нет.** Свойство Firefox: `grep -rn oscpu third_party/blink/renderer/` даёт ноль совпадений. Chrome его не отдаёт, и добавлять нечего |
+| `userAgentData` + `getHighEntropyValues()` | Не в Blink. Патч 0011, `components/embedder_support/user_agent_utils.cc`: `GetUserAgentMetadata()` — единственный источник и для `Sec-CH-UA-*`, и для `navigator.userAgentData`, поэтому UA-строку и Client Hints нельзя подменять раздельно. `navigator_ua_data.cc` только отдаёт то, что ему прислали, и патча не несёт |
 | `hardwareConcurrency` | `blink/renderer/core/frame/navigator_concurrent_hardware.cc` |
 | `deviceMemory` | `blink/renderer/core/frame/navigator_device_memory.cc` |
 | `maxTouchPoints` | `blink/renderer/core/frame/navigator.cc` |
 | `languages`, `language` | `blink/renderer/core/frame/navigator_language.cc` |
 | `plugins`, `mimeTypes`, `pdfViewerEnabled` | **Патч не нужен.** Измерено 31.07.2026: наша сборка отдаёт те же 5 записей и те же строки, что настоящий Chrome 150. С Chrome 94 список захардкожен и одинаков на всех установках, то есть энтропии на машину не несёт вовсе. Подмена сделала бы нас **отличными** от Chrome |
-| `webdriver` | `blink/renderer/core/frame/navigator_automation_information.cc` |
+| `webdriver` | `third_party/blink/renderer/core/frame/navigator.cc:102`, `Navigator::webdriver()` — патч 0300, по умолчанию выключен (ключ `automation.hideTraces`). Файла `navigator_automation_information.cc` в M150 нет — есть только одноимённый `.idl` |
 | `connection` (NetworkInformation) | `blink/renderer/modules/netinfo/` |
 | `storage.estimate()` | `blink/renderer/modules/quota/` — квота должна биться с deviceMemory |
 | `keyboard.getLayoutMap()` | `blink/renderer/modules/keyboard/` — **раскладка обязана биться с locale** |
@@ -163,7 +200,15 @@ TTL, window size, MSS, порядок TCP-опций (p0f). **Из браузе�
 
 ### WebGPU
 
-Патч: `blink/renderer/modules/webgpu/gpu_adapter.cc`, `gpu_device.cc`.
+Патч 0032: `blink/renderer/modules/webgpu/gpu_adapter.cc` и `gpu_supported_limits.cc`.
+`gpu_device.cc` не трогается — лимиты подставляются через тот же X-макрос `SUPPORTED_LIMITS`,
+из которого сгенерированы геттеры, поэтому новый лимит из upstream покрывается сам, как
+только появляется в списке.
+
+Features можно только **сужать**. Убрать честно: `requestDevice()` после этого падает ровно
+так же, как на железе без этой возможности. Добавить — значит объявить то, чего драйвер не
+умеет, и упасть способом, которым не падает ни одна реальная машина; это хуже той утечки,
+которую закрывали.
 
 `requestAdapter()` → `adapter.info` (`vendor`, `architecture`, `device`, `description`),
 `adapter.limits` (~30 числовых лимитов), `adapter.features` (Set).
@@ -185,7 +230,17 @@ WebGL, но оставляют WebGPU нетронутым — и лимиты �
 
 ### Шрифты
 
-Патч: `blink/renderer/platform/fonts/`, платформенные `font_cache_mac.mm` / `font_cache_win.cc`.
+Патч 0050: `blink/renderer/platform/fonts/font_cache.cc` (фильтр в `FontCache::GetFontData`) и
+`font_fallback_list.cc` — платформенно-независимо. Платформенные файлы не трогаются, и
+`font_cache_win.cc` в M150 не существует: есть `fonts/win/font_cache_skia_win.cc` и
+`fonts/mac/font_cache_mac.mm`.
+
+Одно исключение внутри фильтра несущее: last-resort-поиск (`AlternateFontName::kLastResort`)
+пропускается мимо фильтра. `GetLastResortFallbackFont` просит конкретные семейства по имени —
+Times, Segoe UI, что там у платформы за пол, — и профиль, в списке которого их нет, получил бы
+отказ и на них тоже, после чего Blink остаётся без шрифта и просто ничего не рисует. Найдено
+запуском Windows-профиля на macOS-хосте: страница отрисовала подписи и не отрисовала значения.
+Фильтр может сужать, но не до нуля — то же правило, что у фильтра голосов в 0041.
 
 Три разных теста, и подделка только первого не спасает:
 1. `document.fonts.check('12px "Some Font"')` — прямая проверка наличия.
@@ -200,17 +255,33 @@ WebGL, но оставляют WebGPU нетронутым — и лимиты �
 
 ### Ограничение, обнаруженное измерением (патч 0050)
 
-**Шрифты можно только убирать, но не добавлять.** Проверено 31.07.2026:
-Windows-персона на 34 шрифта, запущенная на macOS, где реально установлено 43
-других, даёт **12** — ровно пересечение множеств. Синтезировать Segoe UI на
-машине без него невозможно: фильтр в `FontCache::GetFontData` умеет вернуть
-`nullptr`, но не умеет породить глиф.
+**Шрифты можно только убирать, но не добавлять.** Синтезировать Segoe UI на машине без
+него невозможно: фильтр в `FontCache::GetFontData` умеет вернуть `nullptr`, но не умеет
+породить глиф.
+
+Измерено на снятом прогоне. Windows-персона на 34 шрифта
+(`shared/personas/windows-11-rtx4060-1920x1080.json`), запущенная на macOS, где измерением
+видно 43 других (`tools/detect-suite/baselines/chrome-150-macos-arm64-redacted.json`,
+`fonts.countByMeasurement: 43`), даёт **11**
+(`tools/detect-suite/baselines/gate-persona-redacted.json`). Пересечение множеств при этом
+равно 12, и разницу стоит записать, потому что она не про фильтр.
+
+Выпадает Times New Roman, и выпадает он из способа измерения. Проба меряет кандидата против
+трёх родовых семейств и считает шрифт найденным, если ширина отличается хоть от одного
+(`tools/detect-suite/probe.js:563-583`). После фильтрации Menlo и Helvetica с хоста убраны, и
+все три родовых семейства съезжают на last-resort: `fonts.baselineWidths` в этом снимке —
+`{monospace: 1146.199, sans-serif: 1146.199, serif: 1146.199}` против
+`{953.648, 1188.809, 1146.199}` у настоящего Chrome 150. Ширина Times New Roman совпадает с
+базовой по всем трём, и проба его не видит.
+
+Побочный вывод, который тут же и запишем: у настоящего Chrome три родовых семейства меряются
+тремя разными ширинами, у кросс-ОС персоны — одной. Это отдельный признак, и он не закрыт.
 
 Тот же принцип, что с features WebGPU в патче 0032: убрать честно, добавить
 нельзя.
 
 **Практическое следствие для базы персон:** персону надо подбирать под семейство
-ОС хоста. Windows-персона на Mac заявляет Windows и показывает 12 шрифтов вместо
+ОС хоста. Windows-персона на Mac заявляет Windows и показывает 11 шрифтов вместо
 типичных 30-40 — это само по себе аномалия. Кросс-ОС персоны потребуют либо
 поставки шрифтов вместе с профилем, либо правила «персона той же ОС, что хост».
 Валидатор в `shared-rs` обязан это проверять, и пока не проверяет.
@@ -244,16 +315,62 @@ Windows-персона на 34 шрифта, запущенная на macOS, г
 `Intl.Collator`, `Intl.NumberFormat`, `Intl.DisplayNames`, `Intl.ListFormat`,
 `navigator.geolocation`.
 
-Патч: `0080` таймзона через ICU, `0081` локаль через `LocaleController`.
-V8 берёт таймзону из ICU — надёжнее задавать через `ICU_TIMEZONE` на уровне процесса и
-дополнительно патчить, чтобы `TZ` из окружения не протекала.
+Патч `0080` — таймзона, `0081` — локаль. Оба через контроллеры Chromium, не через окружение:
+переменной `ICU_TIMEZONE` не существует, единственная похожая —
+`ICU_TIMEZONE_FILES_DIR` (`base/i18n/icu_util.cc:100`), и она указывает на каталог с данными,
+а не на зону.
+
+`0080` — `blink/renderer/core/timezone/timezone_controller.cc`, вызов
+`SetIcuTimeZoneAndNotifyV8` в `TimeZoneController::Init()` при старте рендерера, до первого
+скрипта страницы. Оно перенимает ICU-дефолт и зовёт `WorkerThread::CallOnAllWorkerThreads`,
+поэтому `Intl.DateTimeFormat().resolvedOptions().timeZone` и `getTimezoneOffset()` совпадают
+в главном фрейме и в каждом воркере: таймзона, подменённая только на главном потоке, —
+противоречие, которое страница находит одной строкой внутри Worker. Значение записывается
+как `override_timezone_id_`, поэтому смена таймзоны хоста его не перебьёт.
+
+`0081` — `blink/renderer/core/inspector/locale_controller.cc` и `core/core_initializer.cc`, и
+написан он после того, как его ошибочно сняли с плана. Снимали по трассе, из которой следовало,
+что `--lang` и так задаёт ICU-локаль в каждом процессе. Трасса верна для Windows и неверна для
+macOS, и чтобы это увидеть, надо было собрать: с `--lang=de` и загруженными немецкими ресурсами
+`Intl.DateTimeFormat().resolvedOptions().locale` отдавал `"ru"` — язык хоста, — а
+`(123456.789).toLocaleString()` выходил `"123 456,789"`. С патчем та же сборка отдаёт `"de"` и
+`"123.456,789"`. `LocaleController` — собственный ответ Chromium на «пусть все контексты
+согласятся о локали»: он уведомляет каждый изолят и каждый воркерный поток.
+
+`--lang` лончер по-прежнему передаёт, и это не дублирование: он решает язык интерфейса
+браузера, патч — факт, который читает страница. Немецкий выход с русскими меню — свой
+собственный шов.
 
 Гео — не Blink. `blink/renderer/modules/geolocation/` в M150 больше нет, а править
 `core/geolocation/` всё равно было бы неверно: патч `0082` подставляет
 `device::LocationProvider` через `ContentBrowserClient::OverrideSystemLocation
-Provider()`, то есть ровно туда, где стоит CoreLocation. Всё, что выше — кеш,
-разрешения, отказы — остаётся стоковым Chromium. Координаты берутся из того же
-запроса, что и таймзона, поэтому часы и позиция не могут разойтись.
+Provider()` (подключено через `custom_location_provider_callback` в
+`content/browser/device/device_service.cc:109`), то есть ровно туда, где стоит CoreLocation.
+Кеш, хендшейк `QueryNextPosition` и все пути отказа остаются стоковым Chromium.
+
+А вот **разрешение ОС стоковым не остаётся**, и это ровно та часть, без которой первая версия
+патча применялась, линковалась и не делала ничего. На macOS и Windows у ОС своё мнение о том,
+может ли приложение читать местоположение, и Chromium спрашивает её ПЕРВОЙ:
+`GeolocationProviderImpl::OnClientsChanged` выходит раньше, чем запустит хоть один провайдер,
+пока системный статус не `kAllowed` (`geolocation_provider_impl.cc:297-300`). На Mac, который
+никогда не давал этому бинарнику доступ к Location Services, кастомный провайдер создаётся,
+стартует и не получает ни одного запроса — каждый вызов кончается «Timeout expired» при
+совершенно исправной позиции в конфиге. Поэтому патч возвращает `nullptr` из
+`GetGeolocationSystemPermissionManager()`, когда позиция задана: конструктор уходит в другую
+ветку и записывает `kAllowed`. Оба решения читают один предикат,
+`FuryLocationProvider::ConfiguredFix` — на Apple платформенный провайдер CHECK'ает наличие
+менеджера, и недостижим он только потому, что кастомный провайдер переводит режим в
+`kCustomOnly`; убрать менеджер, не подставив провайдер, — краш на первом же запросе позиции.
+Разрешение, которое защищает пользователя (пузырь на странице), — слоем выше и не тронуто;
+случай отказа проверяется в `core/verify/verify-0082.py`.
+
+Позиция переиздаётся раз в секунду, и это не сердцебиение ради сердцебиения: Blink держит по
+одному незакрытому `QueryNextPosition` на фрейм, поэтому `getCurrentPosition`, выданный при
+открытом `watchPosition`, ждёт СЛЕДУЮЩЕГО обновления. Единственная выдача оставляла его
+висеть — измерено, исправлено, измерено ещё раз.
+
+Координаты берутся из того же запроса, что и таймзона (`agent/src/ipc.rs:1189-1190`), поэтому
+часы и позиция не могут разойтись.
 
 Всё выводится из IP прокси автоматически. Правило: **никогда не запускать профиль,
 если таймзона не совпадает с гео IP** — это самый дешёвый и самый распространённый детект.
@@ -265,7 +382,20 @@ Provider()`, то есть ровно туда, где стоит CoreLocation. 
 
 Классическая нестыковка headless: `Notification.permission === 'denied'`, но
 `permissions.query({name:'notifications'}).state === 'prompt'`. У реального браузера они
-согласованы. Патч: `blink/renderer/modules/permissions/`.
+согласованы. Патч 0090 и **два файла, которые нельзя разделять**:
+`blink/renderer/modules/permissions/permissions.cc` и
+`blink/renderer/modules/notifications/notification.cc`. Найдено измерением после того, как
+первая версия уже уехала: пропатчили только Permissions API — получили `query="denied"` при
+`Notification.permission="default"`, то есть в точности то headless-противоречие, ради поимки
+которого эта проверка и существует. Две API называют одни и те же состояния разными словами
+(`prompt` против `default`), поэтому отображение живёт в коде, а не в общей константе.
+
+Подстановка работает **только пока настоящее разрешение не выдано**
+(`PermissionStatus::ASK`). Безусловной она была в первой версии, и ложью её сделал 0082: с
+работающей геолокацией сайт мог показать запрос, увидеть, как пользователь жмёт «Разрешить»,
+получить координаты и тут же прочитать `prompt` из `permissions.query` на той же странице.
+Персона описывает профиль, в котором никто ни на один запрос не отвечал; перебивать ответ,
+который пользователь дал, она права не имеет.
 
 ### CSS media features
 
@@ -274,7 +404,18 @@ Provider()`, то есть ровно туда, где стоит CoreLocation. 
 
 Плюс **ширина скроллбара**: `document.documentElement.clientWidth` vs `window.innerWidth`.
 На Windows разница ~15-17 px, на macOS с overlay-скроллбарами — 0. Выдаёт ОС мгновенно.
-Патч: `blink/renderer/core/css/media_values.cc`, `blink/renderer/core/layout/`.
+Патч на сами media features **не нужен**: 0100 снят с плана по измерению — ноль различий по
+всем 21 фиче, которые снимает проба. `prefers-color-scheme` действительно пользовательский и
+позволил бы связать два профиля на одной машине, но несёт около одного бита, и тратить патч
+вместе с его ценой при ребейзе на один бит рано, пока не закрыты векторы с большей энтропией.
+
+Ширина скроллбара — отдельный вектор и отдельный патч 0021,
+`blink/renderer/core/scroll/scrollbar_theme_mac.cc`; ни `media_values.cc`, ни `core/layout/`
+не трогаются. Подмены две и они обязаны ехать вместе: `ScrollbarThickness` и
+`UsesOverlayScrollbars`. Overlay-скроллбар не занимает места в раскладке, поэтому ширина,
+которую раскладка не резервирует, — не ширина вовсе, и страница по-прежнему намеряет 0.
+Пока только macOS; для Windows нужны те же две подмены в `scrollbar_theme_aura.cc` /
+`scrollbar_theme_fluent.cc`.
 
 ### Прочее
 
@@ -309,9 +450,19 @@ Provider()`, то есть ровно туда, где стоит CoreLocation. 
 - `Worker`, `SharedWorker`, `ServiceWorker`;
 - `Worklet` (audio/paint/layout).
 
-Практически: конфиг отпечатка должен доезжать до каждого нового `RenderProcessHost` и
-инициализировать каждый новый V8 isolate. Место — `content/renderer/render_thread_impl.cc`
-и `blink/renderer/core/execution_context/`.
+Практически: конфиг отпечатка должен доезжать до каждого нового процесса-ребёнка. Место —
+патч 0001 и два файла. Браузер читает JSON с унаследованного дескриптора (`--fury-fp-fd=3`,
+номер в argv, содержимое — нет) в `content/app/content_main_runner_impl.cc`, а затем
+перепубликовывает его в read-only shared memory и раздаёт детям через
+`base::shared_memory::SharedMemorySwitch` в
+`content/browser/child_process_launcher_helper.cc` — тот же механизм, которым Chromium уже
+раздаёт field trials. В argv едет только непрозрачный хендл: полная персона в командной
+строке видна любому процессу на машине через `ps`.
+`content/renderer/render_thread_impl.cc` серией не трогается.
+
+Проверено на снятом прогоне, а не выведено: пять контекстов — `main`, `worker` и три вида
+iframe (`same-origin`, `about:blank`, `srcdoc`), `crossContext.disagreementCount: 0`
+(`tools/detect-suite/baselines/gate-persona-redacted.json`).
 
 **Это главный источник дыр.** В тест-плане ([07](07-detection-baseline.md)) каждая проверка
 прогоняется во всех контекстах, а не только в главном фрейме.
@@ -320,13 +471,37 @@ Provider()`, то есть ровно туда, где стоит CoreLocation. 
 
 ## Слой 4. Следы автоматизации
 
-Даже без CDP-подключения нужно убрать:
+Список пришлось переписать по измерениям: из пяти пунктов три оказались несуществующими.
 
-- `cdc_`-переменные ChromeDriver в `window`;
-- реакцию на `Runtime.enable` (детект через `console.debug` + геттер на `Error.stack`);
-- `--enable-automation` в поведении и infobar;
-- отличия в `navigator.webdriver` между контекстами;
-- `document.$cdc_asdjflasutopfhvcZLmcfl_`.
+- `navigator.webdriver` — единственное, что здесь реально патчится. 0300,
+  `Navigator::webdriver()` в `blink/renderer/core/frame/navigator.cc:102`, и по умолчанию
+  ВЫКЛЮЧЕНО: ключ `automation.hideTraces`, ненастроенная сборка остаётся честной. Смысл в
+  том, что без него оператор выбирает между «автоматизировать аккаунт» и «сохранить его».
+- `cdc_`-переменные ChromeDriver и `document.$cdc_asdjflasutopfhvcZLmcfl_` — **убирать нечего**.
+  Их ставит ChromeDriver, а Fury его не использует. Измерено: `engine.automation.cdcVars` и
+  `documentCdc` пусты и у нас, и у чистого Chromium 150, и у настоящего Chrome 150
+  (`tools/detect-suite/baselines/*-redacted.json`). Проба снимает их как контроль.
+- `--enable-automation` лончер не передаёт (`agent/src/launcher.rs`), поэтому ни поведения,
+  ни infobar'а нет.
+- Классический «детект `Runtime.enable`» **не воспроизводится**. На M150, с включённым и
+  выключенным `Runtime.enable`, в нашей сборке И в настоящем Chrome 150: геттер на
+  логируемом объекте не срабатывает, геттер на `Error.prototype.stack` не срабатывает, а
+  `console.log` регулярного выражения зовёт `toString` во всех конфигурациях, включая
+  «CDP не подключён».
+- Что воспроизводится — тайминг: `console.debug` объекта на 500 ключей 200 раз занимает
+  0.9 мс без инспектора и 11.7 мс с подключённым (настоящий Chrome: 0.6 → 10.2). Одинаково
+  в обоих браузерах, то есть детектится «CDP подключён» — ровно то, что скрывают, когда
+  оператор ведёт профиль.
+- Единственная предметная утечка уже, и она **не закрыта**: сериализация `Error` в консоли
+  читает `.stack`, запуская `Error.prepareStackTrace` страницы. Из Blink не закрывается —
+  preview-путь читает свойство собственным `object->Get` в `value-mirror.cc`, мимо любого
+  embedder-хука, так что патч на стороне Blink применится, соберётся, слинкуется и всё равно
+  потечёт. Покрывает обоих читателей только `v8/src/inspector`, а //v8 — отдельный
+  gclient-проект, из которого нет пути к `//components/fury`. Патч 0301 поэтому не написан, и
+  это записано, а не сделано наполовину.
+
+Когда пользователь **сознательно** подключается через Local API — CDP включён, и это
+нормально: он сам решает, куда так ходить. Но по умолчанию профиль должен быть чист.
 
 Когда пользователь **сознательно** подключается через Local API — CDP включён, и это нормально:
 он сам решает, куда так ходить. Но по умолчанию профиль должен быть чист.
