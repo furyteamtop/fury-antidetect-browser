@@ -152,12 +152,15 @@ export function Settings({
                       Nothing else has to change for it to work: `signup` already
                       saves the server address and stores the session token, so
                       the account is created AND signed into in one step. */}
-                  <button type="button" className="linky" onClick={onSignup}>
-                    {t("signup.start")}
-                  </button>
-                  <button type="button" className="linky" onClick={onEnrol}>
-                    {t("enrol.have")}
-                  </button>
+                  <div className="subActions">
+                    <span className="lead">{t("set.orElse")}</span>
+                    <button type="button" className="linky" onClick={onSignup}>
+                      {t("signup.start")}
+                    </button>
+                    <button type="button" className="linky" onClick={onEnrol}>
+                      {t("enrol.have")}
+                    </button>
+                  </div>
                   <SelfHosting />
                 </>
               ) : (
@@ -270,9 +273,10 @@ function SelfHosting() {
   };
 
   return (
-    <>
+    <div className="guide">
       <button type="button" className="linky" onClick={() => setOpen(!open)}>
-        {open ? t("host.hide") : t("host.show")}
+        <span aria-hidden="true" className="disclosure">{open ? "\u25be" : "\u25b8"}</span>{" "}
+        {t("host.show")}
       </button>
       {open && (
         <div style={{ maxWidth: 620 }}>
@@ -310,7 +314,7 @@ function SelfHosting() {
           <p className="hint">{t("host.note")}</p>
         </div>
       )}
-    </>
+    </div>
   );
 }
 

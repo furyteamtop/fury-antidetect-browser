@@ -757,6 +757,63 @@ input::placeholder {
   align-items: center;
 }
 
+/* The two other ways onto a server, under the address field they are
+ * alternatives to.
+ *
+ * They were three bare .linky buttons in a row with four pixels of padding
+ * each, so they ran together into one grey sentence with a stray white phrase
+ * at the end — and the third was not even a sibling of the other two. These
+ * are: "create an account" and "I have an invitation" both end with a session
+ * on a server, while "how to run your own" opens a set of instructions and
+ * changes nothing. Different kinds, so they are laid out as different kinds. */
+.subActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-3);
+  align-items: baseline;
+  margin-top: var(--s-2);
+}
+
+.subActions .linky {
+  padding: 0;
+  font-size: 13px;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+}
+
+.subActions .linky:hover:not(:disabled) {
+  text-decoration-color: var(--accent);
+}
+
+.subActions .lead {
+  color: var(--text-faint);
+  font-size: 13px;
+}
+
+/* The guide is not a fourth action. It sits below a rule, opens in place, and
+ * is the only thing here that does not end in an account. */
+.guide {
+  margin-top: var(--s-4);
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--line);
+}
+
+.guide > .linky {
+  padding: 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+/* The triangle carries the state, so the label can keep saying what the section
+ * IS. It said "Hide" while open, which is a stray verb at the top of a block of
+ * instructions with nothing to say what the block is. */
+.disclosure {
+  display: inline-block;
+  width: 1em;
+  color: var(--text-faint);
+}
+
 .modalFoot {
   display: flex;
   align-items: center;

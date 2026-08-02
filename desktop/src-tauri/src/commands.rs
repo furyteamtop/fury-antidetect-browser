@@ -2009,8 +2009,19 @@ pub async fn save_server_kit(dir: String) -> Result<serde_json::Value, ApiErr> {
         if path.is_absolute() || path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
             return Err(ApiErr::local(format!("The kit contains an unsafe path: {}", path.display())));
         }
+        // The parent has to exist first. tar::Entry::unpack writes exactly the
+        // path it is given and does not create directories on the way, so the
+        // very first entry — server/Cargo.toml — failed with "failed to unpack
+        // into .../fury-server/server/Cargo.toml" on a directory that was never
+        // made. Found by pressing the button; the code and the types were happy.
+        let target = dir.join(&path);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                ApiErr::local(format!("Could not create {}: {e}", parent.display()))
+            })?;
+        }
         entry
-            .unpack(dir.join(&path))
+            .unpack(&target)
             .map_err(|e| ApiErr::local(format!("Could not write {}: {e}", path.display())))?;
         count += 1;
     }
