@@ -126,6 +126,34 @@ impl Agent {
         // it asks while the agent is already listening rather than instead of.
         store.vault_handle().prime();
 
+        // Put the CDM where the browser looks, if this machine has one to give.
+        //
+        // Never fatal, and never blocking a launch: a machine with no Chrome
+        // installed is a machine that gets a browser without DRM, which is a
+        // detectable browser but a working one. Refusing to start over it would
+        // trade a fingerprint problem for an outage.
+        //
+        // Done once at startup rather than per launch — it is a file copy of
+        // about 19 MB, it is idempotent, and doing it while a user waits for a
+        // profile to open would be felt.
+        if let Some(core) = crate::core_binary() {
+            match crate::widevine::destination_for(&core) {
+                Some(dest) => match crate::widevine::stage(&dest) {
+                    Ok(s) => tracing::info!(
+                        bytes = s.bytes,
+                        from = %s.from.display(),
+                        "staged the Widevine CDM from the Chrome on this machine"
+                    ),
+                    Err(e) => tracing::warn!(
+                        error = %e,
+                        "no Widevine CDM staged — DRM video will not play, and \
+                         requestMediaKeySystemAccess will refuse where real Chrome accepts"
+                    ),
+                },
+                None => tracing::warn!("could not work out where the CDM belongs for this core"),
+            }
+        }
+
         Ok(Arc::new(Self {
             store,
             running: Mutex::new(HashMap::new()),

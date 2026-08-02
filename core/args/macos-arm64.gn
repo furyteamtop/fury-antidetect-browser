@@ -53,10 +53,16 @@ enable_hangout_services_extension = false
 # installed on that machine — legal, because it is already there, and not
 # redistributable, because it never leaves.
 #
-# The unsolved half, stated so it is not mistaken for solved: a user who
-# installs a Fury binary built this way gets a browser that fails the DRM check
-# until they stage a CDM from their own Chrome. That staging step needs to
-# happen at install time and it does not exist yet.
+# The staging step now exists: agent/src/widevine.rs copies the CDM out of the
+# Chrome already installed on the user's machine when the agent starts, into the
+# same layout bundle_widevine_cdm would have produced. Nothing is redistributed
+# — the blob was already licensed onto that machine — and a build made from
+# these args therefore answers requestMediaKeySystemAccess the way real Chrome
+# does, on any machine that has Chrome.
+#
+# What is still true: a machine with NO Chrome installed gets a browser with no
+# CDM, which fails the gate's Widevine check. That is a detectable browser and a
+# working one, and it is the right trade — the alternative is refusing to start.
 enable_widevine = false
 
 # --- size --------------------------------------------------------------------

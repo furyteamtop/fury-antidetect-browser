@@ -1,5 +1,5 @@
 {
-  "__collectedInMs": 1032,
+  "__collectedInMs": 1006,
   "__probeVersion": "0.2.0",
   "__redacted": true,
   "__schema": 1,
@@ -278,7 +278,7 @@
         "dischargingTime": "Infinity",
         "level": 1
       },
-      "connectionDownlink": 1.6,
+      "connectionDownlink": 1.5,
       "connectionRtt": 150,
       "connectionSaveData": false,
       "connectionType": "4g",
@@ -293,9 +293,9 @@
       }
     },
     "nativeToString": "hardwareConcurrency:native,userAgent:native,width:native",
-    "performanceNowPrecision": 0,
+    "performanceNowPrecision": 0.10000002384185792,
     "toStringTag": "[object Navigator]",
-    "totalJSHeapSize": 7840572
+    "totalJSHeapSize": 8097212
   },
   "fonts": {
     "baselineWidths": {

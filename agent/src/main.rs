@@ -24,6 +24,7 @@ mod sync;
 mod tmp;
 mod transfer;
 mod vault;
+mod widevine;
 
 use std::time::Duration;
 
