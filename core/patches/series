@@ -391,11 +391,18 @@
 # forbidden from taking a profile's data home could open DevTools and read the
 # cookies out of it.
 #
-# TWO decision points, and locking one is worse than locking neither because it
-# looks done. GetEffectiveAvailability is the obvious one;
-# DeveloperToolsPolicyChecker::GetDevToolsAvailabilityForUrl answers kAllowed
-# for any URL in the allowlist preference and IsInspectionAllowed then returns
-# true, so a profile carrying that preference walks around the first guard.
+# FIVE guard points, and the first version had two. The two it had —
+# GetEffectiveAvailability and GetDevToolsAvailabilityForUrl — passed a test
+# that showed CDP being refused, and left the profile-file bypass wide open:
+# IsInspectionAllowed(profile, extension=nullptr), on kDisallowed, reads
+# prefs::kDeveloperToolsAvailabilityAllowlist STRAIGHT off the profile and
+# returns true when it is non-empty, never touching the policy checker. That
+# preference lives in the Preferences JSON inside the user-data-dir — the one
+# file the restricted operator is certain to have. One line in it and DevTools
+# came back. So the guard now sits on all five IsInspectionAllowed entry points,
+# ahead of any preference, and the bypass is a check in verify-0302.py: launch
+# locked, write {"devtools": {"availability_allowlist": ["*"]}} into the profile,
+# and it must still refuse.
 #
 # Enforced at the READ, not by seeding prefs::kDevToolsAvailability: that
 # preference lives in the Preferences JSON inside the user-data-dir, which is

@@ -44,8 +44,12 @@ def check(ok, text):
     print(f"  {'OK  ' if ok else 'FAIL'} {text}", flush=True)
 
 
-def launch(extra):
+def launch(extra, prefs=None):
     d = tempfile.mkdtemp(prefix="fury-0302-")
+    if prefs is not None:
+        os.makedirs(os.path.join(d, "Default"), exist_ok=True)
+        with open(os.path.join(d, "Default", "Preferences"), "w") as f:
+            json.dump(prefs, f)
     p = subprocess.Popen(
         [CORE, f"--user-data-dir={d}", "--remote-debugging-port=0",
          "--no-first-run", "--no-default-browser-check",
@@ -122,6 +126,25 @@ locked = attach_and_evaluate(port)
 print(f"  {json.dumps(locked)[:260]}")
 check(not (locked.get("attached") and locked.get("value")),
       f"a locked profile cannot be inspected over CDP: {json.dumps(locked)[:180]}")
+
+# The bypass this patch's FIRST version left open, and the reason there are five
+# guards rather than two.
+#
+# IsInspectionAllowed(profile, extension=nullptr) hits an arm that, on
+# kDisallowed, reads prefs::kDeveloperToolsAvailabilityAllowlist STRAIGHT off
+# the profile and returns true when it is non-empty — not through the policy
+# checker, so guarding GetEffectiveAvailability and GetDevToolsAvailabilityForUrl
+# left it wide open. That preference lives in the Preferences JSON inside the
+# user-data-dir, which is exactly the file a restricted operator has a copy of.
+# One line in it and DevTools came back.
+print("\n--- with the lock AND an allowlist written into the profile ---")
+p2, port2, d2 = launch([LOCK], prefs={"devtools": {"availability_allowlist": ["*"]}})
+bypass = attach_and_evaluate(port2)
+print(f"  {json.dumps(bypass)[:260]}")
+check(not (bypass.get("attached") and bypass.get("value")),
+      "editing the profile's own Preferences does not unlock it — the guard is "
+      "read from argv, which the operator cannot change after the browser starts")
+stop(p2, d2)
 
 # The remote-debugging listener may still answer /json/version — the refusal is
 # per-attach, in DevToolsAgentHostImpl::AttachInternal, not at the socket. Which

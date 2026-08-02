@@ -1,3 +1,104 @@
+diff --git a/chrome/browser/devtools/BUILD.gn b/chrome/browser/devtools/BUILD.gn
+index 802955898f..04806baafd 100644
+--- a/chrome/browser/devtools/BUILD.gn
++++ b/chrome/browser/devtools/BUILD.gn
+@@ -123,6 +123,7 @@ static_library("devtools") {
+     "//chrome/browser/ui/autofill",
+     "//chrome/browser/ui/dialogs",
+     "//chrome/browser/ui/select_file_policy",
++    "//components/fury",
+     "//components/page_load_metrics/browser",
+     "//components/page_load_metrics/browser/observers/ad_metrics",
+ 
+diff --git a/chrome/browser/devtools/devtools_availability_checker.cc b/chrome/browser/devtools/devtools_availability_checker.cc
+index 01b5f991e2..e5d1693c1a 100644
+--- a/chrome/browser/devtools/devtools_availability_checker.cc
++++ b/chrome/browser/devtools/devtools_availability_checker.cc
+@@ -7,6 +7,8 @@
+ #include <string>
+ 
+ #include "base/check.h"
++#include "base/command_line.h"
++#include "components/fury/fury_switches.h"
+ #include "base/notreached.h"
+ #include "base/values.h"
+ #include "chrome/browser/policy/developer_tools_policy_checker.h"
+@@ -84,8 +86,35 @@ bool IsRestrictedExtension(const extensions::Extension* extension,
+ 
+ }  // namespace
+ 
++namespace {
++
++// Patch 0302, and the guard that closes the hole the first version left.
++//
++// Locking DeveloperToolsPolicyHandler::GetEffectiveAvailability alone is not
++// enough, and the way it fails is worth stating exactly because it looked
++// finished. Forcing kDisallowed sends IsInspectionAllowed into the arm at the
++// bottom of this file which, when no specific context is given, reads
++// prefs::kDeveloperToolsAvailabilityAllowlist STRAIGHT off the profile and
++// returns true if it is non-empty — not through the policy checker, so neither
++// of the other two guards is on that path. That preference lives in the
++// Preferences JSON inside the user-data-dir, which is the one file a restricted
++// operator is guaranteed to have. One line in it and the devtools:// resources
++// load again.
++//
++// So the answer is asked here, at the five entry points every caller in
++// //chrome and //content funnels through, before any preference is consulted.
++bool FuryDevToolsLocked() {
++  return base::CommandLine::ForCurrentProcess()->HasSwitch(
++      fury::switches::kLockDevTools);
++}
++
++}  // namespace
++
+ bool IsInspectionAllowed(Profile* profile,
+                          content::DevToolsAgentHost* agent_host) {
++  if (FuryDevToolsLocked()) {
++    return false;
++  }
+   if (content::WebContents* web_contents = agent_host->GetWebContents()) {
+     return IsInspectionAllowed(profile, web_contents);
+   }
+@@ -93,6 +122,9 @@ bool IsInspectionAllowed(Profile* profile,
+ }
+ 
+ bool IsInspectionAllowed(Profile* profile, content::WebContents* web_contents) {
++  if (FuryDevToolsLocked()) {
++    return false;
++  }
+   if (!web_contents) {
+     // For contexts without web_contents, we can only check the general policy.
+     return IsInspectionAllowed(
+@@ -220,6 +252,9 @@ bool IsInspectionAllowed(Profile* profile, content::WebContents* web_contents) {
+ 
+ bool IsInspectionAllowed(Profile* profile,
+                          const extensions::Extension* extension) {
++  if (FuryDevToolsLocked()) {
++    return false;
++  }
+ #if BUILDFLAG(ENABLE_EXTENSIONS_CORE)
+   policy::DeveloperToolsPolicyChecker* checker =
+       policy::DeveloperToolsPolicyCheckerFactory::GetForBrowserContext(profile);
+@@ -278,6 +313,9 @@ bool IsInspectionAllowed(Profile* profile,
+ 
+ #if !BUILDFLAG(IS_ANDROID)
+ bool IsInspectionAllowed(Profile* profile, const web_app::WebApp* web_app) {
++  if (FuryDevToolsLocked()) {
++    return false;
++  }
+   if (web_app) {
+     policy::DeveloperToolsPolicyChecker* checker =
+         policy::DeveloperToolsPolicyCheckerFactory::GetForBrowserContext(
+@@ -318,6 +356,9 @@ bool IsInspectionAllowed(Profile* profile, const web_app::WebApp* web_app) {
+ #endif
+ 
+ bool IsInspectionAllowed(Profile* profile, const GURL& url) {
++  if (FuryDevToolsLocked()) {
++    return false;
++  }
+ #if BUILDFLAG(ENABLE_EXTENSIONS_CORE)
+   if (url.SchemeIs(extensions::kExtensionScheme)) {
+     if (const extensions::Extension* extension =
 diff --git a/chrome/browser/policy/BUILD.gn b/chrome/browser/policy/BUILD.gn
 index 2a2f6a0e0e..9780d98b9f 100644
 --- a/chrome/browser/policy/BUILD.gn
