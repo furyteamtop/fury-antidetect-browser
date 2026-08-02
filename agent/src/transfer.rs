@@ -346,6 +346,7 @@ mod tests {
             persona_id: "win11-rtx4060-1920x1080".into(),
             fp_seed: 0,
             proxy: None,
+            proxy_id: None,
             timezone: Some("Europe/Berlin".into()),
             languages: Some(vec!["de-DE".into()]),
             start_urls: vec![],

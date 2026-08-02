@@ -64,6 +64,8 @@ export interface Profile {
   /** Zero in team mode — the server never exposes a seed. */
   fp_seed: number;
   proxy: ProxySummary | null;
+  /** Which proxy, on the way IN. `proxy` above is what comes back OUT. */
+  proxy_id?: string | null;
   /** Null means "follow the proxy's exit", resolved at launch. */
   timezone: string | null;
   languages: string[] | null;

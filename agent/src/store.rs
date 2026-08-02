@@ -105,7 +105,27 @@ pub struct Profile {
     pub tags: Vec<String>,
     pub persona_id: String,
     pub fp_seed: i64,
+    /// The proxy in full, for a caller that is READING a profile: the list
+    /// wants a name and a country to show without a second request per row.
+    ///
+    /// Optional on the way in, and that is the whole point of the field below.
+    /// Writing a profile never used anything here but the id — see
+    /// `upsert_profile` — while serde required the entire struct, so a client
+    /// that sent `{"proxy": {"id": "..."}}` was refused with `missing field
+    /// \`name\``. Which is exactly what the desktop dialog sent, so creating a
+    /// profile with a proxy from it had never once worked. The error named a
+    /// field the caller had never heard of, on a form where the visible name
+    /// box was filled in.
+    #[serde(default)]
     pub proxy: Option<Proxy>,
+    /// What a caller WRITING a profile supplies: which proxy, and nothing else.
+    ///
+    /// Takes precedence over `proxy` above. A profile that carried a whole
+    /// proxy on the way in could also rewrite that proxy's host and password as
+    /// a side effect of being saved, which is not a thing saving a profile
+    /// should be able to do.
+    #[serde(default)]
+    pub proxy_id: Option<String>,
     /// `None` means "follow the proxy's exit" once that resolution lands.
     pub timezone: Option<String>,
     pub languages: Option<Vec<String>>,
@@ -651,7 +671,12 @@ impl Store {
         .bind(to_json_array(&p.tags))
         .bind(&p.persona_id)
         .bind(seed)
-        .bind(p.proxy.as_ref().map(|x| x.id.clone()))
+        .bind(
+            p.proxy_id
+                .clone()
+                .filter(|id| !id.is_empty())
+                .or_else(|| p.proxy.as_ref().map(|x| x.id.clone())),
+        )
         .bind(&p.timezone)
         .bind(p.languages.as_ref().map(|l| to_json_array(l)))
         .bind(to_json_array(&p.start_urls))
@@ -772,6 +797,10 @@ fn row_to_profile(r: sqlx::sqlite::SqliteRow) -> Profile {
         languages: r.get::<Option<String>, _>("languages").map(from_json_array),
         start_urls: from_json_array(r.get("start_urls")),
         last_opened_at: r.get("last_opened_at"),
+        // Reading: the id on its own as well as the whole proxy, so a caller
+        // that loads a profile, changes a field and saves it back sends the
+        // reference rather than a copy of somebody's credentials.
+        proxy_id: r.get::<Option<String>, _>("px_id"),
         proxy: r.get::<Option<String>, _>("px_id").map(|id| Proxy {
             id,
             name: r.get("px_name"),
@@ -876,6 +905,7 @@ mod tests {
             persona_id: "macos-15-m-series-1728x1117".into(),
             fp_seed: 0,
             proxy: None,
+            proxy_id: None,
             timezone: None,
             languages: None,
             start_urls: vec![],
@@ -1226,6 +1256,61 @@ mod tests {
         // Still there: purge only ever touches rows a delete already hid, so a
         // stray call cannot destroy something in use.
         assert!(s.profile(&id).await.unwrap().is_some());
+    }
+
+    #[test]
+    fn the_payload_the_profile_dialog_sends_deserialises() {
+        // This is the exact JSON desktop/src/components/ProfileDialog.tsx builds,
+        // and until 02.08.2026 it was rejected: `proxy` was a required full
+        // Proxy, the dialog sent `{"id": "..."}`, and serde answered
+        // `missing field \`name\`` — naming a field the person had filled in on
+        // another tab. Creating a profile with a proxy from the dialog had
+        // therefore never once worked, and nothing here noticed, because every
+        // test built a Profile in Rust where the compiler fills the struct.
+        //
+        // So this test speaks JSON. It is the only kind that could have caught
+        // it.
+        let payload = serde_json::json!({
+            "id": "",
+            "project_id": null,
+            "name": "Etsy FR",
+            "notes": "",
+            "tags": [],
+            "persona_id": "win11-iris-xe-1920x1080",
+            "fp_seed": 0,
+            "proxy_id": "px-1",
+            "timezone": null,
+            "languages": null,
+            "start_urls": [],
+            "last_opened_at": null
+        });
+        let p: Profile = serde_json::from_value(payload).expect("the dialog's payload must parse");
+        assert_eq!(p.proxy_id.as_deref(), Some("px-1"));
+        assert!(p.proxy.is_none(), "the write path carries a reference, not a copy");
+    }
+
+    #[test]
+    fn a_profile_read_back_can_be_written_back() {
+        // The round trip an edit performs: load, change a field, save. It has to
+        // survive serialisation both ways, or editing an existing profile fails
+        // the same way creating one did.
+        let payload = serde_json::json!({
+            "id": "p1", "project_id": null, "name": "n", "notes": "", "tags": [],
+            "persona_id": "win11-iris-xe-1920x1080", "fp_seed": 7,
+            "proxy_id": "px-9",
+            "proxy": {
+                "id": "px-9", "name": "px", "kind": "socks5", "host": "h", "port": 1,
+                "username": null, "password": null, "last_country": null, "last_ip": null,
+                "last_timezone": null, "last_location": null,
+                "rotate_url": null, "checker_url": null
+            },
+            "timezone": null, "languages": null, "start_urls": [], "last_opened_at": null
+        });
+        let p: Profile = serde_json::from_value(payload).expect("a read-back profile must parse");
+        let again: Profile = serde_json::from_value(serde_json::to_value(&p).unwrap())
+            .expect("and must survive being sent straight back");
+        // The reference wins, so saving cannot rewrite the proxy it points at.
+        assert_eq!(again.proxy_id.as_deref(), Some("px-9"));
     }
 
     #[tokio::test]

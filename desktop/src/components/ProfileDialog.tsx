@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useI18n } from "../i18n";
 import { api, type LocalProxy, type Persona, type Preview, type Profile } from "../api";
 
@@ -25,6 +25,37 @@ type Tab = (typeof TABS)[number];
  *
  *  So the device is chosen as a whole, from measured machines, and the panel on
  *  the right proves what it produced before anything is saved. */
+/** Pick a machine the way the bulk path does: at random, but weighted.
+ *
+ * The list arrives sorted by how common each machine is, and the default used
+ * to be `personas[0]` — the most common one. Which sounds right and is the one
+ * thing this catalogue exists to prevent: every profile made from this dialog
+ * came out on the same Iris Xe, so every account on the machine shared a GPU, a
+ * screen, a font list and an audio latency. A separate proxy and a separate
+ * canvas seed do not help when the hardware underneath is identical.
+ *
+ * Weighted rather than uniform, because the crowd is the point in the other
+ * direction too: a profile claiming a machine one person in a thousand owns is
+ * conspicuous on its own. Common machines come up more often, and no two
+ * profiles have to agree.
+ *
+ * Mirrors catalogue::pick_weighted, including normalising against the
+ * catalogue's own total — the weights are shares of the world's computers and
+ * sum to well under one, so an un-normalised draw would fall past the end most
+ * of the time and always land on the last entry.
+ */
+function pickWeighted(list: Persona[]): string | undefined {
+  if (list.length === 0) return undefined;
+  const total = list.reduce((sum, p) => sum + (p.weight || 0), 0);
+  if (total <= 0) return list[0]?.id;
+  let cursor = Math.random() * total;
+  for (const p of list) {
+    cursor -= p.weight || 0;
+    if (cursor < 0) return p.id;
+  }
+  return list[list.length - 1]?.id;
+}
+
 export function ProfileDialog({
   projectId,
   editing,
@@ -41,6 +72,11 @@ export function ProfileDialog({
   const { t } = useI18n();
   const [tab, setTab] = useState<Tab>("General");
   const [personas, setPersonas] = useState<Persona[]>([]);
+  // The picked machine is chosen at random from twenty-six, so it is usually
+  // NOT the one on screen. Selecting a card nobody can see reads as selecting
+  // nothing — the list showed six unhighlighted rows while the panel on the
+  // right described an RTX 2060 further down.
+  const selectedCard = useRef<HTMLButtonElement | null>(null);
   const [proxies, setProxies] = useState<LocalProxy[]>([]);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +116,7 @@ export function ProfileDialog({
   useEffect(() => {
     void api.personas().then((p) => {
       setPersonas(p);
-      setPersonaId((current) => current || p[0]?.id || "");
+      setPersonaId((current) => current || pickWeighted(p) || "");
     });
     void api.proxies().then(setProxies);
   }, []);
@@ -106,6 +142,13 @@ export function ProfileDialog({
       cancelled = true;
     };
   }, [personaId, timezone, languages, pxCheck?.timezone, editing?.fp_seed]);
+
+  useEffect(() => {
+    // `nearest` rather than `center`: it scrolls the list only when the card is
+    // actually out of view, so opening the tab on an already-visible choice
+    // does not jump.
+    selectedCard.current?.scrollIntoView({ block: "nearest" });
+  }, [personas.length, personaId, tab]);
 
   const problems = preview?.problems ?? [];
 
@@ -146,7 +189,12 @@ export function ProfileDialog({
         // never moves afterwards. Changing it would give a warmed account a
         // different fingerprint, which is the one thing it must never do.
         fp_seed: editing?.fp_seed ?? 0,
-        proxy: useProxyId ? { id: useProxyId } : null,
+        // The id, not a copy of the proxy. Sending `{proxy: {id}}` was refused
+        // with `missing field \`name\`` — serde wants the whole struct and
+        // upsert_profile reads nothing from it but the id — so saving a profile
+        // with a proxy from this dialog had never worked, and the error named a
+        // field the person had already filled in on another tab.
+        proxy_id: useProxyId || null,
         timezone: timezone.trim() || null,
         languages: languages.trim() ? splitList(languages) : null,
         start_urls: splitList(startUrls, "\n"),
@@ -415,10 +463,11 @@ export function ProfileDialog({
               <>
                 <div className="field">
                   <label>{t("pd.machine")}</label>
-                  <div>
+                  <div className="personaList">
                     {personas.map((p) => (
                       <button
                         key={p.id}
+                        ref={p.id === personaId ? selectedCard : undefined}
                         className="personaCard"
                         aria-pressed={p.id === personaId}
                         onClick={() => setPersonaId(p.id)}
@@ -426,10 +475,12 @@ export function ProfileDialog({
                         <div className="name">
                           {p.os} · {p.screen}
                         </div>
-                        <div className="muted small ellipsis">{p.gpu}</div>
-                        <div className="muted small">
-                          {t("pd.share", { pct: (p.weight * 100).toFixed(1) })}
-                          {p.source === "measured" ? ` · ${t("pd.measured")}` : ""}
+                        <div className="muted small sub">
+                          <span className="gpu">{p.gpu}</span>
+                          <span className="share">
+                            {t("pd.share", { pct: (p.weight * 100).toFixed(1) })}
+                            {p.source === "measured" ? ` · ${t("pd.measured")}` : ""}
+                          </span>
                         </div>
                       </button>
                     ))}

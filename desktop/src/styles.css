@@ -840,14 +840,54 @@ input::placeholder {
   color: var(--warn);
 }
 
+/* The list scrolls; the dialog does not.
+ *
+ * Twenty-six machines at three lines each is taller than the screen, so the
+ * whole dialog grew until it overflowed and the window put a HORIZONTAL bar at
+ * the bottom — a scrollbar for an axis nothing needed to move on. Cap the
+ * height here, scroll on one axis, and the dialog stays the size it was when
+ * there were fourteen and when there are sixty.
+ *
+ * min-height: 0 is what actually lets it scroll. Without it a flex child
+ * refuses to shrink below its content and overflow-y has nothing to do. */
+.personaList {
+  max-height: 320px;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: var(--s-1);
+}
+
 .personaCard {
   display: block;
   width: 100%;
-  padding: var(--s-3);
+  padding: var(--s-2) var(--s-3);
   border: 1px solid var(--line);
   border-radius: var(--r);
   background: var(--bg);
   text-align: left;
+}
+
+/* Two lines, not three. The share and the GPU are both secondary and both fit
+ * on one, which is 26 fewer lines to scroll past. */
+.personaCard .sub {
+  display: flex;
+  gap: var(--s-2);
+  align-items: baseline;
+  min-width: 0;
+}
+
+.personaCard .sub .gpu {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.personaCard .sub .share {
+  flex: none;
+  color: var(--text-faint);
 }
 
 .personaCard[aria-pressed="true"] {
