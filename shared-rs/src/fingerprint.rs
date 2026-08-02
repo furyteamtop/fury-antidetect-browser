@@ -523,6 +523,7 @@ pub const CORE_CONFIG_KEYS: &[&str] = &[
     "screen.devicePixelRatio",
     "screen.scrollbarWidth",
     "speech.voices",
+    "webrtc.ipHandlingPolicy",
 ];
 
 /// Keys whose whole branch is optional, and the branch that decides.

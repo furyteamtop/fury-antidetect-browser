@@ -1,25 +1,15 @@
 diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
 --- a/chrome/browser/BUILD.gn
 +++ b/chrome/browser/BUILD.gn
-@@ -2309,6 +2309,7 @@ static_library("browser") {
+@@ -2309,7 +2309,8 @@ static_library("browser") {
      "//components/optimization_guide/public/mojom",
      "//components/origin_trials:browser",
      "//components/origin_trials:common",
+     "//components/fury",
 +    "//components/fury/location",
      "//components/os_crypt/async/browser",
      "//components/page_info/core:proto",
      "//components/page_load_metrics/browser",
-diff --git a/chrome/browser/DEPS b/chrome/browser/DEPS
---- a/chrome/browser/DEPS
-+++ b/chrome/browser/DEPS
-@@ -247,6 +247,7 @@ include_rules = [
-   "+components/optimization_guide",
-   "+components/optimization_guide/optimization_guide_internals",
-   "+components/origin_trials",
-+  "+components/fury",
-   "+components/os_crypt/async",
-   "+components/ownership",
-   "+components/page_image_service",
 diff --git a/components/fury/location/BUILD.gn b/components/fury/location/BUILD.gn
 new file mode 100644
 index 0000000000..c096e75063

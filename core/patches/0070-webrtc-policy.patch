@@ -1,0 +1,108 @@
+diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
+--- a/chrome/browser/BUILD.gn
++++ b/chrome/browser/BUILD.gn
+@@ -2309,6 +2309,7 @@ static_library("browser") {
+     "//components/optimization_guide/public/mojom",
+     "//components/origin_trials:browser",
+     "//components/origin_trials:common",
++    "//components/fury",
+     "//components/os_crypt/async/browser",
+     "//components/page_info/core:proto",
+     "//components/page_load_metrics/browser",
+diff --git a/chrome/browser/DEPS b/chrome/browser/DEPS
+--- a/chrome/browser/DEPS
++++ b/chrome/browser/DEPS
+@@ -247,6 +247,7 @@ include_rules = [
+   "+components/optimization_guide",
+   "+components/optimization_guide/optimization_guide_internals",
+   "+components/origin_trials",
++  "+components/fury",
+   "+components/os_crypt/async",
+   "+components/ownership",
+   "+components/page_image_service",
+diff --git a/chrome/browser/renderer_preferences_util.cc b/chrome/browser/renderer_preferences_util.cc
+index 24c322a58b..97b163c3d6 100644
+--- a/chrome/browser/renderer_preferences_util.cc
++++ b/chrome/browser/renderer_preferences_util.cc
+@@ -15,6 +15,7 @@
+ #include "build/build_config.h"
+ #include "chrome/browser/browser_process.h"
+ #include "chrome/browser/net/convert_explicitly_allowed_network_ports_pref.h"
++#include "components/fury/fury_config.h"
+ #include "content/public/browser/reduce_accept_language_utils.h"
+ #if BUILDFLAG(IS_CHROMEOS)
+ #include "chrome/browser/ash/login/demo_mode/demo_session.h"
+@@ -190,6 +191,73 @@ void UpdateFromSystemSettings(blink::RendererPreferences* prefs,
+                  &prefs->webrtc_udp_min_port, &prefs->webrtc_udp_max_port);
+   prefs->webrtc_local_ips_allowed_urls = GetLocalIpsAllowedUrls(
+       pref_service->GetList(prefs::kWebRtcLocalIpsAllowedUrls));
++
++  // Patch 0070. Everything above this block is Chrome reading its own
++  // preferences; everything in it is the profile's proxy overruling them.
++  //
++  // WHY A PATCH AND NOT THE SWITCH WE WERE ALREADY PASSING. launcher.rs sends
++  // --force-webrtc-ip-handling-policy=disable_non_proxied_udp on every launch,
++  // with a comment explaining what it prevents. In M150 that switch is read by
++  // content/shell/browser/shell.cc:127 and by browser tests. Nothing in //chrome
++  // reads it. Chrome takes this value from a preference and only from a
++  // preference — the line 40 lines above, prefs::kWebRTCIPHandlingPolicy — so
++  // the switch has been doing nothing at all.
++  //
++  // MEASURED 02.08.2026, which is how it was found rather than reasoned about.
++  // Our build, launched with --proxy-server and that switch, opening an
++  // RTCPeerConnection against a public STUN server: candidate types
++  // {host: 1, srflx: 1}, and the srflx candidate carried this machine's real
++  // public address. Real Chrome 150 with the same arguments does the same thing.
++  // Parity is not the goal here and matching Chrome is not a defence: an
++  // anti-detect browser whose entire premise is that the site sees the proxy,
++  // handing the operator's real IP to any page that opens a peer connection, is
++  // the product failing at the one thing it exists for — and every profile on
++  // the machine hands over the SAME address, which links them all.
++  //
++  // THREE fields, not one. The policy alone is not enough:
++  //   webrtc_ip_handling_urls      per-URL entries that OVERRIDE the policy for
++  //                                a matching page — renderer_blink_platform_
++  //                                impl.cc:670-675 breaks out of its loop the
++  //                                moment one matches, and the policy set here
++  //                                is simply discarded.
++  //   webrtc_local_ips_allowed_urls a matching URL sets allow_mdns_obfuscation
++  //                                to false (same file, 679-685), which replaces
++  //                                the .local host candidate with the real
++  //                                private address.
++  // A profile has neither list today, so both are empty and clearing them
++  // changes nothing observable. They are cleared anyway because the alternative
++  // is a patch whose correctness depends on a preference nobody has set yet.
++  //
++  // Where it lands: kDisableNonProxiedUdp becomes enable_multiple_routes=false
++  // and enable_nonproxied_udp=false in peer_connection_dependency_factory.cc:
++  // 1088-1091. The resulting browser gathers the mDNS host candidate and nothing
++  // else — which is exactly the shape of a real Chrome under the enterprise
++  // WebRTCIPHandlingPolicy, a configuration that exists on real corporate
++  // machines. Not an invented state.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<std::string> want =
++            config->GetString("webrtc.ipHandlingPolicy")) {
++      blink::mojom::WebRtcIpHandlingPolicy policy =
++          blink::ToWebRTCIPHandlingPolicy(*want);
++      // ToWebRTCIPHandlingPolicy returns kDefault for anything it does not
++      // recognise (webrtc_ip_handling_policy.cc:33) — no error, no signal. A
++      // typo in the config would therefore not fail, it would leak: kDefault is
++      // the setting that gathers every interface. So a value that asked for
++      // something and got kDefault is refused loudly and the preference is left
++      // alone, which at least keeps whatever the profile already had.
++      if (policy == blink::mojom::WebRtcIpHandlingPolicy::kDefault &&
++          *want != blink::kWebRTCIPHandlingDefault) {
++        LOG(ERROR) << "fury: webrtc.ipHandlingPolicy=" << *want
++                   << " is not a policy Chromium knows; leaving WebRTC routing "
++                      "as the profile had it";
++      } else {
++        prefs->webrtc_ip_handling_policy = policy;
++        prefs->webrtc_ip_handling_urls.clear();
++        prefs->webrtc_local_ips_allowed_urls.clear();
++      }
++    }
++  }
++
+   prefs->accept_languages = GetLanguageListForProfile(
+       profile, pref_service->GetString(language::prefs::kAcceptLanguages));
+ #if !BUILDFLAG(IS_MAC)

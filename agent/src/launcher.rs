@@ -101,19 +101,25 @@ pub fn build_args(spec: &LaunchSpec) -> Vec<String> {
         "--safebrowsing-disable-auto-update".to_string(),
         // QUIC would carry UDP straight past an HTTP relay.
         "--disable-quic".to_string(),
-        // WebRTC gathers ICE candidates on its own sockets, not through the
-        // proxy, so a page opening a peer connection reads the machine's real
-        // address — past the relay, past everything. It does double damage:
-        // it identifies the proxy as a proxy, and every profile on this machine
-        // reports the same address, which clusters accounts that were the whole
-        // point of keeping apart.
+        // WebRTC used to be handled here, by a switch, and the switch did
+        // nothing at all.
         //
-        // `disable_non_proxied_udp` keeps the mDNS host candidate Chrome
-        // already invents (`*.local`, no real address in it) and refuses the
-        // rest, so the candidate shape stays the one a real browser produces.
-        // Switch name from content_switches.cc, policy string from
-        // webrtc_ip_handling_policy.cc, both in the vendored tree.
-        "--force-webrtc-ip-handling-policy=disable_non_proxied_udp".to_string(),
+        // The reasoning was right: WebRTC gathers ICE candidates on its own
+        // sockets, past the relay, so a page opening a peer connection reads the
+        // machine's real address — identifying the proxy as a proxy AND handing
+        // every profile on the machine the same address, which clusters exactly
+        // the accounts the product exists to keep apart.
+        //
+        // What was wrong was believing --force-webrtc-ip-handling-policy did
+        // something about it. In M150 that switch is read by
+        // content/shell/browser/shell.cc and by browser tests; nothing in
+        // //chrome reads it. Chrome takes the value from a profile preference.
+        // Measured 02.08.2026 with the switch present: a page still received an
+        // srflx candidate carrying this machine's real public address.
+        //
+        // Now patch 0070, which overrides the preference itself. Nothing to
+        // pass here — and that is the point: a switch is visible in `ps` to any
+        // process on the machine, a preference is not.
         // Turn off Chromium's field-trial testing config.
         //
         // Not a tuning knob — a divergence from real Chrome that our own build
@@ -429,11 +435,12 @@ mod tests {
             !args.iter().any(|a| a.contains("07070707")),
             "the key must not appear on the command line"
         );
-        // The other UDP path out. Without it a page reads the real address
-        // through ICE, and every profile on the machine reports the same one.
-        assert!(args
-            .iter()
-            .any(|a| a == "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"));
+        // The other UDP path out is NOT handled here any more, and the absence
+        // is asserted so nobody puts it back. This switch was passed on every
+        // launch for weeks and read by nobody — see the note in build_args. The
+        // profile's WebRTC routing is patch 0070's job now, through the
+        // preference Chrome actually consults.
+        assert!(!args.iter().any(|a| a.contains("webrtc-ip-handling")));
         assert!(!args.iter().any(|a| a.contains("--no-proxy-server")));
     }
 

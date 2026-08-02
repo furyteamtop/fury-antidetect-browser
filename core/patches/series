@@ -108,6 +108,46 @@
 0061-media-codecs.patch
 
 # --- webrtc -----------------------------------------------------------------
+# The most serious hole the product had, and it was hiding behind a switch that
+# looked like the fix.
+#
+# launcher.rs passed --force-webrtc-ip-handling-policy=disable_non_proxied_udp on
+# every launch, with a comment explaining exactly what it prevented. In M150 that
+# switch is read by content/shell/browser/shell.cc:127 and by browser tests, and
+# by nothing in //chrome. Chrome takes the value from a profile preference,
+# renderer_preferences_util.cc:157, and only from there.
+#
+# Measured 02.08.2026, which is how it was found. Our build with a proxy set and
+# that switch present, a page opening an RTCPeerConnection: types
+# {host: 1, srflx: 1}, the srflx candidate carrying this machine's real public
+# address. Real Chrome 150 does the same, and parity is no defence here — an
+# anti-detect browser whose premise is that the site sees the proxy, handing the
+# operator's real IP to any page with four lines of JS, is failing at the one
+# thing it exists for. Every profile on the machine handed over the same address,
+# so it also linked them all to each other.
+#
+# So: override the preference. THREE fields, because the policy alone is not
+# enough — webrtc_ip_handling_urls overrides it per-URL (renderer_blink_platform_
+# impl.cc:670-675 breaks out of its loop on the first match and discards the
+# policy) and webrtc_local_ips_allowed_urls turns off mDNS obfuscation for
+# matching pages, replacing the .local name with the real private address. Both
+# are empty on our profiles; both are cleared anyway, because a patch whose
+# correctness depends on a preference nobody has set yet is not correct.
+#
+# And a guard, because ToWebRTCIPHandlingPolicy returns kDefault for any string
+# it does not recognise (webrtc_ip_handling_policy.cc:33) with no error. A typo
+# would not fail, it would leak — kDefault is the setting that gathers
+# everything. A value that asked for something and got kDefault is refused loudly
+# instead.
+#
+# The resulting browser gathers NOTHING — no host candidate, no srflx,
+# iceGatheringState "complete". That looked wrong, and it is not: real Chrome
+# 150, unpatched, given only {"webrtc": {"ip_handling_policy":
+# "disable_non_proxied_udp"}} in its Preferences, reaches exactly the same state.
+# It is what the enterprise policy that exists to stop WebRTC IP leaks does on
+# real corporate machines. Verified in core/verify/verify-0070.py, 5 claims,
+# including that an unconfigured build still leaks — a control that passes when
+# broken is not a control.
 0070-webrtc-policy.patch!
 
 # --- time & locale ----------------------------------------------------------

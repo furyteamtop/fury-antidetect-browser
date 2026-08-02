@@ -409,6 +409,27 @@ impl Persona {
         // says so with `cdp`, and that is a different decision.
         config["automation"] = serde_json::json!({ "hideTraces": true });
 
+        // Not a persona property — a consequence of how Fury reaches the
+        // network, and true for every profile because every profile goes
+        // through the relay.
+        //
+        // The relay speaks HTTP and SOCKS5 CONNECT, both of which are TCP.
+        // WebRTC gathers its candidates on its own UDP sockets, so a peer
+        // connection reaches the network past the relay entirely and reports
+        // the machine's real address. Measured on 02.08.2026: with a proxy
+        // configured, a page opening an RTCPeerConnection received an srflx
+        // candidate carrying this machine's real public IP. Every profile on the
+        // machine would have received the same one.
+        //
+        // "disable_non_proxied_udp" is one of the four values Chrome's own
+        // enterprise policy accepts, so a browser in this state is a shape that
+        // exists in the world rather than one we invented. It becomes "default"
+        // the day the relay carries UDP — one string, in one place, which is why
+        // it is a config key and not a constant in the core.
+        config["webrtc"] = serde_json::json!({
+            "ipHandlingPolicy": "disable_non_proxied_udp",
+        });
+
         if let Some(webgpu) = &self.gpu.webgpu {
             config["gpu"]["webgpu"] = serde_json::json!({
                 "vendor": webgpu.vendor,
