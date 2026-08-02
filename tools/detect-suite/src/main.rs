@@ -36,6 +36,9 @@ fn main() -> Result<()> {
                      identity  same browser twice: nothing may differ\n      \
                      spoof     real Chrome vs Fury: values may differ, behaviour may not\n\
                  \n  \
+                   fury-detect redact --check [dir]\n      \
+                     Fail if any baseline still carries a routable address.\n\
+                 \n  \
                    fury-detect gate <dump.json>\n      \
                      Release-gate checks on a single dump. Non-zero exit on failure.\n\
                  \n  \
@@ -126,24 +129,163 @@ fn cmd_flatten(args: &[String]) -> Result<()> {
 /// discloses the operator's real address, which for an anti-detect project is
 /// precisely the thing it exists to protect.
 ///
+/// SUBSTITUTES rather than deletes, which the first version did not.
+///
+/// Deleting `webrtc.addresses` takes the address out and takes the finding with
+/// it. That field is the evidence that an unpatched build hands a routable
+/// address to any page that opens a peer connection — the measurement patch 0070
+/// exists because of — and a redacted baseline with the field missing cannot
+/// tell a reader whether the browser leaked or simply gathered nothing. Those
+/// are opposite results.
+///
+/// So a routable address becomes 203.0.113.7 (RFC 5737 TEST-NET-3) or
+/// 2001:db8::7 (RFC 3849). Both are reserved for documentation and belong to
+/// nobody. The candidate count, the candidate types, the mDNS name and the
+/// shape all survive; only the address does not.
+///
+/// `webrtc.raw` is still dropped: it is a hash of the candidate lines as they
+/// were, which is a hash of the address, and a 32-bit FNV over the routable
+/// IPv4 space is not a one-way function in any useful sense.
+///
 /// Hardware fields (GPU model, screen size, fonts, timezone) are deliberately
 /// left alone: they ARE the baseline. Anyone publishing one should understand
 /// they are describing their own machine.
+fn is_private_v4(a: &str) -> bool {
+    let p: Vec<u32> = a.split('.').filter_map(|x| x.parse().ok()).collect();
+    if p.len() != 4 || p.iter().any(|&x| x > 255) {
+        return true; // a dotted quad that is not an address: a version string
+    }
+    p[0] == 0
+        || p[0] == 10
+        || p[0] == 127
+        || (p[0] == 192 && p[1] == 168)
+        || (p[0] == 172 && (16..=31).contains(&p[1]))
+        || (p[0] == 169 && p[1] == 254)
+        || (p[0] == 100 && (64..=127).contains(&p[1]))
+        || p[0] >= 224
+        || a == "203.0.113.7"
+}
+
+fn is_private_v6(a: &str) -> bool {
+    let low = a.to_ascii_lowercase();
+    low.starts_with("fe80")
+        || low.starts_with("fc")
+        || low.starts_with("fd")
+        || low.starts_with("::")
+        || low.starts_with("2001:db8")
+        || low.matches(':').count() < 2
+}
+
+/// Rewrites routable addresses in one string. Returns how many it replaced.
+fn scrub(text: &str) -> (String, usize) {
+    let mut out = String::with_capacity(text.len());
+    let mut n = 0;
+    let bytes: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    // Hand-rolled rather than regex: this crate has no regex dependency and
+    // adding one to redact a field would be the wrong trade.
+    while i < bytes.len() {
+        let is_tok = |c: char| c.is_ascii_hexdigit() || c == '.' || c == ':';
+        if is_tok(bytes[i]) && (i == 0 || !is_tok(bytes[i - 1])) {
+            let mut j = i;
+            while j < bytes.len() && is_tok(bytes[j]) {
+                j += 1;
+            }
+            let tok: String = bytes[i..j].iter().collect();
+            let dots = tok.matches('.').count();
+            let colons = tok.matches(':').count();
+            if colons == 0 && dots == 3 && !is_private_v4(&tok) {
+                out.push_str("203.0.113.7");
+                n += 1;
+                i = j;
+                continue;
+            }
+            if colons >= 2 && dots == 0 && !is_private_v6(&tok) {
+                out.push_str("2001:db8::7");
+                n += 1;
+                i = j;
+                continue;
+            }
+            out.push_str(&tok);
+            i = j;
+            continue;
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    (out, n)
+}
+
+fn scrub_value(v: &mut Value) -> usize {
+    match v {
+        Value::String(s) => {
+            let (new, n) = scrub(s);
+            *s = new;
+            n
+        }
+        Value::Array(a) => a.iter_mut().map(scrub_value).sum(),
+        Value::Object(o) => o.values_mut().map(scrub_value).sum(),
+        _ => 0,
+    }
+}
+
 fn cmd_redact(args: &[String]) -> Result<()> {
+    // `--check` sweeps the whole baselines directory and fails if any dump still
+    // carries a routable address. That mode is the durable half of this command:
+    // a capture is produced by running a browser on somebody's real machine, so
+    // the problem recurs on every measurement anyone ever takes, and a rule that
+    // lives only in a .gitignore comment is a rule until somebody uses `add -f`.
+    if args.first().map(String::as_str) == Some("--check") {
+        let dir = args
+            .get(1)
+            .cloned()
+            .unwrap_or_else(|| "tools/detect-suite/baselines".to_string());
+        let mut leaked = Vec::new();
+        for entry in std::fs::read_dir(&dir).with_context(|| format!("reading {dir}"))? {
+            let path = entry?.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path)?;
+            let mut json: Value = match serde_json::from_str(&text) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let n = scrub_value(&mut json);
+            if n > 0 {
+                leaked.push((path, n));
+            }
+        }
+        for (p, n) in &leaked {
+            eprintln!("  {}: {n} routable address(es)", p.display());
+        }
+        if !leaked.is_empty() {
+            anyhow::bail!(
+                "{} baseline(s) carry a routable address. Redact before committing.",
+                leaked.len()
+            );
+        }
+        println!("no baseline carries a routable address");
+        return Ok(());
+    }
+
     let (input, output) = match args {
         [i, o] => (i, o),
-        _ => anyhow::bail!("usage: fury-detect redact <in.json> <out.json>"),
+        _ => anyhow::bail!(
+            "usage: fury-detect redact <in.json> <out.json>\n\
+             \x20      fury-detect redact --check [dir]"
+        ),
     };
 
     let text = std::fs::read_to_string(input).with_context(|| format!("reading {input}"))?;
     let mut json: Value = serde_json::from_str(&text)?;
 
+    let replaced = scrub_value(&mut json);
+
     let mut removed = Vec::new();
     if let Some(webrtc) = json.get_mut("webrtc").and_then(|v| v.as_object_mut()) {
-        for key in ["addresses", "raw"] {
-            if webrtc.remove(key).is_some() {
-                removed.push(format!("webrtc.{key}"));
-            }
+        if webrtc.remove("raw").is_some() {
+            removed.push("webrtc.raw".to_string());
         }
         webrtc.insert("__redacted".into(), Value::Bool(true));
     }
@@ -155,15 +297,13 @@ fn cmd_redact(args: &[String]) -> Result<()> {
     std::fs::write(output, serde_json::to_string_pretty(&json)? + "\n")?;
 
     println!("redacted {} -> {}", input, output);
-    if removed.is_empty() {
-        println!("  nothing to remove (already redacted?)");
-    } else {
-        for r in &removed {
-            println!("  removed {r}");
-        }
+    println!("  {replaced} routable address(es) replaced with documentation addresses");
+    for r in &removed {
+        println!("  removed {r}");
     }
     println!("\nStill present, because a baseline is meaningless without them:");
-    println!("  GPU model, screen size, font list, timezone, CPU and memory counts.");
+    println!("  GPU model, screen size, font list, timezone, CPU and memory counts,");
+    println!("  and the ICE candidate types — which is the WebRTC finding itself.");
     println!("Publishing a baseline describes the machine that captured it.");
     Ok(())
 }
