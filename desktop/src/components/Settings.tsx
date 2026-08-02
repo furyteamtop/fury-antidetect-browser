@@ -26,6 +26,7 @@ export function Settings({
   onImport,
   onChanged,
   onEnrol,
+  onSignup,
   onClose,
 }: {
   shell: Shell;
@@ -37,6 +38,7 @@ export function Settings({
    *  code already carries the server address — so this is a way past the
    *  connect field, not through it. */
   onEnrol: () => void;
+  onSignup: () => void;
   onClose: () => void;
 }) {
   const [theme, setTheme] = useTheme();
@@ -139,6 +141,20 @@ export function Settings({
                     </button>
                   </div>
                   {error && <p className="error">{error}</p>}
+                  {/* Three ways in, and none of them should require leaving.
+                      Signing up used to live only on the login screen, which is
+                      the screen you see after you have already left local mode —
+                      so making an account meant signing out of a session you did
+                      not have, to reach a form that would have put you back
+                      where you started. It is a settings decision, so it is in
+                      settings.
+
+                      Nothing else has to change for it to work: `signup` already
+                      saves the server address and stores the session token, so
+                      the account is created AND signed into in one step. */}
+                  <button type="button" className="linky" onClick={onSignup}>
+                    {t("signup.start")}
+                  </button>
                   <button type="button" className="linky" onClick={onEnrol}>
                     {t("enrol.have")}
                   </button>
@@ -231,8 +247,28 @@ export function Settings({
 /// it has an application and not a repository — "see docs/13-self-hosting.md"
 /// was an instruction they could not follow.
 function SelfHosting() {
-  const { t } = useI18n();
+  const { t, say } = useI18n();
   const [open, setOpen] = useState(false);
+  const [dir, setDir] = useState("~/fury-server");
+  const [saved, setSaved] = useState<{ path: string; files: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Step 2 used to say "from a clone of the repository", which somebody holding
+  // an application does not have. The 410 KB the server is built from travels
+  // inside this app, so the step is now "save them, then run this".
+  const saveKit = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      setSaved(await api.saveServerKit(dir));
+    } catch (e) {
+      setErr(say(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
       <button type="button" className="linky" onClick={() => setOpen(!open)}>
@@ -244,6 +280,24 @@ function SelfHosting() {
           <ol className="hint" style={{ paddingLeft: "1.2em", lineHeight: 1.7 }}>
             <li>{t("host.step1")}</li>
             <li>
+              <p style={{ margin: 0 }}>{t("host.saveKitHint")}</p>
+              <div className="row" style={{ maxWidth: 460, margin: "var(--s-2) 0" }}>
+                <input
+                  value={dir}
+                  placeholder={t("host.saveKitPath")}
+                  spellCheck={false}
+                  onChange={(e) => setDir(e.target.value)}
+                />
+                <button type="button" disabled={busy || !dir.trim()} onClick={saveKit}>
+                  {t("host.saveKit")}
+                </button>
+              </div>
+              {err && <p className="error">{err}</p>}
+              {saved && (
+                <p style={{ margin: 0 }}>
+                  {t("host.saveKitDone", { files: String(saved.files), path: saved.path })}
+                </p>
+              )}
               {t("host.step2")}
               <pre className="mono snippet">./deploy/push.sh root@ADDRESS ADDRESS-with-dashes.sslip.io</pre>
             </li>

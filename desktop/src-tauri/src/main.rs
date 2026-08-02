@@ -95,6 +95,7 @@ fn main() {
             commands::signup,
             commands::server_allows_signup,
             commands::disconnect_server,
+            commands::save_server_kit,
             commands::login,
             commands::logout,
             commands::me,

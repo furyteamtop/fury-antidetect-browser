@@ -1972,3 +1972,57 @@ pub async fn import_cookies(id: String, cookies: serde_json::Value) -> R<serde_j
     )
     .await?)
 }
+
+/// Write the server kit out to a directory the operator picks.
+///
+/// The other half of the self-hosting instructions. They said "from a clone of
+/// the repository" and the person reading them has an application, not a
+/// checkout — so this hands over the 410 KB the server is built from and the
+/// instructions become four commands that all work.
+///
+/// Carried inside the binary rather than downloaded: there is no published
+/// repository to download from yet, it works with no network, and a kit that
+/// ships with the app cannot be a different version from the app that wrote it.
+#[tauri::command]
+pub async fn save_server_kit(dir: String) -> Result<serde_json::Value, ApiErr> {
+    const KIT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/server-kit.tar.gz"));
+
+    let dir = std::path::PathBuf::from(shellexpand(&dir));
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| ApiErr::local(format!("Could not create {}: {e}", dir.display())))?;
+
+    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(KIT));
+    // Refuses to write outside the chosen directory. tar entries can carry ..
+    // and absolute paths, and this one is ours — but a kit that unpacks
+    // anywhere is a habit, not a one-off.
+    archive.set_overwrite(true);
+    let mut count = 0usize;
+    for entry in archive
+        .entries()
+        .map_err(|e| ApiErr::local(format!("The server kit is unreadable: {e}")))?
+    {
+        let mut entry = entry.map_err(|e| ApiErr::local(format!("Bad entry: {e}")))?;
+        let path = entry
+            .path()
+            .map_err(|e| ApiErr::local(format!("Bad path in the kit: {e}")))?
+            .into_owned();
+        if path.is_absolute() || path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+            return Err(ApiErr::local(format!("The kit contains an unsafe path: {}", path.display())));
+        }
+        entry
+            .unpack(dir.join(&path))
+            .map_err(|e| ApiErr::local(format!("Could not write {}: {e}", path.display())))?;
+        count += 1;
+    }
+
+    Ok(serde_json::json!({ "path": dir.display().to_string(), "files": count }))
+}
+
+fn shellexpand(p: &str) -> String {
+    if let Some(rest) = p.strip_prefix("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            return std::path::Path::new(&home).join(rest).display().to_string();
+        }
+    }
+    p.to_string()
+}

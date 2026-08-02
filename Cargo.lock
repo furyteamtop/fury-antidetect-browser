@@ -1411,6 +1411,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "flate2",
  "fury-shared",
  "keyring",
  "rand 0.8.7",
@@ -1418,6 +1419,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tar",
  "tauri",
  "tauri-build",
  "tauri-plugin-single-instance",

@@ -726,6 +726,10 @@ export function App() {
               setSettingsOpen(false);
               setEnrolling(true);
             }}
+            onSignup={() => {
+              setSettingsOpen(false);
+              setSigningUp(true);
+            }}
             onClose={() => setSettingsOpen(false)}
           />
         )}

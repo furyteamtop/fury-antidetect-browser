@@ -473,6 +473,8 @@ export const api = {
   // Local mode only: with a server, profiles and proxies are edited where the
   // permissions live, and that screen does not exist yet.
   disconnectServer: (): Promise<Shell> => cmd<Shell>("disconnect_server"),
+  saveServerKit: (dir: string): Promise<{ path: string; files: number }> =>
+    cmd<{ path: string; files: number }>("save_server_kit", { dir }),
   personas: (): Promise<Persona[]> => cmd<Persona[]>("personas"),
   preview: (spec: {
     persona_id: string;

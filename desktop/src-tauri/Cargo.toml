@@ -10,9 +10,13 @@ description = "Fury desktop shell"
 rust-version = "1.88"
 
 [build-dependencies]
+tar = "0.4"
+flate2 = "1"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+tar = "0.4"
+flate2 = "1"
 fury-shared = { path = "../../shared-rs" }
 
 tauri = { version = "2", features = [] }
