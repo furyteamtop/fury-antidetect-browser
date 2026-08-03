@@ -284,7 +284,35 @@ fn cmd_redact(args: &[String]) -> Result<()> {
             .get(1)
             .cloned()
             .unwrap_or_else(|| "tools/detect-suite/baselines".to_string());
+        // Only TRACKED files can fail this.
+        //
+        // A raw capture on the machine that took it is not a leak, it is the
+        // measurement — and the directory is full of them, because every probe
+        // run leaves one and .gitignore keeps them out of commits. Failing on
+        // those made the check fail on every machine that had ever measured
+        // anything, which is a safety net that everybody learns to ignore.
+        //
+        // What it is actually guarding against is a raw capture reaching the
+        // repository, and `git ls-files` is exactly that question. Untracked
+        // ones are still counted and mentioned, because "three of these must
+        // not be committed" is worth knowing before somebody types `add -f`.
+        let tracked: std::collections::HashSet<std::path::PathBuf> =
+            std::process::Command::new("git")
+                .args(["ls-files", "-z", "--", &dir])
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| {
+                    String::from_utf8_lossy(&o.stdout)
+                        .split('\0')
+                        .filter(|s| !s.is_empty())
+                        .map(std::path::PathBuf::from)
+                        .collect()
+                })
+                .unwrap_or_default();
+
         let mut leaked = Vec::new();
+        let mut untracked = 0usize;
         for entry in std::fs::read_dir(&dir).with_context(|| format!("reading {dir}"))? {
             let path = entry?.path();
             if path.extension().and_then(|e| e.to_str()) != Some("json") {
@@ -296,20 +324,33 @@ fn cmd_redact(args: &[String]) -> Result<()> {
                 Err(_) => continue,
             };
             let n = scrub_webrtc(&mut json);
-            if n > 0 {
+            if n == 0 {
+                continue;
+            }
+            // Compared as written by git — relative to the repository root —
+            // which is how the path arrives here when the default dir is used.
+            if tracked.contains(&path) || tracked.contains(std::path::Path::new(&path)) {
                 leaked.push((path, n));
+            } else {
+                untracked += 1;
             }
         }
         for (p, n) in &leaked {
-            eprintln!("  {}: {n} routable address(es)", p.display());
+            eprintln!("  {}: {n} routable address(es), and it is COMMITTED", p.display());
         }
         if !leaked.is_empty() {
             anyhow::bail!(
-                "{} baseline(s) carry a routable address. Redact before committing.",
+                "{} tracked baseline(s) carry a routable address. Redact and replace them.",
                 leaked.len()
             );
         }
-        println!("no baseline carries a routable address");
+        println!("no committed baseline carries a routable address");
+        if untracked > 0 {
+            println!(
+                "  ({untracked} uncommitted capture(s) here do — that is what a raw capture is. \
+                 Run `fury-detect redact` on one before committing it.)"
+            );
+        }
         return Ok(());
     }
 
