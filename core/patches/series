@@ -525,7 +525,40 @@
 # Chromium.app when the output name changes, so both bundles sit in the output
 # directory afterwards and anyone testing the old path reports that the patch
 # did nothing.
-# 0900-branding.patch
+#
+# WRITTEN. Ten lines of a text file, and everything macOS-facing follows:
+# build/util/branding.gni reads chrome/app/theme/chromium/BRANDING into
+# chrome_product_full_name, chrome_mac_bundle_id and chrome_mac_creator_code,
+# and chrome/BUILD.gn derives the .app name, the framework name, the four helper
+# bundles and CFBundleIdentifier from those. No source file needs touching.
+# Measured after building: Fury.app, Fury Framework.framework, four Fury Helper
+# bundles, CFBundleName "Fury", CFBundleIdentifier dev.fury.core.
+#
+# THE ICONS ARE NOT IN THIS PATCH. They are PNGs and an .icns, and a quilt
+# series carrying binaries is one nobody can read or rebase — the same argument
+# link-widevine.sh makes for the CDM. core/build/link-icons.sh copies them out
+# of assets/ before a build, and skipping it produces a browser called Fury
+# wearing Chromium's icons, which is worse than either.
+#
+# NOTHING A PAGE CAN READ MOVES, and that was checked rather than assumed. The
+# User-Agent product string is a hardcoded literal — version_info_with_user_agent
+# .h:21 returns "Chrome/" PRODUCT_VERSION — so the rename cannot reach it. The
+# Client Hints brand at user_agent_utils.cc:169 DOES read
+# version_info::GetProductName(), and it sits behind `#if !BUILDFLAG(
+# CHROMIUM_BRANDING)`, which is off in our build; patch 0011 replaces the whole
+# brand list from the config regardless.
+#
+# The trap this note existed to warn about is real: ninja does not delete
+# Chromium.app when the output name changes, so both bundles sit in the output
+# directory afterwards. Confirmed, and removed by hand.
+#
+# NOT RE-VERIFIED on the running browser. The cross-context capture against the
+# renamed build did not complete — the probe page came back with origin "null"
+# and isSecureContext false, so every worker context failed with SecurityError.
+# That is the page failing to load and not a fingerprint regression, but it was
+# not isolated, and until it is the eight-context result stands for the build
+# before the rename and not for this one.
+0900-branding.patch
 #
 # ONE LINE, and it closes the last endpoint the browser contacts on its own.
 #
