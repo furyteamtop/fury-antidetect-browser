@@ -1,5 +1,5 @@
 {
-  "__collectedInMs": 1338,
+  "__collectedInMs": 1023,
   "__probeVersion": "0.2.0",
   "__redacted": true,
   "__schema": 1,
@@ -369,9 +369,9 @@
       }
     },
     "nativeToString": "hardwareConcurrency:native,userAgent:native,width:native",
-    "performanceNowPrecision": 0,
+    "performanceNowPrecision": 0.19999998807907104,
     "toStringTag": "[object Navigator]",
-    "totalJSHeapSize": 9482767
+    "totalJSHeapSize": 10056207
   },
   "fonts": {
     "baselineWidths": {

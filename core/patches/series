@@ -552,12 +552,19 @@
 # Chromium.app when the output name changes, so both bundles sit in the output
 # directory afterwards. Confirmed, and removed by hand.
 #
-# NOT RE-VERIFIED on the running browser. The cross-context capture against the
-# renamed build did not complete — the probe page came back with origin "null"
-# and isSecureContext false, so every worker context failed with SecurityError.
-# That is the page failing to load and not a fingerprint regression, but it was
-# not isolated, and until it is the eight-context result stands for the build
-# before the rename and not for this one.
+# VERIFIED on the renamed build: eight contexts, zero disagreements, and the
+# release gate passes 13/13. navigator.userAgent still says Chrome/150.0.0.0 and
+# the brand list still says "Not;A=Brand/8,Chromium/150,Google Chrome/150" — the
+# rename reaches the bundle and stops there, which is the whole requirement.
+#
+# The first attempt at this failed with origin "null" and isSecureContext false
+# in every worker, which looked like the rename having broken something. It had
+# not: the collector serving probe.html was not listening at that moment, so the
+# browser was sitting on an error page, whose origin is null and which is not a
+# secure context — hence no navigator.serviceWorker and SecurityError from every
+# blob worker. Chasing it cost an hour, and the lesson is narrow and repeatable:
+# an "origin: null" in a capture means the page did not load, and the first
+# thing to check is the thing serving it.
 0900-branding.patch
 #
 # ONE LINE, and it closes the last endpoint the browser contacts on its own.
