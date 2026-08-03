@@ -120,6 +120,39 @@ pub fn parse_line(line: &str) -> Result<ParsedProxy, ParseError> {
         return Err(err("empty", "empty line"));
     }
 
+    // A CSV row from a supplier's export, converted to the colon form this
+    // already understands.
+    //
+    // Suppliers send a pasted block or a downloaded .csv and nothing else, and
+    // the block was the only shape that worked — so anybody with a .csv opened
+    // it, deleted the header, and replaced every comma by hand. The fields are
+    // in the same order either way, which is what makes this a rewrite rather
+    // than a second parser: host,port[,user,pass] becomes host:port[:user:pass]
+    // and falls through to the code below.
+    //
+    // Deliberately narrow. A line is treated as CSV only when it has commas,
+    // no colons and no scheme — so `socks5://user:pass@host:1080` and
+    // `host:1080:user:pass` are untouched, and a password containing a comma
+    // still arrives intact through the colon form, which is the shape that
+    // supports it.
+    if line.contains(',') && !line.contains(':') && !line.contains("://") {
+        let fields: Vec<&str> = line.split(',').map(str::trim).collect();
+        // A header row rather than a proxy. Skipped by name rather than by
+        // position: exports put the columns in any order and some have no
+        // header at all.
+        let first = fields[0].to_ascii_lowercase();
+        if matches!(first.as_str(), "host" | "ip" | "address" | "server" | "proxy") {
+            return Err(err("header", "this looks like a CSV header, not a proxy"));
+        }
+        if matches!(fields.len(), 2 | 4) {
+            return parse_line(&fields.join(":"));
+        }
+        return Err(err(
+            "csv-fields",
+            "a CSV row needs host,port or host,port,user,pass",
+        ));
+    }
+
     if let Some((scheme, rest)) = line.split_once("://") {
         let scheme = normalise_scheme(scheme)?;
         let (username, password, hostport) = split_at_sign(rest)?;
@@ -293,6 +326,42 @@ mod tests {
 
     fn ok(line: &str) -> ParsedProxy {
         parse_line(line).unwrap_or_else(|e| panic!("{line:?} should parse: {e}"))
+    }
+
+    #[test]
+    fn a_csv_row_is_the_colon_form_with_commas() {
+        // What a supplier's .csv export actually contains. Before this, the only
+        // way in was to open it and replace every comma by hand.
+        let p = parse_line("203.0.113.7,8080").unwrap();
+        assert_eq!((p.host.as_str(), p.port, p.scheme.as_str()), ("203.0.113.7", 8080, "http"));
+
+        let p = parse_line("203.0.113.7,8080,user278406,secret").unwrap();
+        assert_eq!(p.username.as_deref(), Some("user278406"));
+        assert_eq!(p.password.as_deref(), Some("secret"));
+
+        // Spaces after the commas are what a spreadsheet writes.
+        let p = parse_line("203.0.113.7, 8080, u, p").unwrap();
+        assert_eq!((p.port, p.username.as_deref()), (8080, Some("u")));
+
+        // A header row is named rather than counted, because exports order
+        // their columns differently and some have no header at all.
+        assert_eq!(parse_line("host,port,username,password").unwrap_err().code, "header");
+        assert_eq!(parse_line("IP,Port").unwrap_err().code, "header");
+
+        // Three fields is not a shape anybody sends, and guessing which one is
+        // missing would put a password in a username.
+        assert_eq!(parse_line("203.0.113.7,8080,user").unwrap_err().code, "csv-fields");
+    }
+
+    #[test]
+    fn a_comma_does_not_capture_the_shapes_that_own_it() {
+        // A password may contain a comma, and the colon form is where that is
+        // expressible. The CSV branch must not touch these.
+        let p = parse_line("203.0.113.7:8080:user:pa,ss").unwrap();
+        assert_eq!(p.password.as_deref(), Some("pa,ss"));
+
+        let p = parse_line("socks5://user:pa,ss@203.0.113.7:1080").unwrap();
+        assert_eq!((p.scheme.as_str(), p.password.as_deref()), ("socks5", Some("pa,ss")));
     }
 
     #[test]

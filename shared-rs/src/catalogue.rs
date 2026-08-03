@@ -585,6 +585,48 @@ mod tests {
         }
     }
 
+    /// The floor under a persona's share of the world.
+    ///
+    /// One in two hundred machines. Below that a persona stops being a crowd
+    /// and starts being a marker: a detector that sees the same unusual
+    /// configuration twice in a week has learnt that the two accounts are
+    /// related, and it has learnt it from us. The catalogue's purpose is the
+    /// opposite of a rare machine.
+    ///
+    /// This is a contribution gate, not a runtime filter. Nothing drops a
+    /// persona at launch — a build with one below the floor simply does not
+    /// pass, so the question is answered while somebody is still editing the
+    /// table rather than after a profile has been used.
+    const RARITY_FLOOR: f64 = 0.005;
+
+    #[test]
+    fn no_persona_is_rare_enough_to_be_a_marker() {
+        for p in all() {
+            assert!(
+                p.weight >= RARITY_FLOOR,
+                "persona {} has weight {}, under the {RARITY_FLOOR} floor — \
+                 a machine that rare identifies whoever runs it. Either it is \
+                 commoner than the weight says, or it does not belong in the \
+                 catalogue.",
+                p.id,
+                p.weight,
+            );
+        }
+    }
+
+    #[test]
+    fn the_catalogue_never_claims_more_of_the_world_than_exists() {
+        // Weights are shares of all machines, so their sum is the share of the
+        // world this catalogue covers, and it cannot exceed the world. It is
+        // currently around a half, which is what 26 popular configurations
+        // plausibly account for; a sum over 1 means somebody has been raising
+        // a weight to make a persona get picked more often, which is what
+        // pick_weighted's normalisation is for instead.
+        let total: f64 = all().iter().map(|p| p.weight).sum();
+        assert!(total <= 1.0, "weights sum to {total}, which is more machines than exist");
+        assert!(total > 0.1, "weights sum to {total} — too little of the world to be a crowd");
+    }
+
     #[test]
     fn identifiers_are_unique() {
         let mut ids: Vec<String> = all().into_iter().map(|p| p.id).collect();
