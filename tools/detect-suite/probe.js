@@ -1030,6 +1030,8 @@
         timezone: safe(() => Intl.DateTimeFormat().resolvedOptions().timeZone),
         timezoneOffset: safe(() => new Date().getTimezoneOffset()),
         locale: safe(() => Intl.DateTimeFormat().resolvedOptions().locale),
+        numberFormat: safe(() => (123456.789).toLocaleString(undefined, {})),
+        calendar: safe(() => Intl.DateTimeFormat().resolvedOptions().calendar),
         webdriver: safe(() => navigator.webdriver),
         userAgentDataPlatform: safe(() => navigator.userAgentData && navigator.userAgentData.platform),
         userAgentDataMobile: safe(() => navigator.userAgentData && navigator.userAgentData.mobile),
@@ -1089,6 +1091,19 @@
       webdriver: safeIn(() => w.navigator.webdriver),
       timezone: safeIn(() => w.Intl.DateTimeFormat().resolvedOptions().timeZone),
       timezoneOffset: safeIn(() => new w.Date().getTimezoneOffset()),
+      // The locale, and a number formatted through it.
+      //
+      // Both were missing here while the Worker payload reported them, so the
+      // comparison covered `locale` only among the worker-family contexts and
+      // never against the main frame or an iframe — a blind spot in the exact
+      // field patch 0081 exists to fix. That patch was written because a build
+      // with --lang=de reported Intl locale "ru" and formatted numbers
+      // "123 456,789"; the number is what makes it visible, so it is compared
+      // too rather than the tag alone.
+      language: safeIn(() => w.navigator.language),
+      locale: safeIn(() => w.Intl.DateTimeFormat().resolvedOptions().locale),
+      numberFormat: safeIn(() => (123456.789).toLocaleString(undefined, {})),
+      calendar: safeIn(() => w.Intl.DateTimeFormat().resolvedOptions().calendar),
       screenWidth: safeIn(() => w.screen.width),
       screenHeight: safeIn(() => w.screen.height),
       availHeight: safeIn(() => w.screen.availHeight),
@@ -1155,6 +1170,134 @@
     );
   }
 
+  /* A SharedWorker, a ServiceWorker and an AudioWorklet.
+   *
+   * The gate has always compared the main frame, a dedicated Worker and three
+   * iframes, and called cross-context consistency the headline number. These
+   * three were never in it, and each is a real V8 isolate with its own copy of
+   * navigator — a spoof that reaches the first four and not these is caught by
+   * any checker that bothers to look, which is the whole failure the number
+   * exists to measure.
+   *
+   * A SharedWorker is reached over a port rather than onmessage; a
+   * ServiceWorker needs a same-origin script URL and a registration; an
+   * AudioWorklet has no navigator.userAgent at all, so it reports the subset it
+   * can see. Absences are recorded rather than skipped — compareContexts
+   * already distinguishes "disagrees" from "is not there", and a context that
+   * cannot answer is a different finding from one that answers differently.
+   */
+  async function collectFromSharedWorker() {
+    if (!window.SharedWorker) return { __absent: true };
+    return await withTimeout(
+      safeAsync(
+        () =>
+          new Promise((resolve, reject) => {
+            const blob = new Blob(
+              [WORKER_PROBE_SRC.replace('self.onmessage = async function () {',
+                                        'self.onconnect = function (ev) { const port = ev.ports[0];' +
+                                        ' port.onmessage = async function () {')
+                               .replace(/self\.postMessage\(/g, 'port.postMessage(')
+                               .replace(/\};\s*$/, '}; };')],
+              { type: 'application/javascript' }
+            );
+            const url = URL.createObjectURL(blob);
+            const w = new SharedWorker(url);
+            w.port.onmessage = (e) => {
+              URL.revokeObjectURL(url);
+              resolve(e.data);
+            };
+            w.onerror = (e) => {
+              URL.revokeObjectURL(url);
+              reject(new Error('sharedworker: ' + (e.message || 'failed')));
+            };
+            w.port.start();
+            w.port.postMessage('go');
+          })
+      ),
+      8000,
+      'sharedWorker'
+    );
+  }
+
+  async function collectFromServiceWorker() {
+    if (!navigator.serviceWorker) return { __absent: true };
+    return await withTimeout(
+      safeAsync(async () => {
+        // A ServiceWorker script must be same-origin and cannot be a blob:, so
+        // this only runs where the page can serve one. On a page it cannot,
+        // that is a property of the harness and not of the browser, and saying
+        // so is better than reporting a disagreement that is ours.
+        // Same-origin and not a blob:, because a ServiceWorker script cannot be
+        // one. tools/detect-suite/collector.py serves this next to probe.html;
+        // when the probe is run some other way — pasted into DevTools on an
+        // arbitrary page — the fetch fails and the context records why.
+        const url = 'sw-probe.js';
+        try {
+          const reg = await navigator.serviceWorker.register(url, { scope: './' });
+          const sw = reg.installing || reg.waiting || reg.active;
+          if (!sw) return { __absent: true, why: 'no worker instance' };
+          const answer = await new Promise((resolve) => {
+            const ch = new MessageChannel();
+            ch.port1.onmessage = (e) => resolve(e.data);
+            sw.postMessage('go', [ch.port2]);
+            setTimeout(() => resolve({ __timeout: 'serviceWorker' }), 6000);
+          });
+          await reg.unregister();
+          return answer;
+        } catch (e) {
+          // blob: registration is refused by every browser; record the reason.
+          return { __absent: true, why: String((e && e.name) || e) };
+        }
+      }),
+      10000,
+      'serviceWorker'
+    );
+  }
+
+  async function collectFromAudioWorklet() {
+    if (!window.AudioContext) return { __absent: true };
+    return await withTimeout(
+      safeAsync(async () => {
+        const ctx = new AudioContext();
+        try {
+          const src = `
+            registerProcessor('fury-probe', class extends AudioWorkletProcessor {
+              constructor() {
+                super();
+                // An AudioWorklet has no navigator.userAgent and no Date, but it
+                // DOES have its own Intl and its own sampleRate — both of which a
+                // spoof has to reach, and neither of which the main thread's
+                // patch touches.
+                this.port.postMessage({
+                  timezone: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return '__error'; } })(),
+                  locale: (() => { try { return Intl.DateTimeFormat().resolvedOptions().locale; } catch (e) { return '__error'; } })(),
+                  numberFormat: (() => { try { return (123456.789).toLocaleString(undefined, {}); } catch (e) { return '__error'; } })(),
+                  calendar: (() => { try { return Intl.DateTimeFormat().resolvedOptions().calendar; } catch (e) { return '__error'; } })(),
+                  sampleRate: (typeof sampleRate === 'number' ? sampleRate : null),
+                  hasNavigator: (typeof navigator !== 'undefined'),
+                  userAgent: (typeof navigator !== 'undefined' && navigator.userAgent) || null,
+                });
+              }
+              process() { return false; }
+            });`;
+          const url = URL.createObjectURL(new Blob([src], { type: 'application/javascript' }));
+          await ctx.audioWorklet.addModule(url);
+          URL.revokeObjectURL(url);
+          const node = new AudioWorkletNode(ctx, 'fury-probe');
+          const answer = await new Promise((resolve) => {
+            node.port.onmessage = (e) => resolve(e.data);
+            setTimeout(() => resolve({ __timeout: 'audioWorklet' }), 5000);
+          });
+          return answer;
+        } finally {
+          void ctx.close();
+        }
+      }),
+      8000,
+      'audioWorklet'
+    );
+  }
+
   async function collectFromIframe(kind) {
     return await withTimeout(
       safeAsync(
@@ -1192,6 +1335,25 @@
    * those as disagreements produces false positives that drown the real ones, so
    * only non-null values are compared against each other, and absences are
    * reported separately as informational. */
+  /* Fields that real Chrome itself answers differently in a given context.
+   *
+   * Measured 02.08.2026 on Chrome 150.0.7871.187, unmodified: canvasHash in a
+   * ServiceWorker is 94dc364c while every other context — main frame, dedicated
+   * Worker, SharedWorker and all three iframes — reports 662a7e6d. A
+   * ServiceWorker has no document and therefore not the same fonts, so the same
+   * OffscreenCanvas text renders differently. Nothing is spoofing anything;
+   * that is simply what the browser does.
+   *
+   * Excluded rather than tolerated, because a metric with a known false
+   * positive is a metric people learn to ignore, and this one is the headline.
+   * The raw value stays in the capture, so anybody can look.
+   *
+   * The bar for adding a line here is a measurement on stock Chrome, quoted.
+   */
+  const KNOWN_CONTEXT_DIFFERENCES = {
+    serviceWorker: ['canvasHash'],
+  };
+
   function compareContexts(contexts) {
     const disagreements = [];
     const absences = [];
@@ -1206,6 +1368,7 @@
         const v = contexts[ctx];
         if (!v || v.__timeout || v.__error) continue;
         if (!(field in v)) continue;
+        if ((KNOWN_CONTEXT_DIFFERENCES[ctx] || []).includes(field)) continue;
         if (v[field] === null) {
           missing.push(ctx);
           continue;
@@ -1246,7 +1409,8 @@
     const [
       clientHints, webgpu, audio, mediaDevices, drm, webrtc,
       permissions, speech, keyboard, battery, storage,
-      worker, iframeSameOrigin, iframeBlank, iframeSrcdoc,
+      worker, sharedWorker, serviceWorker, audioWorklet,
+      iframeSameOrigin, iframeBlank, iframeSrcdoc,
     ] = await Promise.all([
       collectClientHints(),
       collectWebgpu(),
@@ -1260,6 +1424,9 @@
       collectBattery(),
       collectStorage(),
       collectFromWorker(),
+      collectFromSharedWorker(),
+      collectFromServiceWorker(),
+      collectFromAudioWorklet(),
       collectFromIframe('same-origin'),
       collectFromIframe('blank'),
       collectFromIframe('srcdoc'),
@@ -1272,6 +1439,9 @@
     const contexts = {
       main: collectFromMainRealm(),
       worker,
+      sharedWorker,
+      serviceWorker,
+      audioWorklet,
       'iframe:same-origin': iframeSameOrigin,
       'iframe:about:blank': iframeBlank,
       'iframe:srcdoc': iframeSrcdoc,

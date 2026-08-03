@@ -50,6 +50,24 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             (BASELINES / "_last_request_headers.json").write_text(
                 json.dumps(interesting, indent=2, ensure_ascii=False)
             )
+        # A ServiceWorker script has to be same-origin and cannot be a blob:,
+        # which is why that context reported `__absent: "TypeError"` in every
+        # capture until now — a whole execution context the headline number was
+        # silently not covering. Served from here, registration succeeds and the
+        # comparison finally includes it.
+        #
+        # Service-Worker-Allowed widens the scope so the script can control the
+        # page that registered it whatever path it was fetched from.
+        if self.path.startswith("/sw-probe.js"):
+            body = (HERE / "sw-probe.js").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript")
+            self.send_header("Service-Worker-Allowed", "/")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         return super().do_GET()
 
     def do_POST(self):
