@@ -1,0 +1,68 @@
+# GN args — macOS x86_64 release build.
+#
+# The Intel half. Identical to macos-arm64.gn except for target_cpu, and the
+# reasoning for every block below is written out there rather than repeated
+# here — read that file, then this one for what differs.
+#
+# Why it exists at all: an Apple-silicon Mac runs an x86_64 build under
+# Rosetta, and the browser can tell. `navigator.platform` still says MacIntel,
+# but the GPU strings, the CPU count and the timing behaviour are the host's,
+# so a profile claiming an Intel Mac from a translated binary reports a machine
+# nobody has ever owned. Building both slices and merging them is the answer;
+# building one and translating it is not.
+#
+#   core/build/build.sh macos-arm64
+#   core/build/build.sh macos-x64
+#   then merge — see below, and NOT with lipo on the main executable.
+
+target_os = "mac"
+target_cpu = "x64"
+
+is_official_build = true
+is_debug = false
+symbol_level = 0
+blink_symbol_level = 0
+dcheck_always_on = false
+
+# --- CRITICAL for anti-detect ------------------------------------------------
+# A build without these cannot decode H.264/AAC while real Chrome can, and two
+# lines of JS tell them apart.
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"
+
+# --- de-Google ---------------------------------------------------------------
+is_chrome_branded = false
+use_official_google_api_keys = false
+google_api_key = ""
+google_default_client_id = ""
+google_default_client_secret = ""
+enable_reporting = false
+enable_remoting = false
+# safe_browsing_mode = 0   # DO NOT SET — see macos-arm64.gn for the measured
+#                          # reason (the GN graph does not resolve without it).
+enable_hangout_services_extension = false
+
+# --- Widevine ----------------------------------------------------------------
+# Off, like the arm64 release args: this is the configuration for a binary that
+# may be handed to somebody else, and the CDM is a blob that cannot be
+# redistributed. agent/src/widevine.rs stages one out of the Chrome already
+# installed on the machine at runtime.
+enable_widevine = false
+
+# --- size --------------------------------------------------------------------
+enable_print_preview = true
+
+# --- toolchain ---------------------------------------------------------------
+use_lld = true
+chrome_pgo_phase = 1
+
+# An unbranded build otherwise applies fieldtrial_testing_config.json, which
+# force-enables features real stable Chrome ships disabled — including
+# ReduceAcceptLanguage, which trims Accept-Language to one language while
+# navigator.languages still reports the full list. A browser contradicting
+# itself, from a build setting.
+disable_fieldtrial_testing_config = true
+
+# Keep ninja: autoninja in this depot_tools prefers Siso and then refuses an
+# output directory ninja created.
+use_siso = false

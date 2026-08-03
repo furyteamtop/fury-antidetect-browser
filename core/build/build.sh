@@ -119,9 +119,21 @@ fi
 if [ "$TARGET" = "macos-arm64" ] && [ -d "$SRC/out/macos-x64" ]; then
   cat <<EOF
 
-Both macOS slices present. Make the universal binary with:
-  lipo -create -output Fury \\
-    "$SRC/out/macos-arm64/Fury.app/Contents/MacOS/Fury" \\
-    "$SRC/out/macos-x64/Fury.app/Contents/MacOS/Fury"
+Both macOS slices present. Merge them with Chromium's own universalizer:
+
+  python3 "$SRC/chrome/installer/mac/universalizer.py" \\
+    "$SRC/out/macos-arm64/Fury.app" \\
+    "$SRC/out/macos-x64/Fury.app" \\
+    "$SRC/out/macos-universal/Fury.app"
+
+NOT lipo on the main executable. That advice used to be here and it is wrong
+for this bundle: lipo would merge one 76 KB launcher and leave the 540 MB
+framework, five helper applications and every dylib single-architecture. The
+result runs on the machine it was built for and, on the other one, fails to
+load its own framework — a bundle that looks universal and is not.
+
+universalizer.py walks both trees and merges every Mach-O file it finds, which
+is why Chromium ships it.
+
 EOF
 fi
