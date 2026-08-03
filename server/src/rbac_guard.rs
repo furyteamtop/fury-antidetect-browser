@@ -133,9 +133,35 @@ fn parse_role(s: &str) -> Option<OrgRole> {
 /// can act as a second line of defence under this module.
 ///
 /// `set_config(..., true)` scopes the setting to the transaction, so a pooled
-/// connection cannot carry one request's identity into the next.
-/// Second line of defence under the checks above. Wired in when handlers move
-/// to transactions; the policies in 0001_init.sql already expect it.
+/// connection cannot carry one request's identity into the next — which is also
+/// why this cannot simply be called somewhere central and forgotten.
+///
+/// STILL NOT WIRED IN, and the reason is bigger than an oversight. Audited
+/// 02.08.2026:
+///
+///   1. Six of the forty-two handlers in api.rs open a transaction. The other
+///      thirty-six query the pool directly, and a transaction-local setting has
+///      nowhere to live on those. Calling this in the six would enable RLS for
+///      them and leave the rest reading with `app.user_id` unset — which under
+///      the policies in 0001_init.sql means reading nothing at all. A partial
+///      wiring is worse than none.
+///
+///   2. The migration's own comment says "the app connects as `fury_app`". It
+///      does not. deploy/server-install.sh:83-87 creates role `fury` and gives
+///      it the database with `createdb -O fury`, so the app connects as the
+///      OWNER of every table — and PostgreSQL exempts a table's owner from its
+///      policies unless the table is set to FORCE ROW LEVEL SECURITY, which
+///      nothing does. So even with the setting bound, every policy here is
+///      inert.
+///
+/// Both have to change together: FORCE on the six tables, and every handler
+/// through a transaction that binds the user. Neither is hard; the second is
+/// thirty-six handlers, and doing it half-way would take the server down rather
+/// than leave it as it is.
+///
+/// What this does NOT mean: the per-handler RBAC above is real, it runs on
+/// every request, and it is what is actually enforcing access today. RLS is the
+/// second line, and the second line is missing.
 #[allow(dead_code)]
 pub async fn bind_rls_user(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
