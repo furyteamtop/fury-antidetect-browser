@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright 2026 Bogdan Shapovalov and the Fury authors
+#
+# The half that needs a browser.
+#
+# ci.yml checks everything a hosted runner can: the crates, the shell, the patch
+# series, the captures, the licences. It cannot check the browser, because a
+# Chromium checkout is ~38 GB against a hosted runner's 14 GB of disk.
+#
+# This runs on a machine that already has the tree synced and built — a laptop
+# or a box somebody keeps for it. Nothing here fetches or builds Chromium from
+# scratch; the first build is six hours and is a human decision, not a CI one.
+#
+# Set up such a runner with the label `fury-core`, then:
+#   core/build/fetch.sh          once
+#   core/build/apply.sh          per revision
+#   core/build/link-icons.sh
+#   core/build/build.sh          six hours the first time, under a minute after
+#
+# Manual by default. A scheduled run is in here and commented out: turn it on
+# once a runner exists, because a red tick nobody can act on trains people to
+# ignore the green one.
+
+name: Browser checks
+
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "0 4 * * *"
+
+jobs:
+  verify:
+    name: patches do what they claim
+    runs-on: [self-hosted, fury-core]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: apply the series to the synced tree
+        run: |
+          core/build/apply.sh
+          core/build/link-icons.sh
+
+      - name: build
+        run: core/build/build.sh
+
+      # One script per patch, each driving the built browser over CDP and
+      # asserting what the patch claims. These exist because "it applies" and
+      # "it compiles" have each been wrong here — see core/verify/README.md.
+      - name: verify each patch on the running browser
+        run: |
+          set -euo pipefail
+          CORE="core/src/out/macos-arm64/Fury.app/Contents/MacOS/Fury"
+          test -x "$CORE" || CORE="core/src/out/macos-arm64-lowmem/Fury.app/Contents/MacOS/Fury"
+          for v in core/verify/verify-*.py; do
+            echo "== $v"
+            python3 "$v" "$CORE"
+          done
+
+      # The headline number: the same values from the main frame, a dedicated
+      # Worker, a SharedWorker, a ServiceWorker, an AudioWorklet and three kinds
+      # of iframe. For real Chrome it is zero, and for Fury it must also be zero.
+      - name: cross-context consistency and the release gate
+        run: |
+          set -euo pipefail
+          python3 tools/detect-suite/collector.py &
+          sleep 3
+          # A capture from a configured profile, then thirteen release checks.
+          python3 tools/ci/capture-and-gate.py

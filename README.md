@@ -177,6 +177,15 @@ about it is worth more than not.
 | Row-level security on the server | declared in the schema and inert: `bind_rls_user` is never called, so `app.user_id` is not set on the connection. The per-handler RBAC is real and works |
 | Persona catalogue | 26 machines. More personas means better crowds to hide in, and it is the most useful thing an outside contributor can add — `fury-detect persona <capture.json>` turns a probe capture from your own computer into one |
 
+## Contributing
+
+The most useful thing you can send is a persona from your own computer —
+`fury-detect persona` turns a probe capture into one, and the catalogue is 26
+machines, each of which is a crowd for somebody to hide in. The second most
+useful is a site that caught a profile. [CONTRIBUTING.md](CONTRIBUTING.md) has
+both, and the rule that governs everything else: measurements are welcome,
+claims are not.
+
 ## Licensing
 
 Three sets of terms, and they are not interchangeable.

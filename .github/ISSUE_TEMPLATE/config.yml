@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: How the fork is built and why each patch exists
+    url: https://github.com/fury-browser/fury/blob/main/core/patches/series
+    about: >
+      The design record. Every patch explains itself, including the ones that
+      were written and then retired because measurement said they would make the
+      browser less like Chrome rather than more.
+  - name: Acceptable use
+    url: https://github.com/fury-browser/fury/blob/main/ACCEPTABLE_USE.md
+    about: What this tool is for, and what it is not for.

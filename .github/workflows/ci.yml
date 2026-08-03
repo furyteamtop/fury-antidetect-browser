@@ -1,0 +1,124 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright 2026 Bogdan Shapovalov and the Fury authors
+#
+# What can honestly be checked on a hosted runner.
+#
+# NOT the browser. A Chromium checkout is ~38 GB and the first build takes about
+# six hours on 16 GB of RAM; GitHub's hosted runners have 14 GB of disk and a
+# six-hour job limit, so a core build would fail on both counts. The patch
+# series, the detect-suite and every Rust and TypeScript crate are checkable in
+# minutes, and pretending to check more than that would produce a green tick
+# that means nothing.
+#
+# The browser is checked by core/verify/ on a machine that has one — see
+# self-hosted.yml, which is the same steps for a runner with the tree already
+# synced.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: cargo test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --all-targets
+      - name: cargo build --release
+        run: cargo build --release --workspace
+
+  desktop:
+    name: shell typecheck and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+        working-directory: desktop
+      - run: ./node_modules/.bin/tsc --noEmit -p tsconfig.json
+        working-directory: desktop
+      - run: npm run build
+        working-directory: desktop
+
+  series:
+    name: the patch series holds together
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Every entry in the series has a file, and every file is in the series.
+      # A listed-but-missing patch makes apply.sh fail hours into a build; a
+      # present-but-unlisted one is silently never applied, which is worse
+      # because the vector looks covered.
+      - name: series and files agree
+        run: |
+          set -euo pipefail
+          listed=$(grep -v '^#' core/patches/series | grep -v '^$' \
+                   | sed 's/#.*//' | tr -d ' ' | sed 's/!$//' | sort)
+          for p in $listed; do
+            test -f "core/patches/$p" || { echo "!! listed, not written: $p"; exit 1; }
+          done
+          for f in core/patches/*.patch; do
+            n=$(basename "$f")
+            echo "$listed" | grep -qx "$n" || { echo "!! written, not listed: $n"; exit 1; }
+          done
+          echo "$(echo "$listed" | wc -w) patches, all accounted for"
+
+      # A hunk header whose line counts do not match its body applies as
+      # garbage or not at all. This has happened here twice, both times by
+      # hand-editing a patch to reorder the series.
+      - name: hunk headers count correctly
+        run: python3 tools/ci/check-hunks.py
+
+      # A patch that re-creates a file an earlier patch creates breaks the
+      # series on a clean tree while looking perfectly plausible in review.
+      - name: no patch re-creates another patch's file
+        run: python3 tools/ci/check-duplicate-creates.py
+
+  captures:
+    name: no capture carries a real address
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # A capture is taken by running a browser on somebody's real machine, so
+      # this recurs on every measurement anybody ever takes. The .gitignore
+      # holds until somebody types `git add -f`.
+      - run: cargo run -p fury-detect -- redact --check
+      # The ServiceWorker payload is generated from the Worker's. If they drift,
+      # a capture reports a cross-context disagreement that belongs to the
+      # harness rather than to the browser — the one false positive the headline
+      # number cannot afford.
+      - run: python3 tools/detect-suite/sync-sw.py --check
+
+  licensing:
+    name: every file says what it is
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: SPDX headers
+        run: |
+          set -euo pipefail
+          missing=0
+          for f in $(git ls-files '*.rs' '*.ts' '*.tsx' '*.py' '*.sh' \
+                     | grep -v '^core/patches/'); do
+            head -5 "$f" | grep -q 'SPDX-License-Identifier' || {
+              echo "!! no SPDX header: $f"; missing=1; }
+          done
+          exit $missing
+      - name: the licences exist
+        run: test -f LICENSE && test -f NOTICE && test -f core/patches/LICENSE
