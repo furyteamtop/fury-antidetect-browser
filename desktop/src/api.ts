@@ -136,6 +136,13 @@ export interface Shell {
   /** "local" needs no account at all; "team" is a server someone chose. */
   mode: "local" | "team";
   agent_ready: boolean;
+  /** Whether a browser is installed at all. The application and the browser are
+   *  two downloads, so "the app runs" and "there is something to launch" are
+   *  different questions. */
+  core_ready: boolean;
+  /** The agent's own sentence about why there is none, when it has one — a
+   *  stale FURY_CORE reads nothing like a missing download. */
+  core_problem: string | null;
   /** Whether the organisation key is remembered between launches. */
   remember_org_key: boolean;
   /** This build, for the About panel and for any bug report that follows. */
@@ -288,6 +295,8 @@ export const api = {
     return Promise.resolve({
       mode: "team" as const,
       agent_ready: false,
+      core_ready: true,
+      core_problem: null,
       remember_org_key: true,
       version: "dev",
       org_key_ready: false,

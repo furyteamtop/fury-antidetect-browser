@@ -321,6 +321,12 @@ impl Agent {
                 Ok(json!({
                     "version": env!("CARGO_PKG_VERSION"),
                     "core": self.core.as_ref().map(|p| p.display().to_string()),
+                    // Why there is no core, when the reason is not "you have
+                    // not installed one". The shell shows this verbatim: a
+                    // stale FURY_CORE and a missing download need opposite
+                    // actions, and "no browser found" describes both.
+                    "core_problem": crate::core_lookup_problem(),
+                    "core_dir": paths::core_dir().display().to_string(),
                     "running": running.keys().collect::<Vec<_>>(),
                     "data_dir": paths::data_dir().display().to_string(),
                 }))

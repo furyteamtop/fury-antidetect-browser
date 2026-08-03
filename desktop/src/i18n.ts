@@ -35,6 +35,8 @@ const en = {
   "app.dismiss": "Dismiss",
   "app.agentDown":
     "The local agent is not running, so nothing can be launched. It normally starts on its own — if this persists, run fury-agent serve.",
+  "app.noCore": "The browser itself is not installed yet.",
+  "app.noCoreHow": "Fury is two downloads: this application, and the browser it drives. Download fury-core from the releases page, then run: fury-agent install-core ~/Downloads/fury-core-*.tar.xz",
 
   // toolbar
   "bar.newProfile": "New profile",
@@ -471,6 +473,8 @@ const ru: Record<Key, string> = {
   "app.dismiss": "Скрыть",
   "app.agentDown":
     "Локальный агент не запущен, поэтому открыть ничего нельзя. Обычно он стартует сам — если это повторяется, запустите fury-agent serve.",
+  "app.noCore": "Сам браузер ещё не установлен.",
+  "app.noCoreHow": "Fury — это две загрузки: это приложение и браузер, которым оно управляет. Скачайте fury-core со страницы релизов и выполните: fury-agent install-core ~/Downloads/fury-core-*.tar.xz",
 
   "bar.newProfile": "Новый профиль",
   "bar.search": "Поиск по имени, метке или прокси",

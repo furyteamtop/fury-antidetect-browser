@@ -251,6 +251,13 @@ pub struct Shell {
     pub mode: &'static str,
     /// Whether the local daemon answered. Nothing can be launched without it.
     pub agent_ready: bool,
+    /// Whether a browser is installed. Separate from `agent_ready` because the
+    /// application is one download and the browser is another, and somebody who
+    /// took the first and not the second has an app that works up to the moment
+    /// they press Launch.
+    pub core_ready: bool,
+    /// The agent's own sentence about why not, when it has one.
+    pub core_problem: Option<String>,
     /// This build, for the About panel and for any bug report that follows it.
     pub version: &'static str,
 
@@ -282,6 +289,25 @@ pub async fn shell_state(state: State<'_, AppState>) -> Result<Shell, ApiErr> {
     // for.
     let agent_ready = crate::agent::ensure_running().await.is_ok();
 
+    // Asked once, here, rather than discovered on the first launch attempt.
+    // A missing core is a five-minute fix and a confusing failure, and the
+    // order those happen in is the whole difference.
+    let (core_ready, core_problem) = if agent_ready {
+        match crate::agent::call::<serde_json::Value>("status", serde_json::json!({})).await {
+            Ok(v) => (
+                v.get("core").map(|c| !c.is_null()).unwrap_or(false),
+                v.get("core_problem")
+                    .and_then(|p| p.as_str())
+                    .map(str::to_string),
+            ),
+            // The agent answered the socket and not this call. Not worth a
+            // second warning bar — agent_ready is already false-ish territory.
+            Err(_) => (true, None),
+        }
+    } else {
+        (true, None)
+    };
+
     // Both settings fields in one lock, released before the struct is built.
     //
     // Two `settings.lock()` calls inside a single struct literal deadlocked:
@@ -302,6 +328,8 @@ pub async fn shell_state(state: State<'_, AppState>) -> Result<Shell, ApiErr> {
         native: true,
         mode,
         agent_ready,
+        core_ready,
+        core_problem,
         version: env!("CARGO_PKG_VERSION"),
         org_key_ready,
         last_email,

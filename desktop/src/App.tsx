@@ -470,6 +470,25 @@ export function App() {
           </div>
         )}
 
+        {/* Shown before anything is attempted, not after Launch fails. The
+            application is one download and the browser is another, and somebody
+            who took only the first has an app that looks entirely finished
+            until the moment they press the button. Saying so on arrival turns a
+            confusing failure into a five-minute errand. */}
+        {shell.agent_ready && !shell.core_ready && (
+          <div className="notice warnBar" role="status">
+            <div>
+              <strong>{t("app.noCore")}</strong>
+              <div className="muted" style={{ marginTop: "var(--s-1)" }}>
+                {/* The agent's own sentence when it has one: a stale FURY_CORE
+                    and a missing download need opposite actions, and one
+                    message for both would describe neither. */}
+                {shell.core_problem ?? t("app.noCoreHow")}
+              </div>
+            </div>
+          </div>
+        )}
+
         {notice && (
           <div className="notice" role="status">
             {notice}
