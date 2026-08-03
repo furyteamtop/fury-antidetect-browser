@@ -96,6 +96,26 @@ pub fn build_args(spec: &LaunchSpec) -> Vec<String> {
         "--fury-fp-fd=3".to_string(),
         "--no-default-browser-check".to_string(),
         "--no-first-run".to_string(),
+        // Reopen what was open. Chromium was already SAVING the session — the
+        // Sessions directory has files in it after every close — and simply
+        // never restoring it, so a profile came back as a blank new tab and the
+        // work of the last session had to be found again from history.
+        //
+        // Measured 03.08.2026 on a throwaway directory: two tabs open, SIGTERM,
+        // relaunch — one chrome://newtab and nothing else. With this switch the
+        // same test brings both tabs back.
+        //
+        // A switch rather than the session.restore_on_startup preference: the
+        // preference lives in the profile and the operator can change it in
+        // Settings, and a profile that quietly stopped restoring because
+        // somebody clicked something would be hard to explain. This is a
+        // property of how Fury opens a profile, so it belongs in argv.
+        //
+        // Bookmarks needed nothing: the user-data-dir is stable per profile
+        // (paths::profile_dir) and Chromium writes Default/Bookmarks into it,
+        // so they were already surviving. They LOOKED lost because the window
+        // came back empty.
+        "--restore-last-session".to_string(),
         // Anything that phones home outside the profile proxy is a real-IP leak.
         "--disable-background-networking".to_string(),
         // --disable-component-update is NOT here, and its absence is load-bearing.
@@ -470,6 +490,9 @@ mod tests {
         // flag, and putting it back costs every profile its DRM playback and
         // fails the release gate.
         assert!(!args.iter().any(|a| a.contains("disable-component-update")));
+        // Without it a profile reopens as a blank new tab and the last
+        // session's tabs are gone — see the note in build_args.
+        assert!(args.iter().any(|a| a == "--restore-last-session"));
         assert!(!args.iter().any(|a| a.contains("--no-proxy-server")));
     }
 

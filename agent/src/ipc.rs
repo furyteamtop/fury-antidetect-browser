@@ -116,6 +116,31 @@ pub fn parse_location(raw: &str) -> Option<(f64, f64)> {
     Some((lat, lng))
 }
 
+/// What to open on this launch.
+///
+/// Start URLs open on the FIRST launch and never again. The browser restores its
+/// previous session (see launcher.rs), and start URLs passed on top of a
+/// restored session are ADDED to it rather than replacing it — so the tenth
+/// launch of a profile opened its start page for the tenth time and the
+/// operator closed nine tabs by hand. Measured: two launches, one extra copy.
+///
+/// "Has it been opened before" is asked of the directory rather than of a flag
+/// in the database, for the same reason `running` is: a flag can be wrong after
+/// a crash, or after a bundle is unpacked from a colleague's machine, and the
+/// Sessions directory is the very thing the browser will read a moment later.
+fn start_urls_for(dir: &std::path::Path, configured: &[String]) -> Vec<String> {
+    if dir.join("Default").join("Sessions").is_dir() {
+        return Vec::new();
+    }
+    if configured.is_empty() {
+        // Nothing configured means the start page, not a blank tab: the first
+        // thing an operator needs after opening a profile is proof that the
+        // disguise and the exit are working.
+        return vec![crate::relay::START_URL.to_string()];
+    }
+    configured.to_vec()
+}
+
 impl Agent {
     pub async fn new() -> anyhow::Result<Arc<Self>> {
         paths::ensure_data_dir()?;
@@ -161,8 +186,49 @@ impl Agent {
         }))
     }
 
+    /// Notice browsers the operator closed from their own window.
+    ///
+    /// Until this existed the shell learned a profile had closed only when
+    /// somebody pressed Close in the shell, or tried to launch it again — the
+    /// list reported `running` straight from the supervisor map and nothing
+    /// ever took a dead child out of it. So a profile closed by its own red
+    /// button stayed "open" in the interface, could not be reopened, and its
+    /// relay went on listening and forwarding to the customer's upstream.
+    ///
+    /// A poll rather than a wait per child: `stop` already does the whole
+    /// teardown — SIGTERM, relay, heartbeat, lock, and the bundle push for a
+    /// team profile — and reaching it from one place keeps a closed-by-hand
+    /// profile and a closed-by-button profile on exactly the same path. Two
+    /// seconds is far below what anyone notices and costs a `waitpid` per open
+    /// profile.
+    fn start_reaper(self: &Arc<Self>) {
+        let agent = Arc::clone(self);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                let gone: Vec<String> = {
+                    let mut running = agent.running.lock().await;
+                    running
+                        .iter_mut()
+                        .filter_map(|(id, entry)| match entry.child.try_wait() {
+                            Ok(Some(_)) => Some(id.clone()),
+                            _ => None,
+                        })
+                        .collect()
+                };
+                for id in gone {
+                    tracing::info!(profile = %id, "browser closed from its own window");
+                    if let Err(e) = agent.stop(&id).await {
+                        tracing::warn!(profile = %id, error = %e, "could not tidy up after it");
+                    }
+                }
+            }
+        });
+    }
+
     /// Listen until the process is stopped.
     pub async fn serve(self: Arc<Self>) -> anyhow::Result<()> {
+        self.start_reaper();
         let path = paths::socket_path();
 
         // A socket file left by a crash would make bind() fail with "address in
@@ -479,7 +545,13 @@ impl Agent {
                 // the Profiles view and the ordinary case; a project narrows it.
                 let project = params.get("project_id").and_then(|v| v.as_str());
                 let mut profiles = self.store.profiles(project).await?;
-                let running = self.running.lock().await;
+                // try_wait here as well as in the reaper: the shell asks for
+                // this list the instant a window closes, and answering "open"
+                // for two seconds is the difference between the interface
+                // feeling alive and feeling stuck.
+                let mut running = self.running.lock().await;
+                running.retain(|_, entry| !matches!(entry.child.try_wait(), Ok(Some(_))));
+                let running = running;
                 // The list is the only place the shell learns what is open, so
                 // the answer has to come from the supervisor rather than from a
                 // flag in the database that a crash would leave stale.
@@ -1267,14 +1339,21 @@ impl Agent {
             }
         }
 
-        // Nothing configured means the start page, not a blank tab: the first
-        // thing an operator needs after opening a profile is proof that the
-        // disguise and the exit are working.
-        let start_urls = if profile.start_urls.is_empty() {
-            vec![crate::relay::START_URL.to_string()]
-        } else {
-            profile.start_urls.clone()
-        };
+        // Start URLs open on the FIRST launch and never again.
+        //
+        // The browser now restores its previous session (see launcher.rs), and
+        // start URLs passed on top of a restored session are added to it rather
+        // than replacing it — so the tenth launch of a profile opened its start
+        // page for the tenth time and the operator closed nine tabs by hand.
+        // Measured: two launches, one extra copy; the pattern is obvious from
+        // there.
+        //
+        // "Has it been opened before" is asked of the directory rather than of
+        // a flag in the database, for the same reason `running` is: a flag can
+        // be wrong after a crash or after a bundle is unpacked from a
+        // colleague's machine, and the Sessions directory is the thing the
+        // browser itself will be reading a moment later.
+        let start_urls = start_urls_for(&dir, &profile.start_urls);
 
         let child = launcher::spawn(&launcher::LaunchSpec {
             core_binary: &core,
@@ -1505,6 +1584,30 @@ mod tests {
         assert_eq!(parse_location("60.1695"), None);
         assert_eq!(parse_location("Helsinki"), None);
         assert_eq!(parse_location(""), None);
+    }
+
+    #[test]
+    fn start_urls_open_once_and_then_the_session_takes_over() {
+        let tmp = std::env::temp_dir().join(format!("fury-su-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        // First launch: what the profile asks for.
+        assert_eq!(
+            start_urls_for(&tmp, &["https://shop.example/".to_string()]),
+            vec!["https://shop.example/".to_string()]
+        );
+        // First launch with nothing configured: the page that proves the
+        // disguise and the exit are working.
+        assert_eq!(start_urls_for(&tmp, &[]), vec![crate::relay::START_URL.to_string()]);
+
+        // Once the browser has been here, the session is the answer and passing
+        // anything would stack a duplicate on top of it.
+        std::fs::create_dir_all(tmp.join("Default").join("Sessions")).unwrap();
+        assert!(start_urls_for(&tmp, &["https://shop.example/".to_string()]).is_empty());
+        assert!(start_urls_for(&tmp, &[]).is_empty());
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
