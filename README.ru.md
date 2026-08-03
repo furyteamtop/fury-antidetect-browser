@@ -117,6 +117,13 @@ cargo run -p fury-agent -- serve
 cargo run -p fury-agent -- launch shared/personas/windows-11-rtx4060-1920x1080.json --proxy socks5://user:pass@exit.example:1080 --timezone Europe/Berlin
 ```
 
+## Автоматизация
+
+Шесть эндпоинтов и один токен, выключено, пока не задан `FURY_API_PORT`.
+В [examples/](examples/) четыре рабочих скрипта — curl, Playwright, Puppeteer
+и тот, который на самом деле нужен: прогнать задачу по всем профилям, по
+одному, не оставив браузер открытым при ошибке.
+
 ## Проверить самому
 
 Не верьте написанному — замерьте:

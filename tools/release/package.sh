@@ -124,9 +124,11 @@ size_of() {
   awk -v b="$(wc -c < "$1")" 'BEGIN{printf "   %.0f MB (%.0f MiB)\n", b/1000000, b/1048576}'
 }
 
-# `[ -n "$x" ] && f` would be wrong here: under `set -e` the false test is the
-# last command in the list, so packaging only the shell would exit before it
-# got there, silently and with status 1.
+# `if` rather than `[ -n "$x" ] && f`, which was worth checking rather than
+# assuming: under `set -e` bash does NOT exit on the guard failing here, because
+# the test is the left operand of && and other commands follow. It would matter
+# only if such a line were the last in the file, where the script would then
+# exit 1 having done everything correctly. The `if` is simply clearer.
 if [ -n "$core_app" ]; then package_core "$core_app"; fi
 if [ -n "$shell_app" ]; then package_shell "$shell_app"; fi
 

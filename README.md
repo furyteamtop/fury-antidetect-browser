@@ -131,6 +131,13 @@ Launch a persona directly, without any store, to see the spoofing work:
 cargo run -p fury-agent -- launch shared/personas/windows-11-rtx4060-1920x1080.json --proxy socks5://user:pass@exit.example:1080 --timezone Europe/Berlin
 ```
 
+## Automation
+
+Six endpoints and one bearer token, off until `FURY_API_PORT` says otherwise.
+[examples/](examples/) has four working scripts — curl, Playwright, Puppeteer,
+and the one people actually want: run a job across every profile, one at a time,
+never leaving a browser open on a failure.
+
 ## Check it yourself
 
 Do not take any of the above on trust — measure it:

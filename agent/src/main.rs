@@ -36,6 +36,11 @@ use relay::{Credentials, Relay, Upstream};
 ///
 /// `FURY_API_PORT=35000` turns it on; `0` and anything unparseable leave it
 /// off, so a typo fails closed.
+///
+/// There is no default port on purpose. A local HTTP port is a way into every
+/// logged-in profile on the machine, and it should exist because somebody asked
+/// for it, not because they installed something. [`http::DEFAULT_PORT`] is the
+/// number to use when you do — see examples/.
 fn api_port() -> Option<u16> {
     std::env::var("FURY_API_PORT")
         .ok()

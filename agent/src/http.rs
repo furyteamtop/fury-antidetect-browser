@@ -38,7 +38,11 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-/// The port, unless `FURY_API_PORT` says otherwise.
+/// The conventional port for the automation API.
+///
+/// Nothing binds it by default — the API is off until `FURY_API_PORT` says
+/// otherwise ([`crate::api_port`]). This is the number the examples and the
+/// documentation use, so that scripts agree with each other.
 ///
 /// Not one of the competitors' numbers: a script pointed at the wrong product
 /// should fail to connect rather than half-work against it.
