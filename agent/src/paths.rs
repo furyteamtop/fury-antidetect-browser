@@ -43,6 +43,21 @@ pub fn db_path() -> PathBuf {
     data_dir().join("fury.db")
 }
 
+/// Where an installed core lives.
+///
+/// Separate from the desktop shell's application bundle, and that separation is
+/// the point. The shell is 12 MB and the core is 134 MB compressed; they are
+/// versioned apart, and putting the core inside the shell's bundle would break
+/// the shell's code signature every time the core was replaced — a signed
+/// application whose contents changed underneath it is one macOS refuses to
+/// launch, with a message about damage rather than about signing.
+///
+/// So the shell is a signed bundle that stays as it was shipped, and the core
+/// is data next to the profiles. `fury-agent install-core` puts it here.
+pub fn core_dir() -> PathBuf {
+    data_dir().join("core")
+}
+
 /// Where a profile's browser data lives between runs.
 pub fn profile_dir(profile_id: &str) -> PathBuf {
     data_dir().join("profiles").join(profile_id)
@@ -146,6 +161,13 @@ mod tests {
             short_tag(std::path::Path::new("/home/a/Fury")),
             short_tag(std::path::Path::new("/home/b/Fury"))
         );
+    }
+
+    #[test]
+    fn an_installed_core_is_under_the_same_root() {
+        // "Wipe Fury" has to remove the browser as well, or 134 MB survives an
+        // uninstall in a directory nobody would think to look in.
+        assert!(core_dir().starts_with(data_dir()));
     }
 
     #[test]

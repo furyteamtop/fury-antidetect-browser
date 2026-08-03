@@ -1141,9 +1141,16 @@ impl Agent {
         })?;
 
         let core = self.core.clone().ok_or_else(|| {
-            anyhow::anyhow!(
-                "no core binary found. Build it, or point FURY_CORE at one"
-            )
+            // The reason matters more than the fact. "No core" with a stale
+            // FURY_CORE set reads as "you never installed one", and the person
+            // goes and installs a second copy that is also not used.
+            match crate::core_lookup_problem() {
+                Some(why) => anyhow::anyhow!("no core binary: {why}"),
+                None => anyhow::anyhow!(
+                    "no core binary found. Install one with `fury-agent install-core <file>`, \
+                     build it, or point FURY_CORE at one"
+                ),
+            }
         })?;
 
         let upstream = crate::parse_upstream(&proxy.url())?;

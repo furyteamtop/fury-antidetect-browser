@@ -13,6 +13,7 @@
 mod bundle;
 mod cookies;
 mod http;
+mod install_core;
 mod ipc;
 mod launcher;
 mod paths;
@@ -73,6 +74,10 @@ async fn main() -> anyhow::Result<()> {
         Some("relay") => cmd_relay(&args[1..]).await,
         Some("launch") => cmd_launch(&args[1..]).await,
         Some("check-fingerprint") => cmd_check_fingerprint(&args[1..]),
+        Some("install-core") => match args.get(1) {
+            Some(src) => install_core::install(std::path::Path::new(src)).map(|_| ()),
+            None => install_core::status(),
+        },
         _ => {
             eprintln!(
                 "fury-agent {}\n\
@@ -100,7 +105,10 @@ async fn main() -> anyhow::Result<()> {
                        --debug-port N      expose CDP on 127.0.0.1:N\n  \
                    fury-agent check-fingerprint <config.json>\n      \
                      Validate a fingerprint config for internal consistency.\n      \
-                     Pass '-' to check the built-in sample.\n",
+                     Pass '-' to check the built-in sample.\n  \
+                   fury-agent install-core [file]\n      \
+                     Install a downloaded core, or report the installed one.\n      \
+                     Takes a .tar.xz, .tar.gz, .app or directory — not a URL.\n",
                 env!("CARGO_PKG_VERSION")
             );
             Ok(())
@@ -284,12 +292,53 @@ async fn cmd_launch(args: &[String]) -> anyhow::Result<()> {
 pub fn core_binary() -> Option<std::path::PathBuf> {
     if let Ok(explicit) = std::env::var("FURY_CORE") {
         let path = std::path::PathBuf::from(explicit);
+        // An explicit setting that points nowhere stops the search rather than
+        // falling through to an installed core. Silently using a different
+        // browser than the one the environment names is worse than finding
+        // none: it is how you spend an evening measuring a binary you did not
+        // think you were running.
         return path.exists().then_some(path);
     }
-    let beside = std::env::current_exe().ok()?.parent()?.join(
-        if cfg!(target_os = "macos") { "Fury.app/Contents/MacOS/Fury" } else { "fury-core" },
-    );
-    beside.exists().then_some(beside)
+
+    // Beside the agent first, because a development tree and a bundle that
+    // shipped both together are both that shape, and an explicitly placed
+    // binary should win over an installed one.
+    let beside = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join(core_leaf())));
+    if let Some(path) = beside.filter(|p| p.exists()) {
+        return Some(path);
+    }
+
+    // Then the installed location. This is the ordinary case for anybody who
+    // did not build the browser: the shell is 12 MB and downloads with the
+    // application, the core is 134 MB and arrives separately.
+    let installed = crate::paths::core_dir().join(core_leaf());
+    installed.exists().then_some(installed)
+}
+
+/// Why there is no core, in a sentence, when the reason is not "you have not
+/// installed one".
+///
+/// The case this exists for was found by hitting it: FURY_CORE was left set to
+/// a path from before the branding patch renamed Chromium.app to Fury.app, and
+/// every lookup afterwards reported no core while a perfectly good one sat in
+/// the install directory. The message named the directory it had searched,
+/// which was true and sent the reader to look in exactly the wrong place.
+pub fn core_lookup_problem() -> Option<String> {
+    let explicit = std::env::var("FURY_CORE").ok()?;
+    if std::path::Path::new(&explicit).exists() {
+        return None;
+    }
+    Some(format!(
+        "FURY_CORE is set to {explicit}, which does not exist. \
+         Nothing else is searched while it is set — unset it, or point it at a core."
+    ))
+}
+
+/// The path from a directory holding a core to the executable inside it.
+fn core_leaf() -> &'static str {
+    if cfg!(target_os = "macos") { "Fury.app/Contents/MacOS/Fury" } else { "fury-core" }
 }
 
 /// The core this agent expects to drive. Read from core/CHROMIUM_VERSION at

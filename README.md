@@ -87,6 +87,12 @@ desktop (Tauri)  ──socket──▶  agent (Rust)  ──spawn──▶  core
 
 Details in [docs/01](docs/01-architecture.md).
 
+## Install
+
+If you only want to use it, you do not need any of what follows:
+[docs/15](docs/15-install.md) is two downloads and one command, and it is the
+page to send anybody who asks how to try this.
+
 ## Build
 
 The core takes about six hours and ~100 GB on a 16 GB machine, measured rather
@@ -156,8 +162,10 @@ the release criteria and exits non-zero on failure, so it drops into CI
 | [12 — UX reference](docs/12-ui-reference.md) | What to copy from AdsPower, and where to beat it |
 | [13 — Self-hosting](docs/13-self-hosting.md) | Standing up a team server |
 | [14 — Team server](docs/14-team-server.md) | Accounts, enrolment, the RBAC model in practice |
+| [15 — Installing](docs/15-install.md) | For somebody with no toolchain ([ru](docs/15-install.ru.md)) |
 
-Documents are in Russian; translation is planned.
+Documents are in Russian except 15, which is the one a downloader reads;
+translation of the rest is planned.
 
 ## Not done yet
 
