@@ -1,0 +1,82 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Fury — measured</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: light dark; --line: #8883; --ok: #1a7f37; --bad: #c1121f; }
+  body { font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, sans-serif;
+         max-width: 54rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+  h1 { font-size: 1.6rem; margin-bottom: .25rem; }
+  h2 { font-size: 1.1rem; margin: 2.5rem 0 .5rem; }
+  .sub { opacity: .75; margin-top: 0; }
+  .note { opacity: .8; font-size: .9rem; }
+  section.headline { border: 1px solid var(--line); border-radius: .6rem;
+                     padding: 1.25rem 1.5rem; margin-top: 2rem; }
+  .headline .number { font-size: 3.4rem; line-height: 1; margin: 0; font-weight: 650; }
+  .headline.ok .number { color: var(--ok); }
+  .headline.bad .number { color: var(--bad); }
+  .headline .label { margin: .35rem 0 1rem; font-size: 1.05rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+  th, td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid var(--line); }
+  th { font-weight: 600; opacity: .7; }
+  td:first-child { white-space: nowrap; }
+  tr.pass td:first-child { color: var(--ok); font-weight: 600; }
+  tr.fail td:first-child { color: var(--bad); font-weight: 600; }
+  tr.skip td:first-child { opacity: .55; }
+  .yes { color: var(--ok); } .no, .missing h2 { color: var(--bad); }
+  .differs { opacity: .75; } .same { opacity: .55; }
+  .tally { font-weight: 400; font-size: .85rem; opacity: .7; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
+  footer { margin-top: 3.5rem; padding-top: 1rem; border-top: 1px solid var(--line);
+           font-size: .85rem; opacity: .8; }
+</style>
+<body><main>
+<h1>Fury, measured</h1>
+<p class="sub">Every number on this page came from a browser that was running.
+   None of them are claims.</p>
+
+<section class="headline ok">
+  <p class="number">0</p>
+  <p class="label">cross-context disagreements, across 8 contexts</p>
+  <p class="note">Real Chrome on the same machine: <strong>0</strong> across 8.
+     This is the number that matters. A spoof that reaches the main frame and
+     forgets <code>new Worker()</code> is caught in one line of JavaScript, and
+     the only acceptable answer is the one Chrome gives.</p>
+</section>
+
+<section>
+  <h2>The eight contexts</h2>
+  <table><tbody><tr><td>main frame</td><td class="yes">probed</td></tr><tr><td>dedicated Worker</td><td class="yes">probed</td></tr><tr><td>SharedWorker</td><td class="yes">probed</td></tr><tr><td>ServiceWorker</td><td class="yes">probed</td></tr><tr><td>AudioWorklet</td><td class="yes">probed</td></tr><tr><td>iframe, same origin</td><td class="yes">probed</td></tr><tr><td>iframe, about:blank</td><td class="yes">probed</td></tr><tr><td>iframe, srcdoc</td><td class="yes">probed</td></tr></tbody></table>
+  <p class="note">Fields that do not exist in every context:</p><ul class="note"><li><code>userAgent</code> is not defined in audioWorklet</li><li><code>webdriver</code> is not defined in worker, sharedWorker, serviceWorker</li></ul><p class="note">Chrome's list is identical, which is the answer that matters: these are absences of the platform, not of the spoofing.</p>
+</section>
+
+<section>
+  <h2>Release gate <span class="tally">13 passed, 0 failed</span></h2>
+  <p class="note">Run it yourself: <code>cargo run -p fury-detect -- gate &lt;capture.json&gt;</code>.
+     This table is that command's output, not a second implementation of it.</p>
+  <table><tbody><tr class="pass"><td>PASS</td><td>cross-context consistency</td><td>no disagreements</td></tr><tr class="pass"><td>PASS</td><td>canvas stable across calls</td><td>stable</td></tr><tr class="pass"><td>PASS</td><td>webgl stable across calls</td><td>stable</td></tr><tr class="pass"><td>PASS</td><td>audio stable across calls</td><td>stable</td></tr><tr class="pass"><td>PASS</td><td>getters are native</td><td>hardwareConcurrency:native,userAgent:native,width:native</td></tr><tr class="pass"><td>PASS</td><td>H.264 / AAC present</td><td>yes</td></tr><tr class="pass"><td>PASS</td><td>Widevine available</td><td>yes</td></tr><tr class="pass"><td>PASS</td><td>Permissions API self-consistent</td><td>query=prompt vs Notification.permission=default</td></tr><tr class="pass"><td>PASS</td><td>no ChromeDriver traces</td><td>clean</td></tr><tr class="pass"><td>PASS</td><td>navigator.webdriver === false</td><td>false</td></tr><tr class="pass"><td>PASS</td><td>scrollbar matches claimed OS</td><td>15px with platform=Win32</td></tr><tr class="pass"><td>PASS</td><td>WebGPU agrees with WebGL</td><td>intel vs ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)</td></tr><tr class="pass"><td>PASS</td><td>timezone reaches workers</td><td>Europe/Berlin / Europe/Berlin</td></tr></tbody></table>
+</section>
+
+<section>
+  <h2>Fury and Chrome, side by side</h2>
+  <p class="note">Both captures were taken on the same machine. <em>differs</em> is
+     the expected answer for a spoofed profile and <em>same</em> is the expected
+     answer for everything the persona does not claim — the point is that each
+     one is deliberate.</p>
+  <table>
+    <thead><tr><th></th><th>Fury</th><th>Chrome 150</th><th></th></tr></thead>
+    <tbody><tr><td>user agent</td><td>Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36</td><td>Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36</td><td class="differs">differs</td></tr><tr><td>platform</td><td>Win32</td><td>MacIntel</td><td class="differs">differs</td></tr><tr><td>cores</td><td>8</td><td>10</td><td class="differs">differs</td></tr><tr><td>memory (GB)</td><td>16</td><td>16</td><td class="same">same</td></tr><tr><td>screen width</td><td>1920</td><td>1470</td><td class="differs">differs</td></tr><tr><td>screen height</td><td>1080</td><td>956</td><td class="differs">differs</td></tr><tr><td>timezone</td><td>Europe/Berlin</td><td>Asia/Tbilisi</td><td class="differs">differs</td></tr><tr><td>WebGL vendor</td><td>Google Inc. (Intel)</td><td>Google Inc. (Apple)</td><td class="differs">differs</td></tr><tr><td>WebGL renderer</td><td>ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)</td><td>ANGLE (Apple, ANGLE Metal Renderer: Apple M5, Unspecified Version)</td><td class="differs">differs</td></tr><tr><td>fonts detected</td><td>11</td><td>43</td><td class="differs">differs</td></tr><tr><td>canvas stable</td><td>True</td><td>True</td><td class="same">same</td></tr></tbody>
+  </table>
+</section>
+
+<footer>
+  <p>Generated by <code>tools/detect-suite/status.py</code> from the redacted
+     captures tracked in the repository, at commit <code>676a406</code>.
+     Addresses in those captures are RFC 5737 documentation addresses: a raw
+     capture carries the public address the profile's proxy exits from, so the
+     raw ones are not committed.</p>
+  <p>Nothing here is taken on trust. <code>tools/detect-suite/probe.html</code>
+     produces a capture from any browser, and every number above comes from
+     one.</p>
+</footer>
+</main></body></html>

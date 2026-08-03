@@ -146,6 +146,11 @@ Do not take any of the above on trust — measure it:
 cd tools/detect-suite && python3 -m http.server 8791
 ```
 
+[`tools/detect-suite/status.html`](tools/detect-suite/status.html) is the last
+measurement rendered as a page — the gate's thirteen checks, the eight contexts,
+and Fury beside real Chrome on the same machine. It is generated from the
+captures in the repository, so it cannot say anything they do not.
+
 Open `http://127.0.0.1:8791/probe.html` in ordinary Chrome and in Fury, and
 compare the dumps. `fury-detect diff` shows what moved, `fury-detect gate` runs
 the release criteria and exits non-zero on failure, so it drops into CI
@@ -181,14 +186,15 @@ about it is worth more than not.
 
 | | |
 |---|---|
-| Windows and Linux builds | the patches are written for them and have never been compiled there |
-| Code signing and notarisation | no; macOS will complain |
+| Windows and Linux builds | the patches are written for them and have never been compiled there. No Windows core has been built or measured, so there is no Windows release and saying otherwise would be the thing this project refuses to do |
+| Code signing and notarisation | the tooling is written and needs an Apple Developer certificate nobody has yet ([tools/release/sign-core.sh](tools/release/sign-core.sh)). Until then macOS will complain about a downloaded build |
 | Client-side bundle encryption (vault) | no — this blocks hosted mode |
 | Bundle sync with the server | no |
 | WebRTC through the proxy | no. The relay is TCP; patch 0070 puts the browser in the state a real Chrome reaches under the enterprise `WebRTCIPHandlingPolicy` — no ICE candidates at all — rather than let a peer connection go around the proxy and hand the page the real address |
 | QUIC / HTTP-3 | off, same reason. Real Chrome negotiates HTTP/3 where it is offered and Fury never does, which a server advertising `alt-svc` can see |
 | Hiding CDP from a timing check | no. With a debugger attached `console.debug` of a large object takes about thirteen times longer — measured in real Chrome too, so it detects automation rather than Fury, but if you drive a profile that is the thing being hidden |
-| Widevine in a redistributable build | no. The release GN args refuse `com.widevine.alpha` while real Chrome accepts it, which is a three-line detection. The CDM is proprietary; staging it from the user's own Chrome at install time would fix it and is not written |
+| Widevine on a machine with no Chrome | the agent stages the CDM out of the Chrome already installed on that machine, so nothing proprietary is redistributed and `com.widevine.alpha` is answered the way real Chrome answers it. A machine with no Chrome at all gets a working browser with no DRM, which is detectable |
+| Automatic updates | none, and deliberately so: an updater is a scheduled channel into an anti-detect browser from an address that is not the profile's proxy. [docs/15](docs/15-install.md) says what updating looks like meanwhile |
 | Row-level security on the server | declared in the schema and inert: `bind_rls_user` is never called, so `app.user_id` is not set on the connection. The per-handler RBAC is real and works |
 | Persona catalogue | 26 machines. More personas means better crowds to hide in, and it is the most useful thing an outside contributor can add — `fury-detect persona <capture.json>` turns a probe capture from your own computer into one |
 

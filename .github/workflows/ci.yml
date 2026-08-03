@@ -104,6 +104,10 @@ jobs:
       # harness rather than to the browser — the one false positive the headline
       # number cannot afford.
       - run: python3 tools/detect-suite/sync-sw.py --check
+      # The status page is generated from those same captures. Regenerating it
+      # here keeps a published page from claiming numbers the repository no
+      # longer contains — the one way a status page is worse than none.
+      - run: python3 tools/detect-suite/status.py --check
 
   licensing:
     name: every file says what it is
