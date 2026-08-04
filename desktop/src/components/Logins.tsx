@@ -94,7 +94,7 @@ export function Logins({ profileId }: { profileId: string }) {
           credential={c}
           onEdit={() => setEditing(c)}
           onDelete={async () => {
-            await api.deleteCredential(c.id);
+            await api.deleteCredential(c.id, profileId);
             await load();
           }}
         />
@@ -145,7 +145,15 @@ function LoginRow({
             {shown ? t("cred.hide") : t("cred.show")}
           </button>
         )}
-        {credential.totp && <TotpBadge profileId={credential.profile_id} id={credential.id} />}
+        {credential.unreadable ? (
+          // A login this machine cannot open, shown as that rather than as an
+          // empty one. The cause is almost always a rotated organisation key
+          // and a stale copy, which is something the operator can fix; an
+          // empty row reads as "somebody deleted the password", which is not.
+          <span className="muted">{t("cred.unreadable")}</span>
+        ) : (
+          credential.totp && <TotpBadge profileId={credential.profile_id} id={credential.id} />
+        )}
       </div>
       <div>
         <button className="ghost" onClick={onEdit}>

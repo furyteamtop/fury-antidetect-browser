@@ -132,6 +132,36 @@ pub fn seal_proxy_credentials(
     Ok((keys::wrap(&dek, &plain), keys::wrap(org_key, &dek)))
 }
 
+/// A login sealed for the server: the blob, and the data key that opens it.
+///
+/// Same construction as a proxy's credentials and for the same reason. A fresh
+/// data key per login means two accounts sharing a password do not produce
+/// related ciphertext, and rotating the organisation key re-wraps a handful of
+/// 32-byte keys instead of decrypting and re-encrypting every secret the team
+/// owns.
+pub fn seal_credential(
+    org_key: &[u8; 32],
+    payload: &serde_json::Value,
+) -> anyhow::Result<(Vec<u8>, Vec<u8>)> {
+    let dek = keys::new_org_key();
+    let plain = serde_json::to_vec(payload)?;
+    Ok((keys::wrap(&dek, &plain), keys::wrap(org_key, &dek)))
+}
+
+/// And back, on the machine of somebody who holds the organisation key.
+pub fn open_credential(
+    org_key: &[u8; 32],
+    payload_enc_hex: &str,
+    wrapped_dek_hex: &str,
+) -> anyhow::Result<serde_json::Value> {
+    let dek = keys::unwrap(org_key, &unhex("wrapped_dek", wrapped_dek_hex)?)?;
+    let dek: [u8; 32] = dek
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("the wrapped key is not 32 bytes"))?;
+    let plain = keys::unwrap(&dek, &unhex("payload_enc", payload_enc_hex)?)?;
+    Ok(serde_json::from_slice(&plain)?)
+}
+
 /// The key the agent is given for one profile's bundle.
 ///
 /// Not the organisation key. See `fury_shared::keys::subkey`.
@@ -309,5 +339,67 @@ mod tests {
                 "{what} carries the organisation key in the clear"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod credential_tests {
+    use super::*;
+
+    #[test]
+    fn a_login_survives_the_server_and_opens_only_with_the_right_key() {
+        let org = keys::new_org_key();
+        let payload = serde_json::json!({
+            "username": "alice",
+            "password": "hunter2",
+            "totp": "otpauth://totp/account?secret=JBSWY3DPEHPK3PXP&algorithm=SHA1&digits=6&period=30",
+            "notes": "",
+        });
+
+        let (sealed, wrapped) = seal_credential(&org, &payload).unwrap();
+        let hex = |v: &[u8]| v.iter().map(|b| format!("{b:02x}")).collect::<String>();
+
+        // Nothing the server stores contains anything the server could read.
+        // Checked on the bytes rather than trusted from the construction: this
+        // is the one property the whole team feature rests on.
+        let stored = hex(&sealed);
+        for secret in ["hunter2", "alice", "JBSWY3DP"] {
+            assert!(
+                !String::from_utf8_lossy(&sealed).contains(secret),
+                "{secret} is in the blob the server keeps"
+            );
+        }
+
+        let back = open_credential(&org, &stored, &hex(&wrapped)).unwrap();
+        assert_eq!(back, payload, "the round trip changed the login");
+
+        // And the seed still produces the code it did before it travelled.
+        // The two expected values were computed with an independent
+        // implementation rather than by running this one and writing down what
+        // it said, which would assert only that the code has not changed.
+        let totp =
+            fury_shared::totp::Totp::parse(back.get("totp").unwrap().as_str().unwrap()).unwrap();
+        assert_eq!(totp.code_at(59), "996554");
+        assert_eq!(totp.code_at(1234567890), "742275");
+
+        // Another organisation's key opens nothing.
+        let other = keys::new_org_key();
+        assert!(
+            open_credential(&other, &stored, &hex(&wrapped)).is_err(),
+            "another organisation's key opened the login"
+        );
+    }
+
+    #[test]
+    fn two_logins_with_the_same_password_do_not_look_alike() {
+        // Why there is a data key per login rather than sealing under the
+        // organisation key directly. Two members of a team reusing a password
+        // across accounts is normal, and identical ciphertext would tell the
+        // server which accounts share one.
+        let org = keys::new_org_key();
+        let same = serde_json::json!({ "username": "a", "password": "p", "totp": null, "notes": "" });
+        let (one, _) = seal_credential(&org, &same).unwrap();
+        let (two, _) = seal_credential(&org, &same).unwrap();
+        assert_ne!(one, two, "the same login sealed twice produced the same bytes");
     }
 }

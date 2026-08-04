@@ -1364,16 +1364,54 @@ pub async fn credentials(
     state: State<'_, AppState>,
     profile_id: String,
 ) -> R<serde_json::Value> {
-    if mode_of(&state) != "local" {
-        // Said plainly rather than returning an empty list, which would read as
-        // "this profile has no logins" and lose somebody's work when they
-        // typed one in.
-        return Err(ApiErr::coded(
-            "err.localOnly",
-            "logins are stored on this machine only for now; a team server cannot hold them yet",
-        ));
+    if mode_of(&state) == "local" {
+        return Ok(
+            crate::agent::call("credentials.list", serde_json::json!({ "profile_id": profile_id }))
+                .await?,
+        );
     }
-    Ok(crate::agent::call("credentials.list", serde_json::json!({ "profile_id": profile_id })).await?)
+
+    // Team mode. The server hands back a blob and a wrapped key; both are
+    // opened here, in the application process, and never in the webview.
+    let org_key = state.org_key().ok_or_else(|| {
+        ApiErr::coded(
+            "err.noOrgKeyOpen",
+            "This machine does not hold the organisation key, so it cannot read the logins \
+             stored for this profile. An owner or admin has to hand the key over first.",
+        )
+    })?;
+
+    let rows: Vec<serde_json::Value> = state
+        .call(
+            reqwest::Method::GET,
+            &format!("/v1/profiles/{profile_id}/credentials"),
+            Body::None,
+            true,
+        )
+        .await?;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let get = |k: &str| row.get(k).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+        // A login this machine cannot open is shown as one it cannot open,
+        // rather than dropped. Dropping it would read as "somebody deleted the
+        // password", and the real answer — the organisation key was rotated
+        // and this copy is stale — is one the operator can act on.
+        let payload = crypto::open_credential(&org_key, &get("payload_enc"), &get("wrapped_dek"))
+            .unwrap_or(serde_json::Value::Null);
+        out.push(serde_json::json!({
+            "id": get("id"),
+            "profile_id": profile_id,
+            "label": get("label"),
+            "site": get("site"),
+            "username": payload.get("username").cloned().unwrap_or(serde_json::Value::Null),
+            "password": payload.get("password").cloned().unwrap_or(serde_json::Value::Null),
+            "totp": payload.get("totp").cloned().unwrap_or(serde_json::Value::Null),
+            "notes": payload.get("notes").and_then(|v| v.as_str()).unwrap_or_default(),
+            "unreadable": payload.is_null(),
+        }));
+    }
+    Ok(serde_json::Value::Array(out))
 }
 
 #[tauri::command]
@@ -1381,24 +1419,90 @@ pub async fn save_credential(
     state: State<'_, AppState>,
     credential: serde_json::Value,
 ) -> R<serde_json::Value> {
-    if mode_of(&state) != "local" {
-        return Err(ApiErr::coded(
-            "err.localOnly",
-            "logins are stored on this machine only for now",
-        ));
+    if mode_of(&state) == "local" {
+        return Ok(crate::agent::call("credentials.upsert", credential).await?);
     }
-    Ok(crate::agent::call("credentials.upsert", credential).await?)
+
+    let org_key = state.org_key().ok_or_else(|| {
+        ApiErr::coded(
+            "err.noOrgKeySeal",
+            "This machine does not hold the organisation key yet, so it cannot seal a login. \
+             An owner or admin has to hand the key over first.",
+        )
+    })?;
+
+    let field = |k: &str| credential.get(k).and_then(|v| v.as_str()).map(str::to_string);
+    let profile_id = field("profile_id").unwrap_or_default();
+    let id = field("id").unwrap_or_default();
+
+    // Normalised BEFORE sealing, and refused here if it is not a seed. The
+    // server cannot check it — the whole point is that the server cannot read
+    // it — so this is the only place a mistyped secret can be caught in front
+    // of the person who typed it rather than at the moment they need to log in.
+    let totp = match field("totp").map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
+        Some(raw) => Some(
+            fury_shared::totp::Totp::parse(&raw)
+                .map_err(|e| ApiErr::local(e.to_string()))?
+                .to_uri(),
+        ),
+        None => None,
+    };
+
+    let payload = serde_json::json!({
+        "username": field("username").filter(|v| !v.is_empty()),
+        "password": field("password").filter(|v| !v.is_empty()),
+        "totp": totp,
+        "notes": field("notes").unwrap_or_default(),
+    });
+    let (payload_enc, wrapped_dek) = crypto::seal_credential(&org_key, &payload)
+        .map_err(|e| ApiErr::local(format!("Could not seal the login: {e}")))?;
+    let hex = |v: &[u8]| v.iter().map(|b| format!("{b:02x}")).collect::<String>();
+
+    let body = serde_json::json!({
+        "label": field("label").unwrap_or_default(),
+        "site": field("site").unwrap_or_default(),
+        "payload_enc": hex(&payload_enc),
+        "wrapped_dek": hex(&wrapped_dek),
+    });
+
+    if id.is_empty() {
+        state
+            .call(
+                reqwest::Method::POST,
+                &format!("/v1/profiles/{profile_id}/credentials"),
+                Body::Json(body),
+                true,
+            )
+            .await
+    } else {
+        state
+            .call(
+                reqwest::Method::PATCH,
+                &format!("/v1/profiles/{profile_id}/credentials/{id}"),
+                Body::Json(body),
+                true,
+            )
+            .await
+    }
 }
 
 #[tauri::command]
-pub async fn delete_credential(state: State<'_, AppState>, id: String) -> R<serde_json::Value> {
-    if mode_of(&state) != "local" {
-        return Err(ApiErr::coded(
-            "err.localOnly",
-            "logins are stored on this machine only for now",
-        ));
+pub async fn delete_credential(
+    state: State<'_, AppState>,
+    id: String,
+    profile_id: String,
+) -> R<serde_json::Value> {
+    if mode_of(&state) == "local" {
+        return Ok(crate::agent::call("credentials.delete", serde_json::json!({ "id": id })).await?);
     }
-    Ok(crate::agent::call("credentials.delete", serde_json::json!({ "id": id })).await?)
+    state
+        .call(
+            reqwest::Method::DELETE,
+            &format!("/v1/profiles/{profile_id}/credentials/{id}"),
+            Body::None,
+            true,
+        )
+        .await
 }
 
 /// Six digits and how long they last.
@@ -1414,17 +1518,64 @@ pub async fn totp_code(
     profile_id: String,
     id: String,
 ) -> R<serde_json::Value> {
-    if mode_of(&state) != "local" {
-        return Err(ApiErr::coded(
-            "err.localOnly",
-            "logins are stored on this machine only for now",
-        ));
+    if mode_of(&state) == "local" {
+        return Ok(crate::agent::call(
+            "credentials.code",
+            serde_json::json!({ "profile_id": profile_id, "id": id }),
+        )
+        .await?);
     }
-    Ok(crate::agent::call(
-        "credentials.code",
-        serde_json::json!({ "profile_id": profile_id, "id": id }),
-    )
-    .await?)
+
+    // In team mode the seed lives on the server sealed, so it is fetched,
+    // opened here, used, and dropped — it is never written to this machine and
+    // never handed to the webview. The code is computed in this process, so
+    // what crosses into the interface is six digits and a countdown.
+    let org_key = state.org_key().ok_or_else(|| {
+        ApiErr::coded(
+            "err.noOrgKeyOpen",
+            "This machine does not hold the organisation key, so it cannot read the \
+             two-factor seed.",
+        )
+    })?;
+
+    let rows: Vec<serde_json::Value> = state
+        .call(
+            reqwest::Method::GET,
+            &format!("/v1/profiles/{profile_id}/credentials"),
+            Body::None,
+            true,
+        )
+        .await?;
+    let row = rows
+        .iter()
+        .find(|r| r.get("id").and_then(|v| v.as_str()) == Some(id.as_str()))
+        .ok_or_else(|| ApiErr::local("No such login."))?;
+
+    let get = |k: &str| row.get(k).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    let payload = crypto::open_credential(&org_key, &get("payload_enc"), &get("wrapped_dek"))
+        .map_err(|_| {
+            ApiErr::coded(
+                "err.staleOrgKey",
+                "This login was sealed with a different organisation key. The key was \
+                 probably rotated after this machine received its copy.",
+            )
+        })?;
+    let seed = payload
+        .get("totp")
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| ApiErr::local("This login has no two-factor seed."))?;
+
+    let totp = fury_shared::totp::Totp::parse(seed).map_err(|e| ApiErr::local(e.to_string()))?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    Ok(serde_json::json!({
+        "code": totp.code_at(now),
+        "seconds_remaining": totp.seconds_remaining(now),
+        "next": totp.code_at(now + totp.seconds_remaining(now)),
+    }))
 }
 
 #[tauri::command]

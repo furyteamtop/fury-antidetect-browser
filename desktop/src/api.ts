@@ -63,6 +63,10 @@ export interface Credential {
    *  they typed — there is nobody on this machine to hide it from. */
   totp: string | null;
   notes: string;
+  /** Team mode only: the server had this login and this machine's organisation
+   *  key did not open it — almost always a key rotated after this copy was
+   *  handed over. Shown, not hidden: an empty row reads as a deleted password. */
+  unreadable?: boolean;
 }
 
 export interface TotpCode {
@@ -525,7 +529,8 @@ export const api = {
     cmd<Credential[]>("credentials", { profileId }),
   saveCredential: (credential: Credential): Promise<{ id: string }> =>
     cmd<{ id: string }>("save_credential", { credential }),
-  deleteCredential: (id: string): Promise<unknown> => cmd("delete_credential", { id }),
+  deleteCredential: (id: string, profileId: string): Promise<unknown> =>
+    cmd("delete_credential", { id, profileId }),
   /** Six digits and how long they last. The seed stays in the agent. */
   totpCode: (profileId: string, id: string): Promise<TotpCode> =>
     cmd<TotpCode>("totp_code", { profileId, id }),

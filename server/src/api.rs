@@ -77,6 +77,14 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/v1/org/invitations", post(create_invitation))
         .route("/v1/org/members/{user_id}/key", post(hand_over_key))
         .route("/v1/org/rotation", get(rotation_material).post(rotate_org_key))
+        .route(
+            "/v1/profiles/{profile_id}/credentials",
+            get(list_credentials).post(create_credential),
+        )
+        .route(
+            "/v1/profiles/{profile_id}/credentials/{credential_id}",
+            axum::routing::patch(edit_credential).delete(delete_credential),
+        )
         .route("/v1/profiles/{profile_id}/lock", post(acquire_lock))
         .route("/v1/profiles/{profile_id}/lock/heartbeat", post(heartbeat))
         .route("/v1/profiles/{profile_id}/unlock", post(release_lock))
@@ -2700,6 +2708,189 @@ async fn launch_spec(db: &mut sqlx::PgConnection, profile_id: Uuid) -> ApiResult
             wrapped_dek,
         },
     })
+}
+
+// ---------------------------------------------------------------------------
+// credentials
+// ---------------------------------------------------------------------------
+//
+// A login that belongs to a profile: the username, the password, and the
+// two-factor seed. The server holds a blob it cannot read and a wrapped key it
+// cannot open, exactly as it does for proxy credentials and profile bundles.
+//
+// Gated on RevealSecrets rather than on Launch, and the distinction is the
+// point of the permission. Anyone who may open a profile is working inside a
+// logged-in browser and never needs to see the password; the person who needs
+// the password is the one setting the account up, or recovering it, and that is
+// a different and smaller group. An operator who can launch but not reveal can
+// do their job and cannot take the account home.
+
+#[derive(Deserialize)]
+pub struct CredentialBody {
+    label: String,
+    #[serde(default)]
+    site: String,
+    /// Hex. `{username, password, totp, notes}` sealed under a data key.
+    payload_enc: String,
+    /// Hex. That data key, wrapped under the organisation key.
+    wrapped_dek: String,
+}
+
+async fn list_credentials(
+    mut db: auth::Db,
+    Path(profile_id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let caller = db.caller;
+    let perms = rbac_guard::permissions_for_profile(db.as_mut(), caller.user_id, profile_id).await?;
+    if perms == PermSet::NONE {
+        return Err(ApiError::NotFound);
+    }
+    if !perms.has(Perm::RevealSecrets) {
+        return Err(ApiError::Denied(Perm::RevealSecrets));
+    }
+
+    let rows: Vec<(Uuid, String, String, Vec<u8>, Vec<u8>)> = sqlx::query_as(
+        "SELECT id, label, site, payload_enc, wrapped_dek FROM credentials
+         WHERE profile_id = $1 ORDER BY label",
+    )
+    .bind(profile_id)
+    .fetch_all(db.as_mut())
+    .await?;
+
+    // Reading a login is worth recording. A password taken out of a shared
+    // account is the event an investigation starts from, and "who saw it and
+    // when" is the only question that gets asked.
+    if !rows.is_empty() {
+        audit(db.as_mut(), &caller, "credential.reveal", Some(profile_id),
+              json!({ "count": rows.len() })).await?;
+    }
+
+    Ok(Json(json!(rows
+        .into_iter()
+        .map(|(id, label, site, payload, dek)| json!({
+            "id": id,
+            "label": label,
+            "site": site,
+            "payload_enc": String::from_utf8_lossy(&payload),
+            "wrapped_dek": String::from_utf8_lossy(&dek),
+        }))
+        .collect::<Vec<_>>())))
+}
+
+async fn create_credential(
+    mut db: auth::Db,
+    Path(profile_id): Path<Uuid>,
+    Json(req): Json<CredentialBody>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let caller = db.caller;
+    let perms = rbac_guard::permissions_for_profile(db.as_mut(), caller.user_id, profile_id).await?;
+    if perms == PermSet::NONE {
+        return Err(ApiError::NotFound);
+    }
+    if !perms.has(Perm::RevealSecrets) {
+        return Err(ApiError::Denied(Perm::RevealSecrets));
+    }
+    // The same shape check the proxy credentials get: a client that forgot to
+    // seal sends something short, and storing it would put a password in the
+    // database in the clear while every part of this file claimed otherwise.
+    if req.payload_enc.len() < 40 || req.wrapped_dek.len() < 40 {
+        return Err(ApiError::BadRequest(
+            "payload_enc and wrapped_dek must be sealed values".into(),
+        ));
+    }
+
+    let id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO credentials (id, profile_id, label, site, payload_enc, wrapped_dek)
+         VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(id)
+    .bind(profile_id)
+    .bind(&req.label)
+    .bind(&req.site)
+    .bind(req.payload_enc.as_bytes())
+    .bind(req.wrapped_dek.as_bytes())
+    .execute(db.as_mut())
+    .await?;
+
+    audit(db.as_mut(), &caller, "credential.create", Some(profile_id),
+          json!({ "label": req.label })).await?;
+    Ok(Json(json!({ "id": id })))
+}
+
+async fn edit_credential(
+    mut db: auth::Db,
+    Path((profile_id, credential_id)): Path<(Uuid, Uuid)>,
+    Json(req): Json<CredentialBody>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let caller = db.caller;
+    let perms = rbac_guard::permissions_for_profile(db.as_mut(), caller.user_id, profile_id).await?;
+    if perms == PermSet::NONE {
+        return Err(ApiError::NotFound);
+    }
+    if !perms.has(Perm::RevealSecrets) {
+        return Err(ApiError::Denied(Perm::RevealSecrets));
+    }
+    if req.payload_enc.len() < 40 || req.wrapped_dek.len() < 40 {
+        return Err(ApiError::BadRequest(
+            "payload_enc and wrapped_dek must be sealed values".into(),
+        ));
+    }
+
+    // profile_id in the WHERE as well as the id: without it, a caller with
+    // rights on one profile could edit a login belonging to another by naming
+    // its id in the path, and the permission check above would have passed on
+    // the wrong profile.
+    let done = sqlx::query(
+        "UPDATE credentials SET label = $3, site = $4, payload_enc = $5, wrapped_dek = $6,
+                updated_at = now()
+         WHERE id = $1 AND profile_id = $2",
+    )
+    .bind(credential_id)
+    .bind(profile_id)
+    .bind(&req.label)
+    .bind(&req.site)
+    .bind(req.payload_enc.as_bytes())
+    .bind(req.wrapped_dek.as_bytes())
+    .execute(db.as_mut())
+    .await?;
+    if done.rows_affected() == 0 {
+        return Err(ApiError::NotFound);
+    }
+
+    audit(db.as_mut(), &caller, "credential.edit", Some(profile_id),
+          json!({ "label": req.label })).await?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn delete_credential(
+    mut db: auth::Db,
+    Path((profile_id, credential_id)): Path<(Uuid, Uuid)>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let caller = db.caller;
+    let perms = rbac_guard::permissions_for_profile(db.as_mut(), caller.user_id, profile_id).await?;
+    if perms == PermSet::NONE {
+        return Err(ApiError::NotFound);
+    }
+    if !perms.has(Perm::RevealSecrets) {
+        return Err(ApiError::Denied(Perm::RevealSecrets));
+    }
+
+    // Hard delete, unlike a profile. A login somebody removed is a login they
+    // meant to remove, and a soft-deleted password is a password still in the
+    // database.
+    let done = sqlx::query("DELETE FROM credentials WHERE id = $1 AND profile_id = $2")
+        .bind(credential_id)
+        .bind(profile_id)
+        .execute(db.as_mut())
+        .await?;
+    if done.rows_affected() == 0 {
+        return Err(ApiError::NotFound);
+    }
+
+    audit(db.as_mut(), &caller, "credential.delete", Some(profile_id),
+          json!({ "id": credential_id })).await?;
+    Ok(Json(json!({ "deleted": true })))
 }
 
 // ---------------------------------------------------------------------------
