@@ -127,6 +127,35 @@ cargo build --release -p fury-server
 install -o root -g root -m 0755 target/release/fury-server /usr/local/bin/fury-server
 
 say "Configuration"
+
+# Written ONCE, and left alone afterwards.
+#
+# This script is the deploy script: it runs on every update, and the first
+# version rewrote this file each time. That silently reset whatever the operator
+# had chosen — an update reverted FURY_OPEN_SIGNUP to 0 and emptied the limits,
+# and nothing said so. It was found by enabling open sign-ups, deploying a fix
+# ten minutes later, and discovering sign-ups closed again.
+#
+# So an existing file is kept as it is. The template below is what a fresh
+# install gets; new settings added later are appended by the block after it,
+# which only ever adds keys that are missing and never changes one that is
+# there.
+if [ -f /etc/fury/fury.env ]; then
+    say "Keeping the existing /etc/fury/fury.env"
+    # Anything this version knows about and the file does not. Appended with
+    # its default, so an old installation gains a new knob without losing an
+    # old choice.
+    add_setting() {
+        grep -qE "^${1}=" /etc/fury/fury.env || {
+            printf '\n# %s\n%s=%s\n' "$3" "$1" "$2" >> /etc/fury/fury.env
+            echo "   added ${1}=${2}"
+        }
+    }
+    add_setting FURY_MAX_ORGS "" "Organisations on this server, total. Empty means no limit."
+    add_setting FURY_MAX_PROFILES_PER_ORG "" "Profiles one organisation may hold. Empty means no limit."
+    add_setting FURY_MAX_STORAGE_PER_ORG "" "Bundle bytes per organisation. Empty means no limit."
+    add_setting FURY_KEEP_BUNDLE_VERSIONS "10" "Bundle versions kept per profile. 0 keeps everything."
+else
 cat > /etc/fury/fury.env <<ENV
 DATABASE_URL=postgres://fury:${DB_PASS}@127.0.0.1:5432/fury
 # Loopback only. Caddy terminates TLS and forwards; nothing reaches the
@@ -168,7 +197,13 @@ FURY_OPEN_SIGNUP=0
 FURY_MAX_ORGS=
 FURY_MAX_PROFILES_PER_ORG=
 FURY_MAX_STORAGE_PER_ORG=
+
+# Bundle versions kept per profile. Every close writes one; without a ceiling
+# a profile opened ten times a day grows by ten bundles a day, for ever, and a
+# storage quota fills up from ordinary use. 0 keeps everything.
+FURY_KEEP_BUNDLE_VERSIONS=10
 ENV
+fi
 chmod 0640 /etc/fury/fury.env; chown root:fury /etc/fury/fury.env
 
 cat > /etc/systemd/system/fury-server.service <<'UNIT'
