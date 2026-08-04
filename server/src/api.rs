@@ -3054,6 +3054,29 @@ pub fn check_bundle_root() -> anyhow::Result<std::path::PathBuf> {
 /// what travels is cookies, storage, history and preferences, which is
 /// megabytes; a profile that reaches a gigabyte has something in it worth
 /// asking about, and a refusal is the way to ask.
+/// How many versions of one profile's bundle to keep.
+///
+/// Every close writes a new one and nothing used to remove the old ones, so a
+/// profile opened ten times a day grew by ten bundles a day, for ever. That is
+/// not abuse — it is the product working — and it meant a storage quota filled
+/// up from ordinary use, which would have made the quota look arbitrary and the
+/// server look broken.
+///
+/// Ten because the reason to keep any at all is recovery: somebody logs a
+/// profile out, or a site wipes its storage, and the answer is the version from
+/// before that happened. Ten closes back is far enough to reach yesterday and
+/// near enough that the disk cost stays bounded — ten times a couple of
+/// megabytes for a cache-free bundle.
+///
+/// Set FURY_KEEP_BUNDLE_VERSIONS=0 to keep everything, which is what a server
+/// with cheap disk and nervous operators may want.
+pub fn keep_bundle_versions() -> i64 {
+    std::env::var("FURY_KEEP_BUNDLE_VERSIONS")
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(10)
+}
+
 pub fn max_bundle_bytes() -> usize {
     std::env::var("FURY_MAX_BUNDLE_BYTES")
         .ok()
@@ -3250,6 +3273,27 @@ async fn upload_bundle(
     .bind(caller.user_id)
     .execute(&mut *tx)
     .await?;
+    // Old versions go now, inside the same transaction that records the new
+    // one, so a crash between the two cannot leave rows pointing at files that
+    // were already removed.
+    //
+    // The files are removed after the transaction commits, not before: deleting
+    // a file for a transaction that then rolls back would leave a row naming
+    // something that is gone, which is the worse of the two ways to be
+    // inconsistent — a stray file wastes bytes, a missing one loses a profile.
+    let keep = keep_bundle_versions();
+    let mut stale: Vec<String> = Vec::new();
+    if keep > 0 {
+        stale = sqlx::query_scalar(
+            "DELETE FROM bundles WHERE profile_id = $1 AND version <= $2 - $3 RETURNING s3_key",
+        )
+        .bind(profile_id)
+        .bind(version)
+        .bind(keep)
+        .fetch_all(&mut *tx)
+        .await?;
+    }
+
     sqlx::query("UPDATE profiles SET current_version = $2 WHERE id = $1")
         .bind(profile_id)
         .bind(version)
@@ -3257,8 +3301,23 @@ async fn upload_bundle(
         .await?;
     tx.commit().await?;
 
+    // Now that the rows are gone for good.
+    let mut freed = 0usize;
+    for key in &stale {
+        match std::fs::remove_file(bundle_root().join(key)) {
+            Ok(()) => freed += 1,
+            // Not an error worth failing an upload over: the row is gone, the
+            // allowance is freed, and a file with no row is bytes nobody can
+            // reach. Logged so it can be swept if it ever becomes a pattern.
+            Err(e) => tracing::warn!(error = %e, key, "could not remove an old bundle"),
+        }
+    }
+    if freed > 0 {
+        tracing::info!(%profile_id, freed, keep, "pruned old bundle versions");
+    }
+
     audit(db.as_mut(), &caller, "bundle.upload", Some(profile_id),
-          json!({ "version": version, "bytes": written })).await?;
+          json!({ "version": version, "bytes": written, "pruned": freed })).await?;
 
     Ok(Json(json!({ "version": version })))
 }
