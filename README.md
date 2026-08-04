@@ -250,3 +250,10 @@ carries no Chrome or Google branding. Chromium is used under its own licence.
 The User-Agent declares Chrome because sites branch on it and a browser that says
 anything else is distinguishable in one line — which is the whole point of the
 exercise, and is what every Chromium fork does.
+
+## Author
+
+Bogdan Shapovalov — [@shapovalovbogdan](https://t.me/shapovalovbogdan) on Telegram.
+
+Questions about the measurements, a site that caught a profile, or a persona
+from your own machine are all welcome there or in the issue tracker.

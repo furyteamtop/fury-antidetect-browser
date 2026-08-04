@@ -180,6 +180,7 @@ export function App() {
           void api.shell().then(setShell);
         }}
         onCancel={() => setSigningUp(false)}
+        serverUrl={shell.server_url}
       />
     );
   }

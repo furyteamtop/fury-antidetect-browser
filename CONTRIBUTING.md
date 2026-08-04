@@ -125,3 +125,8 @@ lands in: **BSD-3-Clause** for `core/patches/`, **Apache-2.0** for `shared/`,
 and **AGPL-3.0-or-later** for everything else. See [`NOTICE`](NOTICE).
 
 No CLA. Keep your copyright.
+
+## Getting hold of me
+
+[@shapovalovbogdan](https://t.me/shapovalovbogdan) on Telegram, or the issue
+tracker. A detection report is worth interrupting me for.

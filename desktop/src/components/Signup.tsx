@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
 
@@ -24,13 +24,23 @@ import { api } from "../api";
 export function Signup({
   onDone,
   onCancel,
+  /// The server the shell is already pointed at, when it is pointed at one.
+  ///
+  /// Without this the flow asked for the address twice: once to connect, and
+  /// again on the first screen of sign-up, having just been told. Two identical
+  /// questions in a row on the very first screen a new person sees reads as the
+  /// application having forgotten the answer — which it had.
+  serverUrl,
 }: {
   onDone: () => void;
   onCancel: () => void;
+  serverUrl?: string | null;
 }) {
   const { t, say } = useI18n();
-  const [url, setUrl] = useState("");
+  const [url, setUrl] = useState(serverUrl ?? "");
   const [allowed, setAllowed] = useState<boolean | null>(null);
+  /// Whether the address step was skipped, so "Back" goes somewhere sensible.
+  const [asked, setAsked] = useState(false);
   const [email, setEmail] = useState("");
   const [org, setOrg] = useState("");
   const [password, setPassword] = useState("");
@@ -44,20 +54,32 @@ export function Signup({
     password.length >= 12 &&
     password === again;
 
-  const ask = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const ask = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     setBusy(true);
     setError(null);
+    setAsked(true);
     try {
       const open = await api.serverAllowsSignup(url);
       setAllowed(open);
       if (!open) setError(t("signup.closed"));
     } catch (e) {
       setError(say(e));
+      // Back to the address step. A server that cannot be reached is usually a
+      // typed address, and the field has to be in front of the person again.
+      setAllowed(null);
     } finally {
       setBusy(false);
     }
   };
+
+  // Ask the server about itself straight away when the shell already knows
+  // where it is. The address step still exists — for somebody signing up
+  // against a server they have not connected to, and for when this check fails.
+  useEffect(() => {
+    if (serverUrl && !asked) void ask();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverUrl]);
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,7 +99,13 @@ export function Signup({
     <form className="login" onSubmit={allowed ? create : ask}>
       <h1>Fury</h1>
 
-      {allowed !== true ? (
+      {/* The address step is skipped when the shell already knows the server,
+          and this is what stops it flashing on the way past: the first render
+          happens before the check has answered, and showing an address box for
+          a moment — prefilled, then gone — reads as a glitch. */}
+      {serverUrl && allowed === null && !error ? (
+        <p className="muted center">{t("srv.checking")}</p>
+      ) : allowed !== true ? (
         <>
           <p className="muted center">{t("signup.whichServer")}</p>
           <input

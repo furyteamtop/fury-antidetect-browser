@@ -438,6 +438,45 @@ mod tests {
         );
     }
 
+    /// What a real profile's bundle actually weighs.
+    ///
+    /// Not an assertion about a number — an assertion that the number is
+    /// printed, so the quotas on a shared server are sized from a measurement
+    /// instead of from somebody's idea of a megabyte. Run with --nocapture and
+    /// FURY_MEASURE_PROFILE pointing at a profile directory.
+    #[test]
+    fn a_real_profile_measures_what_it_measures() {
+        let Ok(dir) = std::env::var("FURY_MEASURE_PROFILE") else { return };
+        let path = std::path::Path::new(&dir);
+        if !path.is_dir() {
+            return;
+        }
+        let on_disk: u64 = walkdir(path);
+        let vault = Vault::for_tests([3u8; 32]);
+        let sealed = pack(path, &Sealer::Machine(&vault)).unwrap();
+        eprintln!(
+            "  {}: {:.1} MB on disk -> {:.2} MB sealed ({:.0}x smaller)",
+            path.file_name().unwrap().to_string_lossy(),
+            on_disk as f64 / 1e6,
+            sealed.bytes.len() as f64 / 1e6,
+            on_disk as f64 / sealed.bytes.len().max(1) as f64,
+        );
+    }
+
+    fn walkdir(p: &std::path::Path) -> u64 {
+        std::fs::read_dir(p)
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .map(|e| {
+                        let path = e.path();
+                        if path.is_dir() { walkdir(&path) } else { path.metadata().map(|m| m.len()).unwrap_or(0) }
+                    })
+                    .sum()
+            })
+            .unwrap_or(0)
+    }
+
     #[test]
     fn caches_do_not_travel_but_account_state_does() {
         // The measurement that produced SKIP_CACHES, as an assertion. A profile

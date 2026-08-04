@@ -190,9 +190,22 @@ FURY_OPEN_SIGNUP=0
 # data, and one stranger with a loop can still take the whole disk. Set all
 # three before you open sign-ups.
 #
-#   FURY_MAX_ORGS=50                  organisations on this server, total
-#   FURY_MAX_PROFILES_PER_ORG=200     profiles one organisation may hold
-#   FURY_MAX_STORAGE_PER_ORG=5368709120   bundle bytes per organisation (5 GB)
+# Sized from a measurement rather than a guess. Three real profiles packed to
+# 50, 70 and 280 KB sealed — 125 to 190 times smaller than they are on disk,
+# because caches do not travel and the rest compresses. With ten versions kept
+# that is 1.3 MB per profile typically and 2.7 MB at the heaviest measured, so
+# three hundred profiles fit inside a gigabyte with room to spare.
+#
+# The storage ceiling is the one that should bind: disk is the scarce thing, and
+# an organisation with a few very heavy profiles should hit bytes rather than a
+# profile count that has nothing to do with what it is using.
+#
+#   FURY_MAX_ORGS=20                      organisations, total
+#   FURY_MAX_PROFILES_PER_ORG=300         profiles one organisation may hold
+#   FURY_MAX_STORAGE_PER_ORG=1073741824   bundle bytes per organisation (1 GB)
+#
+# Twenty times one gigabyte is 20 GB, which on the 38 GB box this was written
+# for leaves ten to the system and the database. Scale both to your disk.
 #
 FURY_MAX_ORGS=
 FURY_MAX_PROFILES_PER_ORG=
