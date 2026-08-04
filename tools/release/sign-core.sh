@@ -43,7 +43,7 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 src="$here/core/src"
 
-out_dir="${OUT_DIR:-$src/out/macos-arm64}"
+out_dir="${OUT_DIR:-$src/out/macos-arm64.noindex}"
 identity=""
 adhoc=0
 notarize=0
@@ -61,7 +61,7 @@ usage: sign-core.sh [--identity NAME | --adhoc] [--notarize] [--out DIR]
                       the pipeline and to inspect entitlements.
   --notarize          Submit to Apple and staple the ticket. Needs --identity
                       and a stored notarytool profile — see below.
-  --out DIR           Build output directory (default out/macos-arm64).
+  --out DIR           Build output directory (default out/macos-arm64.noindex).
 
 Store the notary credentials once, in the keychain, not in this script:
 

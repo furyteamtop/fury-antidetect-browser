@@ -10,7 +10,7 @@ it asks any provider for a position.
 
 So: scripts here drive the built core over CDP and ask it questions.
 
-    core/verify/verify-0082.py core/src/out/macos-arm64-lowmem/Chromium.app/Contents/MacOS/Chromium
+    core/verify/verify-0082.py core/src/out/macos-arm64-lowmem.noindex/Fury.app/Contents/MacOS/Fury
 
 Each one launches the core itself with a hand-written config on fd 3 — no agent,
 no relay, no proxy — so a failure is the patch and not the stack around it. They

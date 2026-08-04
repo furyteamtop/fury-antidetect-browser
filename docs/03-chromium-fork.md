@@ -358,7 +358,7 @@ git ls-remote --tags https://chromium.googlesource.com/chromium/src.git | grep -
 #    Бинарь: core/src/out/<target>/Chromium.app — имя останется Chromium, пока не
 #    написан 0900. Детект-сюит сравнивает ДАМПЫ, а не бинари, поэтому сначала снять:
 tools/detect-suite/capture-chrome.sh fury-151 \
-  core/src/out/macos-arm64/Chromium.app/Contents/MacOS/Chromium
+  core/src/out/macos-arm64.noindex/Fury.app/Contents/MacOS/Fury
 cargo run -p fury-detect -- gate tools/detect-suite/baselines/fury-151.json
 cargo run -p fury-detect -- diff --mode spoof \
   tools/detect-suite/baselines/chrome-151-macos-arm64.json \

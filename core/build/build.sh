@@ -14,7 +14,31 @@ set -euo pipefail
 CORE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="$CORE_DIR/src"
 TARGET="${1:?usage: build.sh <macos-arm64|macos-x64|windows-x64>}"
-OUT="out/$TARGET"
+# `.noindex` is not decoration: it is the only thing measured to work.
+#
+# ninja writes the five helper applications as standalone bundles beside
+# Fury.app, so a machine that builds ends up with "Fury Helper", "Fury Helper
+# (GPU)" and two things called "Fury" in Spotlight, none of which anybody can
+# usefully open. A directory whose name ends in .noindex is excluded from the
+# index — the mechanism Xcode uses for DerivedData — and it was checked the same
+# way everything else here is: two identical bundles, one in a plain directory
+# and one in a .noindex, and only the plain one came back from mdfind.
+#
+# `.metadata_never_index`, which is the documented answer and the obvious first
+# try, does NOT work on macOS 26. Both bundles were indexed. It is written below
+# anyway because it costs nothing and older systems honour it.
+#
+# Renaming an existing output directory is cheap: ninja's paths inside it are
+# relative, so out/macos-arm64-lowmem -> out/macos-arm64-lowmem.noindex cost 11
+# steps and 22 seconds on a tree that takes six hours to build from scratch.
+OUT="out/$TARGET.noindex"
+
+# An output directory from before this convention. Renamed rather than left, so
+# the six hours already spent are not spent again.
+if [ -d "$SRC/out/$TARGET" ] && [ ! -d "$SRC/$OUT" ]; then
+  echo "==> moving out/$TARGET to $OUT so Spotlight stops indexing it"
+  mv "$SRC/out/$TARGET" "$SRC/$OUT"
+fi
 
 export PATH="$CORE_DIR/depot_tools:$PATH"
 export DEPOT_TOOLS_UPDATE=0
@@ -138,15 +162,15 @@ EOF
   fi
 fi
 
-if [ "$TARGET" = "macos-arm64" ] && [ -d "$SRC/out/macos-x64" ]; then
+if [ "$TARGET" = "macos-arm64" ] && [ -d "$SRC/out/macos-x64.noindex" ]; then
   cat <<EOF
 
 Both macOS slices present. Merge them with Chromium's own universalizer:
 
   python3 "$SRC/chrome/installer/mac/universalizer.py" \\
-    "$SRC/out/macos-arm64/Fury.app" \\
-    "$SRC/out/macos-x64/Fury.app" \\
-    "$SRC/out/macos-universal/Fury.app"
+    "$SRC/out/macos-arm64.noindex/Fury.app" \\
+    "$SRC/out/macos-x64.noindex/Fury.app" \\
+    "$SRC/out/macos-universal.noindex/Fury.app"
 
 NOT lipo on the main executable. That advice used to be here and it is wrong
 for this bundle: lipo would merge one 76 KB launcher and leave the 540 MB

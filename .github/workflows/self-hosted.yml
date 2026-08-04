@@ -49,8 +49,8 @@ jobs:
       - name: verify each patch on the running browser
         run: |
           set -euo pipefail
-          CORE="core/src/out/macos-arm64/Fury.app/Contents/MacOS/Fury"
-          test -x "$CORE" || CORE="core/src/out/macos-arm64-lowmem/Fury.app/Contents/MacOS/Fury"
+          CORE="core/src/out/macos-arm64.noindex/Fury.app/Contents/MacOS/Fury"
+          test -x "$CORE" || CORE="core/src/out/macos-arm64-lowmem.noindex/Fury.app/Contents/MacOS/Fury"
           for v in core/verify/verify-*.py; do
             echo "== $v"
             python3 "$v" "$CORE"
