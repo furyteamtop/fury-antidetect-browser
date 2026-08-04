@@ -46,7 +46,7 @@ Fury — это **две загрузки**, и об этом стоит зна�
 
 ```
 installed Fury 150.0.7871.187
-  /Users/you/Library/Application Support/Fury/core/Fury.app/Contents/MacOS/Fury
+  /Users/you/Library/Application Support/Fury/core.bundle/Fury.app/Contents/MacOS/Fury
 ```
 
 Спросить, что установлено, можно в любой момент:
@@ -119,7 +119,8 @@ cd desktop && npm install && npm run app:build
 ~/Library/Application Support/Fury/
   fury.db          профили, прокси, персоны, проекты
   profiles/        данные браузера по профилям — куки, вкладки, закладки
-  core/            установленный браузер
+  core.bundle/     установленный браузер (пакет, чтобы в поиске
+                   был один Fury, а не два)
 ```
 
 `FURY_HOME` переносит это куда угодно — на внешний диск или в шифрованный том.

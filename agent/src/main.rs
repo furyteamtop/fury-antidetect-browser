@@ -340,6 +340,12 @@ pub fn core_binary() -> Option<std::path::PathBuf> {
     // Then the installed location. This is the ordinary case for anybody who
     // did not build the browser: the shell is 12 MB and downloads with the
     // application, the core is 134 MB and arrives separately.
+    //
+    // The directory gained a `.bundle` extension so that Spotlight stops
+    // offering the browser as a second application called Fury; anything
+    // installed before that has to be brought along, or it silently stops
+    // being found.
+    crate::install_core::migrate_legacy_dir();
     let installed = crate::paths::core_dir().join(core_leaf());
     installed.exists().then_some(installed)
 }

@@ -47,7 +47,7 @@ once and checks it starts**. If it prints a version, it is installed:
 
 ```
 installed Fury 150.0.7871.187
-  /Users/you/Library/Application Support/Fury/core/Fury.app/Contents/MacOS/Fury
+  /Users/you/Library/Application Support/Fury/core.bundle/Fury.app/Contents/MacOS/Fury
 ```
 
 Ask it at any time what is installed:
@@ -123,7 +123,8 @@ each one operation:
 ~/Library/Application Support/Fury/
   fury.db          profiles, proxies, personas, projects
   profiles/        each profile's browser data — cookies, tabs, bookmarks
-  core/            the installed browser
+  core.bundle/     the installed browser (a package, so search
+                   shows one Fury rather than two)
 ```
 
 Set `FURY_HOME` to put it somewhere else — an external disk, or an encrypted

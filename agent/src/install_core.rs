@@ -24,6 +24,29 @@
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
+/// Moves a core installed by an earlier version into the current directory.
+///
+/// Cheap enough to call on every lookup — two `exists()` calls when there is
+/// nothing to do — and it has to be, because the alternative is a user whose
+/// browser quietly stops being found the day they update the application.
+///
+/// A rename, not a copy: the core is 544 MB and both are on the same volume.
+pub fn migrate_legacy_dir() {
+    let (old, new) = (crate::paths::legacy_core_dir(), crate::paths::core_dir());
+    if !old.is_dir() || new.exists() {
+        return;
+    }
+    match std::fs::rename(&old, &new) {
+        Ok(()) => tracing::info!(
+            from = %old.display(), to = %new.display(),
+            "moved the installed core into a package so search shows one Fury"
+        ),
+        // Not fatal. The next install-core writes the new location anyway, and
+        // failing to start over a directory name would be a poor trade.
+        Err(e) => tracing::warn!(error = %e, "could not move {}", old.display()),
+    }
+}
+
 /// Installs a core from `src`, which may be a `.tar.xz`/`.tar.gz` archive, a
 /// `.app` bundle, or the directory one was unpacked into.
 pub fn install(src: &Path) -> Result<PathBuf> {
@@ -64,6 +87,7 @@ pub fn install(src: &Path) -> Result<PathBuf> {
 
     ensure_executable(&leaf)?;
     let version = probe_version(&leaf)?;
+
 
     // Only now is the old one worth losing.
     let previous = dest.with_extension("previous");

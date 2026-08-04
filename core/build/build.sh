@@ -68,23 +68,26 @@ ARGS_FILE="$CORE_DIR/args/$TARGET.gn"
 mkdir -p "$SRC/$OUT"
 cp "$ARGS_FILE" "$SRC/$OUT/args.gn"
 
-# Keep Spotlight out of the build directory.
+# Ask Spotlight to skip the build directory.
 #
-# Not a tidiness preference. ninja writes the five helper applications as
-# standalone bundles beside Fury.app before copying them into the framework,
-# and macOS registers every .app it indexes — so after a few builds the
-# Applications view is full of "Fury Helper", "Fury Helper (GPU)" and several
-# things called "Fury", all of them offering to launch. On this machine that
-# reached 120 registrations.
+# ninja writes the five helper applications as standalone bundles beside
+# Fury.app before copying them into the framework, so a machine that builds ends
+# up with "Fury Helper", "Fury Helper (GPU)" and two things called "Fury" in
+# search — none of which anybody can usefully open.
 #
-# .metadata_never_index is the documented way to say no. It also stops Spotlight
-# indexing 100 GB of build output, which it was doing on every link.
+# .metadata_never_index is the documented way to ask, and on macOS 26 it does
+# NOT work for an ordinary directory: two identical bundles, one with the marker
+# and one without, were both indexed. Written anyway because it costs nothing
+# and older systems honour it, but it is not the fix and this says so.
 #
-# Only on the build directory. The source tree stays searchable, which is where
-# anybody would actually want to search.
+# What does work is a package extension — Spotlight indexes a bundle as one item
+# and does not look inside — which is why real Chrome shows a single result
+# despite carrying five helpers, and why an installed core now lives in
+# core.bundle (agent/src/paths.rs). ninja's output layout is not ours to
+# rename, so on a build machine the honest answer is System Settings →
+# Spotlight → Privacy, with core/src/out added to it.
 if [ ! -f "$SRC/out/.metadata_never_index" ]; then
   : > "$SRC/out/.metadata_never_index"
-  echo "==> told Spotlight to skip $SRC/out (see the note in this script)"
 fi
 
 echo "==> gn gen $OUT"

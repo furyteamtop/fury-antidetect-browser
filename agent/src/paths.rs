@@ -54,7 +54,27 @@ pub fn db_path() -> PathBuf {
 ///
 /// So the shell is a signed bundle that stays as it was shipped, and the core
 /// is data next to the profiles. `fury-agent install-core` puts it here.
+///
+/// The `.bundle` extension is not decoration. Spotlight indexes a top-level
+/// `.app` as an application, so an installed core showed up in search as a
+/// second thing called Fury, beside the one the user actually opens. It does
+/// NOT index inside a package, which is why real Chrome shows one result and
+/// not six despite carrying five helper applications.
+///
+/// Measured rather than assumed, because the obvious fix does not work: a
+/// `.metadata_never_index` file is the documented way to ask, and on macOS 26
+/// two identical bundles — one with the marker, one without — were both
+/// indexed. A package extension was tried the same way and hid its contents.
 pub fn core_dir() -> PathBuf {
+    data_dir().join("core.bundle")
+}
+
+/// Where a core installed by an earlier version sits.
+///
+/// Renamed rather than left: two copies of a 544 MB browser is not a tidy way
+/// to change a directory name, and a core the agent no longer looks at is a
+/// browser that silently stops being used.
+pub fn legacy_core_dir() -> PathBuf {
     data_dir().join("core")
 }
 
@@ -160,6 +180,18 @@ mod tests {
         assert_ne!(
             short_tag(std::path::Path::new("/home/a/Fury")),
             short_tag(std::path::Path::new("/home/b/Fury"))
+        );
+    }
+
+    #[test]
+    fn the_core_lives_in_a_package_so_search_shows_one_fury() {
+        // The whole reason for the extension. Losing it silently would put a
+        // second "Fury" in everybody's Spotlight and nobody would connect the
+        // two.
+        assert_eq!(
+            core_dir().extension().and_then(|e| e.to_str()),
+            Some("bundle"),
+            "core_dir must keep a package extension — see the note on it"
         );
     }
 
