@@ -254,6 +254,24 @@ db_test!(the_reset_hook_clears_the_binding, c, {
     let _ = &mut c;
 });
 
+db_test!(a_sum_over_bigint_needs_the_cast_to_decode, c, {
+    // The storage ceiling reads `sum(size_bytes)`, and PostgreSQL returns
+    // NUMERIC for a sum over BIGINT. Without the ::BIGINT cast the query fails
+    // at decode time, which turned every upload into a 500 the moment
+    // FURY_MAX_STORAGE_PER_ORG was set — a limit that broke the thing it was
+    // meant to protect. Found by uploading; kept so it cannot come back.
+    let total: i64 = sqlx::query_scalar(
+        "SELECT coalesce(sum(b.size_bytes), 0)::BIGINT FROM bundles b
+         JOIN profiles p ON p.id = b.profile_id
+         WHERE p.org_id = $1",
+    )
+    .bind(uuid::Uuid::parse_str(ORG_A).unwrap())
+    .fetch_one(&mut c)
+    .await
+    .expect("sum(size_bytes) must decode as i64 — see the ::BIGINT cast in upload_bundle");
+    assert_eq!(total, 0);
+});
+
 db_test!(audit_cannot_be_rewritten, c, {
     bind(&mut c, USER_A).await;
     sqlx::query("INSERT INTO audit_events (org_id, actor_user_id, action, detail) VALUES ($1::uuid,$2::uuid,'test','{}'::jsonb)")

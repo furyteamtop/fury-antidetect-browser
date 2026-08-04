@@ -254,6 +254,23 @@ async fn signup(
         ));
     }
 
+    // The ceiling on a shared server, checked before anything is written.
+    //
+    // Deleted organisations still count. An organisation is soft-deleted so its
+    // profiles survive a mistake, and letting a delete-and-recreate loop past
+    // the limit would make the limit decorative.
+    if let Some(max) = state.limits.max_orgs {
+        let existing: i64 = sqlx::query_scalar("SELECT count(*) FROM organizations")
+            .fetch_one(&state.db)
+            .await?;
+        if existing >= max {
+            return Err(ApiError::BadRequest(format!(
+                "this server is full: it accepts {max} organisations and has {existing}. \
+                 Ask whoever runs it for an invitation to an existing one"
+            )));
+        }
+    }
+
     use base64::Engine;
     let b64 = |what: &str, v: &str| -> Result<Vec<u8>, ApiError> {
         base64::engine::general_purpose::STANDARD
@@ -1330,6 +1347,7 @@ pub struct NewProfileRequest {
 /// that looks fine in a list and fails at the moment someone needs it, which
 /// for a shared profile means failing on a colleague's machine.
 async fn create_profile(
+    State(state): State<Arc<AppState>>,
     mut db: auth::Db,
     Path(project_id): Path<Uuid>,
     Json(req): Json<NewProfileRequest>,
@@ -1339,6 +1357,7 @@ async fn create_profile(
     let caller = db.caller;
 
     rbac_guard::require(db.as_mut(), caller.user_id, project_id, Perm::CreateProfile).await?;
+    ensure_room_for_a_profile(&mut db, &state.limits).await?;
 
     if req.name.trim().is_empty() {
         return Err(ApiError::BadRequest("a profile needs a name".into()));
@@ -1427,7 +1446,65 @@ pub struct CloneProfileRequest {
 /// rather than a duplicate. The bundle is not copied either — cookies ARE the
 /// logged-in account, so a copy carrying them would be a second window on one
 /// account instead of a second account.
+/// A size somebody can act on.
+///
+/// Integer division made the first version of the storage refusal say "may
+/// store 1 MB and has 0 MB", which reads as a bug rather than as a full disk —
+/// the organisation had 700 KB. A refusal that looks wrong gets reported as a
+/// fault instead of acted on.
+fn human_bytes(n: i64) -> String {
+    const KB: i64 = 1024;
+    const MB: i64 = 1024 * KB;
+    const GB: i64 = 1024 * MB;
+    match n {
+        n if n >= GB => format!("{:.1} GB", n as f64 / GB as f64),
+        n if n >= MB => format!("{:.1} MB", n as f64 / MB as f64),
+        n if n >= KB => format!("{} KB", n / KB),
+        n => format!("{n} bytes"),
+    }
+}
+
+/// Room for one more profile in this organisation.
+///
+/// Called from every route that creates one — the dialog, the bulk maker, the
+/// clone — because a ceiling one route enforces is a ceiling with a way round
+/// it, and the way round is always the route somebody uses for two hundred at a
+/// time.
+///
+/// Deleted profiles do not count: they are in the trash, they are recoverable,
+/// and charging somebody for a profile they threw away would make the limit
+/// feel arbitrary.
+async fn ensure_room_for_a_profile(
+    db: &mut auth::Db,
+    limits: &crate::Limits,
+) -> Result<(), ApiError> {
+    ensure_room_for_profiles(db, limits, 1).await
+}
+
+async fn ensure_room_for_profiles(
+    db: &mut auth::Db,
+    limits: &crate::Limits,
+    wanted: i64,
+) -> Result<(), ApiError> {
+    let Some(max) = limits.max_profiles_per_org else { return Ok(()) };
+    let used: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM profiles WHERE org_id = $1 AND deleted_at IS NULL",
+    )
+    .bind(db.caller.org_id)
+    .fetch_one(db.as_mut())
+    .await?;
+    if used + wanted > max {
+        return Err(ApiError::BadRequest(format!(
+            "this organisation may hold {max} profiles and holds {used}; \
+             {wanted} more would not fit. Delete some, or ask whoever runs the \
+             server for more room"
+        )));
+    }
+    Ok(())
+}
+
 async fn clone_profile(
+    State(state): State<Arc<AppState>>,
     mut db: auth::Db,
     Path(profile_id): Path<Uuid>,
     Json(req): Json<CloneProfileRequest>,
@@ -1439,6 +1516,10 @@ async fn clone_profile(
     if !(1..=500).contains(&req.count) {
         return Err(ApiError::BadRequest("count must be between 1 and 500".into()));
     }
+    // For all of them, not for one. A clone of five hundred is the route that
+    // would otherwise walk straight past a ceiling checked one profile at a
+    // time.
+    ensure_room_for_profiles(&mut db, &state.limits, req.count as i64).await?;
 
     #[derive(sqlx::FromRow)]
     struct Row {
@@ -2981,6 +3062,7 @@ pub fn max_bundle_bytes() -> usize {
 }
 
 async fn upload_bundle(
+    State(state): State<Arc<AppState>>,
     mut db: auth::Db,
     Path(profile_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
@@ -3061,6 +3143,28 @@ async fn upload_bundle(
     std::fs::create_dir_all(&dir).map_err(|e| ApiError::Internal(e.into()))?;
     let staging = dir.join(format!(".incoming-{}", Uuid::now_v7()));
 
+    // What this organisation has already stored, so the ceiling is on the org
+    // and not only on the single upload. Read once, before the stream, because
+    // asking per chunk would be a query per 8 KB.
+    //
+    // Counted from the rows rather than the filesystem: the rows are what a
+    // delete removes, so freeing space frees the allowance, and a stray file
+    // left by a crash does not charge somebody for storage they cannot see.
+    let org_used: i64 = sqlx::query_scalar(
+        // ::BIGINT is load-bearing. sum() over BIGINT returns NUMERIC in
+        // PostgreSQL, and decoding that into i64 fails at runtime — so without
+        // the cast, setting FURY_MAX_STORAGE_PER_ORG turns every upload into a
+        // 500 and the limit breaks the thing it was meant to protect. Found by
+        // uploading, not by reading.
+        "SELECT coalesce(sum(b.size_bytes), 0)::BIGINT FROM bundles b
+         JOIN profiles p ON p.id = b.profile_id
+         WHERE p.org_id = $1",
+    )
+    .bind(caller.org_id)
+    .fetch_one(db.as_mut())
+    .await?;
+    let org_ceiling = state.limits.max_storage_per_org;
+
     let mut hasher = Sha256::new();
     let mut written: usize = 0;
     let limit = max_bundle_bytes();
@@ -3076,9 +3180,25 @@ async fn upload_bundle(
             if written > limit {
                 let _ = std::fs::remove_file(&staging);
                 return Err(ApiError::BadRequest(format!(
-                    "this bundle is over the {} MB limit for this server",
-                    limit / (1024 * 1024)
+                    "this bundle is over the {} limit for this server",
+                    human_bytes(limit as i64)
                 )));
+            }
+            // Stopped mid-stream rather than after it. A refusal that arrives
+            // once the whole thing has been received has already cost the disk
+            // and the bandwidth it was meant to protect.
+            if let Some(ceiling) = org_ceiling {
+                if org_used + written as i64 > ceiling {
+                    let _ = std::fs::remove_file(&staging);
+                    return Err(ApiError::BadRequest(format!(
+                        "this organisation may store {} and has {}; the upload was \
+                         stopped after {}. Delete a profile, or ask whoever runs the \
+                         server for more room",
+                        human_bytes(ceiling),
+                        human_bytes(org_used),
+                        human_bytes(written as i64),
+                    )));
+                }
             }
             hasher.update(&chunk);
             use std::io::Write;

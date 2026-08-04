@@ -155,7 +155,30 @@ RUST_LOG=fury_server=info,tower_http=warn
 # It is less alarming than it sounds — every sign-up creates its OWN
 # organisation, and an organisation is the boundary every query already filters
 # on, so a stranger cannot address anything of yours. What they cost you is rows.
+#
+# Somebody who signs up this way is the owner of their organisation and can run
+# it: invite colleagues from the application, hand them the organisation key,
+# and grant per-project access. That is the whole team feature, and it is theirs
+# as much as yours — the two organisations simply never meet.
 FURY_OPEN_SIGNUP=0
+
+# What one organisation may take.
+#
+# Empty means no limit, which is right for a box you run for your own team: a
+# quota somebody hits at nine on a Monday is worse than no quota.
+#
+# They exist for the other case. With FURY_OPEN_SIGNUP=1 the isolation between
+# organisations is total and the FAIRNESS is not — nobody can read anybody's
+# data, and one stranger with a loop can still take the whole disk. Set all
+# three before you open sign-ups.
+#
+#   FURY_MAX_ORGS=50                  organisations on this server, total
+#   FURY_MAX_PROFILES_PER_ORG=200     profiles one organisation may hold
+#   FURY_MAX_STORAGE_PER_ORG=5368709120   bundle bytes per organisation (5 GB)
+#
+FURY_MAX_ORGS=
+FURY_MAX_PROFILES_PER_ORG=
+FURY_MAX_STORAGE_PER_ORG=
 ENV
 chmod 0640 /etc/fury/fury.env; chown root:fury /etc/fury/fury.env
 
