@@ -38,6 +38,33 @@ pub struct Project {
     pub profile_count: i64,
 }
 
+/// A login stored beside a profile.
+///
+/// The password and the TOTP seed are sealed in the database and travel to the
+/// UI in the clear, which is the same trade the proxy password makes: there is
+/// nobody on this machine to hide them from, and an operator who cannot see
+/// what they typed cannot fix it. A team server is where masking becomes a real
+/// distinction, and it has `reveal_secrets` for it.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Credential {
+    #[serde(default)]
+    pub id: String,
+    pub profile_id: String,
+    pub label: String,
+    #[serde(default)]
+    pub site: String,
+    #[serde(default)]
+    pub username: Option<String>,
+    #[serde(default)]
+    pub password: Option<String>,
+    /// An `otpauth://` URI once stored. Accepts a bare base32 secret on the way
+    /// in; see `upsert_credential` for why it does not stay that way.
+    #[serde(default)]
+    pub totp: Option<String>,
+    #[serde(default)]
+    pub notes: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Proxy {
     pub id: String,
@@ -237,6 +264,38 @@ impl Store {
             );
 
             CREATE INDEX IF NOT EXISTS profiles_by_project ON profiles(project_id);
+
+            -- What a shared account needs besides the browser: the login, and
+            -- the two-factor seed that goes with it.
+            --
+            -- Sealed with the machine key, like a proxy password, and for the
+            -- same reason: this file sits beside the profile directories and is
+            -- backed up with them. A seed in the clear here is a seed in every
+            -- backup, forever.
+            --
+            -- One row per login rather than one per profile, because an account
+            -- often has a second one — a mail login for the recovery address,
+            -- a separate seed for the admin panel — and the alternative is
+            -- operators putting all of it in `notes`.
+            CREATE TABLE IF NOT EXISTS credentials (
+                id          TEXT PRIMARY KEY,
+                profile_id  TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+                label       TEXT NOT NULL,
+                site        TEXT NOT NULL DEFAULT '',
+                username    TEXT,
+                -- Sealed. NULL means "not stored", which is different from an
+                -- empty password and has to stay different.
+                password    TEXT,
+                -- Sealed. The base32 seed, or the whole otpauth:// URI — both
+                -- are accepted on the way in and normalised to a URI so the
+                -- digits, period and hash travel with it.
+                totp        TEXT,
+                notes       TEXT NOT NULL DEFAULT '',
+                created_at  TEXT NOT NULL,
+                updated_at  TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS credentials_by_profile ON credentials(profile_id);
 
             -- Added after the first release of the schema. SQLite has no
             -- IF NOT EXISTS for columns, so these run through a separate path
@@ -485,6 +544,79 @@ impl Store {
         .execute(&self.pool)
         .await?;
         Ok(id)
+    }
+
+    // -----------------------------------------------------------------------
+    // Credentials
+    // -----------------------------------------------------------------------
+
+    pub async fn credentials(&self, profile_id: &str) -> anyhow::Result<Vec<Credential>> {
+        let rows: Vec<Credential> = sqlx::query_as(
+            "SELECT id, profile_id, label, site, username, password, totp, notes
+             FROM credentials WHERE profile_id = ? ORDER BY label",
+        )
+        .bind(profile_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|c| self.open_credential(c)).collect())
+    }
+
+    pub async fn upsert_credential(&self, c: &Credential) -> anyhow::Result<String> {
+        let id = if c.id.is_empty() { new_id() } else { c.id.clone() };
+
+        // Normalised on the way in, not on the way out. A seed pasted as a bare
+        // base32 string carries no digits, period or hash, and storing it as
+        // pasted means guessing them at every read; storing the URI means the
+        // parameters travel with the secret and a seed that came from a
+        // SHA-256 issuer keeps saying so.
+        //
+        // It also refuses here, in front of the person who pasted it, rather
+        // than at the moment they need a code to log in.
+        let totp = match c.totp.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+            Some(raw) => Some(fury_shared::totp::Totp::parse(raw)?.to_uri()),
+            None => None,
+        };
+
+        sqlx::query(
+            "INSERT INTO credentials
+                (id, profile_id, label, site, username, password, totp, notes, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET
+                label = excluded.label, site = excluded.site,
+                username = excluded.username, password = excluded.password,
+                totp = excluded.totp, notes = excluded.notes,
+                updated_at = excluded.updated_at",
+        )
+        .bind(&id)
+        .bind(&c.profile_id)
+        .bind(&c.label)
+        .bind(&c.site)
+        .bind(&c.username)
+        .bind(c.password.as_deref().filter(|v| !v.is_empty()).map(|v| self.vault.seal(v)))
+        .bind(totp.as_deref().map(|v| self.vault.seal(v)))
+        .bind(&c.notes)
+        .bind(now())
+        .bind(now())
+        .execute(&self.pool)
+        .await?;
+        Ok(id)
+    }
+
+    pub async fn delete_credential(&self, id: &str) -> anyhow::Result<()> {
+        // Hard delete, unlike a profile. A login somebody removed is a login
+        // they meant to remove, and a soft-deleted password is a password still
+        // in the file.
+        sqlx::query("DELETE FROM credentials WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    fn open_credential(&self, mut c: Credential) -> Credential {
+        c.password = c.password.map(|v| self.vault.open_value(&v));
+        c.totp = c.totp.map(|v| self.vault.open_value(&v));
+        c
     }
 
     /// Unseal the two secret columns.
@@ -867,6 +999,126 @@ fn random_seed() -> i64 {
     // Positive: SQLite integers are signed and the seed reaches the core as a
     // u64, so a negative value would change meaning on the way.
     rand::thread_rng().gen_range(1..i64::MAX)
+}
+
+#[cfg(test)]
+mod credential_tests {
+    use super::*;
+
+    async fn store_with_a_profile(tag: &str) -> (crate::tmp::TempDir, Store, String) {
+        let dir = crate::tmp::TempDir::new(tag);
+        let store = Store::open_for_tests(&dir.join("t.db")).await.unwrap();
+        let id = store
+            .upsert_profile(&Profile {
+                id: String::new(),
+                project_id: None,
+                project_name: None,
+                name: "acct".into(),
+                notes: String::new(),
+                tags: vec![],
+                persona_id: "x".into(),
+                fp_seed: 1,
+                proxy: None,
+                proxy_id: None,
+                timezone: None,
+                languages: None,
+                start_urls: vec![],
+                last_opened_at: None,
+            })
+            .await
+            .unwrap();
+        (dir, store, id)
+    }
+
+    #[tokio::test]
+    async fn a_seed_is_sealed_on_disk_and_readable_through_the_store() {
+        let (_d, store, profile_id) = store_with_a_profile("cred-seal").await;
+        let id = store
+            .upsert_credential(&Credential {
+                id: String::new(),
+                profile_id: profile_id.clone(),
+                label: "the account".into(),
+                site: "example.com".into(),
+                username: Some("alice".into()),
+                password: Some("hunter2".into()),
+                totp: Some("JBSWY3DPEHPK3PXP".into()),
+                notes: String::new(),
+            })
+            .await
+            .unwrap();
+
+        // What the row actually holds. This file sits beside the profile
+        // directories and is backed up with them, so a seed in the clear here
+        // is a seed in every backup, forever.
+        let (pw, seed): (Option<String>, Option<String>) =
+            sqlx::query_as("SELECT password, totp FROM credentials WHERE id = ?")
+                .bind(&id)
+                .fetch_one(&store.pool)
+                .await
+                .unwrap();
+        let pw = pw.unwrap();
+        let seed = seed.unwrap();
+        assert!(!pw.contains("hunter2"), "the password is in the clear: {pw}");
+        assert!(!seed.contains("JBSWY3DP"), "the seed is in the clear: {seed}");
+
+        // And back out again.
+        let read = store.credentials(&profile_id).await.unwrap();
+        assert_eq!(read.len(), 1);
+        assert_eq!(read[0].password.as_deref(), Some("hunter2"));
+        // Normalised to a URI so the digits, period and hash travel with it.
+        let stored = read[0].totp.as_deref().unwrap();
+        assert!(stored.starts_with("otpauth://totp/"), "{stored}");
+        assert!(stored.contains("algorithm=SHA1"), "{stored}");
+    }
+
+    #[tokio::test]
+    async fn a_seed_that_is_not_a_seed_is_refused_when_it_is_typed() {
+        // In front of the person who pasted it, rather than at the moment they
+        // need a code to get into an account.
+        let (_d, store, profile_id) = store_with_a_profile("cred-bad").await;
+        let err = store
+            .upsert_credential(&Credential {
+                id: String::new(),
+                profile_id,
+                label: "bad".into(),
+                site: String::new(),
+                username: None,
+                password: None,
+                totp: Some("this is not base32!".into()),
+                notes: String::new(),
+            })
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("base32"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn removing_a_login_removes_it() {
+        // Hard delete, unlike a profile: a soft-deleted password is a password
+        // still in the file.
+        let (_d, store, profile_id) = store_with_a_profile("cred-del").await;
+        let id = store
+            .upsert_credential(&Credential {
+                id: String::new(),
+                profile_id: profile_id.clone(),
+                label: "gone".into(),
+                site: String::new(),
+                username: None,
+                password: Some("secret".into()),
+                totp: None,
+                notes: String::new(),
+            })
+            .await
+            .unwrap();
+        store.delete_credential(&id).await.unwrap();
+        assert!(store.credentials(&profile_id).await.unwrap().is_empty());
+        let left: i64 = sqlx::query_scalar("SELECT count(*) FROM credentials")
+            .fetch_one(&store.pool)
+            .await
+            .unwrap();
+        assert_eq!(left, 0, "a deleted login is still in the database");
+    }
 }
 
 #[cfg(test)]

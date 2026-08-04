@@ -1470,10 +1470,13 @@ version = "0.0.1"
 dependencies = [
  "argon2",
  "chacha20poly1305",
+ "digest",
  "hkdf",
+ "hmac",
  "rand 0.8.7",
  "serde",
  "serde_json",
+ "sha1",
  "sha2",
  "thiserror 2.0.19",
  "uuid",

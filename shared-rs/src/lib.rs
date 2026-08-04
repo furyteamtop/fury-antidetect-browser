@@ -6,6 +6,7 @@
 //! Everything here is transport-agnostic: no axum, no sqlx, no reqwest. Both
 //! sides depend on this crate so the wire format cannot drift.
 
+pub mod totp;
 pub mod api;
 pub mod catalogue;
 pub mod fingerprint;

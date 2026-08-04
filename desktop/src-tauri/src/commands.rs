@@ -1351,6 +1351,82 @@ pub async fn preview(spec: serde_json::Value) -> R<serde_json::Value> {
     Ok(crate::agent::call("profile.preview", spec).await?)
 }
 
+/// Logins stored beside a profile: username, password, two-factor seed.
+///
+/// Local only, and that is a decision rather than an omission. The server's
+/// `credentials` table takes a blob sealed with the organisation key, and
+/// sealing it correctly is the difference between a team feature and a way to
+/// hand a server everybody's passwords. Doing the local half first means an
+/// operator working alone — which is most of them — gets the feature now, and
+/// the team half arrives without changing what it looks like.
+#[tauri::command]
+pub async fn credentials(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> R<serde_json::Value> {
+    if mode_of(&state) != "local" {
+        // Said plainly rather than returning an empty list, which would read as
+        // "this profile has no logins" and lose somebody's work when they
+        // typed one in.
+        return Err(ApiErr::coded(
+            "err.localOnly",
+            "logins are stored on this machine only for now; a team server cannot hold them yet",
+        ));
+    }
+    Ok(crate::agent::call("credentials.list", serde_json::json!({ "profile_id": profile_id })).await?)
+}
+
+#[tauri::command]
+pub async fn save_credential(
+    state: State<'_, AppState>,
+    credential: serde_json::Value,
+) -> R<serde_json::Value> {
+    if mode_of(&state) != "local" {
+        return Err(ApiErr::coded(
+            "err.localOnly",
+            "logins are stored on this machine only for now",
+        ));
+    }
+    Ok(crate::agent::call("credentials.upsert", credential).await?)
+}
+
+#[tauri::command]
+pub async fn delete_credential(state: State<'_, AppState>, id: String) -> R<serde_json::Value> {
+    if mode_of(&state) != "local" {
+        return Err(ApiErr::coded(
+            "err.localOnly",
+            "logins are stored on this machine only for now",
+        ));
+    }
+    Ok(crate::agent::call("credentials.delete", serde_json::json!({ "id": id })).await?)
+}
+
+/// Six digits and how long they last.
+///
+/// The seed itself never comes back here and never reaches the webview. A
+/// webview is a browser engine: anything handed to it is in a heap that a page
+/// bug, an extension or a crash dump can reach, and a two-factor seed is the
+/// one value in this product that is worth more than the password beside it.
+/// The agent holds it and returns the code.
+#[tauri::command]
+pub async fn totp_code(
+    state: State<'_, AppState>,
+    profile_id: String,
+    id: String,
+) -> R<serde_json::Value> {
+    if mode_of(&state) != "local" {
+        return Err(ApiErr::coded(
+            "err.localOnly",
+            "logins are stored on this machine only for now",
+        ));
+    }
+    Ok(crate::agent::call(
+        "credentials.code",
+        serde_json::json!({ "profile_id": profile_id, "id": id }),
+    )
+    .await?)
+}
+
 #[tauri::command]
 pub async fn proxies(state: State<'_, AppState>) -> R<serde_json::Value> {
     if mode_of(&state) == "local" {

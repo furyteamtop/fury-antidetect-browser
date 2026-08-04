@@ -4,12 +4,18 @@
 import { useEffect, useState, useRef } from "react";
 import { useI18n } from "../i18n";
 import { api, type LocalProxy, type Persona, type Preview, type Profile } from "../api";
+import { Logins } from "./Logins";
 
-const TABS = ["General", "Proxy", "Device", "Advanced"] as const;
+// "Logins" only exists for a profile that has been saved: a login belongs to a
+// profile id, and there is no id until the first save. Showing an empty tab on
+// a new profile would invite somebody to type a password into something that
+// cannot store it yet.
+const TABS = ["General", "Proxy", "Device", "Logins", "Advanced"] as const;
 const TAB_KEYS = {
   General: "pd.tabGeneral",
   Proxy: "pd.tabProxy",
   Device: "pd.tabDevice",
+  Logins: "pd.tabLogins",
   Advanced: "pd.tabAdvanced",
 } as const;
 type Tab = (typeof TABS)[number];
@@ -288,6 +294,19 @@ export function ProfileDialog({
                   </div>
                 </div>
               </>
+            )}
+
+            {tab === "Logins" && (
+              <div className="field">
+                <div />
+                <div>
+                  {editing?.id ? (
+                    <Logins profileId={editing.id} />
+                  ) : (
+                    <p className="hint">{t("pd.loginsAfterSave")}</p>
+                  )}
+                </div>
+              </div>
             )}
 
             {tab === "Proxy" && (

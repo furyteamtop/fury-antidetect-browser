@@ -50,6 +50,29 @@ export interface LockInfo {
   expires_at: string;
 }
 
+/** A login stored beside a profile: what a shared account needs besides cookies. */
+export interface Credential {
+  id: string;
+  profile_id: string;
+  label: string;
+  site: string;
+  username: string | null;
+  password: string | null;
+  /** An `otpauth://` URI once saved; a bare base32 secret is accepted on input.
+   *  Present here because the operator has to be able to see and correct what
+   *  they typed — there is nobody on this machine to hide it from. */
+  totp: string | null;
+  notes: string;
+}
+
+export interface TotpCode {
+  code: string;
+  seconds_remaining: number;
+  /** The one after this. Shown so a code handed over with two seconds left is
+   *  not a login that fails for a reason nobody blames on the clock. */
+  next: string;
+}
+
 export interface Profile {
   id: string;
   /** Null when the profile is in no project. Profiles is the master list —
@@ -496,6 +519,17 @@ export const api = {
     languages: string[] | null;
   }): Promise<Preview> => cmd<Preview>("preview", { spec }),
   proxies: (): Promise<LocalProxy[]> => cmd<LocalProxy[]>("proxies"),
+
+  /** Logins stored beside a profile. Local mode only for now — see commands.rs. */
+  credentials: (profileId: string): Promise<Credential[]> =>
+    cmd<Credential[]>("credentials", { profileId }),
+  saveCredential: (credential: Credential): Promise<{ id: string }> =>
+    cmd<{ id: string }>("save_credential", { credential }),
+  deleteCredential: (id: string): Promise<unknown> => cmd("delete_credential", { id }),
+  /** Six digits and how long they last. The seed stays in the agent. */
+  totpCode: (profileId: string, id: string): Promise<TotpCode> =>
+    cmd<TotpCode>("totp_code", { profileId, id }),
+
   saveProxy: (proxy: Partial<LocalProxy>): Promise<{ id: string }> =>
     cmd<{ id: string }>("save_proxy", { proxy }),
   deleteProxy: (id: string): Promise<unknown> => cmd("delete_proxy", { id }),

@@ -1057,6 +1057,56 @@ impl Agent {
             }
             "profile.stop" => self.stop(&str_param(&params, "id")?).await,
 
+            "credentials.list" => {
+                let profile_id = str_param(&params, "profile_id")?;
+                Ok(serde_json::to_value(self.store.credentials(&profile_id).await?)?)
+            }
+            "credentials.upsert" => {
+                let c: crate::store::Credential = serde_json::from_value(params)?;
+                Ok(json!({ "id": self.store.upsert_credential(&c).await? }))
+            }
+            "credentials.delete" => {
+                self.store.delete_credential(&str_param(&params, "id")?).await?;
+                Ok(json!({ "deleted": true }))
+            }
+
+            // The code for one login, now.
+            //
+            // Generated here rather than in the shell, and the seed never
+            // leaves this process: the webview is a browser engine, and a
+            // secret that reaches it is a secret in a heap somebody can dump.
+            // The shell receives six digits and how long they last.
+            "credentials.code" => {
+                let id = str_param(&params, "id")?;
+                let profile_id = str_param(&params, "profile_id")?;
+                let cred = self
+                    .store
+                    .credentials(&profile_id)
+                    .await?
+                    .into_iter()
+                    .find(|c| c.id == id)
+                    .ok_or_else(|| anyhow::anyhow!("no such login"))?;
+                let raw = cred
+                    .totp
+                    .as_deref()
+                    .filter(|v| !v.is_empty())
+                    .ok_or_else(|| anyhow::anyhow!("this login has no two-factor seed"))?;
+                let totp = fury_shared::totp::Totp::parse(raw)?;
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                Ok(json!({
+                    "code": totp.code_at(now),
+                    "seconds_remaining": totp.seconds_remaining(now),
+                    // The next one as well. An operator watching two seconds
+                    // tick down does not have to wait to know what to paste,
+                    // and a code handed over with two seconds left is a login
+                    // that fails for a reason nobody blames on the clock.
+                    "next": totp.code_at(now + totp.seconds_remaining(now)),
+                }))
+            }
+
             other => anyhow::bail!("unknown method {other:?}"),
         }
     }
