@@ -188,8 +188,8 @@ about it is worth more than not.
 |---|---|
 | Windows and Linux builds | the patches are written for them and have never been compiled there. No Windows core has been built or measured, so there is no Windows release and saying otherwise would be the thing this project refuses to do |
 | Code signing and notarisation | the tooling is written and needs an Apple Developer certificate nobody has yet ([tools/release/sign-core.sh](tools/release/sign-core.sh)). Until then macOS will complain about a downloaded build |
-| Client-side bundle encryption (vault) | no — this blocks hosted mode |
-| Bundle sync with the server | no |
+| ~~Client-side bundle encryption~~ | done, and verified end to end against a running server: what it writes to disk holds neither the cookie, nor a tar header, nor a gzip header, and a foreign organisation key does not open it |
+| ~~Bundle sync with the server~~ | done. Packed and sealed on stop, fetched and unpacked on launch, versioned so a second uploader is refused rather than silently winning |
 | WebRTC through the proxy | no. The relay is TCP; patch 0070 puts the browser in the state a real Chrome reaches under the enterprise `WebRTCIPHandlingPolicy` — no ICE candidates at all — rather than let a peer connection go around the proxy and hand the page the real address |
 | QUIC / HTTP-3 | off, same reason. Real Chrome negotiates HTTP/3 where it is offered and Fury never does, which a server advertising `alt-svc` can see |
 | Hiding CDP from a timing check | no. With a debugger attached `console.debug` of a large object takes about thirteen times longer — measured in real Chrome too, so it detects automation rather than Fury, but if you drive a profile that is the thing being hidden |

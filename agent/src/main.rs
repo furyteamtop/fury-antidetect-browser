@@ -22,6 +22,8 @@ mod relay;
 mod store;
 mod sync;
 #[cfg(test)]
+mod sync_tests;
+#[cfg(test)]
 mod tmp;
 mod transfer;
 mod vault;
