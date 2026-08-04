@@ -1,5 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
+//
+// Why tauri.conf.json builds no .dmg
+//
+// A release ships .tar.xz from tools/release/package.sh, so the disk image was
+// a build artifact nobody used — and it was not free. Every dmg build mounts a
+// volume to lay the window out and unmounts it, and macOS registers the
+// application inside that volume and never forgets. Thirty-nine dead
+// /Volumes/dmg.*/Fury.app entries had accumulated on the development machine,
+// every one of them offered in the Applications view as something you could
+// apparently launch. Not building a dmg stops it at the source.
+//
+// The Windows "nsis" target stays: there is no equivalent problem there and an
+// installer is what people expect.
+//
+// The note lives here because tauri.conf.json is validated against a schema
+// that rejects any key it does not know, including a comment-shaped one.
 
 /// Pack the server kit into the binary.
 ///
@@ -14,6 +30,7 @@
 /// desktop app, neither of which has any business on a server. The exclusions
 /// mirror deploy/push.sh, which is the script this kit exists to let somebody
 /// run.
+
 fn pack_server_kit() {
     use std::path::Path;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

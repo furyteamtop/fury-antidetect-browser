@@ -68,6 +68,25 @@ ARGS_FILE="$CORE_DIR/args/$TARGET.gn"
 mkdir -p "$SRC/$OUT"
 cp "$ARGS_FILE" "$SRC/$OUT/args.gn"
 
+# Keep Spotlight out of the build directory.
+#
+# Not a tidiness preference. ninja writes the five helper applications as
+# standalone bundles beside Fury.app before copying them into the framework,
+# and macOS registers every .app it indexes — so after a few builds the
+# Applications view is full of "Fury Helper", "Fury Helper (GPU)" and several
+# things called "Fury", all of them offering to launch. On this machine that
+# reached 120 registrations.
+#
+# .metadata_never_index is the documented way to say no. It also stops Spotlight
+# indexing 100 GB of build output, which it was doing on every link.
+#
+# Only on the build directory. The source tree stays searchable, which is where
+# anybody would actually want to search.
+if [ ! -f "$SRC/out/.metadata_never_index" ]; then
+  : > "$SRC/out/.metadata_never_index"
+  echo "==> told Spotlight to skip $SRC/out (see the note in this script)"
+fi
+
 echo "==> gn gen $OUT"
 (cd "$SRC" && gn gen "$OUT")
 
