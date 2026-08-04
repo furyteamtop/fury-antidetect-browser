@@ -101,8 +101,19 @@ pub fn status() -> Result<()> {
             let version = probe_version(&path).unwrap_or_else(|e| format!("(will not run: {e})"));
             println!("{version}");
             println!("  {}", path.display());
-            if std::env::var("FURY_CORE").is_ok() {
+            // Only when the path actually came from the variable. Saying
+            // "(from FURY_CORE)" whenever it is merely SET was wrong the moment
+            // a stale one started being ignored: it credited the variable for a
+            // core found in spite of it.
+            if std::env::var("FURY_CORE").is_ok_and(|v| std::path::Path::new(&v) == path) {
                 println!("  (from FURY_CORE)");
+            }
+            // A core was found and something is still wrong — a leftover
+            // variable naming a deleted build. Worth saying while somebody is
+            // looking, rather than the next time it costs them an hour.
+            if let Some(why) = crate::core_lookup_problem() {
+                println!();
+                println!("note: {why}");
             }
             Ok(())
         }

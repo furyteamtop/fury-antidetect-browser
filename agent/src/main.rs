@@ -297,12 +297,34 @@ async fn cmd_launch(args: &[String]) -> anyhow::Result<()> {
 pub fn core_binary() -> Option<std::path::PathBuf> {
     if let Ok(explicit) = std::env::var("FURY_CORE") {
         let path = std::path::PathBuf::from(explicit);
-        // An explicit setting that points nowhere stops the search rather than
-        // falling through to an installed core. Silently using a different
-        // browser than the one the environment names is worse than finding
-        // none: it is how you spend an evening measuring a binary you did not
-        // think you were running.
-        return path.exists().then_some(path);
+        if path.exists() {
+            return Some(path);
+        }
+        // A setting that names nothing does NOT stop the search, and this is a
+        // reversal of how it was written a day earlier.
+        //
+        // The argument then was that silently running a different browser from
+        // the one the environment names is worse than running none. That is
+        // true when the named binary exists and a different one gets used. It
+        // is not this case: the named path does not exist, so there is no
+        // browser it could have meant, and the choice is between a working
+        // application and a dead one.
+        //
+        // What it cost, measured rather than imagined. A FURY_CORE left in
+        // launchd from before the branding patch renamed Chromium.app made the
+        // application unusable; the first fix could not work, because a GUI
+        // process takes its environment from launchd and not from any shell;
+        // and the second could not work either, because the agent is a separate
+        // long-lived process that an application restart does not touch. Three
+        // rounds, for a variable naming a file that is not there.
+        //
+        // So: carry on looking, and say so loudly. core_lookup_problem() keeps
+        // reporting it, the desktop shows it in a bar, and this line puts it in
+        // the log for anybody driving the CLI. Not silent, and not stuck.
+        tracing::warn!(
+            wanted = %path.display(),
+            "FURY_CORE names a path that does not exist; looking for a core elsewhere"
+        );
     }
 
     // Beside the agent first, because a development tree and a bundle that
@@ -322,22 +344,24 @@ pub fn core_binary() -> Option<std::path::PathBuf> {
     installed.exists().then_some(installed)
 }
 
-/// Why there is no core, in a sentence, when the reason is not "you have not
-/// installed one".
+/// Something wrong with how the core is being found, in a sentence.
 ///
-/// The case this exists for was found by hitting it: FURY_CORE was left set to
-/// a path from before the branding patch renamed Chromium.app to Fury.app, and
-/// every lookup afterwards reported no core while a perfectly good one sat in
-/// the install directory. The message named the directory it had searched,
-/// which was true and sent the reader to look in exactly the wrong place.
+/// No longer a reason there is no core — [`core_binary`] carries on looking —
+/// but still worth saying, because a FURY_CORE naming a deleted build is
+/// somebody's leftover and will confuse them again next week.
 pub fn core_lookup_problem() -> Option<String> {
     let explicit = std::env::var("FURY_CORE").ok()?;
     if std::path::Path::new(&explicit).exists() {
         return None;
     }
+    let found = core_binary().is_some();
     Some(format!(
-        "FURY_CORE is set to {explicit}, which does not exist. \
-         Nothing else is searched while it is set — {}.",
+        "FURY_CORE is set to {explicit}, which does not exist. {} {}.",
+        if found {
+            "It is being ignored and the installed browser used instead."
+        } else {
+            "There is no installed browser to fall back to either."
+        },
         how_to_unset(&explicit)
     ))
 }
@@ -354,7 +378,20 @@ pub fn core_lookup_problem() -> Option<String> {
 /// Found the hard way: a FURY_CORE left over from before the branding patch
 /// renamed Chromium.app to Fury.app, living in launchd and in no dotfile, so it
 /// was invisible to every obvious place to look.
+///
+/// And then found the hard way a second time. "Restart Fury" was the next
+/// sentence, and it was also wrong: the agent is a separate process that
+/// deliberately outlives the window (docs/01 — it holds locks and serves the
+/// automation API with the UI closed), so quitting and reopening the
+/// application finds the same agent still holding the same environment. A
+/// process cannot be told to forget a variable it started with; it has to end.
 fn how_to_unset(current: &str) -> String {
+    // Whatever the source, the agent has to be restarted for the change to
+    // reach it, and that is the part everybody gets wrong.
+    const THEN_RESTART: &str = "Then quit Fury and stop the agent — \
+                                `pkill -f fury-agent` — because it is a separate \
+                                process that an application restart does not touch";
+
     #[cfg(target_os = "macos")]
     {
         let from_launchd = std::process::Command::new("launchctl")
@@ -366,16 +403,14 @@ fn how_to_unset(current: &str) -> String {
             .unwrap_or(false);
 
         if from_launchd {
-            return concat!(
-                "it comes from launchd, so `unset FURY_CORE` in a terminal will not ",
-                "reach this application. Run `launchctl unsetenv FURY_CORE` and ",
-                "restart Fury",
-            )
-            .to_string();
+            return format!(
+                "It comes from launchd, so `unset FURY_CORE` in a terminal will not \
+                 reach this application — run `launchctl unsetenv FURY_CORE`. {THEN_RESTART}"
+            );
         }
     }
     let _ = current;
-    "unset it, or point it at a core".to_string()
+    format!("Unset it, or point it at a core. {THEN_RESTART}")
 }
 
 /// The path from a directory holding a core to the executable inside it.
@@ -478,9 +513,30 @@ mod tests {
         // The path, because "no core found" sends people to look in the wrong
         // place — which is exactly what happened before this existed.
         assert!(said.contains("/nowhere/Chromium.app"), "{said}");
-        // And something to do about it.
-        assert!(said.contains("unsetenv") || said.contains("unset it"), "{said}");
+        // Something to do about it.
+        assert!(said.contains("unsetenv") || said.contains("Unset it"), "{said}");
+        // And the part that took two failed attempts to get right: the agent
+        // outlives the window, so "restart Fury" is not enough and the advice
+        // must say what is.
+        assert!(said.contains("pkill -f fury-agent"), "{said}");
         unsafe { std::env::remove_var("FURY_CORE") };
+    }
+
+    #[test]
+    fn a_core_path_that_does_not_exist_does_not_block_the_search() {
+        // The reversal. A variable naming a file that is not there used to make
+        // the application unusable; now it is ignored and reported. Nothing
+        // else could be found in a test environment either, so what is asserted
+        // is that the variable itself is no longer the thing standing in the
+        // way — the lookup proceeds past it rather than returning at it.
+        unsafe { std::env::set_var("FURY_CORE", "/nowhere/at/all") };
+        let with_bad_var = super::core_binary();
+        unsafe { std::env::remove_var("FURY_CORE") };
+        let without = super::core_binary();
+        assert_eq!(
+            with_bad_var, without,
+            "a FURY_CORE pointing nowhere changed the outcome; it should be ignored"
+        );
     }
 
     use super::*;

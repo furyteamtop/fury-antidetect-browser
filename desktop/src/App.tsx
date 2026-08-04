@@ -475,15 +475,28 @@ export function App() {
             who took only the first has an app that looks entirely finished
             until the moment they press the button. Saying so on arrival turns a
             confusing failure into a five-minute errand. */}
+        {/* Two different situations, and they used to share one bar.
+            A browser that is not installed blocks everything and needs a
+            download. A FURY_CORE naming a deleted build blocks nothing any more
+            — it is ignored — but it is somebody's leftover and will confuse
+            them again next week, so it is worth saying without shouting. */}
         {shell.agent_ready && !shell.core_ready && (
           <div className="notice warnBar" role="status">
             <div>
               <strong>{t("app.noCore")}</strong>
               <div className="muted" style={{ marginTop: "var(--s-1)" }}>
-                {/* The agent's own sentence when it has one: a stale FURY_CORE
-                    and a missing download need opposite actions, and one
-                    message for both would describe neither. */}
                 {shell.core_problem ?? t("app.noCoreHow")}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {shell.agent_ready && shell.core_ready && shell.core_problem && (
+          <div className="notice" role="status">
+            <div>
+              <strong>{t("app.staleCoreVar")}</strong>
+              <div className="muted" style={{ marginTop: "var(--s-1)" }}>
+                {shell.core_problem}
               </div>
             </div>
           </div>
