@@ -13,6 +13,8 @@ mod auth;
 mod enroll;
 mod error;
 mod rbac_guard;
+#[cfg(test)]
+mod rls_tests;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -100,6 +102,27 @@ pub async fn connect() -> anyhow::Result<PgPool> {
         .unwrap_or_else(|_| "postgres://fury:fury@localhost/fury".to_string());
     Ok(PgPoolOptions::new()
         .max_connections(16)
+        // Clear the per-request identity before a connection goes back in the
+        // pool. `auth::Db` sets app.user_id at session scope rather than
+        // transaction scope, because most handlers are a single statement and
+        // wrapping every one in a transaction to hold a SET LOCAL would be a
+        // large change for no gain. Session scope means the value outlives the
+        // request unless something removes it, and the next request to borrow
+        // that connection would run as whoever held it last.
+        //
+        // Db sets it on every acquire, so this is the second of two locks on
+        // the same door. It is here because the failure it prevents — one
+        // user's request reading another user's rows — is the exact failure RLS
+        // exists to stop, and a defence that depends on one line never being
+        // deleted is not a defence.
+        .after_release(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('app.user_id', '', false)")
+                    .execute(conn)
+                    .await?;
+                Ok(true)
+            })
+        })
         .connect(&database_url)
         .await?)
 }

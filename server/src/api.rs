@@ -597,9 +597,12 @@ async fn logout(State(state): State<Arc<AppState>>, caller: Caller) -> ApiResult
 // ---------------------------------------------------------------------------
 
 async fn list_projects(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
 ) -> ApiResult<Json<Vec<ProjectSummary>>> {
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
     // Resolved in SQL rather than by filtering in Rust: a project the caller
     // cannot see must never be loaded, so that a bug in the mapping code cannot
     // leak one.
@@ -621,7 +624,7 @@ async fn list_projects(
     )
     .bind(caller.user_id)
     .bind(fury_shared::rbac::has_implicit_project_access(caller.role))
-    .fetch_all(&state.db)
+    .fetch_all(db.as_mut())
     .await?;
 
     Ok(Json(
@@ -653,10 +656,13 @@ pub struct ProjectRequest {
 /// right to create one is the right to create a container whose membership you
 /// then decide — which is an administrative act, not an operator's.
 async fn create_project(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Json(req): Json<ProjectRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
     use fury_shared::rbac::OrgRole;
     if !matches!(caller.role, OrgRole::Owner | OrgRole::Admin) {
         return Err(ApiError::Denied(Perm::ManageAccess));
@@ -677,20 +683,23 @@ async fn create_project(
     .bind(&req.description)
     .bind(&req.color)
     .bind(caller.user_id)
-    .execute(&state.db)
+    .execute(db.as_mut())
     .await?;
 
-    audit(&state, &caller, "project.create", Some(id), json!({ "name": name })).await?;
+    audit(db.as_mut(), &caller, "project.create", Some(id), json!({ "name": name })).await?;
     Ok(Json(json!({ "id": id })))
 }
 
 async fn rename_project(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Path(project_id): Path<Uuid>,
     Json(req): Json<ProjectRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    rbac_guard::require(&state.db, caller.user_id, project_id, Perm::ManageAccess).await?;
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
+    rbac_guard::require(db.as_mut(), caller.user_id, project_id, Perm::ManageAccess).await?;
     let name = req.name.trim();
     if name.is_empty() {
         return Err(ApiError::BadRequest("a project needs a name".into()));
@@ -705,10 +714,10 @@ async fn rename_project(
     .bind(&req.color)
     .bind(project_id)
     .bind(caller.org_id)
-    .execute(&state.db)
+    .execute(db.as_mut())
     .await?;
 
-    audit(&state, &caller, "project.rename", Some(project_id), json!({ "name": name })).await?;
+    audit(db.as_mut(), &caller, "project.rename", Some(project_id), json!({ "name": name })).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -723,16 +732,19 @@ async fn rename_project(
 /// will push a bundle when it closes, and pushing into a deleted project is a
 /// write nobody can find afterwards.
 async fn delete_project(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Path(project_id): Path<Uuid>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
     use fury_shared::rbac::OrgRole;
     if !matches!(caller.role, OrgRole::Owner | OrgRole::Admin) {
         return Err(ApiError::Denied(Perm::ManageAccess));
     }
 
-    let mut tx = state.db.begin().await?;
+    let mut tx = db.begin().await?;
 
     let open: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM profile_locks l JOIN profiles p ON p.id = l.profile_id \
@@ -775,24 +787,27 @@ async fn delete_project(
     }
 
     tx.commit().await?;
-    audit(&state, &caller, "project.delete", Some(project_id), json!({ "profiles": profiles })).await?;
+    audit(db.as_mut(), &caller, "project.delete", Some(project_id), json!({ "profiles": profiles })).await?;
     Ok(Json(json!({ "deleted": true, "profiles": profiles })))
 }
 
 async fn list_profiles(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Path(project_id): Path<Uuid>,
 ) -> ApiResult<Json<Vec<ProfileSummary>>> {
-    profiles_in(&state, &caller, project_id).await
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
+    profiles_in(db.as_mut(), &caller.clone(), project_id).await
 }
 
 async fn profiles_in(
-    state: &AppState,
+    db: &mut sqlx::PgConnection,
     caller: &Caller,
     project_id: Uuid,
 ) -> ApiResult<Json<Vec<ProfileSummary>>> {
-    let perms = rbac_guard::permissions_for(&state.db, caller.user_id, project_id).await?;
+    let perms = rbac_guard::permissions_for(&mut *db, caller.user_id, project_id).await?;
     if perms == PermSet::NONE {
         return Err(ApiError::NotFound);
     }
@@ -827,7 +842,7 @@ async fn profiles_in(
         ),
     )
     .bind(project_id)
-    .fetch_all(&state.db)
+    .fetch_all(&mut *db)
     .await?;
 
     let out = rows
@@ -898,9 +913,12 @@ async fn profiles_in(
 /// it. It is a handful of small queries against an index, and the alternative
 /// is a query whose correctness nobody can check by reading it.
 async fn list_all_profiles(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
 ) -> ApiResult<Json<Vec<ProfileSummary>>> {
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
     let projects: Vec<(Uuid,)> = sqlx::query_as(
         "SELECT p.id FROM projects p \
          JOIN org_members m ON m.org_id = p.org_id AND m.user_id = $1 \
@@ -911,7 +929,7 @@ async fn list_all_profiles(
     )
     .bind(caller.user_id)
     .bind(fury_shared::rbac::has_implicit_project_access(caller.role))
-    .fetch_all(&state.db)
+    .fetch_all(db.as_mut())
     .await?;
 
     let mut out = Vec::new();
@@ -919,7 +937,7 @@ async fn list_all_profiles(
         // Reusing the per-project handler rather than a second copy of its
         // query: two listings that drift apart is how one of them starts
         // showing an unmasked host.
-        let Json(mut rows) = profiles_in(&state, &caller, project_id).await?;
+        let Json(mut rows) = profiles_in(db.as_mut(), &caller, project_id).await?;
         out.append(&mut rows);
     }
     out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
@@ -969,12 +987,15 @@ fn mask_host(host: &str) -> String {
 }
 
 async fn grant_access(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Path(project_id): Path<Uuid>,
     Json(req): Json<GrantRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    rbac_guard::require(&state.db, caller.user_id, project_id, Perm::ManageAccess).await?;
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
+    rbac_guard::require(db.as_mut(), caller.user_id, project_id, Perm::ManageAccess).await?;
 
     // The grant is capped by the recipient's org role, not the granter's. A
     // manager cannot promote a member past what a member may ever hold — see
@@ -986,7 +1007,7 @@ async fn grant_access(
     )
     .bind(req.user_id)
     .bind(project_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(db.as_mut())
     .await?;
 
     let Some((role,)) = target_role else {
@@ -1014,10 +1035,10 @@ async fn grant_access(
     .bind(capped.0)
     .bind(caller.user_id)
     .bind(req.expires_at.as_deref())
-    .execute(&state.db)
+    .execute(db.as_mut())
     .await?;
 
-    audit(&state, &caller, "access.grant", Some(project_id),
+    audit(db.as_mut(), &caller, "access.grant", Some(project_id),
           json!({ "target": req.user_id, "requested": requested.to_vec(), "granted": capped.to_vec() }))
         .await?;
 
@@ -1030,11 +1051,14 @@ async fn grant_access(
 /// they are listed separately rather than omitted — a screen that showed only
 /// the rows would read as "nobody else can see this", which is false.
 async fn list_grants(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Path(project_id): Path<Uuid>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    rbac_guard::require(&state.db, caller.user_id, project_id, Perm::ManageAccess).await?;
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
+    rbac_guard::require(db.as_mut(), caller.user_id, project_id, Perm::ManageAccess).await?;
 
     let rows: Vec<(Uuid, String, String, i64, Option<String>)> = sqlx::query_as(
         &format!(
@@ -1048,7 +1072,7 @@ async fn list_grants(
         rfc3339("g.expires_at"),
     ))
     .bind(project_id)
-    .fetch_all(&state.db)
+    .fetch_all(db.as_mut())
     .await?;
 
     let implicit: Vec<(Uuid, String, String)> = sqlx::query_as(
@@ -1060,7 +1084,7 @@ async fn list_grants(
          ORDER BY u.email",
     )
     .bind(project_id)
-    .fetch_all(&state.db)
+    .fetch_all(db.as_mut())
     .await?;
 
     Ok(Json(json!({
@@ -1085,16 +1109,19 @@ async fn list_grants(
 /// into bundles they already downloaded — the honest boundary of any system
 /// where work happens on the operator's own machine.
 async fn revoke_access(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Path((project_id, user_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    rbac_guard::require(&state.db, caller.user_id, project_id, Perm::ManageAccess).await?;
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
+    rbac_guard::require(db.as_mut(), caller.user_id, project_id, Perm::ManageAccess).await?;
 
     sqlx::query("DELETE FROM project_grants WHERE project_id = $1 AND user_id = $2")
         .bind(project_id)
         .bind(user_id)
-        .execute(&state.db)
+        .execute(db.as_mut())
         .await?;
 
     // Any lock they hold goes too. Otherwise a revoked operator's browser keeps
@@ -1106,10 +1133,10 @@ async fn revoke_access(
     )
     .bind(project_id)
     .bind(user_id)
-    .execute(&state.db)
+    .execute(db.as_mut())
     .await?;
 
-    audit(&state, &caller, "access.revoke", Some(project_id), json!({ "target": user_id })).await?;
+    audit(db.as_mut(), &caller, "access.revoke", Some(project_id), json!({ "target": user_id })).await?;
     Ok(Json(json!({ "revoked": true })))
 }
 
@@ -1151,10 +1178,13 @@ pub struct ProxyRequest {
 /// plausible in length. That is the whole point — a stolen database yields a
 /// list of hostnames, not a working proxy pool.
 async fn create_proxy(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Json(req): Json<ProxyRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
     use fury_shared::rbac::OrgRole;
     if !matches!(caller.role, OrgRole::Owner | OrgRole::Admin) {
         return Err(ApiError::Denied(Perm::EditProxy));
@@ -1192,7 +1222,7 @@ async fn create_proxy(
         )
         .bind(project_id)
         .bind(caller.org_id)
-        .fetch_one(&state.db)
+        .fetch_one(db.as_mut())
         .await?;
         if !ours {
             return Err(ApiError::NotFound);
@@ -1213,10 +1243,10 @@ async fn create_proxy(
     .bind(&credentials_enc)
     .bind(&wrapped_dek)
     .bind(&rotate_url_enc)
-    .execute(&state.db)
+    .execute(db.as_mut())
     .await?;
 
-    audit(&state, &caller, "proxy.create", Some(id), json!({ "host": req.host })).await?;
+    audit(db.as_mut(), &caller, "proxy.create", Some(id), json!({ "host": req.host })).await?;
     Ok(Json(json!({ "id": id })))
 }
 
@@ -1227,9 +1257,12 @@ async fn create_proxy(
 /// credentials are handed out once, bound to a lock, when a profile is actually
 /// launched.
 async fn list_proxies(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
 ) -> ApiResult<Json<Vec<ProxySummary>>> {
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
     let reveal = caller.implicit_permissions().has(Perm::RevealSecrets);
     let rows: Vec<(Uuid, String, String, String, i32, Option<String>, Option<String>, Option<String>, i64)> =
         sqlx::query_as(&format!(
@@ -1237,7 +1270,7 @@ async fn list_proxies(
             rfc3339("x.last_checked_at"),
         ))
         .bind(caller.org_id)
-        .fetch_all(&state.db)
+        .fetch_all(db.as_mut())
         .await?;
 
     Ok(Json(
@@ -1289,12 +1322,15 @@ pub struct NewProfileRequest {
 /// that looks fine in a list and fails at the moment someone needs it, which
 /// for a shared profile means failing on a colleague's machine.
 async fn create_profile(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Path(project_id): Path<Uuid>,
     Json(req): Json<NewProfileRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    rbac_guard::require(&state.db, caller.user_id, project_id, Perm::CreateProfile).await?;
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
+    rbac_guard::require(db.as_mut(), caller.user_id, project_id, Perm::CreateProfile).await?;
 
     if req.name.trim().is_empty() {
         return Err(ApiError::BadRequest("a profile needs a name".into()));
@@ -1325,7 +1361,7 @@ async fn create_profile(
     )
     .bind(req.proxy_id)
     .bind(caller.org_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(db.as_mut())
     .await?;
     match usable {
         None => return Err(ApiError::BadRequest("no such proxy".into())),
@@ -1354,10 +1390,10 @@ async fn create_profile(
     .bind(req.proxy_id)
     .bind(&req.start_urls)
     .bind(caller.user_id)
-    .execute(&state.db)
+    .execute(db.as_mut())
     .await?;
 
-    audit(&state, &caller, "profile.create", Some(id), json!({ "name": req.name })).await?;
+    audit(db.as_mut(), &caller, "profile.create", Some(id), json!({ "name": req.name })).await?;
     Ok(Json(json!({ "id": id })))
 }
 
@@ -1384,11 +1420,14 @@ pub struct CloneProfileRequest {
 /// logged-in account, so a copy carrying them would be a second window on one
 /// account instead of a second account.
 async fn clone_profile(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Path(profile_id): Path<Uuid>,
     Json(req): Json<CloneProfileRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
     if !(1..=500).contains(&req.count) {
         return Err(ApiError::BadRequest("count must be between 1 and 500".into()));
     }
@@ -1413,13 +1452,13 @@ async fn clone_profile(
     )
     .bind(profile_id)
     .bind(caller.org_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(db.as_mut())
     .await?
     .ok_or(ApiError::NotFound)?;
 
     // Creating, not editing: the permission that matters is the one for adding
     // a profile to the project the copies land in.
-    rbac_guard::require(&state.db, caller.user_id, source.project_id, Perm::CreateProfile).await?;
+    rbac_guard::require(db.as_mut(), caller.user_id, source.project_id, Perm::CreateProfile).await?;
 
     let pattern = match req.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
         Some(n) if n.contains("{n}") => n.to_string(),
@@ -1452,13 +1491,13 @@ async fn clone_profile(
         .bind(source.proxy_id)
         .bind(&source.start_urls)
         .bind(caller.user_id)
-        .execute(&state.db)
+        .execute(db.as_mut())
         .await?;
         created.push(id);
     }
 
     audit(
-        &state,
+        db.as_mut(),
         &caller,
         "profile.clone",
         Some(profile_id),
@@ -1490,11 +1529,14 @@ pub struct EditProxyRequest {
 /// both halves together — a `credentials_enc` under one data key with a
 /// `wrapped_dek` for another is a proxy that opens nowhere.
 async fn edit_proxy(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Path(proxy_id): Path<Uuid>,
     Json(req): Json<EditProxyRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
     use fury_shared::rbac::OrgRole;
     if !matches!(caller.role, OrgRole::Owner | OrgRole::Admin) {
         return Err(ApiError::Denied(Perm::EditProxy));
@@ -1540,7 +1582,7 @@ async fn edit_proxy(
             .bind(&d)
             .bind(proxy_id)
             .bind(caller.org_id)
-            .execute(&state.db)
+            .execute(db.as_mut())
             .await?
         }
         None => {
@@ -1554,7 +1596,7 @@ async fn edit_proxy(
             .bind(req.port)
             .bind(proxy_id)
             .bind(caller.org_id)
-            .execute(&state.db)
+            .execute(db.as_mut())
             .await?
         }
     };
@@ -1562,7 +1604,7 @@ async fn edit_proxy(
         return Err(ApiError::NotFound);
     }
 
-    audit(&state, &caller, "proxy.edit", Some(proxy_id),
+    audit(db.as_mut(), &caller, "proxy.edit", Some(proxy_id),
           json!({ "credentials_changed": req.credentials_enc.is_some() })).await?;
     Ok(Json(json!({ "ok": true })))
 }
@@ -1577,10 +1619,13 @@ async fn edit_proxy(
 ///
 /// Still ciphertext. The server has never held the plaintext and does not here.
 async fn reveal_proxy(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Path(proxy_id): Path<Uuid>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
     if !caller.implicit_permissions().has(Perm::RevealSecrets) {
         return Err(ApiError::Denied(Perm::RevealSecrets));
     }
@@ -1591,7 +1636,7 @@ async fn reveal_proxy(
     )
     .bind(proxy_id)
     .bind(caller.org_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(db.as_mut())
     .await?;
 
     let (kind, host, port, credentials_enc, wrapped_dek) = row.ok_or(ApiError::NotFound)?;
@@ -1601,7 +1646,7 @@ async fn reveal_proxy(
         ));
     };
 
-    audit(&state, &caller, "proxy.reveal", Some(proxy_id), json!({})).await?;
+    audit(db.as_mut(), &caller, "proxy.reveal", Some(proxy_id), json!({})).await?;
 
     let hex = |v: &[u8]| v.iter().map(|b| format!("{b:02x}")).collect::<String>();
     Ok(Json(json!({
@@ -1620,10 +1665,13 @@ async fn reveal_proxy(
 /// the exit it happened to go out through. They will refuse to launch, with a
 /// sentence saying why, which is the correct amount of stopping.
 async fn delete_proxy(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Path(proxy_id): Path<Uuid>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
     use fury_shared::rbac::OrgRole;
     if !matches!(caller.role, OrgRole::Owner | OrgRole::Admin) {
         return Err(ApiError::Denied(Perm::EditProxy));
@@ -1632,7 +1680,7 @@ async fn delete_proxy(
         "SELECT count(*) FROM profiles WHERE proxy_id = $1 AND deleted_at IS NULL",
     )
     .bind(proxy_id)
-    .fetch_one(&state.db)
+    .fetch_one(db.as_mut())
     .await?;
 
     let updated = sqlx::query(
@@ -1641,13 +1689,13 @@ async fn delete_proxy(
     )
     .bind(proxy_id)
     .bind(caller.org_id)
-    .execute(&state.db)
+    .execute(db.as_mut())
     .await?;
     if updated.rows_affected() == 0 {
         return Err(ApiError::NotFound);
     }
 
-    audit(&state, &caller, "proxy.delete", Some(proxy_id), json!({ "profiles": used })).await?;
+    audit(db.as_mut(), &caller, "proxy.delete", Some(proxy_id), json!({ "profiles": used })).await?;
     Ok(Json(json!({ "deleted": true, "profiles_left_without_a_proxy": used })))
 }
 
@@ -1672,12 +1720,15 @@ pub struct EditProfileRequest {
 /// been replaced. Nothing in this API can do it, which is why there is no field
 /// for it here rather than a check that rejects one.
 async fn edit_profile(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Path(profile_id): Path<Uuid>,
     Json(req): Json<EditProfileRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let perms = rbac_guard::permissions_for_profile(&state.db, caller.user_id, profile_id).await?;
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
+    let perms = rbac_guard::permissions_for_profile(db.as_mut(), caller.user_id, profile_id).await?;
     if perms == PermSet::NONE {
         return Err(ApiError::NotFound);
     }
@@ -1695,7 +1746,7 @@ async fn edit_profile(
     // edit that changes where the account appears to be.
     let current: Option<Uuid> = sqlx::query_scalar("SELECT proxy_id FROM profiles WHERE id = $1")
         .bind(profile_id)
-        .fetch_one(&state.db)
+        .fetch_one(db.as_mut())
         .await?;
     if current != Some(req.proxy_id) && !perms.has(Perm::EditProxy) {
         return Err(ApiError::Denied(Perm::EditProxy));
@@ -1707,7 +1758,7 @@ async fn edit_profile(
     )
     .bind(req.proxy_id)
     .bind(caller.org_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(db.as_mut())
     .await?;
     match usable {
         None => return Err(ApiError::BadRequest("no such proxy".into())),
@@ -1732,10 +1783,10 @@ async fn edit_profile(
     .bind(req.proxy_id)
     .bind(&req.start_urls)
     .bind(profile_id)
-    .execute(&state.db)
+    .execute(db.as_mut())
     .await?;
 
-    audit(&state, &caller, "profile.edit", Some(profile_id), json!({ "name": req.name })).await?;
+    audit(db.as_mut(), &caller, "profile.edit", Some(profile_id), json!({ "name": req.name })).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -1746,11 +1797,14 @@ async fn edit_profile(
 /// the local store follows. Refused while it is open: a browser closing after
 /// this would push a bundle into a profile nobody can find.
 async fn delete_profile(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Path(profile_id): Path<Uuid>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let perms = rbac_guard::permissions_for_profile(&state.db, caller.user_id, profile_id).await?;
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
+    let perms = rbac_guard::permissions_for_profile(db.as_mut(), caller.user_id, profile_id).await?;
     if perms == PermSet::NONE {
         return Err(ApiError::NotFound);
     }
@@ -1762,7 +1816,7 @@ async fn delete_profile(
         "SELECT EXISTS(SELECT 1 FROM profile_locks WHERE profile_id = $1 AND expires_at > now())",
     )
     .bind(profile_id)
-    .fetch_one(&state.db)
+    .fetch_one(db.as_mut())
     .await?;
     if open {
         return Err(ApiError::Conflict(
@@ -1774,13 +1828,13 @@ async fn delete_profile(
 
     let updated = sqlx::query("UPDATE profiles SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL")
         .bind(profile_id)
-        .execute(&state.db)
+        .execute(db.as_mut())
         .await?;
     if updated.rows_affected() == 0 {
         return Err(ApiError::NotFound);
     }
 
-    audit(&state, &caller, "profile.delete", Some(profile_id), json!({})).await?;
+    audit(db.as_mut(), &caller, "profile.delete", Some(profile_id), json!({})).await?;
     Ok(Json(json!({ "deleted": true })))
 }
 
@@ -1803,16 +1857,19 @@ pub struct MoveRequest {
 /// create a profile anywhere quietly move somebody else's work into a project
 /// only they can see.
 async fn move_profiles(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Json(req): Json<MoveRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
     if req.ids.is_empty() {
         return Ok(Json(json!({ "moved": 0 })));
     }
-    rbac_guard::require(&state.db, caller.user_id, req.project_id, Perm::CreateProfile).await?;
+    rbac_guard::require(db.as_mut(), caller.user_id, req.project_id, Perm::CreateProfile).await?;
 
-    let mut tx = state.db.begin().await?;
+    let mut tx = db.begin().await?;
     let mut moved = 0;
 
     for id in &req.ids {
@@ -1846,7 +1903,7 @@ async fn move_profiles(
         // Resolved against the source project each time rather than once: a
         // selection can span projects, and a caller with rights on one of them
         // must not carry those rights to the rest.
-        let perms = rbac_guard::permissions_for(&state.db, caller.user_id, from).await?;
+        let perms = rbac_guard::permissions_for(&mut *tx, caller.user_id, from).await?;
         if !perms.has(Perm::DeleteProfile) {
             return Err(ApiError::Denied(Perm::DeleteProfile));
         }
@@ -1860,7 +1917,7 @@ async fn move_profiles(
     }
 
     tx.commit().await?;
-    audit(&state, &caller, "profile.move", Some(req.project_id),
+    audit(db.as_mut(), &caller, "profile.move", Some(req.project_id),
           json!({ "profiles": req.ids, "moved": moved })).await?;
     Ok(Json(json!({ "moved": moved })))
 }
@@ -1871,9 +1928,12 @@ async fn move_profiles(
 /// an account that took months to warm, and the difference between hiding one
 /// and destroying one must never be a single click.
 async fn list_trash(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
 ) -> ApiResult<Json<serde_json::Value>> {
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
     let rows: Vec<(Uuid, Uuid, String, String, Vec<String>, String, String)> =
         sqlx::query_as(&format!(
             "SELECT f.id, f.project_id, p.name, f.name, f.tags, f.persona_id, {} \
@@ -1888,7 +1948,7 @@ async fn list_trash(
         ))
         .bind(caller.user_id)
         .bind(fury_shared::rbac::has_implicit_project_access(caller.role))
-        .fetch_all(&state.db)
+        .fetch_all(db.as_mut())
         .await?;
 
     Ok(Json(json!(rows
@@ -1910,18 +1970,21 @@ async fn list_trash(
 }
 
 async fn restore_profile(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Path(profile_id): Path<Uuid>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
     // Resolved against the deleted row, which permissions_for_profile cannot
     // see — it filters deleted profiles, as every other caller needs it to.
     let project: Option<(Uuid,)> = sqlx::query_as("SELECT project_id FROM profiles WHERE id = $1")
         .bind(profile_id)
-        .fetch_optional(&state.db)
+        .fetch_optional(db.as_mut())
         .await?;
     let (project_id,) = project.ok_or(ApiError::NotFound)?;
-    rbac_guard::require(&state.db, caller.user_id, project_id, Perm::DeleteProfile).await?;
+    rbac_guard::require(db.as_mut(), caller.user_id, project_id, Perm::DeleteProfile).await?;
 
     // Into a project that still exists, or nowhere useful. A profile restored
     // into a deleted project is invisible again, which is the state the trash
@@ -1930,7 +1993,7 @@ async fn restore_profile(
         "SELECT EXISTS(SELECT 1 FROM projects WHERE id = $1 AND deleted_at IS NULL)",
     )
     .bind(project_id)
-    .fetch_one(&state.db)
+    .fetch_one(db.as_mut())
     .await?;
     if !alive {
         return Err(ApiError::BadRequest(
@@ -1941,24 +2004,27 @@ async fn restore_profile(
 
     sqlx::query("UPDATE profiles SET deleted_at = NULL WHERE id = $1")
         .bind(profile_id)
-        .execute(&state.db)
+        .execute(db.as_mut())
         .await?;
-    audit(&state, &caller, "profile.restore", Some(profile_id), json!({})).await?;
+    audit(db.as_mut(), &caller, "profile.restore", Some(profile_id), json!({})).await?;
     Ok(Json(json!({ "restored": true })))
 }
 
 /// Gone for good: the row, and every bundle stored for it.
 async fn purge_profile(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Path(profile_id): Path<Uuid>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
     let project: Option<(Uuid,)> = sqlx::query_as("SELECT project_id FROM profiles WHERE id = $1")
         .bind(profile_id)
-        .fetch_optional(&state.db)
+        .fetch_optional(db.as_mut())
         .await?;
     let (project_id,) = project.ok_or(ApiError::NotFound)?;
-    rbac_guard::require(&state.db, caller.user_id, project_id, Perm::DeleteProfile).await?;
+    rbac_guard::require(db.as_mut(), caller.user_id, project_id, Perm::DeleteProfile).await?;
 
     // The bytes go first. A row deleted while its bundles stay is a directory
     // of live cookie jars for a profile the operator believes is destroyed —
@@ -1971,10 +2037,10 @@ async fn purge_profile(
     }
     sqlx::query("DELETE FROM profiles WHERE id = $1 AND deleted_at IS NOT NULL")
         .bind(profile_id)
-        .execute(&state.db)
+        .execute(db.as_mut())
         .await?;
 
-    audit(&state, &caller, "profile.purge", Some(profile_id), json!({})).await?;
+    audit(db.as_mut(), &caller, "profile.purge", Some(profile_id), json!({})).await?;
     Ok(Json(json!({ "purged": true })))
 }
 
@@ -2048,10 +2114,11 @@ pub struct InviteRequest {
 /// because asking an operator to ssh into a box to add a colleague is asking
 /// them not to.
 async fn create_invitation(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Json(req): Json<InviteRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    let caller = db.caller;
+
     use fury_shared::rbac::OrgRole;
     if !matches!(caller.role, OrgRole::Owner | OrgRole::Admin) {
         return Err(ApiError::Denied(Perm::ManageAccess));
@@ -2083,14 +2150,14 @@ async fn create_invitation(
     )
     .bind(email)
     .bind(caller.org_id)
-    .fetch_one(&state.db)
+    .fetch_one(db.as_mut())
     .await?;
     if exists {
         return Err(ApiError::BadRequest(format!("{email} is already in this team")));
     }
 
     let code = crate::enroll::issue(
-        &state.db,
+        db.as_mut(),
         email,
         crate::enroll::Org::Existing(caller.org_id),
         &req.role,
@@ -2098,7 +2165,7 @@ async fn create_invitation(
     .await
     .map_err(ApiError::Internal)?;
 
-    audit(&state, &caller, "member.invite", None, json!({ "email": email, "role": req.role })).await?;
+    audit(db.as_mut(), &caller, "member.invite", None, json!({ "email": email, "role": req.role })).await?;
 
     // Shown once. The row holds a hash, so this is the only time it exists.
     Ok(Json(json!({
@@ -2121,11 +2188,12 @@ pub struct HandOverRequest {
 /// who already holds it, on their own machine. Until this runs, the member has
 /// an account and no ability to decrypt a single profile.
 async fn hand_over_key(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Path(user_id): Path<Uuid>,
     Json(req): Json<HandOverRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    let caller = db.caller;
+
     use fury_shared::rbac::OrgRole;
     if !matches!(caller.role, OrgRole::Owner | OrgRole::Admin) {
         return Err(ApiError::Denied(Perm::ManageAccess));
@@ -2149,7 +2217,7 @@ async fn hand_over_key(
     // another team's membership row.
     let generation: i32 = sqlx::query_scalar("SELECT ork_generation FROM organizations WHERE id = $1")
         .bind(caller.org_id)
-        .fetch_one(&state.db)
+        .fetch_one(db.as_mut())
         .await?;
 
     let updated = sqlx::query(
@@ -2160,14 +2228,14 @@ async fn hand_over_key(
     .bind(generation)
     .bind(caller.org_id)
     .bind(user_id)
-    .execute(&state.db)
+    .execute(db.as_mut())
     .await?;
 
     if updated.rows_affected() == 0 {
         return Err(ApiError::NotFound);
     }
 
-    audit(&state, &caller, "member.key", None, json!({ "target": user_id })).await?;
+    audit(db.as_mut(), &caller, "member.key", None, json!({ "target": user_id })).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -2177,9 +2245,12 @@ async fn hand_over_key(
 /// sealed to, and the wrapped data keys that must be re-wrapped under it. The
 /// server cannot open any of it and does not try.
 async fn rotation_material(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
 ) -> ApiResult<Json<serde_json::Value>> {
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
     use fury_shared::rbac::OrgRole;
     if !matches!(caller.role, OrgRole::Owner | OrgRole::Admin) {
         return Err(ApiError::Denied(Perm::ManageAccess));
@@ -2204,19 +2275,19 @@ async fn rotation_material(
          WHERE m.org_id = $1 AND u.disabled_at IS NULL AND m.wrapped_ork IS NOT NULL",
     )
     .bind(caller.org_id)
-    .fetch_all(&state.db)
+    .fetch_all(db.as_mut())
     .await?;
 
     let proxies: Vec<(Uuid, Option<Vec<u8>>)> = sqlx::query_as(
         "SELECT id, wrapped_dek FROM proxies WHERE org_id = $1 AND deleted_at IS NULL",
     )
     .bind(caller.org_id)
-    .fetch_all(&state.db)
+    .fetch_all(db.as_mut())
     .await?;
 
     let generation: i32 = sqlx::query_scalar("SELECT ork_generation FROM organizations WHERE id = $1")
         .bind(caller.org_id)
-        .fetch_one(&state.db)
+        .fetch_one(db.as_mut())
         .await?;
 
     Ok(Json(json!({
@@ -2272,10 +2343,13 @@ pub struct RotatedProxy {
 /// where some proxies open under the old key and some under the new, and no
 /// single member can read all of them.
 async fn rotate_org_key(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Json(req): Json<RotateRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
     use fury_shared::rbac::OrgRole;
     if !matches!(caller.role, OrgRole::Owner | OrgRole::Admin) {
         return Err(ApiError::Denied(Perm::ManageAccess));
@@ -2288,7 +2362,7 @@ async fn rotate_org_key(
         ));
     }
 
-    let mut tx = state.db.begin().await?;
+    let mut tx = db.begin().await?;
 
     // Locked for the duration, so a second administrator rotating at the same
     // moment waits rather than interleaving.
@@ -2398,7 +2472,7 @@ async fn rotate_org_key(
 
     tx.commit().await?;
 
-    audit(&state, &caller, "org.rotate", None,
+    audit(db.as_mut(), &caller, "org.rotate", None,
           json!({ "removed": req.remove_user_id, "generation": next })).await?;
     Ok(Json(json!({ "generation": next, "removed": req.remove_user_id })))
 }
@@ -2430,12 +2504,15 @@ pub struct LockRequest {
 }
 
 async fn acquire_lock(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Path(profile_id): Path<Uuid>,
     Json(req): Json<LockRequest>,
 ) -> ApiResult<Json<AcquireLockResponse>> {
-    let perms = rbac_guard::permissions_for_profile(&state.db, caller.user_id, profile_id).await?;
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
+    let perms = rbac_guard::permissions_for_profile(db.as_mut(), caller.user_id, profile_id).await?;
     if perms == PermSet::NONE {
         return Err(ApiError::NotFound);
     }
@@ -2449,7 +2526,7 @@ async fn acquire_lock(
     // Assembled before the lock is taken. A lock held on a profile that turns
     // out to be unlaunchable is a profile nobody else can open for the next
     // ninety seconds, over a failure that was knowable up front.
-    let spec = launch_spec(&state, profile_id).await?;
+    let spec = launch_spec(db.as_mut(), profile_id).await?;
 
     let (raw, digest) = auth::new_token();
 
@@ -2485,7 +2562,7 @@ async fn acquire_lock(
     .bind(&req.machine_name)
     .bind(req.force)
     .bind(&req.machine_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(db.as_mut())
     .await?;
 
     if inserted.is_none() {
@@ -2497,7 +2574,7 @@ async fn acquire_lock(
              JOIN users u ON u.id = l.user_id WHERE l.profile_id = $1",
         )
         .bind(profile_id)
-        .fetch_optional(&state.db)
+        .fetch_optional(db.as_mut())
         .await?;
         let (email, machine) = holder.unwrap_or_default();
         return Err(ApiError::Locked(
@@ -2506,9 +2583,9 @@ async fn acquire_lock(
     }
 
     if req.force {
-        audit(&state, &caller, "lock.force", Some(profile_id), json!({})).await?;
+        audit(db.as_mut(), &caller, "lock.force", Some(profile_id), json!({})).await?;
     }
-    audit(&state, &caller, "profile.launch", Some(profile_id),
+    audit(db.as_mut(), &caller, "profile.launch", Some(profile_id),
           json!({ "machine": req.machine_name })).await?;
 
     // The launching agent is told exactly how to harden the browser. Computed
@@ -2522,7 +2599,7 @@ async fn acquire_lock(
         rfc3339("expires_at")
     ))
     .bind(profile_id)
-    .fetch_one(&state.db)
+    .fetch_one(db.as_mut())
     .await?;
     let expires_at = expires_at.0;
 
@@ -2540,7 +2617,7 @@ async fn acquire_lock(
 /// something a launch cannot proceed without. The wording mirrors the agent's
 /// own (`agent/src/ipc.rs`), because an operator should read the same
 /// explanation whether the profile lives on this machine or on a server.
-async fn launch_spec(state: &AppState, profile_id: Uuid) -> ApiResult<fury_shared::api::LaunchSpec> {
+async fn launch_spec(db: &mut sqlx::PgConnection, profile_id: Uuid) -> ApiResult<fury_shared::api::LaunchSpec> {
     #[derive(sqlx::FromRow)]
     struct Row {
         name: String,
@@ -2561,7 +2638,7 @@ async fn launch_spec(state: &AppState, profile_id: Uuid) -> ApiResult<fury_share
         "SELECT f.name, f.persona_id, f.fp_seed, f.timezone, f.languages, f.start_urls,                 x.id AS px_id, x.kind::text AS px_kind, x.host AS px_host, x.port AS px_port,                 x.credentials_enc, x.wrapped_dek          FROM profiles f          LEFT JOIN proxies x ON x.id = f.proxy_id AND x.deleted_at IS NULL          WHERE f.id = $1 AND f.deleted_at IS NULL",
     )
     .bind(profile_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *db)
     .await?
     .ok_or(ApiError::NotFound)?;
 
@@ -2682,13 +2759,16 @@ pub fn check_bundle_root() -> anyhow::Result<std::path::PathBuf> {
 /// later one loses whatever the first did — which for a warmed account can be
 /// weeks of work.
 async fn upload_bundle(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Path(profile_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let perms = rbac_guard::permissions_for_profile(&state.db, caller.user_id, profile_id).await?;
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
+    let perms = rbac_guard::permissions_for_profile(db.as_mut(), caller.user_id, profile_id).await?;
     if perms == PermSet::NONE {
         return Err(ApiError::NotFound);
     }
@@ -2730,7 +2810,7 @@ async fn upload_bundle(
     )
     .bind(profile_id)
     .bind(auth::hash_token(&lock_token))
-    .fetch_one(&state.db)
+    .fetch_one(db.as_mut())
     .await?;
     if !holds_lock {
         return Err(ApiError::Conflict(
@@ -2755,7 +2835,7 @@ async fn upload_bundle(
 
     let current: i32 = sqlx::query_scalar("SELECT current_version FROM profiles WHERE id = $1")
         .bind(profile_id)
-        .fetch_optional(&state.db)
+        .fetch_optional(db.as_mut())
         .await?
         .ok_or(ApiError::NotFound)?;
 
@@ -2771,7 +2851,7 @@ async fn upload_bundle(
     let key = format!("{profile_id}/{version}.bundle");
     std::fs::write(bundle_root().join(&key), &body).map_err(|e| ApiError::Internal(e.into()))?;
 
-    let mut tx = state.db.begin().await?;
+    let mut tx = db.begin().await?;
     sqlx::query(
         "INSERT INTO bundles (id, profile_id, version, kind, s3_key, size_bytes, sha256,
                               wrapped_dek, uploaded_by)
@@ -2794,7 +2874,7 @@ async fn upload_bundle(
         .await?;
     tx.commit().await?;
 
-    audit(&state, &caller, "bundle.upload", Some(profile_id),
+    audit(db.as_mut(), &caller, "bundle.upload", Some(profile_id),
           json!({ "version": version, "bytes": body.len() })).await?;
 
     Ok(Json(json!({ "version": version })))
@@ -2802,11 +2882,14 @@ async fn upload_bundle(
 
 /// Fetch the current version.
 async fn download_bundle(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Path(profile_id): Path<Uuid>,
 ) -> Result<axum::response::Response, ApiError> {
-    let perms = rbac_guard::permissions_for_profile(&state.db, caller.user_id, profile_id).await?;
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
+    let perms = rbac_guard::permissions_for_profile(db.as_mut(), caller.user_id, profile_id).await?;
     if perms == PermSet::NONE {
         return Err(ApiError::NotFound);
     }
@@ -2819,7 +2902,7 @@ async fn download_bundle(
          WHERE profile_id = $1 ORDER BY version DESC LIMIT 1",
     )
     .bind(profile_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(db.as_mut())
     .await?;
 
     let (version, key, wrapped) = row.ok_or(ApiError::NotFound)?;
@@ -2850,11 +2933,14 @@ async fn download_bundle(
 }
 
 async fn heartbeat(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Path(profile_id): Path<Uuid>,
     Json(body): Json<serde_json::Value>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
     let token = body
         .get("lock_token")
         .and_then(|v| v.as_str())
@@ -2869,7 +2955,7 @@ async fn heartbeat(
     .bind(profile_id)
     .bind(caller.user_id)
     .bind(auth::hash_token(token))
-    .execute(&state.db)
+    .execute(db.as_mut())
     .await?;
 
     if updated.rows_affected() == 0 {
@@ -2881,11 +2967,14 @@ async fn heartbeat(
 }
 
 async fn release_lock(
-    State(state): State<Arc<AppState>>,
-    caller: Caller,
+    mut db: auth::Db,
     Path(profile_id): Path<Uuid>,
     Json(body): Json<serde_json::Value>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    // Copied out so that reading it does not borrow the connection: a
+    // handler needs both in the same expression constantly.
+    let caller = db.caller;
+
     // Matched on the token, like the heartbeat, and not on the user alone.
     //
     // One person signed in on two machines is the ordinary case here — a laptop
@@ -2901,13 +2990,13 @@ async fn release_lock(
     sqlx::query("DELETE FROM profile_locks WHERE profile_id = $1 AND token_hash = $2")
         .bind(profile_id)
         .bind(auth::hash_token(token))
-        .execute(&state.db)
+        .execute(db.as_mut())
         .await?;
 
     // No error when nothing was deleted: the caller asked not to be holding
     // this profile, and after a force-release or a lapse they already are not.
     // Failing here would leave a client unable to tidy up after itself.
-    audit(&state, &caller, "profile.stop", Some(profile_id), json!({})).await?;
+    audit(db.as_mut(), &caller, "profile.stop", Some(profile_id), json!({})).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -2916,8 +3005,13 @@ async fn release_lock(
 /// Appends to the audit log. Failures are logged, never propagated: losing an
 /// audit row must not fail the operation the user asked for, and the row is
 /// append-only by grant, so it cannot be rewritten afterwards either.
+/// Write an audit row on the caller's own connection.
+///
+/// Takes the connection rather than the pool because audit_events is under a
+/// policy now: a row written from an unbound connection is refused, and one
+/// written from somebody else's would carry the wrong org_id past the check.
 async fn audit(
-    state: &AppState,
+    db: &mut sqlx::PgConnection,
     caller: &Caller,
     action: &str,
     target: Option<Uuid>,
@@ -2932,7 +3026,7 @@ async fn audit(
     .bind(action)
     .bind(target)
     .bind(detail)
-    .execute(&state.db)
+    .execute(db)
     .await
     {
         tracing::error!(error = %e, action, "audit write failed");

@@ -1,8 +1,12 @@
 -- Fury server — initial schema
--- PostgreSQL 16+. Requires pgcrypto for gen_random_uuid().
--- UUIDv7 is generated application-side (uuid crate) so IDs sort by creation time.
-
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- PostgreSQL 13+. UUIDv7 is generated application-side (uuid crate) so IDs sort
+-- by creation time; gen_random_uuid() covers the defaults.
+--
+-- pgcrypto is NOT required, and used to be. It was here for gen_random_uuid(),
+-- which has been in core since PostgreSQL 13 — and nothing else from the
+-- extension is used anywhere in this schema. Asking for it made the migration
+-- fail outright on any Postgres without contrib installed, which is every
+-- minimal or embedded build, for a function the server already had.
 CREATE EXTENSION IF NOT EXISTS citext;
 
 -- ---------------------------------------------------------------------------

@@ -109,6 +109,35 @@ jobs:
       # longer contains — the one way a status page is worse than none.
       - run: python3 tools/detect-suite/status.py --check
 
+  rls:
+    name: row-level security actually refuses
+    runs-on: ubuntu-latest
+    # The one job here that needs a database, because the thing under test is
+    # not Rust — it is whether PostgreSQL refuses a query. Every mock of this
+    # would have passed throughout the period the policies did nothing.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: fury
+          POSTGRES_PASSWORD: fury
+          POSTGRES_DB: fury
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U fury"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # POSTGRES_USER owns POSTGRES_DB, which is the arrangement the server
+      # deploys into and the one the tests must run against: an owner is exempt
+      # from its own policies unless they are FORCEd, so a test run as any other
+      # role would pass against a schema that protects nobody.
+      - run: cargo test -p fury-server
+        env:
+          DATABASE_URL: postgres://fury:fury@127.0.0.1:5432/fury
+
   licensing:
     name: every file says what it is
     runs-on: ubuntu-latest

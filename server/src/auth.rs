@@ -84,7 +84,11 @@ pub fn hash_password(password: &str) -> anyhow::Result<String> {
 }
 
 /// The authenticated caller, resolved once per request.
-#[derive(Debug, Clone)]
+///
+/// `Copy` on purpose: handlers read `db.caller.org_id` in the same expression
+/// that borrows the connection mutably, and a copy releases the borrow before
+/// the mutable one begins. Two UUIDs and an enum.
+#[derive(Debug, Clone, Copy)]
 pub struct Caller {
     pub user_id: Uuid,
     pub org_id: Uuid,
@@ -157,6 +161,75 @@ impl FromRequestParts<Arc<AppState>> for Caller {
             org_id,
             role,
         })
+    }
+}
+
+/// A database connection with `app.user_id` already bound, and the caller it is
+/// bound to.
+///
+/// The point of the type is that there is no way to query as an authenticated
+/// user without it. `State(state).db` is the raw pool and reaches the database
+/// with no identity attached; under the policies in migration 0006 that
+/// connection can see nothing at all, so a handler that forgets returns an
+/// empty list rather than somebody else's rows. The failure direction is the
+/// one worth having, and it is loud: the tests in this module assert it.
+///
+/// Why a connection and not a transaction. `rbac_guard::bind_rls_user` took a
+/// transaction, which is why it was never called: six of forty-odd handlers
+/// open one, and giving the rest a transaction each — to hold a setting they
+/// only need for one statement — would have been a large change that also
+/// changed their failure behaviour. A pooled connection carries a session-level
+/// setting perfectly well, and `main::connect`'s `after_release` hook clears it
+/// on the way back.
+///
+/// The cost is real and small: a handler holds one of sixteen connections for
+/// its whole duration rather than per statement. Handlers here are a query or
+/// three.
+pub struct Db {
+    pub caller: Caller,
+    conn: sqlx::pool::PoolConnection<sqlx::Postgres>,
+}
+
+impl Db {
+    /// The connection, for `sqlx::query(..).fetch_*(db.as_mut())`.
+    pub fn as_mut(&mut self) -> &mut sqlx::PgConnection {
+        &mut self.conn
+    }
+
+    /// A transaction on the same connection, so the binding carries into it.
+    ///
+    /// Beginning a transaction from the POOL instead would take a different
+    /// connection — one with no identity — and every statement inside it would
+    /// see nothing. That is a fair description of how this could be got wrong
+    /// while looking right.
+    pub async fn begin(&mut self) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, sqlx::Error> {
+        use sqlx::Acquire;
+        self.conn.begin().await
+    }
+}
+
+impl FromRequestParts<Arc<AppState>> for Db {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<AppState>,
+    ) -> Result<Self, Self::Rejection> {
+        // The caller is resolved first and on the pool, deliberately: the
+        // session lookup reads `sessions`, `users` and `org_members`, which
+        // carry no policy precisely because they are what establishes who the
+        // policies are about.
+        let caller = Caller::from_request_parts(parts, state).await?;
+
+        let mut conn = state.db.acquire().await?;
+        // `false` is session scope. See the note on this type, and the
+        // after_release hook in main.rs that undoes it.
+        sqlx::query("SELECT set_config('app.user_id', $1, false)")
+            .bind(caller.user_id.to_string())
+            .execute(&mut *conn)
+            .await?;
+
+        Ok(Db { caller, conn })
     }
 }
 

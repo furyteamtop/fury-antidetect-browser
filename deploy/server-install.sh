@@ -48,6 +48,10 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq \
     postgresql postgresql-contrib \
+    `# contrib carries citext, which the schema uses for case-insensitive` \
+    `# email. pgcrypto used to be needed too and is not: gen_random_uuid()` \
+    `# has been in core since PostgreSQL 13, and asking for the extension` \
+    `# made the migration fail outright on any build without contrib.` \
     build-essential pkg-config libssl-dev \
     curl git ufw ca-certificates debian-keyring debian-archive-keyring apt-transport-https
 

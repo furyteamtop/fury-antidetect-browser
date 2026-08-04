@@ -34,7 +34,6 @@
 //! server whose bootstrap was abandoned halfway is left with nothing rather
 //! than an org nobody can enter.
 
-use sqlx::PgPool;
 use uuid::Uuid;
 
 /// How long an invitation lives.
@@ -94,7 +93,12 @@ pub fn hash_code(raw: &str) -> Vec<u8> {
 
 /// Mint an invitation. Returns the code, which is shown once and never stored.
 pub async fn issue(
-    db: &PgPool,
+    // A connection rather than the pool, because the caller has one bound to
+    // the request's user and the invitation is written beside audit rows that
+    // now require it. `enrollments` itself carries no policy — an invitation
+    // is peeked at by somebody who is not yet anybody — but taking the pool
+    // here would quietly step outside the caller's identity for one statement.
+    db: &mut sqlx::PgConnection,
     email: &str,
     org: Org<'_>,
     role: &str,
@@ -116,7 +120,7 @@ pub async fn issue(
     .bind(org_name)
     .bind(role)
     .bind(TTL_HOURS.to_string())
-    .execute(db)
+    .execute(&mut *db)
     .await?;
 
     Ok(code)
@@ -176,7 +180,11 @@ pub async fn cli(args: &[String]) -> anyhow::Result<()> {
         anyhow::bail!("an existing organisation already has an owner — invite as admin instead");
     }
 
-    let code = issue(&db, &email, org, &role).await?;
+    // The `invite` command runs as the operator on the machine, not as a
+    // request, so there is no bound connection to take — and none is needed:
+    // an invitation names an organisation the operator chose at the terminal.
+    let mut conn = db.acquire().await?;
+    let code = issue(&mut conn, &email, org, &role).await?;
 
     println!("Invitation for {email} ({role}), valid {TTL_HOURS} hours:\n");
     println!("    {code}\n");

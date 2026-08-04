@@ -195,7 +195,7 @@ about it is worth more than not.
 | Hiding CDP from a timing check | no. With a debugger attached `console.debug` of a large object takes about thirteen times longer — measured in real Chrome too, so it detects automation rather than Fury, but if you drive a profile that is the thing being hidden |
 | Widevine on a machine with no Chrome | the agent stages the CDM out of the Chrome already installed on that machine, so nothing proprietary is redistributed and `com.widevine.alpha` is answered the way real Chrome answers it. A machine with no Chrome at all gets a working browser with no DRM, which is detectable |
 | Automatic updates | none, and deliberately so: an updater is a scheduled channel into an anti-detect browser from an address that is not the profile's proxy. [docs/15](docs/15-install.md) says what updating looks like meanwhile |
-| Row-level security on the server | declared in the schema and inert: `bind_rls_user` is never called, so `app.user_id` is not set on the connection. The per-handler RBAC is real and works |
+| ~~Row-level security on the server~~ | done. Migration 0006 adds FORCE (the app owns its tables, and an owner is exempt without it) and `auth::Db` binds the caller to the connection. Verified against a real PostgreSQL — remove either half and four tests fail |
 | Persona catalogue | 26 machines. More personas means better crowds to hide in, and it is the most useful thing an outside contributor can add — `fury-detect persona <capture.json>` turns a probe capture from your own computer into one |
 
 ## Contributing
