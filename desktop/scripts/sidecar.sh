@@ -13,7 +13,20 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
 TRIPLE="$(rustc -vV | awk '/^host:/{print $2}')"
+
+# Tauri looks for `fury-agent-<triple><exe suffix>` and the suffix is not
+# optional on Windows: a sidecar named without `.exe` is a sidecar the bundler
+# reports as missing, in a message that names the triple and not the extension.
+#
+# Run this from Git Bash on Windows. A second script in PowerShell was the
+# alternative and was rejected: two scripts that must stay in step is the
+# arrangement that put the agent address in two files and let them drift.
+case "$TRIPLE" in
+  *windows*) EXE=".exe" ;;
+  *)         EXE="" ;;
+esac
+
 cargo build --release -p fury-agent
 mkdir -p desktop/src-tauri/binaries
-cp target/release/fury-agent "desktop/src-tauri/binaries/fury-agent-${TRIPLE}"
-echo "==> sidecar: fury-agent-${TRIPLE}"
+cp "target/release/fury-agent${EXE}" "desktop/src-tauri/binaries/fury-agent-${TRIPLE}${EXE}"
+echo "==> sidecar: fury-agent-${TRIPLE}${EXE}"

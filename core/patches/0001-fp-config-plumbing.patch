@@ -32,10 +32,10 @@ index 0000000000..b11a7ce829
 +}
 diff --git a/components/fury/fury_config.cc b/components/fury/fury_config.cc
 new file mode 100644
-index 0000000000..1517cbc7a5
+index 0000000000..f741678258
 --- /dev/null
 +++ b/components/fury/fury_config.cc
-@@ -0,0 +1,237 @@
+@@ -0,0 +1,244 @@
 +// Copyright 2026 The Fury Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -49,7 +49,6 @@ index 0000000000..1517cbc7a5
 +#include "base/logging.h"
 +#include "base/memory/shared_memory_switch.h"
 +#include "base/no_destructor.h"
-+#include "base/posix/eintr_wrapper.h"
 +#include "base/values.h"
 +
 +namespace fury {
@@ -87,24 +86,32 @@ index 0000000000..1517cbc7a5
 +// A config that does not fit in this is not a config, it is an accident.
 +constexpr size_t kMaxConfigBytes = 4 * 1024 * 1024;
 +
-+std::optional<std::string> ReadAllFromFd(int fd) {
++// Reads to EOF. base::File rather than read(2) so that the same code serves a
++// POSIX descriptor and a Windows HANDLE; ReadAtCurrentPos retries EINTR itself,
++// which is what HANDLE_EINTR was doing here before.
++std::optional<std::string> ReadAll(base::File& file) {
++  if (!file.IsValid()) {
++    LOG(ERROR) << "fury: the fingerprint config slot is not a readable file";
++    return std::nullopt;
++  }
 +  std::string out;
 +  char buf[4096];
 +  while (true) {
-+    ssize_t n = HANDLE_EINTR(read(fd, buf, sizeof(buf)));
-+    if (n < 0) {
-+      PLOG(ERROR) << "fury: reading fingerprint config";
++    std::optional<size_t> n = file.ReadAtCurrentPos(base::as_writable_byte_span(
++        base::span(buf, sizeof(buf))));
++    if (!n.has_value()) {
++      LOG(ERROR) << "fury: reading fingerprint config";
 +      return std::nullopt;
 +    }
-+    if (n == 0) {
++    if (*n == 0) {
 +      break;
 +    }
-+    if (out.size() + static_cast<size_t>(n) > kMaxConfigBytes) {
++    if (out.size() + *n > kMaxConfigBytes) {
 +      LOG(ERROR) << "fury: fingerprint config exceeds " << kMaxConfigBytes
 +                 << " bytes";
 +      return std::nullopt;
 +    }
-+    out.append(buf, static_cast<size_t>(n));
++    out.append(buf, *n);
 +  }
 +  return out;
 +}
@@ -167,8 +174,8 @@ index 0000000000..1517cbc7a5
 +}
 +
 +// static
-+bool FuryConfig::InitializeInBrowser(int fd) {
-+  std::optional<std::string> json = ReadAllFromFd(fd);
++bool FuryConfig::InitializeInBrowser(base::File file) {
++  std::optional<std::string> json = ReadAll(file);
 +  if (!json) {
 +    return false;
 +  }
@@ -275,10 +282,10 @@ index 0000000000..1517cbc7a5
 +}  // namespace fury
 diff --git a/components/fury/fury_config.h b/components/fury/fury_config.h
 new file mode 100644
-index 0000000000..683a6c6f90
+index 0000000000..90accae0fd
 --- /dev/null
 +++ b/components/fury/fury_config.h
-@@ -0,0 +1,103 @@
+@@ -0,0 +1,109 @@
 +// Copyright 2026 The Fury Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -293,6 +300,7 @@ index 0000000000..683a6c6f90
 +#include <vector>
 +
 +#include "base/component_export.h"
++#include "base/files/file.h"
 +#include "base/memory/read_only_shared_memory_region.h"
 +
 +namespace fury {
@@ -341,10 +349,15 @@ index 0000000000..683a6c6f90
 +  // that is what the detect-suite measures it against.
 +  static const FuryConfig* Get();
 +
-+  // Browser process. Reads the JSON the agent wrote to `fd`, parses it, and
++  // Browser process. Reads the JSON the agent wrote to `file`, parses it, and
 +  // publishes it into a read-only shared memory region for the children.
 +  // Returns false and leaves the process unconfigured on any failure.
-+  static bool InitializeInBrowser(int fd);
++  //
++  // Takes a base::File rather than an int because the agent delivers it as a
++  // descriptor on POSIX and as an inherited HANDLE on Windows, and base::File
++  // is the one type that is both. Everything after the first read is identical,
++  // so there is one implementation rather than two that can drift.
++  static bool InitializeInBrowser(base::File file);
 +
 +  // Child processes. `switch_value` is the opaque handle produced by
 +  // base::shared_memory::SharedMemorySwitch in the browser.
@@ -604,10 +617,10 @@ index 0000000000..cd235cc77c
 +#endif  // COMPONENTS_FURY_FURY_NOISE_H_
 diff --git a/components/fury/fury_switches.cc b/components/fury/fury_switches.cc
 new file mode 100644
-index 0000000000..25f80d9ee6
+index 0000000000..32ac0fc6d0
 --- /dev/null
 +++ b/components/fury/fury_switches.cc
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,21 @@
 +// Copyright 2026 The Fury Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -618,16 +631,23 @@ index 0000000000..25f80d9ee6
 +namespace switches {
 +
 +const char kFingerprintFd[] = "fury-fp-fd";
++const char kFingerprintFileHandle[] = "fury-fp-file-handle";
 +const char kFingerprintHandle[] = "fury-fp-handle";
++
++// Must match agent/src/launcher.rs. Nothing in either language checks the other,
++// so verify-0302.py launches with the Rust spelling and asserts the browser
++// refuses — a drifted name would otherwise fail silently and forever.
++const char kLockDevTools[] = "fury-lock-devtools";
++const char kLockDataExport[] = "fury-lock-data-export";
 +
 +}  // namespace switches
 +}  // namespace fury
 diff --git a/components/fury/fury_switches.h b/components/fury/fury_switches.h
 new file mode 100644
-index 0000000000..37816cfb05
+index 0000000000..9400652a6a
 --- /dev/null
 +++ b/components/fury/fury_switches.h
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,71 @@
 +// Copyright 2026 The Fury Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -650,11 +670,50 @@ index 0000000000..37816cfb05
 +// appears here.
 +COMPONENT_EXPORT(FURY) extern const char kFingerprintFd[];
 +
++// Browser process only, Windows. The same thing as kFingerprintFd, named
++// differently because Windows has no descriptors: the value is a HANDLE the
++// agent created inheritable and std::process::Command passed down.
++//
++// NOT kFingerprintHandle, which is three lines below and means something else
++// entirely — a shared memory region for children. The two were nearly given the
++// same name during the Windows port, which would have produced a browser that
++// ignored the agent's config, appended its own switch of the same name for each
++// child, and left every Windows profile with no persona and nothing in any log
++// saying so.
++COMPONENT_EXPORT(FURY) extern const char kFingerprintFileHandle[];
++
 +// Child processes. Carries an opaque serialized handle to the read-only shared
 +// memory region holding the config — not the config. Populated by the browser
 +// via base::shared_memory::SharedMemorySwitch, the same mechanism Chromium
 +// already uses for field trials and histograms.
 +COMPONENT_EXPORT(FURY) extern const char kFingerprintHandle[];
++
++// Browser process only. Refuses DevTools and every CDP attach for this launch.
++//
++// A switch and NOT a config key, deliberately. The fingerprint config describes
++// a persona — what the profile claims to be — and it is republished into shared
++// memory for every child process including renderers. This is not a claim about
++// a machine, it is a restriction on an operator, and the two must not share a
++// channel. argv also has the property this needs: it is fixed when the browser
++// starts and nothing running inside the profile can change it afterwards, while
++// a preference lives in a JSON file inside the user-data-dir that anyone with
++// the unpacked profile can edit between launches.
++//
++// What it does not stop, stated plainly because a restriction whose limits are
++// undocumented gets trusted past them: an operator who has the binary can
++// relaunch it by hand without this switch. That is the threat model in
++// docs/04 — a dishonest employee with the profile, not one with root on the
++// machine.
++COMPONENT_EXPORT(FURY) extern const char kLockDevTools[];
++
++// Browser process only. Refuses the paths that take a profile's secrets out of
++// it in bulk: the password CSV export, the per-password plaintext reveal, and
++// the bookmark HTML export.
++//
++// Same channel and the same limits as kLockDevTools above. Not a claim about a
++// machine — a restriction on a person — so it does not travel in the persona
++// config that every renderer can see.
++COMPONENT_EXPORT(FURY) extern const char kLockDataExport[];
 +
 +}  // namespace switches
 +}  // namespace fury
@@ -673,7 +732,7 @@ index e3c038ff40..d89cef0e31 100644
             "//content/browser",
             "//content/gpu:gpu_sources",
 diff --git a/content/app/content_main_runner_impl.cc b/content/app/content_main_runner_impl.cc
-index 338a198ece..32286fd556 100644
+index 338a198ece..bbe19a3c08 100644
 --- a/content/app/content_main_runner_impl.cc
 +++ b/content/app/content_main_runner_impl.cc
 @@ -57,6 +57,8 @@
@@ -685,7 +744,17 @@ index 338a198ece..32286fd556 100644
  #include "components/power_monitor/make_power_monitor_device_source.h"
  #include "components/variations/net/variations_command_line.h"
  #include "components/variations/variations_ids_provider.h"
-@@ -852,6 +854,12 @@ int ContentMainRunnerImpl::Initialize(ContentMainParams params) {
+@@ -130,6 +132,9 @@
+ #include <malloc.h>
+ #include <cstring>
+ 
++// Uint32ToHandle, for the fingerprint config the agent inherits to us. See the
++// kFingerprintFileHandle branch in Initialize().
++#include "base/win/windows_handle_util.h"
+ #include "ui/base/l10n/l10n_util_win.h"
+ #include "ui/display/win/dpi.h"
+ #elif BUILDFLAG(IS_MAC)
+@@ -852,6 +857,12 @@ int ContentMainRunnerImpl::Initialize(ContentMainParams params) {
    g_fds->Set(kPseudonymizationSaltDescriptor,
               kPseudonymizationSaltDescriptor +
                   base::GlobalDescriptors::kBaseDescriptor);
@@ -698,7 +767,7 @@ index 338a198ece..32286fd556 100644
  #endif  // !BUILDFLAG(IS_ANDROID)
  
  #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_OPENBSD)
-@@ -862,6 +870,38 @@ int ContentMainRunnerImpl::Initialize(ContentMainParams params) {
+@@ -862,6 +873,69 @@ int ContentMainRunnerImpl::Initialize(ContentMainParams params) {
  
  #endif  // !BUILDFLAG(IS_WIN)
  
@@ -710,16 +779,46 @@ index 338a198ece..32286fd556 100644
 +  // agent inherited to it; children recover a read-only mapping from an opaque
 +  // handle. Neither ever carries the config in argv.
 +  if (process_type.empty()) {
++    // The agent hands the config over as an already-open file: a descriptor on
++    // POSIX, an inherited HANDLE on Windows. Two switches because the two are
++    // not the same kind of number, and one code path after that because
++    // everything past the first read is identical.
++#if BUILDFLAG(IS_WIN)
++    if (command_line.HasSwitch(fury::switches::kFingerprintFileHandle)) {
++      uint32_t raw = 0;
++      // A HANDLE is guaranteed to fit in 32 bits — Windows promises it for
++      // WOW64 interop — so the agent prints it as one and Uint32ToHandle turns
++      // it back. Widening through uintptr_t instead would work on x64 and
++      // silently differ under WOW64.
++      if (base::StringToUint(command_line.GetSwitchValueASCII(
++                                 fury::switches::kFingerprintFileHandle),
++                             &raw) &&
++          raw != 0) {
++        if (!fury::FuryConfig::InitializeInBrowser(
++                base::File(base::win::Uint32ToHandle(raw)))) {
++          // Refuse to run half-configured. A browser that believes it is
++          // spoofing while its renderers are not produces contexts that
++          // contradict each other, which is worse than no spoofing at all.
++          //
++          // On Windows this is also the load-bearing half of the carrier: if a
++          // future Rust stops passing bInheritHandles = TRUE, the handle simply
++          // is not there, and this is what turns that into a browser which will
++          // not start rather than one quietly running with no persona.
++          LOG(FATAL) << "fury: fingerprint config could not be loaded";
++        }
++      } else {
++        LOG(FATAL) << "fury: --" << fury::switches::kFingerprintFileHandle
++                   << " is not a valid handle";
++      }
++    }
++#else
 +    if (command_line.HasSwitch(fury::switches::kFingerprintFd)) {
 +      int fd = -1;
 +      if (base::StringToInt(
 +              command_line.GetSwitchValueASCII(fury::switches::kFingerprintFd),
 +              &fd) &&
 +          fd >= 0) {
-+        if (!fury::FuryConfig::InitializeInBrowser(fd)) {
-+          // Refuse to run half-configured. A browser that believes it is
-+          // spoofing while its renderers are not produces contexts that
-+          // contradict each other, which is worse than no spoofing at all.
++        if (!fury::FuryConfig::InitializeInBrowser(base::File(fd))) {
 +          LOG(FATAL) << "fury: fingerprint config could not be loaded";
 +        }
 +      } else {
@@ -727,6 +826,7 @@ index 338a198ece..32286fd556 100644
 +                   << " is not a valid descriptor";
 +      }
 +    }
++#endif
 +  } else if (command_line.HasSwitch(fury::switches::kFingerprintHandle)) {
 +    if (!fury::FuryConfig::InitializeInChild(command_line.GetSwitchValueASCII(
 +            fury::switches::kFingerprintHandle))) {

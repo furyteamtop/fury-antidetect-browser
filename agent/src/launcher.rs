@@ -11,9 +11,10 @@
 //! travels over an inherited pipe instead; only the descriptor number appears
 //! in the arguments.
 
-use std::io::{Seek, Write};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+
+use fury_platform::Carrier;
 
 use fury_shared::rbac::LaunchRestrictions;
 
@@ -85,6 +86,9 @@ pub struct LaunchSpec<'a> {
 ///
 /// Split out from spawning so it can be unit-tested — a missing hardening flag
 /// is a silent security regression otherwise.
+///
+/// Everything except the two carrier switches, which name a slot that does not
+/// exist until the carrier does. Those come from `carrier_switches`.
 pub fn build_args(spec: &LaunchSpec) -> Vec<String> {
     let mut args = vec![
         format!("--user-data-dir={}", spec.user_data_dir.display()),
@@ -92,8 +96,6 @@ pub fn build_args(spec: &LaunchSpec) -> Vec<String> {
         // an entry in --proxy-bypass-list is a direct connection from the real IP.
         format!("--proxy-server=http://127.0.0.1:{}", spec.relay_port),
         "--proxy-bypass-list=<-loopback>".to_string(),
-        // The config itself arrives over fd 3; only the number is visible here.
-        "--fury-fp-fd=3".to_string(),
         "--no-default-browser-check".to_string(),
         "--no-first-run".to_string(),
         // Reopen what was open. Chromium was already SAVING the session — the
@@ -200,12 +202,6 @@ pub fn build_args(spec: &LaunchSpec) -> Vec<String> {
         format!("--lang={}", spec.ui_locale),
     ];
 
-    // fd 4, for the same reason fd 3 carries the config: a key on the command
-    // line is a key any other process on the machine can read out of `ps`.
-    if spec.os_crypt_key.is_some() {
-        args.push("--fury-oscrypt-fd=4".to_string());
-    }
-
     if spec.restrictions.lock_devtools {
         args.push("--fury-lock-devtools".to_string());
     }
@@ -247,123 +243,49 @@ pub fn spawn(spec: &LaunchSpec) -> Result<std::process::Child, LaunchError> {
         return Err(LaunchError::CoreMissing(spec.core_binary.to_path_buf()));
     }
 
-    let args = build_args(spec);
     let mut cmd = std::process::Command::new(spec.core_binary);
-    cmd.args(&args).stdin(Stdio::null());
+    cmd.args(build_args(spec)).stdin(Stdio::null());
 
-    // The config has to arrive on descriptor 3, where the core reads it to EOF
-    // (components/fury/fury_config.cc). Keep `carrier` alive until spawn
-    // returns: the child inherits a copy of the descriptor across fork, but
-    // only while this one is still open.
-    let carrier = config_carrier(spec.config)?;
-    attach_config_fd(&mut cmd, &carrier);
+    // The config arrives as an inherited open file — fd 3 on macOS, a HANDLE on
+    // Windows — which the core reads to EOF (components/fury/fury_config.cc).
+    // Both carriers have to stay alive until spawn returns: the child gets a
+    // copy of the descriptor or handle, but only while this one is open.
+    let json = serde_json::to_vec(spec.config)
+        .map_err(|e| LaunchError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
+    let config = Carrier::new(&json, 3)?;
 
-    // The key rides the same way and for the same reason. Kept alive until
-    // after spawn, like the config: the child inherits a copy across fork, but
-    // only while this one is still open.
-    let key_carrier = match spec.os_crypt_key {
-        Some(key) => {
-            let file = anonymous_file(&key)?;
-            attach_fd(&mut cmd, &file, 4);
-            Some(file)
-        }
+    // The key rides the same way and for the same reason: a key on the command
+    // line is a key any other process on the machine can read out of `ps` or
+    // Task Manager.
+    let oscrypt = match spec.os_crypt_key {
+        Some(key) => Some(Carrier::new(&key, 4)?),
         None => None,
     };
 
+    cmd.args(carrier_switches(&config, oscrypt.as_ref()));
+    config.attach(&mut cmd);
+    if let Some(c) = &oscrypt {
+        c.attach(&mut cmd);
+    }
+
     let child = cmd.spawn()?;
-    drop(carrier);
-    drop(key_carrier);
+    drop(config);
+    drop(oscrypt);
     Ok(child)
 }
 
-/// An open, already-unlinked file holding the config JSON, rewound to the start.
+/// The switches that tell the core where its inherited files landed.
 ///
-/// A file rather than a pipe, because the core reads to EOF and a pipe would
-/// need the parent to stay around writing — the agent would have to babysit a
-/// descriptor for the life of a browser it otherwise just supervises. Unlinked
-/// the moment it exists, so the persona never has a name on disk that another
-/// process could open; what survives is a descriptor, which is what we wanted
-/// to pass anyway.
-#[cfg(unix)]
-fn config_carrier(config: &serde_json::Value) -> Result<std::fs::File, LaunchError> {
-    let json = serde_json::to_vec(config).map_err(|e| {
-        LaunchError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-    })?;
-    anonymous_file(&json)
-}
-
-/// A file with `bytes` in it that exists only as a descriptor.
-///
-/// Created 0600 and unlinked immediately, so it is never nameable by another
-/// process even for the moment it takes to spawn — the same reason the config
-/// does not travel in argv.
-#[cfg(unix)]
-fn anonymous_file(bytes: &[u8]) -> Result<std::fs::File, LaunchError> {
-    use std::os::unix::fs::OpenOptionsExt;
-
-    // Named uniquely only long enough to be opened; 0600 so that even in that
-    // window nobody else can read it.
-    let path = std::env::temp_dir().join(format!(
-        "fury-fp-{}-{}",
-        std::process::id(),
-        // Monotonic within a process; the pid keeps it unique between them.
-        NEXT_CARRIER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    ));
-    let mut file = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&path)?;
-    std::fs::remove_file(&path)?;
-
-    file.write_all(bytes)?;
-    file.rewind()?;
-    Ok(file)
-}
-
-#[cfg(unix)]
-static NEXT_CARRIER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-
-#[cfg(unix)]
-fn attach_config_fd(cmd: &mut std::process::Command, carrier: &std::fs::File) {
-    attach_fd(cmd, carrier, 3)
-}
-
-#[cfg(unix)]
-fn attach_fd(cmd: &mut std::process::Command, carrier: &std::fs::File, target: i32) {
-    use std::os::fd::AsRawFd;
-    use std::os::unix::process::CommandExt;
-
-    let src = carrier.as_raw_fd();
-    // SAFETY: runs in the forked child before exec, so it must only call
-    // async-signal-safe functions. dup2 is one. It also clears FD_CLOEXEC on
-    // the new descriptor, which is precisely why 3 survives the exec.
-    unsafe {
-        cmd.pre_exec(move || {
-            if libc::dup2(src, target) == -1 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
+/// Only the slot is visible in argv — a descriptor number on macOS, a handle
+/// value on Windows. That is the whole point of the carrier; see
+/// `fury_platform::carrier`.
+fn carrier_switches(config: &Carrier, oscrypt: Option<&Carrier>) -> Vec<String> {
+    let mut out = vec![config.switch("fury-fp")];
+    if let Some(key) = oscrypt {
+        out.push(key.switch("fury-oscrypt"));
     }
+    out
 }
-
-// Windows inherits handles by an entirely different mechanism
-// (PROC_THREAD_ATTRIBUTE_HANDLE_LIST on an inheritable handle, plus a switch
-// carrying the handle value rather than a descriptor number). Left unwritten
-// rather than guessed: nothing in this repo has been built for Windows yet, so
-// an implementation here could not be tested and would only look finished.
-#[cfg(not(unix))]
-fn config_carrier(_config: &serde_json::Value) -> Result<std::fs::File, LaunchError> {
-    Err(LaunchError::Io(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "passing the fingerprint config is not implemented on this platform yet",
-    )))
-}
-
-#[cfg(not(unix))]
-fn attach_config_fd(_cmd: &mut std::process::Command, _carrier: &std::fs::File) {}
 
 #[cfg(test)]
 mod tests {
@@ -462,23 +384,33 @@ mod tests {
 
     #[test]
     fn the_cookie_key_is_offered_only_when_there_is_one() {
-        // A profile with no key of its own must not claim a descriptor that
-        // carries nothing: the core would read zero bytes, log, and fall back —
-        // but the switch would be there in `ps` saying otherwise.
+        // A profile with no key of its own must not claim a slot that carries
+        // nothing: the core would read zero bytes, log, and fall back — but the
+        // switch would be there in `ps` saying otherwise.
+        let config = Carrier::new(b"{}", 3).unwrap();
+        let without = carrier_switches(&config, None);
+        assert_eq!(without.len(), 1, "{without:?}");
+        assert!(!without.iter().any(|a| a.starts_with("--fury-oscrypt")), "{without:?}");
+
+        let key = Carrier::new(&[7u8; 32], 4).unwrap();
+        let with = carrier_switches(&config, Some(&key));
+        assert!(with.iter().any(|a| a.starts_with("--fury-oscrypt-")), "{with:?}");
+        // And never in argv itself. The whole reason it travels on an inherited
+        // file is that `ps` — and Task Manager — are readable by every process
+        // on the machine.
+        assert!(
+            !with.iter().any(|a| a.contains("07070707")),
+            "the key must not appear on the command line: {with:?}"
+        );
+    }
+
+    #[test]
+    fn the_switches_that_must_not_come_back() {
         let cfg = sample_config();
         let r = LaunchRestrictions::for_perms(PermSet::full_profile_work());
-        let mut spec = spec_for(r.clone(), &cfg);
-        assert!(!build_args(&spec).iter().any(|a| a.starts_with("--fury-oscrypt-fd")));
-
+        let mut spec = spec_for(r, &cfg);
         spec.os_crypt_key = Some([7u8; 32]);
         let args = build_args(&spec);
-        assert!(args.iter().any(|a| a == "--fury-oscrypt-fd=4"), "{args:?}");
-        // And never in argv itself. The whole reason it travels on a descriptor
-        // is that `ps` is readable by every process on the machine.
-        assert!(
-            !args.iter().any(|a| a.contains("07070707")),
-            "the key must not appear on the command line"
-        );
         // The other UDP path out is NOT handled here any more, and the absence
         // is asserted so nobody puts it back. This switch was passed on every
         // launch for weeks and read by nobody — see the note in build_args. The
@@ -504,7 +436,11 @@ mod tests {
         let joined = args.join(" ");
         assert!(!joined.contains("webgl"), "fingerprint leaked into argv");
         assert!(!joined.contains(cfg["navigator"]["userAgent"].as_str().unwrap()));
-        assert!(args.iter().any(|a| a == "--fury-fp-fd=3"));
+        // The switch is not in build_args any more — it names a slot that only
+        // exists once the carrier does. That it is passed at all is
+        // `carrier_switches`, tested above; that it carries no payload is
+        // `fury_platform::carrier`.
+        assert!(!joined.contains("--fury-fp-"), "the slot is decided at spawn: {joined}");
     }
 
     #[test]

@@ -64,7 +64,9 @@ pub fn install(src: &Path) -> Result<PathBuf> {
         .with_context(|| format!("creating {}", staging.display()))?;
 
     if src.is_dir() {
-        copy_tree(src, &staging)?;
+        // `cp -R` on macOS, a recursive walk on Windows — and the reason
+        // they differ is symlinks. See fury_platform::tree.
+        fury_platform::copy_tree(src, &staging)?;
     } else {
         unpack(src, &staging)?;
     }
@@ -203,10 +205,11 @@ fn unpack(archive: &Path, into: &Path) -> Result<()> {
     if !(name.ends_with(".tar.xz")
         || name.ends_with(".tar.gz")
         || name.ends_with(".tgz")
-        || name.ends_with(".tar"))
+        || name.ends_with(".tar")
+        || name.ends_with(".zip"))
     {
         bail!(
-            "{} is not an archive this understands (.tar.xz, .tar.gz, .tar), \
+            "{} is not an archive this understands (.tar.xz, .tar.gz, .tar, .zip), \
              a .app bundle, or a directory",
             archive.display()
         );
@@ -215,6 +218,12 @@ fn unpack(archive: &Path, into: &Path) -> Result<()> {
     // Shelling out to tar rather than linking a decompressor: tar preserves the
     // symlinks a macOS framework is built from and the executable bits, and
     // getting either wrong produces a bundle that unpacks and will not run.
+    //
+    // The same command covers .zip, which is how Chromium is packaged for
+    // Windows. `tar` on both platforms is bsdtar/libarchive — Windows has
+    // shipped it since 10 build 17063 — and it reads zip as readily as tar.
+    // Measured rather than assumed: a zip made here, extracted with `tar -xf`,
+    // came out with its subdirectories and its executable bit intact.
     let status = std::process::Command::new("tar")
         .arg("-xf")
         .arg(archive)
@@ -224,21 +233,6 @@ fn unpack(archive: &Path, into: &Path) -> Result<()> {
         .context("running tar")?;
     if !status.success() {
         bail!("tar could not unpack {}", archive.display());
-    }
-    Ok(())
-}
-
-fn copy_tree(src: &Path, into: &Path) -> Result<()> {
-    // Same reasoning as unpack: cp -R on macOS keeps symlinks and modes, and a
-    // hand-written recursive copy is where framework bundles get flattened.
-    let status = std::process::Command::new("cp")
-        .arg("-R")
-        .arg(src)
-        .arg(into)
-        .status()
-        .context("running cp")?;
-    if !status.success() {
-        bail!("could not copy {}", src.display());
     }
     Ok(())
 }
@@ -264,17 +258,9 @@ fn find_core(root: &Path) -> Option<PathBuf> {
 }
 
 fn ensure_executable(exe: &Path) -> Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(exe)?.permissions();
-        let mode = perms.mode();
-        if mode & 0o111 == 0 {
-            perms.set_mode(mode | 0o755);
-            std::fs::set_permissions(exe, perms)?;
-        }
-    }
-    let _ = exe;
+    // A no-op on Windows, where the extension decides. See
+    // fury_platform::perms::make_executable.
+    fury_platform::perms::make_executable(exe)?;
     Ok(())
 }
 

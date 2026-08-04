@@ -422,8 +422,24 @@ fn how_to_unset(current: &str) -> String {
 }
 
 /// The path from a directory holding a core to the executable inside it.
+///
+/// macOS wraps the browser in an application bundle; Windows is a directory
+/// with the executable at the top. The `.exe` is not optional — `Path::exists`
+/// is how the core is found, and a file named `fury` with no extension does not
+/// exist under the name `fury.exe` that everything else would then look for.
 fn core_leaf() -> &'static str {
-    if cfg!(target_os = "macos") { "Fury.app/Contents/MacOS/Fury" } else { "fury-core" }
+    #[cfg(target_os = "macos")]
+    {
+        "Fury.app/Contents/MacOS/Fury"
+    }
+    #[cfg(windows)]
+    {
+        "fury.exe"
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        "fury-core"
+    }
 }
 
 /// The core this agent expects to drive. Read from core/CHROMIUM_VERSION at

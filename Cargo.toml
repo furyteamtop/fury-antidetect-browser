@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["server", "agent", "shared-rs", "tools/detect-suite", "desktop/src-tauri"]
+members = ["server", "agent", "shared-rs", "platform-rs", "tools/detect-suite", "desktop/src-tauri"]
 
 [workspace.package]
 version = "0.0.1"

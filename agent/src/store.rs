@@ -181,11 +181,11 @@ impl Store {
 
         // The file holds proxy credentials and, next to it, cookie jars for live
         // accounts. Nothing else on the machine has any business reading it.
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-        }
+        //
+        // Best effort on both platforms — an unwritable ACL is not a reason to
+        // refuse to start — but it is ATTEMPTED on both, which a `#[cfg(unix)]`
+        // here would not have been.
+        let _ = fury_platform::perms::owner_only_file(path);
 
         let store = Self {
             pool,

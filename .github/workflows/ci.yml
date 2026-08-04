@@ -36,6 +36,57 @@ jobs:
       - name: cargo build --release
         run: cargo build --release --workspace
 
+  windows-surface:
+    name: the Windows code compiles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+
+      # The port's riskiest code — named pipes, security descriptors, handle
+      # inheritance, six unsafe FFI calls — lives in one crate precisely so this
+      # job can exist. `cargo check -p fury-agent --target
+      # x86_64-pc-windows-msvc` does NOT work: ring's build script wants a
+      # Windows C toolchain and ring arrives through both sqlx and reqwest, so
+      # without the split this would all be written blind and first compiled on
+      # a rented Windows machine at an hourly rate.
+      #
+      # It has already earned this. Three mistakes were caught here rather than
+      # there: OpenProcessToken imported from Win32::Security instead of
+      # Win32::System::Threading, create_with_security_attributes_ptr for
+      # create_with_security_attributes_raw, and a BOOL alias windows-sys 0.61
+      # no longer has.
+      #
+      # What it proves: signatures, argument counts, pointer mutability, feature
+      # gates. What it does NOT prove: that a DACL denies what it should, that a
+      # handle survives CreateProcess, that a pipe is not squatted. Those need a
+      # running Windows — tools/verify-windows.ps1.
+      - name: the Windows surface type-checks
+        run: cargo check -p fury-platform --target x86_64-pc-windows-msvc --all-targets
+
+      # The check above is worth exactly as much as the crate is thin. A
+      # dependency with a build script needing a C toolchain silently makes it
+      # impossible again, so the failure is here, next to the reason.
+      - name: nothing heavy crept into the platform crate
+        run: |
+          set -euo pipefail
+          deps=$(cargo tree -p fury-platform --target x86_64-pc-windows-msvc \
+                 --prefix none --no-dedupe | awk '{print $1}' | sort -u)
+          for banned in ring aws-lc-sys openssl-sys libsqlite3-sys; do
+            if grep -qx "$banned" <<<"$deps"; then
+              echo "!! $banned is in fury-platform's dependency graph."
+              echo "   It needs a Windows C toolchain, so the cross-check above"
+              echo "   stops working on a developer's Mac and the Windows code"
+              echo "   goes back to being written blind."
+              echo "   See platform-rs/Cargo.toml."
+              exit 1
+            fi
+          done
+          echo "fury-platform is still checkable from a Mac"
+
   desktop:
     name: shell typecheck and build
     runs-on: ubuntu-latest

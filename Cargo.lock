@@ -1385,10 +1385,10 @@ dependencies = [
  "base64 0.22.1",
  "chacha20poly1305",
  "flate2",
+ "fury-platform",
  "fury-shared",
  "futures-util",
  "keyring",
- "libc",
  "rand 0.8.7",
  "reqwest 0.12.28",
  "serde",
@@ -1412,6 +1412,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "flate2",
+ "fury-platform",
  "fury-shared",
  "keyring",
  "rand 0.8.7",
@@ -1438,6 +1439,16 @@ dependencies = [
  "fury-shared",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "fury-platform"
+version = "0.0.1"
+dependencies = [
+ "libc",
+ "sha2",
+ "tokio",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

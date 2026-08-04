@@ -23,6 +23,23 @@
 # uses for field trials. Verified on M150: one value set in the JSON appears
 # identically in the main frame, a Worker and three kinds of iframe, with zero
 # cross-context disagreements.
+#
+# THREE switches, and the third one is not redundancy:
+#
+#   --fury-fp-fd            browser, POSIX     an inherited descriptor
+#   --fury-fp-file-handle   browser, Windows   an inherited HANDLE
+#   --fury-fp-handle        children, both     a shared memory region
+#
+# The last two look interchangeable and are not. During the Windows launcher
+# port the carrier was about to be given the name --fury-fp-handle, which the
+# browser does not read in the browser process — its branch there reads the
+# other two — and which it then APPENDS itself, once per child, on top of a
+# switch that was already set. Every Windows profile would have launched with no
+# persona at all and nothing in the agent, the browser or any log would have
+# said so. Found by reading this patch while writing its Windows branch.
+#
+# InitializeInBrowser takes base::File rather than an int so both slots share
+# one read. The Windows half has never been run: there is no Windows core.
 0001-fp-config-plumbing.patch!          # content_main_runner_impl.cc moves often
 
 # --- navigator & friends ----------------------------------------------------
@@ -321,6 +338,13 @@
 # agent instead — it records the key's fingerprint beside the profile and
 # refuses to launch on a mismatch, which is the only answer that leaves the
 # data intact.
+#
+# --fury-oscrypt-fd on POSIX, --fury-oscrypt-file-handle on Windows, same
+# reasoning as 0001 and the same naming rule. Unlike 0001 a missing key here is
+# NOT fatal: the profile falls back to this machine's own OS-crypt key, which
+# costs a cookie jar the browser discards and re-earns at the next login, where
+# a browser that refuses to start costs the session outright. The Windows half
+# has never been run.
 0110-os-crypt-key.patch
 
 # --- misc js ----------------------------------------------------------------

@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
-//! The socket the desktop shell talks to.
+//! The channel the desktop shell talks to.
 //!
-//! A Unix socket rather than a TCP port, deliberately (docs/01): nothing is
-//! listening on the network, and file permissions are the access control. On a
-//! machine where a browser is running arbitrary sites' JavaScript all day, a
-//! `127.0.0.1` port is reachable from a page; a socket under a 0700 directory
-//! is not.
+//! Not a TCP port, deliberately (docs/01): nothing is listening on the network,
+//! and the operating system's own access control is what stands in the way. On
+//! a machine where a browser is running arbitrary sites' JavaScript all day, a
+//! `127.0.0.1` port is reachable from a page; a Unix socket on macOS and a
+//! named pipe with an explicit DACL on Windows are not.
+//!
+//! Which of the two, and everything that differs between them, is
+//! `fury_platform::ipc` — the transport is deliberately not visible from here,
+//! so that this file is about the protocol and nothing else.
 //!
 //! The protocol is newline-delimited JSON, one request per line, one response
 //! per line. No framing beyond that, no streaming, no subscriptions — the shell
@@ -19,7 +23,6 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Mutex;
 
 use crate::launcher;
@@ -229,34 +232,30 @@ impl Agent {
     /// Listen until the process is stopped.
     pub async fn serve(self: Arc<Self>) -> anyhow::Result<()> {
         self.start_reaper();
-        let path = paths::socket_path();
+        let endpoint = paths::ipc_endpoint();
 
-        // A socket file left by a crash would make bind() fail with "address in
-        // use" forever. Removing one that is still live would be worse, so
-        // check first: if something answers, another agent owns this machine.
-        if path.exists() {
-            if UnixStream::connect(&path).await.is_ok() {
-                anyhow::bail!(
-                    "another fury-agent is already running on this machine ({})",
-                    path.display()
-                );
-            }
-            std::fs::remove_file(&path)?;
+        // Ask before binding. A Unix socket file left by a crash makes bind()
+        // fail with "address in use" forever, and removing one that is still
+        // live would be worse — so if something answers, another agent owns
+        // this machine and this one should say so rather than take the address.
+        //
+        // The same check earns its keep on Windows for a different reason: a
+        // pipe name is machine-wide, and `Stream::connect` refuses a pipe this
+        // user does not own, so a squatted name is reported here as a refusal
+        // rather than surfacing later as a shell that cannot talk to anything.
+        if fury_platform::Stream::connect(&endpoint).await.is_ok() {
+            anyhow::bail!("another fury-agent is already running on this machine ({endpoint})");
         }
 
-        let listener = UnixListener::bind(&path)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            // The socket is the whole authorisation story: anyone who can open
-            // it can launch profiles and read proxy credentials.
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
-        }
+        // The address is the whole authorisation story: anyone who can open it
+        // can launch profiles and read proxy credentials. `bind` is what makes
+        // it private — 0600 on the socket, an owner-only DACL on the pipe.
+        let mut listener = fury_platform::Listener::bind(&endpoint)?;
 
-        tracing::info!(socket = %path.display(), "agent listening");
+        tracing::info!(agent = %endpoint, "agent listening");
 
         loop {
-            let (stream, _) = listener.accept().await?;
+            let stream = listener.accept().await?;
             let agent = Arc::clone(&self);
             tokio::spawn(async move {
                 if let Err(e) = agent.handle_connection(stream).await {
@@ -266,7 +265,10 @@ impl Agent {
         }
     }
 
-    async fn handle_connection(self: Arc<Self>, stream: UnixStream) -> anyhow::Result<()> {
+    async fn handle_connection(
+        self: Arc<Self>,
+        stream: fury_platform::Stream,
+    ) -> anyhow::Result<()> {
         let (read, mut write) = stream.into_split();
         let mut lines = BufReader::new(read).lines();
 
@@ -1530,10 +1532,11 @@ impl Agent {
         // wrote two cookies over CDP and closed the profile exported zero
         // afterwards, because the browser never got to write them down. Local
         // profiles were quietly dropping the tail of every session.
-        #[cfg(unix)]
-        unsafe {
-            libc::kill(entry.child.id() as i32, libc::SIGTERM);
-        }
+        //
+        // `ask_to_close` is a SIGTERM on macOS and a WM_CLOSE on Windows; see
+        // fury_platform::process for why it is a function both platforms have
+        // to implement rather than a `#[cfg(unix)]` one of them can skip.
+        fury_platform::ask_to_close(&entry.child);
         // Bounded: a browser that will not close must not hold the UI.
         for _ in 0..50 {
             if entry.child.try_wait()?.is_some() {

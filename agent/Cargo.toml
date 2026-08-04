@@ -6,6 +6,10 @@ license.workspace = true
 
 [dependencies]
 fury-shared = { path = "../shared-rs" }
+# Named pipes, DACLs and the config carrier. Its own crate so that
+# `cargo check --target x86_64-pc-windows-msvc` runs on a Mac, which it cannot
+# do for this one — see platform-rs/src/lib.rs.
+fury-platform = { path = "../platform-rs" }
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
@@ -50,6 +54,3 @@ base64 = "0.22"
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["handshake", "connect"] }
 futures-util = { version = "0.3.33", default-features = false, features = ["sink"] }
 
-[target.'cfg(unix)'.dependencies]
-# dup2 only. std has no equivalent, and the config descriptor has to land on 3.
-libc = "0.2"

@@ -69,12 +69,9 @@ pub fn token() -> anyhow::Result<String> {
     let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
 
     std::fs::write(&path, &token)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        // The whole authorisation story, in one file.
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
-    }
+    // The whole authorisation story, in one file — so it is restricted to this
+    // user explicitly rather than left to inherit whatever the directory had.
+    fury_platform::perms::owner_only_file(&path)?;
     Ok(token)
 }
 

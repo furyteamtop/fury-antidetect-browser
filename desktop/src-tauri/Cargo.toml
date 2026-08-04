@@ -18,6 +18,9 @@ tauri-build = { version = "2", features = [] }
 tar = "0.4"
 flate2 = "1"
 fury-shared = { path = "../../shared-rs" }
+# The agent address and the transport to it, shared with the agent so the two
+# cannot compute it differently. See platform-rs/src/dirs.rs.
+fury-platform = { path = "../../platform-rs" }
 
 tauri = { version = "2", features = [] }
 # Two copies of the shell would each keep a profile lock alive and each show a

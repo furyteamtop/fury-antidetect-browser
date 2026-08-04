@@ -18,7 +18,6 @@ use std::time::Duration;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AgentError {
@@ -86,58 +85,23 @@ pub struct LocalProfile {
     pub last_opened_at: Option<String>,
 }
 
-/// Where the agent's socket is.
+/// Where the agent is, and where its data lives.
 ///
-/// Must match `agent/src/paths.rs` exactly, including the tag derived from the
-/// data directory — the shell and the agent find each other by computing the
-/// same path from the same inputs, and there is no discovery step to fall back
-/// on if they disagree.
-pub fn socket_path() -> PathBuf {
-    if let Ok(explicit) = std::env::var("FURY_SOCKET") {
-        return PathBuf::from(explicit);
-    }
-
-    let tag = short_tag(&data_dir());
-
-    #[cfg(target_os = "macos")]
-    let base = std::env::temp_dir();
-
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let base = std::env::var("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir());
-
-    base.join(format!("fury-{tag}.sock"))
-}
-
-fn data_dir() -> PathBuf {
-    if let Ok(explicit) = std::env::var("FURY_HOME") {
-        return PathBuf::from(explicit);
-    }
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-
-    #[cfg(target_os = "macos")]
-    let dir = PathBuf::from(home).join("Library/Application Support/Fury");
-
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let dir = std::env::var("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(&home).join(".local/share"))
-        .join("fury");
-
-    dir
-}
-
-fn short_tag(of: &std::path::Path) -> String {
-    use sha2::{Digest, Sha256};
-    let digest = Sha256::digest(of.as_os_str().as_encoded_bytes());
-    digest[..4].iter().map(|b| format!("{b:02x}")).collect()
-}
+/// Both come from `fury_platform::dirs`, which the agent also calls. That is
+/// not tidiness: the shell and the agent find each other by computing the same
+/// address from the same inputs and there is no discovery step, so a copy of
+/// this logic in each program is a copy that can drift into a shell reporting
+/// "the agent is not running" against an agent that is.
+///
+/// It had already drifted. This file's copy had no Windows branch at all.
+pub use fury_platform::dirs::ipc_endpoint;
+#[cfg(test)]
+use fury_platform::dirs::{data_dir, short_tag};
 
 /// One request, one response.
 pub async fn call<T: DeserializeOwned>(method: &str, params: Value) -> Result<T, AgentError> {
-    let path = socket_path();
-    let stream = match UnixStream::connect(&path).await {
+    let endpoint = ipc_endpoint();
+    let stream = match fury_platform::Stream::connect(&endpoint).await {
         Ok(s) => s,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound
             || e.kind() == std::io::ErrorKind::ConnectionRefused =>
@@ -184,7 +148,7 @@ pub async fn call<T: DeserializeOwned>(method: &str, params: Value) -> Result<T,
 /// keeps holding locks and relays after this window closes, which is the whole
 /// reason it is a separate process.
 pub async fn ensure_running() -> Result<(), AgentError> {
-    if UnixStream::connect(socket_path()).await.is_ok() {
+    if fury_platform::Stream::connect(&ipc_endpoint()).await.is_ok() {
         return Ok(());
     }
 
@@ -200,7 +164,7 @@ pub async fn ensure_running() -> Result<(), AgentError> {
     // sleep once: on a cold start the database has to be created first.
     for _ in 0..40 {
         tokio::time::sleep(Duration::from_millis(100)).await;
-        if UnixStream::connect(socket_path()).await.is_ok() {
+        if fury_platform::Stream::connect(&ipc_endpoint()).await.is_ok() {
             return Ok(());
         }
     }
@@ -214,7 +178,10 @@ fn agent_binary() -> Option<PathBuf> {
     }
     // Beside this binary in a packaged app; beside the shell's own build output
     // in a development tree, which is the same directory either way.
-    let beside = std::env::current_exe().ok()?.parent()?.join("fury-agent");
+    let beside = std::env::current_exe()
+        .ok()?
+        .parent()?
+        .join(if cfg!(windows) { "fury-agent.exe" } else { "fury-agent" });
     beside.exists().then_some(beside)
 }
 
@@ -223,22 +190,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_socket_path_matches_the_agents() {
-        // Both sides compute it independently; if this drifts, the shell looks
-        // for a socket nobody is listening on and reports "not running" forever.
-        let path = socket_path();
-        let name = path.file_name().unwrap().to_string_lossy();
-        assert!(name.starts_with("fury-"), "{name}");
-        assert!(name.ends_with(".sock"), "{name}");
-        assert_eq!(name.len(), "fury-".len() + 8 + ".sock".len());
-        assert!(path.as_os_str().len() < 100);
-    }
-
-    #[test]
-    fn the_tag_follows_the_data_directory() {
-        assert_ne!(
-            short_tag(std::path::Path::new("/home/a/Fury")),
-            short_tag(std::path::Path::new("/home/b/Fury"))
+    fn the_address_is_the_one_the_agent_uses() {
+        // Both sides now call the same function, so this asserts the shell has
+        // not grown a second way of computing it — which is what the two
+        // hand-kept copies were, and what this replaced.
+        assert_eq!(
+            ipc_endpoint().to_string(),
+            fury_platform::ipc::endpoint(&short_tag(&data_dir())).to_string()
         );
     }
 }

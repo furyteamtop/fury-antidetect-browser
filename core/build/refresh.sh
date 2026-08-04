@@ -61,10 +61,57 @@ else
 fi
 
 echo "==> Refreshing $NAME from ${#files[@]} file(s)"
-git -C "$SRC" diff --no-color --src-prefix=a/ --dst-prefix=b/ -- "${files[@]}" > "$OUT"
 
-if [ ! -s "$OUT" ]; then
+# A file this patch CREATES has to be intent-to-added first, or git diff does
+# not see it and the refresh silently drops it.
+#
+# This is not hypothetical. 0110 creates five files under
+# components/fury/key_provider/; they were untracked, `git diff -- <paths>`
+# reported nothing for them, and the refresh rewrote the patch from 367 lines to
+# 49 — losing fury_key.{h,cc}, fury_key_provider.{h,cc} and a BUILD.gn — while
+# printing "==> Wrote ... 49 lines" and exiting 0. The sibling directory
+# components/fury/ happened to be `git add -N`ed at some point in the past, so
+# 0001 refreshed correctly on the same run, which is exactly why it took a
+# by-hand comparison to notice.
+for f in "${files[@]}"; do
+  if [ -e "$SRC/$f" ]; then
+    git -C "$SRC" add -N -- "$f" 2>/dev/null || true
+  fi
+done
+
+# Written to a temporary file and moved into place only once every check below
+# has passed. The first version of this wrote $OUT directly and then validated
+# it, which meant a failed check left the damaged patch on disk and an error
+# message that had to say "check git diff before continuing" — telling somebody
+# to clean up after a tool is not the same as a tool that does not make the
+# mess.
+TMP="$(mktemp "${TMPDIR:-/tmp}/fury-refresh.XXXXXX")"
+trap 'rm -f "$TMP"' EXIT
+
+git -C "$SRC" diff --no-color --src-prefix=a/ --dst-prefix=b/ -- "${files[@]}" > "$TMP"
+
+if [ ! -s "$TMP" ]; then
   echo "!! Diff is empty. Either nothing changed, or the file list is wrong." >&2
+  exit 1
+fi
+
+# Every file this patch owns must appear in what was just written.
+#
+# The add -N above is the fix; this is the check that the fix worked, and it
+# catches the other ways the list and the output can disagree — a path renamed
+# upstream, a file whose change was reverted in the tree, a typo in an argument.
+# Any of them produce a patch that is smaller than the work it is supposed to
+# carry, and "smaller than expected" is not something a person notices in a line
+# count.
+missing=""
+for f in "${files[@]}"; do
+  grep -qxF "+++ b/$f" "$TMP" || missing="$missing $f"
+done
+if [ -n "$missing" ]; then
+  echo "!! $NAME owns files that are not in the refreshed patch:" >&2
+  for f in $missing; do echo "     $f" >&2; done
+  echo "!! Refusing to write a patch smaller than the change it describes." >&2
+  echo "!! $OUT is untouched." >&2
   exit 1
 fi
 
@@ -88,7 +135,7 @@ fi
 # which is why this is python and not a pipeline of greps: the first attempt was
 # a grep|xargs|grep chain, and pipefail killed refresh.sh silently on the very
 # case it was written to catch.
-if ! python3 - "$OUT" "$PATCHES" "$NAME" <<'CHECK'
+if ! python3 - "$TMP" "$PATCHES" "$NAME" <<'CHECK'
 import pathlib, re, sys
 
 out, patches, name = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
@@ -119,12 +166,21 @@ if clashes:
     for f, owner in clashes:
         print(f"     {f}  is created by {owner}", file=sys.stderr)
     print("!! Diff those against the tree AFTER that patch, not against HEAD.", file=sys.stderr)
-    print("!! The bad diff is left in place so the correct hunk can be spliced in.",
+    print("!! The bad diff is at the path above; the patch itself is untouched.",
           file=sys.stderr)
     sys.exit(1)
 CHECK
 then
+  # Kept, not deleted: the clash is fixed by splicing the correct hunk out of
+  # this diff, and deleting it would mean regenerating it by hand.
+  KEPT="$OUT.rejected"
+  cp "$TMP" "$KEPT"
+  echo "!! The diff that was refused is in $KEPT" >&2
   exit 1
 fi
+
+# Every check has passed. Only now does the patch on disk change.
+mv "$TMP" "$OUT"
+trap - EXIT
 
 echo "==> Wrote $OUT ($(wc -l < "$OUT") lines)"

@@ -133,13 +133,10 @@ pub async fn export_project(
     out.extend_from_slice(&sealed);
 
     std::fs::write(dest, &out)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        // The file is the accounts. Not world-readable, even for the moment it
-        // sits in a Downloads folder.
-        let _ = std::fs::set_permissions(dest, std::fs::Permissions::from_mode(0o600));
-    }
+    // The file is the accounts. Not readable by anyone else, even for the
+    // moment it sits in a Downloads folder — which on Windows is exactly where
+    // an inherited ACL is least predictable.
+    let _ = fury_platform::perms::owner_only_file(dest);
     Ok(out.len() as u64)
 }
 
