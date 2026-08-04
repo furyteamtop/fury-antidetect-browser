@@ -25,6 +25,31 @@ if [ -f "$OUT" ]; then
   while IFS= read -r line; do
     [ -n "$line" ] && files+=("$line")
   done < <(grep '^+++ b/' "$OUT" | sed 's|^+++ b/||')
+
+  # Files named on the command line are ADDED to that list, not ignored.
+  #
+  # They used to be ignored, silently: the branch above won whenever the patch
+  # existed, so `refresh.sh 0021 a.cc b.cc` rewrote the patch from its old file
+  # list and dropped the two new files without a word. The patch came out
+  # smaller than the work that went into it, the script said "Wrote ... 70
+  # lines", and the only sign was noticing the number was too small.
+  #
+  # That is how a patch grows a second file — 0021 needed the Windows themes
+  # beside the macOS one — and it has to work, or the answer is "delete the
+  # patch and start over", which loses the header nobody wants to retype.
+  if [ $# -gt 1 ]; then
+    shift
+    for extra in "$@"; do
+      already=0
+      for have in "${files[@]}"; do
+        [ "$have" = "$extra" ] && already=1 && break
+      done
+      if [ "$already" = 0 ]; then
+        files+=("$extra")
+        echo "==> Adding $extra to $NAME"
+      fi
+    done
+  fi
 elif [ $# -gt 1 ]; then
   shift
   files=("$@")

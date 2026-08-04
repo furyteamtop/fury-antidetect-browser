@@ -1,5 +1,132 @@
+diff --git a/third_party/blink/renderer/core/scroll/scrollbar_theme_aura.cc b/third_party/blink/renderer/core/scroll/scrollbar_theme_aura.cc
+index 83845c67fe..63de331f6b 100644
+--- a/third_party/blink/renderer/core/scroll/scrollbar_theme_aura.cc
++++ b/third_party/blink/renderer/core/scroll/scrollbar_theme_aura.cc
+@@ -30,6 +30,8 @@
+ 
+ #include "third_party/blink/renderer/core/scroll/scrollbar_theme_aura.h"
+ 
++#include "components/fury/fury_config.h"
++
+ #include "base/numerics/safe_conversions.h"
+ #include "build/build_config.h"
+ #include "cc/input/scrollbar.h"
+@@ -107,6 +109,35 @@ PartPaintingParams ButtonPartPaintingParams(const Scrollbar& scrollbar,
+ }  // namespace
+ 
+ ScrollbarTheme& ScrollbarTheme::NativeTheme() {
++  // A configured width has to survive the choice of theme, and this is the only
++  // place that choice is made.
++  //
++  // There are three branches here, not two, and the third is the one that gets
++  // missed: ScrollbarThemeOverlay::UsesOverlayScrollbars() returns true
++  // unconditionally, so a profile claiming a 17 px Windows scrollbar would
++  // still be measured at 0 whenever overlay scrollbars are on — and the two
++  // themes below would have been patched, correctly, for nothing.
++  //
++  // Handled at the selection point rather than inside ScrollbarThemeOverlay,
++  // because the guarantee wanted is "a configured non-zero width is always
++  // reserved in layout", and that is a statement about which theme runs. Spread
++  // across three themes it would be three statements, and the next theme
++  // Chromium adds would not carry it.
++  //
++  // Zero is left alone deliberately: a persona claiming macOS wants overlay
++  // scrollbars, and this branch is how they are got.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<int> width = config->GetInt("screen.scrollbarWidth")) {
++      if (*width > 0) {
++        if (FluentScrollbarsEnabled()) {
++          return ScrollbarThemeFluent::GetInstance();
++        }
++        DEFINE_STATIC_LOCAL(ScrollbarThemeAura, configured_theme, ());
++        return configured_theme;
++      }
++    }
++  }
++
+   if (FluentScrollbarsEnabled()) {
+     return ScrollbarThemeFluent::GetInstance();
+   }
+@@ -136,6 +167,28 @@ int ScrollbarThemeAura::ScrollbarThickness(
+   if (scrollbar_width == EScrollbarWidth::kNone)
+     return 0;
+ 
++  // The width a scrollbar occupies in layout gives the OS away on its own, and
++  // no amount of navigator spoofing hides it: a page measures
++  // offsetWidth - clientWidth on an overflowing element and reads ~15-17 px on
++  // Windows against 0 on macOS, where scrollbars are overlays.
++  //
++  // The same override as ScrollbarThemeMac::ScrollbarThickness, and it has to
++  // be here as well rather than only there: this is the theme Windows and Linux
++  // actually use, so a build for either without it reports whatever the native
++  // theme engine says and contradicts the persona.
++  //
++  // Proportion() is applied, not bypassed. `scrollbar-width: thin` reports two
++  // thirds in every real browser, and returning the configured width for both
++  // values would let a page tell us apart by setting one property.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<int> width = config->GetInt("screen.scrollbarWidth")) {
++      if (*width >= 0) {
++        return static_cast<int>(*width * Proportion(scrollbar_width) *
++                                scale_from_dip);
++      }
++    }
++  }
++
+   if (WebTestSupport::IsRunningWebTest()) {
+     return kScrollbarThicknessForWebTests * Proportion(scrollbar_width) *
+            scale_from_dip;
+diff --git a/third_party/blink/renderer/core/scroll/scrollbar_theme_fluent.cc b/third_party/blink/renderer/core/scroll/scrollbar_theme_fluent.cc
+index 1d8e5e1814..9e24886d52 100644
+--- a/third_party/blink/renderer/core/scroll/scrollbar_theme_fluent.cc
++++ b/third_party/blink/renderer/core/scroll/scrollbar_theme_fluent.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "third_party/blink/renderer/core/scroll/scrollbar_theme_fluent.h"
+ 
++#include "components/fury/fury_config.h"
++
+ #include "base/numerics/safe_conversions.h"
+ #include "third_party/blink/public/common/css/forced_colors.h"
+ #include "third_party/blink/public/platform/web_theme_engine.h"
+@@ -55,6 +57,17 @@ ScrollbarThemeFluent::ScrollbarThemeFluent() {
+ int ScrollbarThemeFluent::ScrollbarThickness(
+     float scale_from_dip,
+     EScrollbarWidth scrollbar_width) const {
++  // Fluent derives from ScrollbarThemeAura and overrides this, so patching
++  // Aura alone leaves Windows 11 — where Fluent is the default — reporting the
++  // real machine's thickness. Both, or neither.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<int> width = config->GetInt("screen.scrollbarWidth")) {
++      if (*width >= 0) {
++        return base::ClampRound(*width * Proportion(scrollbar_width) *
++                                scale_from_dip);
++      }
++    }
++  }
+   return base::ClampRound(scrollbar_track_thickness_ *
+                           Proportion(scrollbar_width) * scale_from_dip);
+ }
+@@ -114,6 +127,17 @@ gfx::Size ScrollbarThemeFluent::ButtonSize(const Scrollbar& scrollbar) const {
+ }
+ 
+ bool ScrollbarThemeFluent::UsesOverlayScrollbars() const {
++  // Overlay scrollbars take no space in layout, so a configured width that
++  // layout never reserves is not a width at all and the page still measures 0.
++  // The pair must move together, exactly as in ScrollbarThemeMac.
++  //
++  // UsesFluentOverlayScrollbars() is defined as this function, so it follows
++  // without a second override.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<int> width = config->GetInt("screen.scrollbarWidth")) {
++      return *width == 0;
++    }
++  }
+   return OverlayScrollbarsEnabled();
+ }
+ 
 diff --git a/third_party/blink/renderer/core/scroll/scrollbar_theme_mac.cc b/third_party/blink/renderer/core/scroll/scrollbar_theme_mac.cc
-index b3bd1d9dc2..1ff48156b2 100644
+index b3bd1d9dc2..60c97f4bf5 100644
 --- a/third_party/blink/renderer/core/scroll/scrollbar_theme_mac.cc
 +++ b/third_party/blink/renderer/core/scroll/scrollbar_theme_mac.cc
 @@ -25,6 +25,8 @@
@@ -11,7 +138,7 @@ index b3bd1d9dc2..1ff48156b2 100644
  #include <variant>
  
  #include "skia/ext/skia_utils_mac.h"
-@@ -324,12 +326,40 @@ int ScrollbarThemeMac::ScrollbarThickness(
+@@ -324,12 +326,56 @@ int ScrollbarThemeMac::ScrollbarThickness(
      EScrollbarWidth scrollbar_width) const {
    if (scrollbar_width == EScrollbarWidth::kNone)
      return 0;
@@ -26,7 +153,23 @@ index b3bd1d9dc2..1ff48156b2 100644
 +  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
 +    if (std::optional<int> width = config->GetInt("screen.scrollbarWidth")) {
 +      if (*width >= 0) {
-+        return static_cast<int>(*width * scale_from_dip);
++        // Two thirds for `scrollbar-width: thin`, because the platform being
++        // claimed does that and the first version of this patch did not.
++        //
++        // Returning the configured width for every value of scrollbar_width
++        // flattened a distinction every real browser makes: macOS reports 15
++        // for auto and 11 for thin (legacy_regular_values against
++        // legacy_small_values, above), and Aura on Windows reports the track
++        // width times 2/3. A page that sets `scrollbar-width: thin` on an
++        // overflowing element and measures offsetWidth - clientWidth got the
++        // same number twice from us, which no browser gives.
++        //
++        // The ratio is Windows's, not macOS's, because a profile claiming
++        // Windows has to answer as Windows would — see kThinProportion in
++        // scrollbar_theme_aura.cc, which this deliberately matches.
++        const float proportion =
++            scrollbar_width == EScrollbarWidth::kThin ? 2.f / 3.f : 1.f;
++        return static_cast<int>(*width * proportion * scale_from_dip);
 +      }
 +    }
 +  }

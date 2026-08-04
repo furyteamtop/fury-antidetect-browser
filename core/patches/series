@@ -59,8 +59,35 @@
 # layout space, so a configured width that layout never reserves is not a width
 # at all and the page still measures 0.
 #
-# macOS only for now. The Windows build needs the same two overrides in
-# scrollbar_theme_aura.cc / scrollbar_theme_fluent.cc.
+# THREE themes and the choice between them, not one file. The note here used to
+# say "macOS only for now, the Windows build needs the same two overrides in
+# scrollbar_theme_aura.cc / scrollbar_theme_fluent.cc", and that was two thirds
+# of the truth. ScrollbarTheme::NativeTheme() in scrollbar_theme_aura.cc picks
+# between Fluent, Overlay and Aura, and ScrollbarThemeOverlay::
+# UsesOverlayScrollbars() returns true unconditionally — so patching the two
+# themes and leaving the chooser alone would have measured 0 on any Windows or
+# Linux build with overlay scrollbars on, with both patched themes correct and
+# unreached. The override sits at the selection point, because the guarantee is
+# about which theme runs; spread across themes it is one statement per theme and
+# the next theme Chromium adds carries none of them.
+#
+# `scrollbar-width: thin` reports TWO THIRDS, and the first version of this
+# patch returned the configured number for both values. Every real browser makes
+# the distinction — macOS keeps 15 for auto and 11 for thin in its own table,
+# Aura multiplies by Proportion() — so a page that set one CSS property got the
+# same answer from us twice and had us. Fixed in all three.
+#
+# STATE, said exactly. The macOS side is written, compiled and measured:
+# core/verify/verify-0021.py, seven checks, auto 17 / thin 11 / none 0, an
+# iframe agreeing, a width of 0 restoring overlay, and an unconfigured build
+# reporting the host's own 0 so the others mean something.
+#
+# The Windows side is WRITTEN AND NOT COMPILED. scrollbar_theme_aura.cc and
+# scrollbar_theme_fluent.cc are not in the macOS build at all — the output
+# directory holds scrollbar_theme_mac.o and no sibling — so this code has not
+# been through a compiler, let alone a browser. It is the first thing to run
+# verify-0021.py against on a Windows machine, and it is not "done" until that
+# has happened.
 0021-scrollbar-width.patch
 
 # --- graphics ---------------------------------------------------------------
@@ -523,8 +550,14 @@
 0303-data-export-lock.patch
 
 # --- branding ---------------------------------------------------------------
-# NOT WRITTEN, and blocked on assets rather than on code. The change itself is
-# data, not source: chrome/app/theme/chromium/BRANDING is read by
+# WRITTEN and measured — see the paragraph beginning "WRITTEN." below, which is
+# the current state. This opening said "NOT WRITTEN, blocked on assets" for as
+# long as it took the icons to arrive, and then stayed after they did: the first
+# thing a reader saw contradicted the same block twelve lines down. Kept as
+# background rather than deleted, because the reasoning still explains why the
+# patch is ten lines of a text file.
+#
+# The change is data, not source: chrome/app/theme/chromium/BRANDING is read by
 # build/util/branding.gni into chrome_product_full_name and the mac bundle id,
 # and everything macOS-facing derives from those — the .app, the .framework, the
 # helper bundles, CFBundleIdentifier, the runtime framework lookup, the crash
