@@ -80,6 +80,12 @@ jobs:
       # A hunk header whose line counts do not match its body applies as
       # garbage or not at all. This has happened here twice, both times by
       # hand-editing a patch to reorder the series.
+      # A dependency added to the workspace root has to reach the manifest a
+      # server is built with, or the next deployment fails inside cargo with a
+      # message about inheritance that names no file anybody edited.
+      - name: the deploy workspace manifest matches the repository's
+        run: python3 tools/ci/gen-deploy-workspace.py --check
+
       - name: hunk headers count correctly
         run: python3 tools/ci/check-hunks.py
 
@@ -119,24 +125,45 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: fury
-          POSTGRES_PASSWORD: fury
-          POSTGRES_DB: fury
+          POSTGRES_PASSWORD: postgres
         ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U fury"
+          --health-cmd "pg_isready -U postgres"
           --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # POSTGRES_USER owns POSTGRES_DB, which is the arrangement the server
-      # deploys into and the one the tests must run against: an owner is exempt
-      # from its own policies unless they are FORCEd, so a test run as any other
-      # role would pass against a schema that protects nobody.
+
+      # A NON-superuser role owning the database, which is what
+      # deploy/server-install.sh creates and the only arrangement these tests
+      # mean anything in.
+      #
+      # The first version let the image create POSTGRES_USER=fury, and the
+      # image makes that role a superuser. A superuser bypasses row security
+      # outright — measured: as `postgres`, an unbound connection saw all three
+      # projects; as `fury`, it saw none — so every RLS test would have run
+      # against a database where the policies did not apply. They would have
+      # failed rather than passed silently, which is the better direction, but a
+      # security job that cannot run is not a security job.
+      - name: a role that the policies actually apply to
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -U postgres -c "CREATE ROLE fury LOGIN PASSWORD 'fury';"
+          psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE fury OWNER fury;"
+          psql -h 127.0.0.1 -U postgres -tAc \
+            "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = 'fury'" \
+            | grep -qx f || { echo "!! fury can bypass row security — the tests would prove nothing"; exit 1; }
+
       - run: cargo test -p fury-server
         env:
           DATABASE_URL: postgres://fury:fury@127.0.0.1:5432/fury
+          # For the one assertion that needs to read past the policies: an audit
+          # row orphaned by a deleted organisation is invisible to every
+          # application user by design, so only a superuser can confirm it
+          # survived.
+          DATABASE_SUPERUSER_URL: postgres://postgres:postgres@127.0.0.1:5432/fury
 
   licensing:
     name: every file says what it is

@@ -272,6 +272,57 @@ db_test!(a_sum_over_bigint_needs_the_cast_to_decode, c, {
     assert_eq!(total, 0);
 });
 
+db_test!(an_organisation_can_be_removed_and_its_audit_survives, c, {
+    // The consequence 0006 had and nobody looked for: making audit append-only
+    // by revoking DELETE from the owner also made every organisation
+    // undeletable, because a CASCADE runs with the owner's privileges. On a
+    // server with open sign-ups and a ceiling on organisations, that is a slot
+    // lost for good every time somebody abandons one.
+    bind(&mut c, USER_A).await;
+    make_project(&mut c, "cccccccc-0000-0000-0000-000000000001", ORG_A, USER_A).await;
+    sqlx::query("INSERT INTO audit_events (org_id, actor_user_id, action, detail) VALUES ($1::uuid,$2::uuid,'test','{}'::jsonb)")
+        .bind(ORG_A)
+        .bind(USER_A)
+        .execute(&mut c)
+        .await
+        .expect("write an audit row");
+
+    sqlx::query("DELETE FROM organizations WHERE id = $1::uuid")
+        .bind(ORG_A)
+        .execute(&mut c)
+        .await
+        .expect("an organisation must be removable — see migration 0007");
+
+    // The row is still there, orphaned. Audit is most wanted after somebody's
+    // access has been taken away, so it must not leave with them.
+    //
+    // Read with a superuser, because an orphaned row is invisible to every
+    // application user by design — user_in_org(NULL) is false — and that is the
+    // property being relied on one assertion further down. Skipped rather than
+    // faked when there is no superuser URL: an assertion that cannot be made is
+    // better absent than approximated.
+    if let Ok(su) = std::env::var("DATABASE_SUPERUSER_URL") {
+        let mut root = PgConnection::connect(&su).await.expect("superuser connect");
+        let left: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_events WHERE org_id IS NULL")
+            .fetch_one(&mut root)
+            .await
+            .expect("count");
+        assert_eq!(left, 1, "the audit trail left with the organisation it described");
+    } else {
+        eprintln!("  (survival of the orphaned audit row not checked: no DATABASE_SUPERUSER_URL)");
+    }
+
+    // And it is invisible to every application user: user_in_org(NULL) is
+    // false, so only somebody with database access can read a deleted tenant's
+    // history.
+    bind(&mut c, USER_B).await;
+    let seen: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_events")
+        .fetch_one(&mut c)
+        .await
+        .expect("count");
+    assert_eq!(seen, 0, "another organisation could read an orphaned audit row");
+});
+
 db_test!(audit_cannot_be_rewritten, c, {
     bind(&mut c, USER_A).await;
     sqlx::query("INSERT INTO audit_events (org_id, actor_user_id, action, detail) VALUES ($1::uuid,$2::uuid,'test','{}'::jsonb)")
@@ -283,8 +334,12 @@ db_test!(audit_cannot_be_rewritten, c, {
 
     // 0001 asked for this in a comment addressed to whoever installed the
     // server. 0006 states it, and this is what makes the difference visible.
+    // The columns that carry what happened stay unwritable, and the two that
+    // only point at other rows do not — that is what migration 0007's
+    // column-level grant buys, and asserting the negative half is the point.
     for sql in [
         "UPDATE audit_events SET action = 'rewritten'",
+        "UPDATE audit_events SET detail = '{}'::jsonb",
         "DELETE FROM audit_events",
     ] {
         let err = sqlx::query(sql)

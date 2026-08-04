@@ -103,35 +103,24 @@ say "Build"
 # Only the two crates the server needs. The workspace also contains the desktop
 # shell, which would drag in GTK and WebKit — a build dependency tree for a
 # graphical application, on a machine with no display.
-cat > "$SRC/Cargo.toml" <<'WORKSPACE'
-[workspace]
-resolver = "2"
-members = ["server", "shared-rs"]
-
-[workspace.package]
-version = "0.0.1"
-edition = "2021"
-rust-version = "1.80"
-license = "AGPL-3.0-or-later"
-
-[workspace.dependencies]
-anyhow = "1"
-thiserror = "2"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tokio = { version = "1", features = ["full"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-uuid = { version = "1", features = ["v7", "serde"] }
-time = { version = "0.3", features = ["serde", "formatting"] }
-sha2 = "0.10"
-rand = "0.8"
-
-[profile.release]
-lto = "thin"
-codegen-units = 1
-strip = true
-WORKSPACE
+# The workspace manifest travels with the source rather than being written
+# here. It used to be a copy typed into this script, and a copy drifts: adding a
+# dependency to the repository's workspace worked locally, passed every test,
+# and broke the next deployment with
+#
+#   error inheriting `digest` from workspace root manifest's
+#   `workspace.dependencies`
+#
+# — eight lines into cargo's output, pointing at nothing anybody would connect
+# to a shell script. tools/ci/gen-deploy-workspace.py generates it from the
+# repository's own manifest and CI fails if it is stale.
+if [ -f "$SRC/deploy/workspace.toml" ]; then
+    cp "$SRC/deploy/workspace.toml" "$SRC/Cargo.toml"
+else
+    echo "!! $SRC/deploy/workspace.toml is missing." >&2
+    echo "   Run tools/ci/gen-deploy-workspace.py and push again." >&2
+    exit 1
+fi
 
 cd "$SRC"
 cargo build --release -p fury-server
