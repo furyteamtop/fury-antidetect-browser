@@ -72,9 +72,23 @@ in which case the request succeeds and returns no endpoint — check for
 `ws_endpoint` rather than assuming it.
 
 **Automation is detectable and this does not hide that.** `navigator.webdriver`
-is false in Fury, but a page can see the timing and event signatures of a driven
-browser regardless. If a site matters, drive it slowly and like a person, or do
-not drive it.
+is false in Fury, but a page can time `console.debug` and see a driver. Measured
+on Fury 150, microseconds per call:
+
+| | `"hello"` | 50-key object | 800-key object |
+|---|---|---|---|
+| no debugger | 3.0 | 2.8 | 2.8 |
+| CDP attached, `Runtime.enable` **not** called | 2.8 | 2.8 | 2.8 |
+| CDP attached, `Runtime.enable` called | 8.0 | 14.0 | 25.5 |
+
+Attaching costs nothing; `Runtime.enable` costs 2.7x on a string and more as the
+argument grows. Every driver calls it. Real Chrome measures the same, so this
+detects a driven browser rather than Fury — which is no comfort if the driven
+browser is yours. Run it yourself with
+[`tools/detect-suite/cdp-timing.py`](../tools/detect-suite/cdp-timing.py).
+
+If a site matters, drive it slowly and like a person, or do not drive it: `cdp`
+is off unless you ask, and a team server can refuse it per role.
 
 ## The examples
 

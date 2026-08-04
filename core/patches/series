@@ -413,10 +413,31 @@
 # in every configuration including no-CDP — so it is not a CDP tell at all. The
 # classic "Runtime.enable detection" does not reproduce.
 #
-# What DOES reproduce is timing: console.debug of a 500-key object 200 times
-# takes 0.9 ms with no inspector and 11.7 ms with one attached (real Chrome:
-# 0.6 -> 10.2). Identical in both browsers, so it detects "CDP is attached",
-# which for an operator driving a profile is exactly the thing being hidden.
+# What DOES reproduce is timing, and it was measured again on 04.08.2026 in more
+# detail, because "about thirteen times" is a number you cannot act on. Fury 150,
+# microseconds per console.debug, median of seven runs of four hundred
+# (tools/detect-suite/cdp-timing.py):
+#
+#                                "hello"   50-key   800-key
+#     no debugger                   3.0      2.8      2.8
+#     CDP attached, Runtime off     2.8      2.8      2.8
+#     CDP attached, Runtime on      8.0     14.0     25.5
+#
+# Three things that the single ratio hid.
+#
+# Attaching is free. The whole cost arrives with Runtime.enable, which every
+# driver calls — so what leaks is "a driver is attached", not "a debugger is".
+#
+# The cost is a FIXED part plus a SIZE part. The size part is preview generation
+# in wrapArguments(session, generatePreview) and a patch could remove it. The
+# fixed part — 2.7x on a five-character string — is the message reaching the
+# frontend at all, and removing that means not delivering
+# Runtime.consoleAPICalled, which is the console.
+#
+# So a patch here shrinks the tell and cannot close it, and a patch that applies
+# and still leaks is the exact failure mode this file exists to prevent. Not
+# written. Identical in real Chrome, so it detects a driven browser rather than
+# Fury — which is no comfort when the driven browser is the operator's.
 #
 # The one substantive leak found is narrower: console serialisation of an Error
 # reads .stack, which runs the page's Error.prepareStackTrace. It cannot be
