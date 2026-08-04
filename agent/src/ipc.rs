@@ -1644,3 +1644,33 @@ mod tests {
         assert!(!text.contains("\"ok\""));
     }
 }
+
+#[cfg(test)]
+mod exit_check_tests {
+    /// The exit check must not work when the proxy does not.
+    ///
+    /// It asks a third party where the traffic comes out, and the only thing
+    /// that makes that acceptable is that the question travels through the
+    /// proxy: the third party sees the exit's address, never the operator's.
+    /// The way that stops being true is a client built without the proxy — a
+    /// one-line mistake that leaves every check working, faster, and reporting
+    /// the host machine's own country as if it were the exit's.
+    ///
+    /// So the test is the negative one. A dead proxy must produce a failure; a
+    /// check that succeeds through a port with nothing behind it went direct.
+    #[tokio::test]
+    async fn a_dead_proxy_means_no_answer_rather_than_a_direct_one() {
+        // Port 9 discards. Nothing is listening for SOCKS5 there.
+        let err = super::Agent::resolve_exit("socks5://127.0.0.1:9", None)
+            .await
+            .expect_err("the exit check answered through a proxy that does not exist");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("error")
+                || msg.contains("connect")
+                || msg.contains("refused")
+                || msg.contains("timed out"),
+            "failed for an unclear reason: {msg}"
+        );
+    }
+}
