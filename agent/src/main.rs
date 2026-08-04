@@ -337,8 +337,45 @@ pub fn core_lookup_problem() -> Option<String> {
     }
     Some(format!(
         "FURY_CORE is set to {explicit}, which does not exist. \
-         Nothing else is searched while it is set — unset it, or point it at a core."
+         Nothing else is searched while it is set — {}.",
+        how_to_unset(&explicit)
     ))
+}
+
+/// How to actually get rid of it, which is not always what it looks like.
+///
+/// "unset it" is true of a shell and useless to somebody running the desktop
+/// application: a GUI process on macOS inherits its environment from launchd,
+/// not from any shell, so `unset FURY_CORE` in Terminal changes nothing and the
+/// application keeps failing in exactly the same way. `launchctl setenv` is how
+/// the value gets there — a debugging command typed once and forgotten — and
+/// `launchctl unsetenv` is the only thing that removes it.
+///
+/// Found the hard way: a FURY_CORE left over from before the branding patch
+/// renamed Chromium.app to Fury.app, living in launchd and in no dotfile, so it
+/// was invisible to every obvious place to look.
+fn how_to_unset(current: &str) -> String {
+    #[cfg(target_os = "macos")]
+    {
+        let from_launchd = std::process::Command::new("launchctl")
+            .args(["getenv", "FURY_CORE"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim() == current)
+            .unwrap_or(false);
+
+        if from_launchd {
+            return concat!(
+                "it comes from launchd, so `unset FURY_CORE` in a terminal will not ",
+                "reach this application. Run `launchctl unsetenv FURY_CORE` and ",
+                "restart Fury",
+            )
+            .to_string();
+        }
+    }
+    let _ = current;
+    "unset it, or point it at a core".to_string()
 }
 
 /// The path from a directory holding a core to the executable inside it.
@@ -423,6 +460,29 @@ const LOCK_HEARTBEAT: Duration = Duration::from_secs(30);
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_core_path_that_exists_is_not_a_problem() {
+        // The guard that keeps this off the ordinary path: a FURY_CORE pointing
+        // at a real binary is a normal development setup, not a fault.
+        let real = std::env::current_exe().unwrap();
+        // SAFETY: single-threaded test, and the variable is read back at once.
+        unsafe { std::env::set_var("FURY_CORE", &real) };
+        assert_eq!(super::core_lookup_problem(), None);
+        unsafe { std::env::remove_var("FURY_CORE") };
+    }
+
+    #[test]
+    fn a_core_path_that_does_not_exist_names_itself_and_a_way_out() {
+        unsafe { std::env::set_var("FURY_CORE", "/nowhere/Chromium.app/Contents/MacOS/Chromium") };
+        let said = super::core_lookup_problem().expect("a missing path is a problem");
+        // The path, because "no core found" sends people to look in the wrong
+        // place — which is exactly what happened before this existed.
+        assert!(said.contains("/nowhere/Chromium.app"), "{said}");
+        // And something to do about it.
+        assert!(said.contains("unsetenv") || said.contains("unset it"), "{said}");
+        unsafe { std::env::remove_var("FURY_CORE") };
+    }
+
     use super::*;
 
     #[test]
