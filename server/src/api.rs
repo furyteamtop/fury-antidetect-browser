@@ -2713,6 +2713,17 @@ async fn launch_spec(db: &mut sqlx::PgConnection, profile_id: Uuid) -> ApiResult
 // with the rest of the machine, and it does not require standing up MinIO to
 // share a profile with three colleagues.
 //
+// They go through it STREAMED, which is not the same statement. The first
+// version took `body: Bytes`, and two things followed that nobody noticed
+// because the tests used bundles a few hundred bytes long:
+//
+//   - axum's default body limit is 2 MB. Every real profile on the machine this
+//     was found on was larger — 8.4, 8.7 and 33 MB — so team sync answered 413
+//     to every upload it had ever been asked to make, and said so only in a
+//     status code nothing was reading.
+//   - a bundle was held whole in server memory. Three operators closing large
+//     profiles at once is the machine.
+//
 // What the server never has is a key. It stores ciphertext, the wrapped key it
 // cannot open, and a digest *of the ciphertext* so it can verify what it holds
 // without being able to read it.
@@ -2758,11 +2769,31 @@ pub fn check_bundle_root() -> anyhow::Result<std::path::PathBuf> {
 /// with the same profile open produce two bundles, and silently keeping the
 /// later one loses whatever the first did — which for a warmed account can be
 /// weeks of work.
+/// The largest bundle this server will accept, in bytes.
+///
+/// There is a limit because a body arriving over HTTP is written by whoever is
+/// sending it, and "no limit" means one operator can fill the disk. There is
+/// not a SMALL limit because axum's default is 2 MB and that is smaller than
+/// any real profile: measured on this machine, three profiles in daily use were
+/// 8.4, 8.7 and 33 MB. Team sync had never worked for a real profile — every
+/// upload was refused with 413, and nothing said so out loud.
+///
+/// One gigabyte is generous on purpose. Bundles skip caches now (bundle.rs) so
+/// what travels is cookies, storage, history and preferences, which is
+/// megabytes; a profile that reaches a gigabyte has something in it worth
+/// asking about, and a refusal is the way to ask.
+pub fn max_bundle_bytes() -> usize {
+    std::env::var("FURY_MAX_BUNDLE_BYTES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1024 * 1024 * 1024)
+}
+
 async fn upload_bundle(
     mut db: auth::Db,
     Path(profile_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
-    body: axum::body::Bytes,
+    body: axum::body::Body,
 ) -> ApiResult<Json<serde_json::Value>> {
     // Copied out so that reading it does not borrow the connection: a
     // handler needs both in the same expression constantly.
@@ -2820,17 +2851,59 @@ async fn upload_bundle(
         ));
     }
 
-    // Verified before anything is written. A truncated upload that is recorded
-    // as a version is a profile that restores broken, and the operator finds
-    // out on the machine that needed it.
+    // Streamed to a temporary file, hashed on the way past, and only then moved
+    // into place. Three things at once:
+    //
+    //   - a bundle is never held whole in memory. It used to be
+    //     `body: Bytes`, which meant a 300 MB upload was 300 MB of server, and
+    //     several at once was the machine.
+    //   - the digest is verified BEFORE anything is visible. A truncated upload
+    //     recorded as a version is a profile that restores broken, and the
+    //     operator finds out on the machine that needed it.
+    //   - the move is atomic within the directory, so a client that disappears
+    //     mid-upload leaves a stray temporary file rather than a half-written
+    //     version somebody will later be handed.
+    use futures_util::StreamExt;
+    use sha2::{Digest, Sha256};
+
+    let dir = bundle_root().join(profile_id.to_string());
+    std::fs::create_dir_all(&dir).map_err(|e| ApiError::Internal(e.into()))?;
+    let staging = dir.join(format!(".incoming-{}", Uuid::now_v7()));
+
+    let mut hasher = Sha256::new();
+    let mut written: usize = 0;
+    let limit = max_bundle_bytes();
     {
-        use sha2::{Digest, Sha256};
-        let actual: String = Sha256::digest(&body).iter().map(|b| format!("{b:02x}")).collect();
-        if actual != sha256 {
-            return Err(ApiError::BadRequest(
-                "the body does not match the digest it was sent with".into(),
-            ));
+        let mut file = std::fs::File::create(&staging).map_err(|e| ApiError::Internal(e.into()))?;
+        let mut stream = body.into_data_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| {
+                let _ = std::fs::remove_file(&staging);
+                ApiError::BadRequest(format!("the upload stopped early: {e}"))
+            })?;
+            written += chunk.len();
+            if written > limit {
+                let _ = std::fs::remove_file(&staging);
+                return Err(ApiError::BadRequest(format!(
+                    "this bundle is over the {} MB limit for this server",
+                    limit / (1024 * 1024)
+                )));
+            }
+            hasher.update(&chunk);
+            use std::io::Write;
+            if let Err(e) = file.write_all(&chunk) {
+                let _ = std::fs::remove_file(&staging);
+                return Err(ApiError::Internal(e.into()));
+            }
         }
+    }
+
+    let actual: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    if actual != sha256 {
+        let _ = std::fs::remove_file(&staging);
+        return Err(ApiError::BadRequest(
+            "the body does not match the digest it was sent with".into(),
+        ));
     }
 
     let current: i32 = sqlx::query_scalar("SELECT current_version FROM profiles WHERE id = $1")
@@ -2846,10 +2919,9 @@ async fn upload_bundle(
     }
 
     let version = current + 1;
-    let dir = bundle_root().join(profile_id.to_string());
-    std::fs::create_dir_all(&dir).map_err(|e| ApiError::Internal(e.into()))?;
     let key = format!("{profile_id}/{version}.bundle");
-    std::fs::write(bundle_root().join(&key), &body).map_err(|e| ApiError::Internal(e.into()))?;
+    std::fs::rename(&staging, bundle_root().join(&key))
+        .map_err(|e| ApiError::Internal(e.into()))?;
 
     let mut tx = db.begin().await?;
     sqlx::query(
@@ -2861,7 +2933,7 @@ async fn upload_bundle(
     .bind(profile_id)
     .bind(version)
     .bind(&key)
-    .bind(body.len() as i64)
+    .bind(written as i64)
     .bind(sha256.as_bytes())
     .bind(wrapped_key.as_bytes())
     .bind(caller.user_id)
@@ -2875,7 +2947,7 @@ async fn upload_bundle(
     tx.commit().await?;
 
     audit(db.as_mut(), &caller, "bundle.upload", Some(profile_id),
-          json!({ "version": version, "bytes": body.len() })).await?;
+          json!({ "version": version, "bytes": written })).await?;
 
     Ok(Json(json!({ "version": version })))
 }

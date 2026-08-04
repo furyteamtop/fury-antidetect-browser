@@ -160,6 +160,59 @@ pub struct Sealed {
 /// is always "the profile is corrupt" rather than "there is a stale lock".
 const SKIP: &[&str] = &["SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile"];
 
+/// Caches. Not account state, and not worth carrying between machines.
+///
+/// Measured on a real profile from this machine: 33 MB on disk, of which
+/// 19.7 MB was `download_cache`, 5.9 MB `GraphiteDawnCache`, 1.8 MB
+/// `component_crx_cache`, 1.6 MB `CertificateRevocation`, and another 2.7 MB of
+/// GPU and dictionary caches inside `Default`. What a colleague actually needs
+/// — cookies, storage, history, sessions, preferences — came to under 1.5 MB.
+///
+/// So this is not tidiness: it is the difference between a sync that moves a
+/// megabyte and one that moves thirty, on every close, for every profile.
+///
+/// Two of them would be actively wrong to carry. GPUCache, DawnGraphiteCache,
+/// DawnWebGPUCache and GraphiteDawnCache are keyed to the GPU that filled them,
+/// and restoring one machine's onto another is asking a driver to read another
+/// driver's compiled shaders. Chromium discards them, which is the good case.
+///
+/// Everything here is rebuilt on demand by design; nothing here is a login.
+///
+/// The list was chosen by measuring the three real profiles on the machine that
+/// wrote this, not by pattern-matching on the word "cache". Two candidates were
+/// dropped for the same reason in reverse:
+///
+///   - `Service Worker` is 20-32 KB and holds registrations, not just scripts.
+///     Dropping it can sign somebody out of a site whose auth lives in a worker,
+///     which is a bad trade for 30 KB.
+///   - `Network Action Predictor` is 52-80 KB of typed-URL history. It is
+///     behaviour, not cache, and behaviour is part of what a profile is for.
+const SKIP_CACHES: &[&str] = &[
+    // Whole-profile, measured at 19.7 MB, 5.9 MB, 1.8 MB and 1.6 MB
+    // respectively on a 33 MB profile.
+    "download_cache",
+    "GraphiteDawnCache",
+    "component_crx_cache",
+    "CertificateRevocation",
+    "Subresource Filter",
+    "segmentation_platform",
+    // Per-profile, inside Default/. The Dawn and GPU caches are keyed to the
+    // GPU that filled them; carrying one machine's to another asks a driver to
+    // read another driver's compiled shaders, and Chromium discards them, which
+    // is the good outcome rather than the bad one.
+    "Cache",
+    "Code Cache",
+    "GPUCache",
+    "DawnGraphiteCache",
+    "DawnWebGPUCache",
+    "ShaderCache",
+    "GrShaderCache",
+    // 1 MB on the largest profile here: compression dictionaries a site sends
+    // and the browser re-fetches.
+    "Shared Dictionary",
+    "optimization_guide_hint_cache_store",
+];
+
 impl std::fmt::Debug for Sealed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Sealed")
@@ -271,7 +324,7 @@ fn append_dir<W: Write>(
         let path = entry.path();
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if SKIP.iter().any(|s| *s == name) {
+        if SKIP.iter().any(|s| *s == name) || SKIP_CACHES.iter().any(|s| *s == name) {
             continue;
         }
         if path.is_dir() {
@@ -382,6 +435,44 @@ mod tests {
         assert!(
             unpack(&sealed.bytes, &sealed.wrapped_key, &Sealer::Machine(&vault), &dir("d2")).is_err(),
             "a team bundle opened under a machine key"
+        );
+    }
+
+    #[test]
+    fn caches_do_not_travel_but_account_state_does() {
+        // The measurement that produced SKIP_CACHES, as an assertion. A profile
+        // on the machine this was written on was 33 MB, of which 32 was cache;
+        // team sync had never worked for a real profile, partly because of that
+        // and partly because the server refused anything over 2 MB.
+        let d = dir("skip-caches");
+        let default = d.join("Default");
+        std::fs::create_dir_all(default.join("GPUCache")).unwrap();
+        std::fs::create_dir_all(d.join("download_cache")).unwrap();
+        std::fs::create_dir_all(default.join("Service Worker")).unwrap();
+        std::fs::write(default.join("GPUCache/data_1"), vec![b'c'; 200_000]).unwrap();
+        std::fs::write(d.join("download_cache/blob"), vec![b'c'; 200_000]).unwrap();
+        std::fs::write(default.join("Cookies"), b"the account").unwrap();
+        std::fs::write(default.join("Service Worker/reg.db"), b"a registration").unwrap();
+
+        let vault = Vault::for_tests([3u8; 32]);
+        let sealed = pack(&d, &Sealer::Machine(&vault)).unwrap();
+        let out = dir("skip-caches-out");
+        unpack(&sealed.bytes, &sealed.wrapped_key, &Sealer::Machine(&vault), &out).unwrap();
+
+        assert!(out.join("Default/Cookies").exists(), "the account did not travel");
+        // Kept deliberately: a registration is not a cache, and dropping it can
+        // sign somebody out of a site whose auth lives in a worker.
+        assert!(
+            out.join("Default/Service Worker/reg.db").exists(),
+            "a service worker registration was dropped"
+        );
+        assert!(!out.join("Default/GPUCache").exists(), "a GPU cache travelled");
+        assert!(!out.join("download_cache").exists(), "the download cache travelled");
+        // 400 KB of cache in, and the sealed bundle should be nowhere near it.
+        assert!(
+            sealed.bytes.len() < 50_000,
+            "the bundle is {} bytes — the caches are still in it",
+            sealed.bytes.len()
         );
     }
 

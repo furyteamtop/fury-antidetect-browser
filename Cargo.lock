@@ -1449,6 +1449,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "fury-shared",
+ "futures-util",
  "rand 0.8.7",
  "serde",
  "serde_json",

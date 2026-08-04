@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+# Only for StreamExt on the upload body: a bundle is streamed to disk rather
+# than buffered, because axum's default 2 MB body limit is smaller than any
+# real profile and buffering the alternative is worse.
+futures-util = { version = "0.3", default-features = false }
 fury-shared = { path = "../shared-rs" }
 anyhow.workspace = true
 thiserror.workspace = true
