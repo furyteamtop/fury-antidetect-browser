@@ -25,16 +25,49 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Two jobs rather than one, and the split is the point rather than a
+  # workaround.
+  #
+  # The first run of this workflow — the first ever, because there was no remote
+  # until publication — failed here:
+  #
+  #     error: failed to run custom build command for `gobject-sys v0.18.0`
+  #     The system library `gobject-2.0` was not found.
+  #
+  # fury-desktop is Tauri, and on Linux Tauri is GTK and WebKitGTK. On macOS it
+  # is WKWebView and on Windows it is WebView2, so that dependency exists on
+  # exactly the platform this project does not ship. Installing a GTK stack on
+  # the runner would have made the red tick go away and would have tested the
+  # shell against a toolkit it will never run on.
+  #
+  # So: the shell is tested where it ships, and everything else is tested on
+  # Linux — which also keeps honest the claim in platform-rs/src/dirs.rs that
+  # the Rust still compiles there for contributors, since an untested claim is
+  # the thing this repository is supposed to be against.
+
   rust:
-    name: cargo test
+    name: cargo test (everything but the shell)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace --all-targets
+      # --exclude fury-desktop, not --exclude tauri: the crate is what pulls
+      # GTK, and naming the crate says which platform decision is behind it.
+      - run: cargo test --workspace --exclude fury-desktop --all-targets
       - name: cargo build --release
-        run: cargo build --release --workspace
+        run: cargo build --release --workspace --exclude fury-desktop
+
+  shell-rust:
+    name: cargo test (the shell, on macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # The whole workspace, so this is also the job that proves the agent and
+      # the server build on the platform that is actually released.
+      - run: cargo test --workspace --all-targets
 
   windows-surface:
     name: the Windows code compiles
