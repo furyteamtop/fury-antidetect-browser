@@ -24,7 +24,7 @@
 #     Settings → General → Social preview, and assets/logo.png is what to
 #     upload.
 #
-# Run the checks first. This pushes 153 commits to a public address and the
+# Run the checks first. This pushes the whole history to a public address and the
 # cheapest moment to notice a problem is before that, not after — see
 # tools/ci/check-repo-url.py for what happens when the address is wrong in one
 # place out of eleven.
@@ -82,8 +82,20 @@ TOPICS=(
 say() { printf '==> %s\n' "$*"; }
 die() { printf '!! %s\n' "$*" >&2; exit 1; }
 
-command -v gh >/dev/null || die "gh is not installed. See the note at the top of this file."
-gh auth status >/dev/null 2>&1 || die "gh is not authenticated. Run: gh auth login"
+# gh may not be on PATH. It is commonly installed outside one — Homebrew's
+# prefix differs between Intel and Apple silicon, and a tarball unpacked by
+# hand usually lands in ~/.local/bin, which macOS does not add to PATH by
+# default. Looking in the obvious places beats telling somebody to edit their
+# shell profile before they can publish.
+GH="$(command -v gh || true)"
+for candidate in "$HOME/.local/bin/gh" /opt/homebrew/bin/gh /usr/local/bin/gh; do
+  [ -n "$GH" ] && break
+  [ -x "$candidate" ] && GH="$candidate"
+done
+[ -n "$GH" ] || die "gh is not installed. See the note at the top of this file."
+
+"$GH" auth status >/dev/null 2>&1 || die "gh is not authenticated. Run:
+     $GH auth login"
 
 # ---------------------------------------------------------------------------
 say "checking before publishing — this is the last cheap moment"
@@ -110,7 +122,7 @@ if [ "$CODED" != "$TARGET" ]; then
    neither reports an error."
 fi
 
-if gh repo view "$TARGET" >/dev/null 2>&1; then
+if "$GH" repo view "$TARGET" >/dev/null 2>&1; then
   die "$TARGET already exists. Refusing to touch it."
 fi
 
@@ -120,9 +132,9 @@ say "creating $TARGET (${VISIBILITY#--})"
 # No --add-readme, no --gitignore, no --license: all three are already in the
 # repository, and letting GitHub create its own would put a commit at the root
 # that the local history does not have, which makes the first push a conflict.
-gh repo create "$TARGET" "$VISIBILITY" --description "$DESCRIPTION" ${HOMEPAGE:+--homepage "$HOMEPAGE"}
+"$GH" repo create "$TARGET" "$VISIBILITY" --description "$DESCRIPTION" ${HOMEPAGE:+--homepage "$HOMEPAGE"}
 
-say "pushing 153 commits"
+say "pushing $(git rev-list --count HEAD) commits"
 git remote get-url origin >/dev/null 2>&1 && git remote remove origin
 git remote add origin "https://github.com/$TARGET.git"
 git push -u origin main
@@ -130,10 +142,10 @@ git push -u origin main
 # ---------------------------------------------------------------------------
 say "topics"
 # ---------------------------------------------------------------------------
-gh api -X PUT "repos/$TARGET/topics" \
+"$GH" api -X PUT "repos/$TARGET/topics" \
   -H "Accept: application/vnd.github+json" \
   -f "names[]=$(IFS=,; echo "${TOPICS[*]}")" >/dev/null 2>&1 ||
-gh repo edit "$TARGET" $(printf -- '--add-topic %s ' "${TOPICS[@]}")
+"$GH" repo edit "$TARGET" $(printf -- '--add-topic %s ' "${TOPICS[@]}")
 say "  ${#TOPICS[@]} set"
 
 # ---------------------------------------------------------------------------
@@ -152,7 +164,7 @@ say "settings"
 # Squash-merge only, with the branch deleted after: the history is the design
 # record here — the series file, the commit messages, the reasoning — and a
 # merge commit per pull request buries it.
-gh repo edit "$TARGET" \
+"$GH" repo edit "$TARGET" \
   --enable-issues \
   --enable-wiki=false \
   --enable-projects=false \
@@ -165,8 +177,8 @@ gh repo edit "$TARGET" \
 
 # Vulnerability alerts on the dependency graph. Free, and this repository ships
 # 623 crates and 132 npm packages.
-gh api -X PUT "repos/$TARGET/vulnerability-alerts" >/dev/null 2>&1 || true
-gh api -X PUT "repos/$TARGET/automated-security-fixes" >/dev/null 2>&1 || true
+"$GH" api -X PUT "repos/$TARGET/vulnerability-alerts" >/dev/null 2>&1 || true
+"$GH" api -X PUT "repos/$TARGET/automated-security-fixes" >/dev/null 2>&1 || true
 
 echo
 say "published: https://github.com/$TARGET"
