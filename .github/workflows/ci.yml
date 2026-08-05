@@ -65,6 +65,26 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # The sidecar has to exist before the shell's Rust will compile at all.
+      # tauri.conf.json declares externalBin: ["binaries/fury-agent"], and
+      # tauri-build resolves that to binaries/fury-agent-<target-triple> in its
+      # build script. desktop/src-tauri/binaries/ is gitignored — a 7 MB binary
+      # per platform has no business in the history — so a fresh checkout does
+      # not have one and the build script stops with
+      #
+      #     resource path `binaries/fury-agent-aarch64-apple-darwin` doesn't exist
+      #
+      # scripts/sidecar.sh builds the agent and puts it there under the right
+      # name, which is the same script a release uses.
+      #
+      # This was invisible until the first CI run, and it is the oldest bug
+      # there is: the developer's machine had one left over from an earlier
+      # build, so the crate compiled locally and could not compile anywhere
+      # else. Reproduced by moving the directory aside and watching it fail
+      # with the same message — the first guess was the frontend, and moving
+      # dist/ aside disproved that before it reached a commit.
+      - run: desktop/scripts/sidecar.sh
+
       # The whole workspace, so this is also the job that proves the agent and
       # the server build on the platform that is actually released.
       - run: cargo test --workspace --all-targets
@@ -203,6 +223,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # status.py footers the commit that last touched the baselines —
+          # `git log -1 -- baselines/...` — so the reader can see when the
+          # measurement was taken rather than when the page was generated. A
+          # depth-1 checkout has no such commit to find, the footer comes out
+          # empty, and --check reports the page as out of date on a page that
+          # is perfectly current.
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       # A capture is taken by running a browser on somebody's real machine, so

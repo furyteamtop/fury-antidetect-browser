@@ -94,11 +94,32 @@ Thirteen checks; all must pass.
 `agent/`, `server/`, `desktop/`, `shared-rs/` are ordinary Rust and TypeScript.
 
 ```bash
+desktop/scripts/sidecar.sh      # once, before the first cargo test
 cargo test --workspace          # 253 tests
 cd desktop && npm run build     # typechecks and bundles the shell
 ```
 
-Both must pass. There is no formatter check and no lint gate — match the
+The first line surprises people, so: `desktop/src-tauri/tauri.conf.json`
+declares the agent as a Tauri sidecar, and `tauri-build` looks for it at
+`binaries/fury-agent-<target-triple>` while running the shell's build script.
+That directory is gitignored — a 7 MB binary per platform has no business in
+the history — so on a fresh clone the shell does not compile and says
+
+```
+resource path `binaries/fury-agent-aarch64-apple-darwin` doesn't exist
+```
+
+which names a path that has never existed on your machine and does not mention
+the script that creates it. `sidecar.sh` builds the agent and puts it there,
+and it is the same script a release uses.
+
+It went unnoticed until the first CI run, because every machine that had ever
+built the shell already had one.
+
+Skip it and `cargo test --workspace --exclude fury-desktop` still works, which
+is what CI runs on Linux.
+
+All three must pass. There is no formatter check and no lint gate — match the
 surrounding code instead, which is more specific than any rule set: comments
 explain *why*, cite `file:line` for claims about upstream code, and record what
 was measured rather than what was assumed, including what was got wrong first.
