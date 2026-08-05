@@ -76,7 +76,47 @@ im = Image.open(src).convert("RGBA")
 im.save(out, sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
 ICO
 
+echo "==> social preview"
+# The card GitHub shows when the repository is linked anywhere — Telegram,
+# Twitter, Slack, a search result.
+#
+# Not urgent and not a fix: with none set, GitHub generates its own card from
+# the name, the description and the avatar, so the fallback is respectable
+# rather than blank. This is polish.
+#
+# 1280x640 exactly, because GitHub crops to 2:1 and the sources are 1920x819
+# (2.34:1). Uploading a source directly loses a slice off the top and bottom.
+#
+# The dark wordmark on the brand's near-black, rather than the light one: every
+# client that shows this puts it on its own background, some white and some
+# black, so the card carries its own and stops depending on where it lands.
+python3 - "$HERE/logo-dark.png" "$HERE/social-preview.png" <<'SOCIAL'
+import sys
+from PIL import Image
+
+src, out = sys.argv[1], sys.argv[2]
+W, H = 1280, 640
+BG = (13, 14, 18)          # sampled from icon.png's own background
+
+logo = Image.open(src).convert("RGBA")
+# Crop to the ink. The source carries transparent margins of its own, and
+# centring the FILE rather than the ARTWORK puts the wordmark visibly high.
+logo = logo.crop(logo.getbbox())
+
+# 68% of the width. Wide enough to read in a small card, with enough air that
+# it does not look cropped when a client rounds the corners.
+target_w = int(W * 0.68)
+scale = target_w / logo.width
+logo = logo.resize((target_w, max(1, int(logo.height * scale))), Image.LANCZOS)
+
+card = Image.new("RGB", (W, H), BG)
+card.paste(logo, ((W - logo.width) // 2, (H - logo.height) // 2), logo)
+card.save(out, optimize=True)
+print(f"    {out}  {W}x{H}")
+SOCIAL
+
 echo "==> Done."
 echo "    desktop/src-tauri/icons/   Tauri shell"
 echo "    desktop/src-tauri/icons/icon.icns  and icon.ico"
 echo "    core/branding/app.icns     patch 0900, when it is written"
+echo "    assets/social-preview.png  repository Settings -> General -> Social preview"
