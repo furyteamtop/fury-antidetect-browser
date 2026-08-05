@@ -351,6 +351,60 @@ fn cmd_redact(args: &[String]) -> Result<()> {
                  Run `fury-detect redact` on one before committing it.)"
             );
         }
+
+        // And the mistake in the other direction, which is the one that
+        // actually happened.
+        //
+        // Redacting too much is not a leak, so nothing above notices it, and it
+        // is worse in one specific way: a capture with a real address in it is
+        // obviously wrong, while a capture with a placeholder where a clock
+        // belongs looks redacted and is simply false. Two tracked baselines
+        // carried
+        //
+        //     "Thu Jan 01 1970 2001:db8::7 GMT+0400 (…)"
+        //
+        // for months. An early version of the scrubber saw "04:00:00" — three
+        // groups of hex-looking digits separated by colons — and rewrote it as
+        // an IPv6 address. That bug is fixed (see the looks_v6 test above,
+        // which requires :: or eight groups), but the damage it did was in
+        // files, and a fixed scrubber does not go back and repair them.
+        let mut over: Vec<(String, String, String)> = Vec::new();
+        for path in tracked.iter() {
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(path) else { continue };
+            let Ok(json) = serde_json::from_str::<Value>(&text) else { continue };
+            let mut flat = BTreeMap::new();
+            flatten(&json, "", &mut flat);
+            for (key, value) in &flat {
+                let k = key.to_ascii_lowercase();
+                if !(k.contains("date") || k.contains("time") || k.contains("clock")) {
+                    continue;
+                }
+                if value.contains("2001:db8") || value.contains("203.0.113") {
+                    over.push((
+                        path.display().to_string(),
+                        key.clone(),
+                        value.clone(),
+                    ));
+                }
+            }
+        }
+        if !over.is_empty() {
+            eprintln!("!! a placeholder address is standing where a clock belongs:");
+            for (file, key, value) in &over {
+                eprintln!("     {file}");
+                eprintln!("       {key} = {value}");
+            }
+            anyhow::bail!(
+                "{} over-redacted field(s). The scrubber no longer does this; these are \
+                 old damage and have to be repaired by hand — the value is recoverable, \
+                 because epoch 0 rendered in GMT+NNNN is always NN:00:00.",
+                over.len()
+            );
+        }
+        println!("no committed baseline has a placeholder where a clock belongs");
         return Ok(());
     }
 

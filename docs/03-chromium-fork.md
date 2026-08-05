@@ -81,6 +81,7 @@ core/
     ├── apply.sh          # наложить серию; падает, если патч из series нет на диске
     ├── refresh.sh        # снять изменения из дерева обратно в патч
     ├── rebase.sh         # переехать на новый upstream-тег
+    ├── link-icons.sh     # положить иконки Fury в дерево — обязательный шаг, см. ниже
     ├── link-widevine.sh  # положить CDM из установленного Chrome рядом со сборкой
     └── build.sh          # gn gen + autoninja
 
@@ -287,6 +288,17 @@ Metal сменило бы графический стек, который мы �
 
 `fetch.sh` и `build.sh` делают это сами.
 
+### 2a. Pillow для иконок
+
+`core/build/link-icons.sh` собирает `.icns` и `Assets.car` из
+`assets/icon.png` и импортирует `PIL`. В системном python3 на macOS его нет, и
+скрипт падает на `ModuleNotFoundError` посреди подготовки дерева — то есть после
+часа, ушедшего на `fetch.sh`.
+
+```bash
+python3 -m pip install --user Pillow
+```
+
 ### 3. macOS поставляется с bash 3.2
 
 Не bash 4+. Нет `mapfile`, `readarray`, `declare -A`, `${var,,}`. Скрипт,
@@ -364,10 +376,17 @@ git ls-remote --tags https://chromium.googlesource.com/chromium/src.git | grep -
 #    выясняется это только на следующем ребейзе. Так уже было дважды: 0031 унёс
 #    BUILD.gn и DEPS из 0001, 0302 дважды унёс fury_switches.{h,cc}.
 
-# 5. Собрать и снять отпечаток
+# 5. Положить иконки — между apply.sh и build.sh, не после
+./core/build/link-icons.sh
+#    Иконки — это PNG и .icns, а серия патчей в стиле quilt с бинарями внутри
+#    нечитаема и неребейзима, поэтому они кладутся скриптом, а не патчем 0900.
+#    Пропустить — получить браузер по имени Fury в иконках Chromium, что хуже
+#    любого из двух. Требует Pillow: python3 -m pip install --user Pillow
+
+# 6. Собрать и снять отпечаток
 ./core/build/build.sh macos-arm64
-#    Бинарь: core/src/out/<target>/Chromium.app — имя останется Chromium, пока не
-#    написан 0900. Детект-сюит сравнивает ДАМПЫ, а не бинари, поэтому сначала снять:
+#    Бинарь: core/src/out/<target>/Fury.app — переименование делает 0900.
+#    Детект-сюит сравнивает ДАМПЫ, а не бинари, поэтому сначала снять:
 tools/detect-suite/capture-chrome.sh fury-151 \
   core/src/out/macos-arm64.noindex/Fury.app/Contents/MacOS/Fury
 cargo run -p fury-detect -- gate tools/detect-suite/baselines/fury-151.json
@@ -384,12 +403,12 @@ Google переименовал метод, и ваш вызов теперь в
 ## Брендинг
 
 Chromium — BSD-3, форкать можно. Но **нельзя** использовать название Chrome, Chromium,
-логотип Google и связанные знаки в вашем продукте. Патч `0900` **не написан** — серия
-держит его закомментированным и записывает, что он заблокирован на ассетах, а не на
-коде. Поэтому сборка сегодня называется Chromium и ставит bundle id
-`org.chromium.Chromium`.
+логотип Google и связанные знаки в вашем продукте. Патч `0900-branding.patch`
+это и делает: он написан, активен в серии и меняет ровно один файл —
+`chrome/app/theme/chromium/BRANDING`. Сборка называется Fury и ставит bundle id
+`dev.fury.Fury`.
 
-Когда он появится, менять надо данные, а не исходники: `chrome/app/theme/chromium/BRANDING`
+Менять надо данные, а не исходники: `chrome/app/theme/chromium/BRANDING`
 читается `build/util/branding.gni` в `chrome_product_full_name` и mac bundle id, а от них
 уже производны `.app`, `.framework`, helper-бандлы, `CFBundleIdentifier`, поиск runtime
 framework и crash-аннотация. Ни `chrome/BUILD.gn`, ни `app-Info.plist`, ни
@@ -409,5 +428,6 @@ Chromium хуже, чем отсутствие переименования.
 имени вывода, поэтому в каталоге сборки окажутся оба бандла, и тот, кто проверит старый
 путь, доложит, что патч ничего не сделал.
 
-Из диапазона 0900-0999 написан один патч — `0901`, в одну строку: дефолт
+Из диапазона 0900-0999 написаны два: `0900-branding.patch` (см. выше) и
+`0901-disable-google-services.patch`, в одну строку — дефолт
 `kSafeBrowsingEnabled = false`. См. docs/05, рубеж 1.
