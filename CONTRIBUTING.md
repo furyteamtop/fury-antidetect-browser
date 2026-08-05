@@ -94,7 +94,7 @@ Thirteen checks; all must pass.
 `agent/`, `server/`, `desktop/`, `shared-rs/` are ordinary Rust and TypeScript.
 
 ```bash
-cargo test --workspace          # 197 tests
+cargo test --workspace          # 253 tests
 cd desktop && npm run build     # typechecks and bundles the shell
 ```
 

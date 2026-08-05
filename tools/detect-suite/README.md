@@ -10,7 +10,7 @@ See [docs/07](../../docs/07-detection-baseline.md) for the release gate this fee
 
 | File | What it does |
 |---|---|
-| `probe.js` | Dumps ~250 fingerprint values, then re-reads them from a Worker and four kinds of iframe and reports where the answers disagree |
+| `probe.js` | Dumps ~250 fingerprint values, then re-reads them from a Worker and three kinds of iframe and reports where the answers disagree |
 | `probe.html` | Open in any browser under test. Runs the probe, shows pass/fail on the critical checks, saves the dump |
 | `collector.py` | Serves `probe.html` and accepts dumps POSTed back into `baselines/` |
 | `capture-chrome.sh` | Captures a baseline with no clicking: launches a browser on a throwaway profile pointed at `probe.html?auto=<name>` |
@@ -137,7 +137,7 @@ collector then never sees the request at all.
 
 Probing `SharedWorker`, `ServiceWorker`, `AudioWorklet` and a genuinely
 cross-origin OOPIF. The current cross-context comparison covers the main frame, a
-Worker and four kinds of iframe — enough to catch the common leak, not yet the
+Worker and three kinds of iframe — enough to catch the common leak, not yet the
 full surface from [docs/02](../../docs/02-fingerprint-surface.md) layer 3.
 
 CDP-driven capture. `capture-chrome.sh` covers everything launchable with flags,

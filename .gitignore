@@ -48,6 +48,20 @@ secrets/
 # tracked tree. It is a run log, not source.
 *.log
 
+# Python bytecode. examples/fury.py is the automation sample and importing it
+# once leaves a .pyc beside it — which CPython stamps with the ABSOLUTE PATH of
+# the source it was compiled from. One got committed, and it was the only thing
+# in 1984 blobs of history that carried a real home directory:
+#
+#     /Users/<name>/Vibecoding/projects/antik/examples/fury.py
+#
+# Found by sweeping every blob that ever existed rather than the working tree,
+# which is the only sweep that would have found it — the file was added once and
+# never touched again. Removed from the history before the repository was
+# published, because that is the last moment it is free to do.
+__pycache__/
+*.pyc
+
 # OS
 .DS_Store
 Thumbs.db

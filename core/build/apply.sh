@@ -101,7 +101,7 @@ if [ ${#missing[@]} -gt 0 ]; then
   echo
   echo "The browser this produces is missing those vectors. Either write them,"
   echo "or comment the lines out in $PATCHES/series with the reason — the file"
-  echo "already does that for 0013, 0082 and 0100."
+  echo "already does that for 0013 and 0100."
   if [ "$ALLOW_MISSING" -eq 0 ]; then
     exit 1
   fi

@@ -9,9 +9,23 @@ team. No seats, no per-profile pricing, no telemetry.
 
 *[Русская версия](README.ru.md)*
 
-> **Status: in development.** The core builds and spoofs; the agent launches
-> profiles; the server and desktop shell work. What is *not* done is listed at
-> the bottom, honestly. There are no releases yet.
+> **Status: in development. macOS only, for now.** The core builds and spoofs;
+> the agent launches profiles; the server and desktop shell work. There are no
+> releases yet — you build it yourself, and [docs/03](docs/03-chromium-fork.md)
+> says what that takes.
+>
+> **Windows** is one build away, not one port away. The launcher — agent and
+> desktop shell — is ported and cross-compiles for `x86_64-pc-windows-msvc` on
+> every commit, and the core patches read their config from an inherited HANDLE.
+> What is missing is that nobody has run the Chromium build on a Windows
+> machine, so no Windows core exists and none has been measured. That is a
+> machine, not a problem — and until it happens, this says *not yet* rather than
+> *soon*, because a date nobody can keep is worth less than a sentence that is
+> true.
+>
+> **Linux** is not a target. See the table at the bottom.
+>
+> Everything that is *not* done is listed at the bottom, honestly.
 
 ## Why another one
 
@@ -77,7 +91,7 @@ desktop (Tauri)  ──socket──▶  agent (Rust)  ──spawn──▶  core
      └──HTTPS──▶ server (optional: teams)
 ```
 
-- **core** — Chromium 150 fork, [26 patches](core/patches/); spoofing is in C++,
+- **core** — Chromium 150 fork, [27 patches](core/patches/); spoofing is in C++,
   never injected JavaScript
 - **agent** — the only component holding decrypted secrets: proxy relays,
   launching, the local automation API
@@ -95,10 +109,14 @@ page to send anybody who asks how to try this.
 
 ## Build
 
-The core takes about six hours and ~100 GB on a 16 GB machine, measured rather
-than estimated. Everything else takes minutes. Incremental rebuilds after the
-first are under a minute; `ccache` and `sccache` do not help, because the build
-uses `-fmodules` and they miss on everything.
+The core took **2 h 42 min** on an Apple M5 with 10 cores and 16 GB, in the
+`macos-arm64-lowmem` configuration — measured on 30.07.2026, not estimated. The
+checkout and one build directory come to ~39 GB, also measured; `fetch.sh` still
+demands 150 GB free and warns about ~100 GB, and that number is a cautious
+estimate rather than a measurement ([docs/03](docs/03-chromium-fork.md)).
+Everything else takes minutes. Incremental rebuilds after the first are 5-30
+minutes depending on what changed; `ccache` and `sccache` do not help, because
+the build uses `-fmodules` and they miss on everything.
 
 ```bash
 git clone https://github.com/fury-browser/fury && cd fury

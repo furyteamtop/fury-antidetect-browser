@@ -15,7 +15,7 @@
 #   core/build/fetch.sh          once
 #   core/build/apply.sh          per revision
 #   core/build/link-icons.sh
-#   core/build/build.sh          six hours the first time, under a minute after
+#   core/build/build.sh <target>  2 h 42 min the first time, 5-30 min after
 #
 # Manual by default. A scheduled run is in here and commented out: turn it on
 # once a runner exists, because a red tick nobody can act on trains people to
@@ -41,7 +41,10 @@ jobs:
           core/build/link-icons.sh
 
       - name: build
-        run: core/build/build.sh
+        # build.sh takes the gn config as its one argument and refuses without
+        # it. The job had no argument, so it could never have run — which nobody
+        # noticed because it is manual-only and there is no self-hosted runner yet.
+        run: core/build/build.sh macos-arm64-lowmem
 
       # One script per patch, each driving the built browser over CDP and
       # asserting what the patch claims. These exist because "it applies" and

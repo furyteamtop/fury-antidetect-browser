@@ -1,5 +1,15 @@
 # Installing Fury
 
+> **There are no releases yet.** Every download link on this page points at a
+> Releases page that is empty, and it will stay empty until a build has been
+> signed and measured. Until then the way in is to build it: the application and
+> the agent take minutes (`cargo build --release`), the browser core takes about
+> three hours ([docs/03](03-chromium-fork.md)).
+>
+> The page is written anyway, and written first, because the instructions are
+> the specification — what a release has to produce is exactly what this page
+> already promises.
+
 For a person who has not built anything. If you want to build from source, that
 is [docs/03](03-chromium-fork.md) and the README; this page assumes you have a
 computer and a browser and nothing else.
@@ -78,11 +88,26 @@ Two `OK` lines mean the files are what was published.
 
 ### If macOS refuses to open it
 
-The application is signed and notarised, so it should just open. If it does not:
+**It is not signed or notarised yet**, so macOS will object, and the objection
+is expected rather than a sign that anything is wrong. There is no Apple
+Developer certificate for this project; `tools/release/sign-core.sh` is written
+and waiting for one.
 
-**"Fury cannot be opened because the developer cannot be verified."** The
-download did not carry its notarisation ticket, which usually means it came
-from somewhere other than the Releases page. Download it again from there.
+**"Fury cannot be opened because the developer cannot be verified."** This is
+the normal result for an unsigned application, and it is what you should expect
+for the *correct* file — an earlier version of this page told you to download it
+again, which was a loop with no exit. Instead:
+
+  1. Right-click (or Control-click) Fury.app and choose **Open**, then **Open**
+     again in the dialog. macOS remembers the choice for that copy.
+  2. If that does not work, strip the quarantine flag:
+
+     ```bash
+     xattr -dr com.apple.quarantine /Applications/Fury.app
+     ```
+
+The same applies to the core: `fury-agent install-core` removes the flag from
+what it unpacks, which is why the core needs no step of its own here.
 
 **"Fury is damaged and should be moved to the Bin."** This one is almost never a
 damaged file. It means the bundle's signature no longer matches its contents —
@@ -94,25 +119,36 @@ That is a signing arrangement rather than a broken build; see
 [tools/release/sign-core.sh](../tools/release/sign-core.sh), which explains it
 in full.
 
-## Linux
-
-No packaged release yet. The application and the agent build in minutes:
-
-```bash
-cargo build --release
-cd desktop && npm install && npm run app:build
-```
-
-The core has to be built from source ([docs/03](03-chromium-fork.md)), which
-takes about six hours the first time. A Linux core release will come; it is not
-a technical obstacle, only a machine that has to run the build.
-
 ## Windows
 
-Not yet. Say so plainly rather than "coming soon": the patches are
-platform-independent and the agent and shell are portable, but nobody has
-produced or tested a Windows core, and shipping one that has not been measured
-would be exactly the thing this project refuses to do.
+Not yet, and still not "coming soon" — but the sentence is shorter than it was.
+
+The launcher is done: the agent and the desktop shell are ported, and the parts
+that differ per operating system (named pipes instead of a Unix socket, an
+explicit DACL instead of file modes, an inherited HANDLE instead of a file
+descriptor, WM_CLOSE instead of SIGTERM) are compiled for
+`x86_64-pc-windows-msvc` on every commit. The core patches read their config
+from that HANDLE.
+
+What is missing is one thing: nobody has run the Chromium build on a Windows
+machine. So there is no Windows core, nothing has been measured on Windows, and
+until a build exists this page will not offer a download. That is the same rule
+the rest of this repository follows — an unmeasured release is a claim.
+
+If you want to try the launcher against a core you built yourself,
+`tools/verify-windows.ps1` checks the parts a compiler cannot: whether the
+pipe's DACL actually refuses other accounts, whether the config handle survives
+process creation, whether the browser closes cleanly instead of being killed.
+
+## Linux
+
+Not a target. This is a decision rather than a gap, and it is worth stating
+plainly because an earlier version of this page promised a Linux release.
+
+The Rust still compiles on Linux — CI runs there and contributors can run the
+test suite — but there is no packaged release, no build configuration for the
+core, and no plan for one. Two platforms that get tested are worth more than
+three where one is a guess.
 
 ## Where things are kept
 
