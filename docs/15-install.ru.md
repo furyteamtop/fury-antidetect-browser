@@ -34,7 +34,7 @@ Fury — это **две загрузки**, и об этом стоит зна�
 ### 1. Приложение
 
 Скачайте `fury-<версия>-macos-<арх>.tar.xz` со страницы
-[Releases](https://github.com/furyteamtop/fury/releases). `арх` — это `arm64`
+[Releases](https://github.com/fury-browser/fury/releases). `арх` — это `arm64`
 для любого Mac на Apple silicon (M1 и новее) и `x86_64` для Intel; если не
 уверены,  → «Об этом Mac» покажет.
 

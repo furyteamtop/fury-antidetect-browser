@@ -137,6 +137,12 @@ jobs:
       - name: the deploy workspace manifest matches the repository's
         run: python3 tools/ci/gen-deploy-workspace.py --check
 
+      # Where this is published is written down in eleven places, one of which
+      # is the auto-updater's endpoint. Nine said one thing and two said
+      # another before the first push; nothing would have failed loudly.
+      - name: every URL names the same repository
+        run: python3 tools/ci/check-repo-url.py
+
       - name: hunk headers count correctly
         run: python3 tools/ci/check-hunks.py
 
