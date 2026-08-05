@@ -53,7 +53,7 @@ S3-совместимое хранилище не нужно и не испол�
 ## Быстрый путь: docker compose
 
 ```bash
-git clone https://github.com/fury-browser/fury && cd fury
+git clone https://github.com/furyteamtop/fury-antidetect-browser && cd fury
 cp .env.example .env          # задайте FURY_DB_PASSWORD
 docker compose up -d
 ```

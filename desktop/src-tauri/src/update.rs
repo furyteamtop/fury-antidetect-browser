@@ -22,7 +22,7 @@ use serde::Serialize;
 
 /// Where releases are published. The repository is also in Cargo.toml; here it
 /// is the API host, so a fork changes one constant.
-const RELEASES: &str = "https://api.github.com/repos/fury-browser/fury/releases/latest";
+const RELEASES: &str = "https://api.github.com/repos/furyteamtop/fury-antidetect-browser/releases/latest";
 
 #[derive(Serialize)]
 pub struct UpdateCheck {

@@ -119,7 +119,7 @@ minutes depending on what changed; `ccache` and `sccache` do not help, because
 the build uses `-fmodules` and they miss on everything.
 
 ```bash
-git clone https://github.com/fury-browser/fury && cd fury
+git clone https://github.com/furyteamtop/fury-antidetect-browser && cd fury
 cargo build --release
 ```
 

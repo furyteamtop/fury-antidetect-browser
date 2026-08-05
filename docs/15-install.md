@@ -34,7 +34,7 @@ corrupt download rather than at us.
 ### 1. The application
 
 Download `fury-<version>-macos-<arch>.tar.xz` from
-[Releases](https://github.com/fury-browser/fury/releases). `arch` is `arm64` for
+[Releases](https://github.com/furyteamtop/fury-antidetect-browser/releases). `arch` is `arm64` for
 any Apple-silicon Mac (M1 and later) and `x86_64` for an Intel one — if you are
 not sure,  → About This Mac says which.
 

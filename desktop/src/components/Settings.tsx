@@ -391,8 +391,8 @@ function About({ shell }: { shell: Shell }) {
           <dd>Bogdan Shapovalov</dd>
           <dt>{t("about.source")}</dt>
           <dd>
-            <a href="https://github.com/fury-browser/fury" target="_blank" rel="noreferrer">
-              github.com/fury-browser/fury
+            <a href="https://github.com/furyteamtop/fury-antidetect-browser" target="_blank" rel="noreferrer">
+              github.com/furyteamtop/fury-antidetect-browser
             </a>
           </dd>
         </dl>

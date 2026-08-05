@@ -10,13 +10,18 @@ README.md, docs/13, docs/15 in both languages, the two issue-template links, the
 shell's about box, and — the one that matters most — the auto-updater's endpoint
 in desktop/src-tauri/src/update.rs.
 
-They had drifted before the repository was ever published. Nine said
-`fury-browser/fury` and two — both of them the download links on the install
-page, which is the page a stranger is sent to first — said `furyteamtop/fury`.
-Neither was wrong on its own and nothing anywhere would have failed loudly: the
-install page would have 404'd for every visitor, while the updater quietly
-queried a repository with no releases in it and reported, correctly and
-uselessly, that there was nothing to update.
+They had drifted before the repository was ever published. Nine said one owner
+and two said another — and the two were the download links on the install page,
+which is the page a stranger is sent to first. Neither was wrong on its own and
+nothing anywhere would have failed loudly: the install page would have 404'd for
+every visitor, while the updater quietly queried a repository with no releases
+in it and reported, correctly and uselessly, that there was nothing to update.
+
+(The two names are not quoted here. This file was rewritten by a blind
+search-and-replace when the repository was renamed, and quoting them turned a
+historical note into a false one — the docstring ended up describing a drift
+between a name and itself. A comment about a string is a comment a rename will
+edit.)
 
 That is the shape of the problem. A URL is a string, strings drift, and the
 failure is silent at both ends.
@@ -28,8 +33,10 @@ crate carries, so it is the one that has to be right anyway. Every other URL
 whose REPOSITORY COMPONENT is this project's name must have the same owner.
 
 That test needs no list of third parties. `vitejs/vite`, `zhom/donutbrowser` and
-the five `sponsors/…` links in package-lock.json are not called `fury`, so they
-are not ours and are not asked about.
+the five `sponsors/…` links in package-lock.json do not carry this project's
+repository name, so they are not ours and are not asked about. The name is read
+from Cargo.toml rather than written here, for the reason in the paragraph
+above.
 
 An allowlist was the first attempt and it was wrong twice in five minutes: it
 walked the directory tree rather than the tracked files, so it read 252 URLs out
@@ -38,8 +45,8 @@ changelog — the exclusion said "node_modules" and the path was
 "desktop/node_modules". Then, given tracked files, it demanded that every GitHub
 URL in the repository agree with every other one, which flagged the competitor
 analysis in docs/08 for citing competitors. Both failures were the same failure:
-a list somebody has to keep right. `git ls-files` and "is it called fury" are
-not lists.
+a list somebody has to keep right. `git ls-files` and "does it match Cargo.toml"
+are not lists.
 """
 
 import pathlib

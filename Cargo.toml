@@ -7,7 +7,7 @@ version = "0.0.1"
 edition = "2021"
 rust-version = "1.80"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/fury-browser/fury"
+repository = "https://github.com/furyteamtop/fury-antidetect-browser"
 
 [workspace.dependencies]
 anyhow = "1"
