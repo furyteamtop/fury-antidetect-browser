@@ -109,6 +109,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # check-commit-identity.py reads every commit. The default depth-1
+          # checkout would give it one to read and it would pass on anything.
+          fetch-depth: 0
 
       # Every entry in the series has a file, and every file is in the series.
       # A listed-but-missing patch makes apply.sh fail hours into a build; a
@@ -142,6 +146,16 @@ jobs:
       # another before the first push; nothing would have failed loudly.
       - name: every URL names the same repository
         run: python3 tools/ci/check-repo-url.py
+
+      # An unconfigured git builds an author address out of the account name
+      # and the hostname and commits with it without a word. It happened twice,
+      # in the two commits before publication, because .git/config is local and
+      # a history rewrite replaced the directory it lived in.
+      #
+      # Needs the full history, which actions/checkout does not fetch by
+      # default — a depth-1 checkout would check exactly one commit and pass.
+      - name: no commit carries a machine-derived identity
+        run: python3 tools/ci/check-commit-identity.py
 
       - name: hunk headers count correctly
         run: python3 tools/ci/check-hunks.py
