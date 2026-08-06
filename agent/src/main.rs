@@ -14,6 +14,7 @@ mod bundle;
 mod cookies;
 mod ext;
 mod http;
+mod import_browser;
 mod install_core;
 mod ipc;
 mod launcher;

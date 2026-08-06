@@ -388,6 +388,44 @@ impl Agent {
             // the same reason install-core takes a path: whatever unpacks an
             // archive into a profile directory belongs on the side that owns
             // the profile directory.
+            // Which Chromium-family browsers are on this machine, and what is
+            // inside them. Discovery only — nothing is copied until asked.
+            "import.browsers" => {
+                Ok(serde_json::to_value(crate::import_browser::discover())?)
+            }
+
+            // Copy one of them into a profile that already exists.
+            //
+            // Deliberately NOT "create a profile and import into it". Profiles
+            // are made one way — `profiles.upsert` — and a second creation path
+            // is a second place deciding what a new profile looks like, which
+            // is how one of them ends up without a persona or without a seed.
+            // The shell creates it the ordinary way and then calls this.
+            //
+            // The result carries `cookies_skipped`, and the caller is expected
+            // to SHOW it. Chrome's jar is encrypted with Chrome's own key from
+            // the system keychain; copying it produces a file this core cannot
+            // read, and Chromium's answer to an undecryptable jar is to discard
+            // the rows rather than to complain. An import that quietly carried
+            // it would report success and open signed out of everything.
+            "import.profile" => {
+                let id = str_param(&params, "profile_id")?;
+                let source = str_param(&params, "path")?;
+
+                if self.running.lock().await.contains_key(&id) {
+                    anyhow::bail!("close the profile before importing into it");
+                }
+                if self.store.profile(&id).await?.is_none() {
+                    anyhow::bail!("no profile {id}");
+                }
+
+                let report = crate::import_browser::import(
+                    std::path::Path::new(&source),
+                    &paths::profile_dir(&id).join("Default"),
+                )?;
+                Ok(serde_json::to_value(report)?)
+            }
+
             "extensions.install" => {
                 let id = str_param(&params, "profile_id")?;
                 let path = str_param(&params, "path")?;
