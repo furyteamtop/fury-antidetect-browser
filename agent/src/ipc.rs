@@ -384,6 +384,47 @@ impl Agent {
                 Ok(serde_json::to_value(t)?)
             }
 
+            // A .crx, by path. The agent reads it rather than the shell, for
+            // the same reason install-core takes a path: whatever unpacks an
+            // archive into a profile directory belongs on the side that owns
+            // the profile directory.
+            "extensions.install" => {
+                let id = str_param(&params, "profile_id")?;
+                let path = str_param(&params, "path")?;
+                let bytes = std::fs::read(&path)
+                    .map_err(|e| anyhow::anyhow!("reading {path}: {e}"))?;
+
+                let parsed = crate::ext::parse(&bytes)?;
+                // Named by id, so installing the same extension twice replaces
+                // it instead of accumulating directories that all claim the
+                // same identity.
+                let dir = paths::extensions_dir(&id).join(&parsed.id);
+                let installed = crate::ext::install(&bytes, &dir)?;
+                Ok(serde_json::to_value(installed)?)
+            }
+
+            "extensions.list" => {
+                let id = str_param(&params, "profile_id")?;
+                Ok(serde_json::to_value(crate::ext::installed(
+                    &paths::extensions_dir(&id),
+                ))?)
+            }
+
+            "extensions.remove" => {
+                let profile = str_param(&params, "profile_id")?;
+                let ext = str_param(&params, "id")?;
+                // Joined from a component that has to look like an id, so a
+                // caller cannot walk out of the directory with "../".
+                if ext.len() != 32 || !ext.bytes().all(|c| (b'a'..=b'p').contains(&c)) {
+                    anyhow::bail!("{ext:?} is not an extension id");
+                }
+                let dir = paths::extensions_dir(&profile).join(&ext);
+                if dir.is_dir() {
+                    std::fs::remove_dir_all(&dir)?;
+                }
+                Ok(json!({ "removed": true }))
+            }
+
             "proxies.upsert" => {
                 let proxy: Proxy = serde_json::from_value(params)?;
                 Ok(json!({ "id": self.store.upsert_proxy(&proxy).await? }))
@@ -1449,11 +1490,22 @@ impl Agent {
         // browser itself will be reading a moment later.
         let start_urls = start_urls_for(&dir, &profile.start_urls);
 
+        // Whatever has been installed for this profile. Read from disk rather
+        // than from the database: the directory is what the browser will
+        // actually be handed, and a row saying otherwise after a bundle arrived
+        // from a colleague's machine would be a row that is wrong.
+        let extensions: Vec<std::path::PathBuf> =
+            crate::ext::installed(&paths::extensions_dir(&profile.id))
+                .into_iter()
+                .map(|e| std::path::PathBuf::from(e.path))
+                .collect();
+
         let child = launcher::spawn(&launcher::LaunchSpec {
             core_binary: &core,
             user_data_dir: &dir,
             config: &config,
             relay_port,
+            extensions: &extensions,
             // Local mode has no roles to enforce: whoever can reach this socket
             // owns the machine and the data. Restrictions are a team-server
             // concept and are computed there.

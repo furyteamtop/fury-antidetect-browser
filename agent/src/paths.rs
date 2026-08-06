@@ -60,6 +60,22 @@ pub fn profile_dir(profile_id: &str) -> PathBuf {
     data_dir().join("profiles").join(profile_id)
 }
 
+/// Where this profile's unpacked extensions sit.
+///
+/// INSIDE the profile directory, which means the team bundle carries them
+/// without anything extra being written — and it means every profile has its
+/// own copy at its own path. That would normally give the same extension a
+/// different id in every profile; `ext::install` writes the developer key into
+/// the manifest so it does not. See `agent/src/ext.rs`.
+///
+/// The space in the name is deliberate: Chromium's own directories under a
+/// profile are `Local Extension Settings`, `Extension Rules`, `Extension
+/// State`. A bare `Extensions` would collide with the one Chromium creates for
+/// packed extensions it manages itself.
+pub fn extensions_dir(profile_id: &str) -> PathBuf {
+    profile_dir(profile_id).join("Fury Extensions")
+}
+
 /// Where the desktop shell reaches this agent.
 ///
 /// A Unix socket on macOS, a named pipe on Windows. Both this and the shell

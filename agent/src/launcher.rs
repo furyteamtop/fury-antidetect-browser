@@ -46,6 +46,12 @@ pub struct LaunchSpec<'a> {
     pub relay_port: u16,
     pub restrictions: LaunchRestrictions,
     pub start_urls: &'a [String],
+    /// Unpacked extension directories to load, already installed by `ext`.
+    ///
+    /// Empty for a profile with none, and then neither switch is passed at
+    /// all — `--load-extension=` with nothing after it is not the same as
+    /// absent, and the empty form makes Chromium log a warning on every start.
+    pub extensions: &'a [std::path::PathBuf],
     /// Only set when the caller is allowed CDP at all; see `LaunchRestrictions`.
     pub debug_port: Option<u16>,
 
@@ -202,6 +208,29 @@ pub fn build_args(spec: &LaunchSpec) -> Vec<String> {
         format!("--lang={}", spec.ui_locale),
     ];
 
+    // Extensions, and the pair is not decoration.
+    //
+    // `--load-extension` on its own has been progressively restricted upstream
+    // on the argument that a silently side-loaded extension is an attack; the
+    // pairing with `--disable-extensions-except` is what current Chrome
+    // accepts. Both switches take the same list.
+    //
+    // NOT VERIFIED against a built core. This is a claim about upstream
+    // behaviour in M150 and the only thing that settles it is running one —
+    // core/verify/ is where that belongs, and there is no verify script for
+    // extensions yet. Written down rather than assumed, because the failure
+    // mode is a browser that starts fine and loads nothing.
+    if !spec.extensions.is_empty() {
+        let list = spec
+            .extensions
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        args.push(format!("--disable-extensions-except={list}"));
+        args.push(format!("--load-extension={list}"));
+    }
+
     if spec.restrictions.lock_devtools {
         args.push("--fury-lock-devtools".to_string());
     }
@@ -314,6 +343,7 @@ mod tests {
 
     fn spec_for(restrictions: LaunchRestrictions, cfg: &serde_json::Value) -> LaunchSpec<'_> {
         LaunchSpec {
+            extensions: &[],
             core_binary: Path::new("/nonexistent/Fury"),
             user_data_dir: Path::new("/tmp/p"),
             config: cfg,
@@ -426,6 +456,41 @@ mod tests {
         // session's tabs are gone — see the note in build_args.
         assert!(args.iter().any(|a| a == "--restore-last-session"));
         assert!(!args.iter().any(|a| a.contains("--no-proxy-server")));
+    }
+
+    #[test]
+    fn extensions_are_passed_as_a_pair_or_not_at_all() {
+        let cfg = sample_config();
+        let r = LaunchRestrictions::for_perms(PermSet::full_profile_work());
+
+        // None installed: NEITHER switch. `--load-extension=` with an empty
+        // list is not the same as absent — Chromium warns on every start.
+        let args = build_args(&spec_for(r.clone(), &cfg));
+        assert!(!args.iter().any(|a| a.starts_with("--load-extension")), "{args:?}");
+        assert!(!args.iter().any(|a| a.starts_with("--disable-extensions-except")), "{args:?}");
+
+        // Two installed: both switches, same list, comma-separated. Passing
+        // --load-extension alone is what current Chrome ignores.
+        let dirs = [
+            std::path::PathBuf::from("/p/Fury Extensions/aaaa"),
+            std::path::PathBuf::from("/p/Fury Extensions/bbbb"),
+        ];
+        let mut spec = spec_for(r, &cfg);
+        spec.extensions = &dirs;
+        let args = build_args(&spec);
+
+        let load = args.iter().find(|a| a.starts_with("--load-extension=")).expect("no --load-extension");
+        let except = args
+            .iter()
+            .find(|a| a.starts_with("--disable-extensions-except="))
+            .expect("no --disable-extensions-except");
+        assert_eq!(
+            load.trim_start_matches("--load-extension="),
+            except.trim_start_matches("--disable-extensions-except="),
+            "the two switches must name the same set"
+        );
+        assert!(load.contains("aaaa") && load.contains("bbbb"), "{load}");
+        assert_eq!(load.matches(',').count(), 1, "one separator for two paths: {load}");
     }
 
     #[test]

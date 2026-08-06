@@ -12,6 +12,7 @@
 
 mod bundle;
 mod cookies;
+mod ext;
 mod http;
 mod install_core;
 mod ipc;
@@ -260,6 +261,9 @@ async fn cmd_launch(args: &[String]) -> anyhow::Result<()> {
         user_data_dir: &profile_dir,
         config: &config,
         relay_port,
+        // The CLI launch takes a persona file rather than a stored profile, so
+        // there is no profile whose extensions these would be.
+        extensions: &[],
         // A CLI launch is the operator working on their own machine, so nothing
         // is withheld. The server decides this when a profile comes from a team.
         restrictions: fury_shared::rbac::LaunchRestrictions::for_perms(
