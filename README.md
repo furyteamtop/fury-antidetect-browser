@@ -187,6 +187,7 @@ the release criteria and exits non-zero on failure, so it drops into CI
 | [07 — Detection baseline](docs/07-detection-baseline.md) | Test harness and measurable pass criteria |
 | [08 — Competitors](docs/08-competitors.md) | What we measured in the commercial ones |
 | [09 — Roadmap](docs/09-roadmap.md) | Phases with exit criteria |
+| [16 — Parity and beyond](docs/16-parity-and-beyond.md) | What four competitors have that this does not, what none of them have, and the order to do it in |
 | [10 — Legal & licensing](docs/10-legal-licensing.md) | Chromium BSD, Widevine, branding, code signing |
 | [11 — Budget](docs/11-budget.md) | What costs money and what does not |
 | [12 — UX reference](docs/12-ui-reference.md) | What to copy from AdsPower, and where to beat it |
