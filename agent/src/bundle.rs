@@ -187,6 +187,16 @@ const SKIP: &[&str] = &["SingletonLock", "SingletonSocket", "SingletonCookie", "
 ///     which is a bad trade for 30 KB.
 ///   - `Network Action Predictor` is 52-80 KB of typed-URL history. It is
 ///     behaviour, not cache, and behaviour is part of what a profile is for.
+/// Is this directory name one of the caches?
+///
+/// The one place that answers the question. `usage::trim` asks it too — and
+/// asking rather than copying is the point: a second list of "what is cache" is
+/// the copy that quietly gains an entry nobody measured, which on the trim path
+/// means a button that signs people out of their accounts.
+pub fn is_cache_dir(name: &str) -> bool {
+    SKIP_CACHES.iter().any(|s| *s == name)
+}
+
 const SKIP_CACHES: &[&str] = &[
     // Whole-profile, measured at 19.7 MB, 5.9 MB, 1.8 MB and 1.6 MB
     // respectively on a 33 MB profile.

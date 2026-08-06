@@ -355,6 +355,35 @@ impl Agent {
             }
 
             "proxies.list" => Ok(serde_json::to_value(self.store.proxies().await?)?),
+            // How big is it, and how much of that is throwaway.
+            //
+            // Profiles reach hundreds of megabytes and until now nothing showed
+            // it, so the only way to reclaim anything was to delete the profile
+            // and the account with it.
+            "profiles.usage" => {
+                let id = str_param(&params, "id")?;
+                let u = crate::usage::measure(&paths::profile_dir(&id))?;
+                Ok(serde_json::to_value(u)?)
+            }
+
+            // Removes the caches and nothing else. The list is
+            // bundle::SKIP_CACHES — the same one the sync uses, chosen by
+            // measuring real profiles, and deliberately NOT containing
+            // `Service Worker` or `Network Action Predictor`.
+            //
+            // Refused while the browser is open. Chromium holds these
+            // directories, and on Windows removing a tree with a live handle in
+            // it fails halfway — a half-deleted cache is worse than a full one,
+            // and the operator would have no way to tell it happened.
+            "profiles.trim" => {
+                let id = str_param(&params, "id")?;
+                if self.running.lock().await.contains_key(&id) {
+                    anyhow::bail!("close the profile first — Chromium holds its cache open");
+                }
+                let t = crate::usage::trim(&paths::profile_dir(&id))?;
+                Ok(serde_json::to_value(t)?)
+            }
+
             "proxies.upsert" => {
                 let proxy: Proxy = serde_json::from_value(params)?;
                 Ok(json!({ "id": self.store.upsert_proxy(&proxy).await? }))

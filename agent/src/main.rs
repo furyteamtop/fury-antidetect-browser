@@ -26,6 +26,7 @@ mod sync_tests;
 #[cfg(test)]
 mod tmp;
 mod transfer;
+mod usage;
 mod vault;
 mod widevine;
 
