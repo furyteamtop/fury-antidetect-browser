@@ -210,6 +210,12 @@ jobs:
       - name: no commit carries a machine-derived identity
         run: python3 tools/ci/check-commit-identity.py
 
+      # Six tools over newline-delimited JSON-RPC. The check that earns its
+      # place is the one about notifications: answering a message with no id
+      # leaves a client waiting for a reply it can never match.
+      - name: the MCP server speaks the protocol
+        run: python3 tools/mcp/fury-mcp.py --selftest
+
       - name: hunk headers count correctly
         run: python3 tools/ci/check-hunks.py
 
