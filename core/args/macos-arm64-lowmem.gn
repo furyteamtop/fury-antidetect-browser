@@ -53,10 +53,15 @@ enable_hangout_services_extension = false
 #     needs //components/safe_browsing/content/browser:client_side_detection
 #
 # Removing Safe Browsing properly needs source patches — this is what
-# ungoogled-chromium does — not a GN flag. Until patch 0901 exists we keep the
-# default and suppress it at runtime: launcher.rs already passes
+# ungoogled-chromium does — not a GN flag. Patch 0901 now does exactly that: it
+# flips the DEFAULT of prefs::kSafeBrowsingEnabled to false rather than blanking
+# the hardcoded sb-ssl.google.com URL, which would crash the browser at startup.
+# verify-0901.py reads the value back through the browser's own settings page,
+# which is what distinguishes a compiled-in default from a pref nobody wrote.
+#
+# The runtime suppression stays as well: launcher.rs passes
 # --safebrowsing-disable-auto-update and --disable-background-networking, and no
-# Google API key is compiled in, so nothing phones home regardless.
+# Google API key is compiled in.
 
 # Turned ON. Real Chrome accepts com.widevine.alpha and our build refused it —
 # the last failing gate check and a three-line detection.
