@@ -47,8 +47,15 @@ PAGE = "https://example.com"
 class Session:
     """One running browser, attached and ready to evaluate."""
 
-    def __init__(self, core, config, page=PAGE, extra_args=()):
-        self.dir = tempfile.mkdtemp(prefix="fury-verify-")
+    def __init__(self, core, config, page=PAGE, extra_args=(),
+                 os_crypt_key=None, user_data_dir=None):
+        self.dir = user_data_dir or tempfile.mkdtemp(prefix="fury-verify-")
+        self.owns_dir = user_data_dir is None
+        # A reused profile still holds the PREVIOUS launch's DevToolsActivePort,
+        # and _port() would read that stale number and connect to nothing.
+        stale = os.path.join(self.dir, "DevToolsActivePort")
+        if os.path.exists(stale):
+            os.remove(stale)
         args = [
             core,
             f"--user-data-dir={self.dir}",
@@ -64,6 +71,19 @@ class Session:
             *extra_args,
         ]
 
+        # The os_crypt key rides its own descriptor, one past the config's:
+        # --fury-oscrypt-fd names it, and the core reads exactly 32 bytes.
+        key_fd = None
+        if os_crypt_key is not None:
+            if len(os_crypt_key) != 32:
+                raise ValueError("the os_crypt key is 32 bytes")
+            r, w = os.pipe()
+            os.write(w, os_crypt_key)
+            os.close(w)
+            key_fd = r
+            os.set_inheritable(key_fd, True)
+            args.append("--fury-oscrypt-fd=4")
+
         fd = None
         if config is not None:
             config = dict(config)
@@ -75,15 +95,25 @@ class Session:
             os.set_inheritable(fd, True)
             args.append("--fury-fp-fd=3")
 
+        def place_descriptors():
+            # dup2 into fixed slots, because the switches name numbers rather
+            # than passing the descriptors themselves.
+            if fd is not None:
+                os.dup2(fd, 3)
+            if key_fd is not None:
+                os.dup2(key_fd, 4)
+
         self.proc = subprocess.Popen(
             args,
-            preexec_fn=((lambda: os.dup2(fd, 3)) if fd else None),
+            preexec_fn=place_descriptors if (fd or key_fd) else None,
             close_fds=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
         if fd is not None:
             os.close(fd)
+        if key_fd is not None:
+            os.close(key_fd)
 
         port = self._port()
         time.sleep(1)
@@ -146,7 +176,8 @@ class Session:
             self.proc.wait(timeout=12)
         except subprocess.TimeoutExpired:
             self.proc.kill()
-        shutil.rmtree(self.dir, ignore_errors=True)
+        if self.owns_dir:
+            shutil.rmtree(self.dir, ignore_errors=True)
 
     def __enter__(self):
         return self
@@ -156,14 +187,20 @@ class Session:
         return False
 
 
-def launch(core, config=None, page=PAGE, extra_args=()):
+def launch(core, config=None, page=PAGE, extra_args=(), os_crypt_key=None,
+           user_data_dir=None):
     """A browser, configured or not. Use as a context manager.
 
     `extra_args` is for the scripts whose patch only does anything under a
     switch the product does not normally pass — `--enable-automation` being the
     one that matters, since a trace nobody turned on is not a trace.
+
+    `os_crypt_key` is 32 bytes handed over on descriptor 4, the way the agent
+    hands a profile its travelling cookie key. `user_data_dir` reuses a profile
+    across launches instead of making a throwaway one, which is the only way to
+    ask whether what one launch wrote another launch can read.
     """
-    return Session(core, config, page, extra_args)
+    return Session(core, config, page, extra_args, os_crypt_key, user_data_dir)
 
 
 class Claims:
