@@ -70,6 +70,15 @@ pub enum Upstream {
         port: u16,
         auth: Option<Credentials>,
     },
+    /// A WireGuard peer, with the tunnel and its TCP stack already running.
+    ///
+    /// Unlike the other two this is not an address to connect to — it is a
+    /// network the agent is already inside. Names are resolved by the peer's
+    /// resolvers through the tunnel (`wg_stack::Stack::resolve`), for the same
+    /// reason SOCKS5 is used with SOCKS5h semantics: asking this machine's
+    /// resolver what the profile is about to visit is the leak, whatever
+    /// carries the bytes afterwards.
+    WireGuard(std::sync::Arc<crate::wg_stack::Stack>),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -124,6 +133,11 @@ impl Relay {
         let (host, port, scheme) = match &self.upstream {
             Upstream::Http { host, port, .. } => (host, port, "http"),
             Upstream::Socks5 { host, port, .. } => (host, port, "socks5"),
+            // The peer's address is in the config the operator pasted and is
+            // not a secret, but it is not reached through this struct — and
+            // naming the exit is a courtesy, not a contract, so "wireguard" is
+            // the honest answer rather than an address dug out for display.
+            Upstream::WireGuard(_) => return "wireguard".to_string(),
         };
         format!("{scheme}://{host}:{port}")
     }
@@ -233,7 +247,7 @@ impl Relay {
         Ok(())
     }
 
-    async fn dial(&self, host: &str, port: u16) -> Result<TcpStream, RelayError> {
+    async fn dial(&self, host: &str, port: u16) -> Result<Conn, RelayError> {
         match &self.upstream {
             Upstream::Http {
                 host: phost,
@@ -244,7 +258,7 @@ impl Relay {
                     .await
                     .map_err(RelayError::UpstreamUnreachable)?;
                 http_connect(&mut s, host, port, auth.as_ref()).await?;
-                Ok(s)
+                Ok(Conn::Tcp(s))
             }
             Upstream::Socks5 {
                 host: phost,
@@ -255,8 +269,84 @@ impl Relay {
                     .await
                     .map_err(RelayError::UpstreamUnreachable)?;
                 socks5_connect(&mut s, host, port, auth.as_ref()).await?;
-                Ok(s)
+                Ok(Conn::Tcp(s))
             }
+            Upstream::WireGuard(stack) => {
+                // Resolved INSIDE the tunnel. Doing it out here would hand this
+                // machine's resolver the name of every site the profile is
+                // about to open — which is the leak, whatever carries the bytes
+                // afterwards.
+                let addr = stack
+                    .resolve(host)
+                    .await
+                    .map_err(|e| RelayError::ConnectRejected {
+                        target: host.to_string(),
+                        reason: e.to_string(),
+                    })?;
+                let stream = stack
+                    .dial(std::net::SocketAddr::new(addr, port))
+                    .await
+                    .map_err(|e| RelayError::ConnectRejected {
+                        target: format!("{host}:{port}"),
+                        reason: e.to_string(),
+                    })?;
+                Ok(Conn::Tunnel(stream))
+            }
+        }
+    }
+}
+
+/// What a dial produced.
+///
+/// Two shapes, because a proxy hands back a socket and a tunnel hands back one
+/// end of a duplex. Everything downstream only ever calls
+/// `copy_bidirectional`, which takes any stream — so this exists solely to give
+/// the two a common name, rather than to add behaviour.
+pub enum Conn {
+    Tcp(TcpStream),
+    Tunnel(tokio::io::DuplexStream),
+}
+
+impl tokio::io::AsyncRead for Conn {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Conn::Tcp(s) => std::pin::Pin::new(s).poll_read(cx, buf),
+            Conn::Tunnel(s) => std::pin::Pin::new(s).poll_read(cx, buf),
+        }
+    }
+}
+
+impl tokio::io::AsyncWrite for Conn {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        match self.get_mut() {
+            Conn::Tcp(s) => std::pin::Pin::new(s).poll_write(cx, buf),
+            Conn::Tunnel(s) => std::pin::Pin::new(s).poll_write(cx, buf),
+        }
+    }
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Conn::Tcp(s) => std::pin::Pin::new(s).poll_flush(cx),
+            Conn::Tunnel(s) => std::pin::Pin::new(s).poll_flush(cx),
+        }
+    }
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Conn::Tcp(s) => std::pin::Pin::new(s).poll_shutdown(cx),
+            Conn::Tunnel(s) => std::pin::Pin::new(s).poll_shutdown(cx),
         }
     }
 }

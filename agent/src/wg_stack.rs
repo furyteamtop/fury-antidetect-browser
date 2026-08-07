@@ -106,6 +106,12 @@ impl TxToken for TxTok<'_> {
     }
 }
 
+/// A name to resolve, inside the tunnel.
+struct Resolve {
+    name: String,
+    answer: tokio::sync::oneshot::Sender<Result<IpAddr>>,
+}
+
 /// What a caller sends to the task that owns the stack.
 struct Dial {
     to: SocketAddr,
@@ -119,6 +125,7 @@ struct Dial {
 /// A running tunnel with a TCP stack on it.
 pub struct Stack {
     dials: tokio::sync::mpsc::Sender<Dial>,
+    resolves: tokio::sync::mpsc::Sender<Resolve>,
     task: tokio::task::JoinHandle<()>,
 }
 
@@ -136,9 +143,52 @@ impl Stack {
             .context("[Interface] has no Address, so there is nothing to be inside the tunnel")?;
         let (addr, prefix) = parse_cidr(cidr)?;
 
+        // The resolvers the peer gave us. A tunnel with no DNS line is a
+        // tunnel whose provider expects you to use theirs and did not say so;
+        // falling back to the machine's resolver would send every name the
+        // profile visits out of the operator's own connection, which is the
+        // exact leak this is built to close. So: refuse instead.
+        if config.dns.is_empty() {
+            bail!(
+                "the config has no DNS line, so names could only be resolved \
+                 outside the tunnel — which would send every site the profile \
+                 visits to this machine's resolver. Ask the provider for their \
+                 DNS, or add one to the config."
+            );
+        }
+        let servers: Vec<IpAddress> = config
+            .dns
+            .iter()
+            .filter_map(|s| s.parse::<IpAddr>().ok())
+            .map(IpAddress::from)
+            .collect();
+        if servers.is_empty() {
+            bail!("none of the DNS entries {:?} is an address", config.dns);
+        }
+
         let (tx, rx) = tokio::sync::mpsc::channel::<Dial>(32);
-        let task = tokio::spawn(run(tunnel, addr, prefix, rx));
-        Ok(Stack { dials: tx, task })
+        let (rtx, rrx) = tokio::sync::mpsc::channel::<Resolve>(32);
+        let task = tokio::spawn(run(tunnel, addr, prefix, servers, rx, rrx));
+        Ok(Stack { dials: tx, resolves: rtx, task })
+    }
+
+    /// Resolves a name using the peer's resolvers, inside the tunnel.
+    ///
+    /// The whole reason `dial` refuses names: doing this outside would ask the
+    /// operator's own resolver what the profile is about to visit.
+    pub async fn resolve(&self, name: &str) -> Result<IpAddr> {
+        // An address needs no lookup, and asking anyway would be a query that
+        // tells the resolver something for no answer in return.
+        if let Ok(addr) = name.parse::<IpAddr>() {
+            return Ok(addr);
+        }
+        let (answer, got) = tokio::sync::oneshot::channel();
+        self.resolves
+            .send(Resolve { name: name.to_string(), answer })
+            .await
+            .map_err(|_| anyhow::anyhow!("the tunnel is no longer running"))?;
+        got.await
+            .map_err(|_| anyhow::anyhow!("the tunnel stopped while resolving"))?
     }
 
     /// Opens a TCP connection through the tunnel.
@@ -160,6 +210,19 @@ impl Stack {
     }
 }
 
+/// Deliberately says nothing.
+///
+/// `Upstream` derives Debug and is logged on every launch, and the reason that
+/// derive is safe at all is a custom Debug one type over that keeps proxy
+/// passwords out of the log line. A tunnel is reached through keys rather than
+/// a password, and a Debug that grew fields later would put them somewhere
+/// nobody thought to look.
+impl std::fmt::Debug for Stack {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("wireguard tunnel")
+    }
+}
+
 impl Drop for Stack {
     fn drop(&mut self) {
         // Dropping the sender would end the task on its own; aborting makes it
@@ -173,7 +236,9 @@ async fn run(
     mut tunnel: crate::wg_tunnel::Tunnel,
     addr: IpAddr,
     prefix: u8,
+    servers: Vec<IpAddress>,
     mut dials: tokio::sync::mpsc::Receiver<Dial>,
+    mut resolves: tokio::sync::mpsc::Receiver<Resolve>,
 ) {
     let mut wire = Wire::default();
     let mut iface = Interface::new(
@@ -198,6 +263,9 @@ async fn run(
     );
 
     let mut sockets = SocketSet::new(Vec::new());
+    let dns = sockets.add(smoltcp::socket::dns::Socket::new(&servers, Vec::new()));
+    let mut queries: Vec<(smoltcp::socket::dns::QueryHandle, String, tokio::sync::oneshot::Sender<Result<IpAddr>>)> =
+        Vec::new();
     let mut pumps: HashMap<smoltcp::iface::SocketHandle, Pump> = HashMap::new();
     let mut next_port: u16 = 49152;
     let mut packet = Vec::new();
@@ -223,6 +291,17 @@ async fn run(
                     Err(e) => {
                         let _ = dial.ready.send(Err(anyhow::anyhow!("{e:?}")));
                         sockets.remove(handle);
+                    }
+                }
+            }
+
+            // A name to look up.
+            Some(req) = resolves.recv() => {
+                let socket = sockets.get_mut::<smoltcp::socket::dns::Socket>(dns);
+                match socket.start_query(iface.context(), &req.name, smoltcp::wire::DnsQueryType::A) {
+                    Ok(handle) => queries.push((handle, req.name, req.answer)),
+                    Err(e) => {
+                        let _ = req.answer.send(Err(anyhow::anyhow!("{e:?}")));
                     }
                 }
             }
@@ -255,6 +334,34 @@ async fn run(
         if let Err(e) = tunnel.tick().await {
             tracing::warn!(error = %e, "the tunnel's timers failed");
             return;
+        }
+
+        // Answers that have arrived.
+        //
+        // Walked backwards with swap_remove rather than retain_mut: a oneshot
+        // sender has to be MOVED to be used, and retain_mut only lends it. The
+        // first version tried to work around that and was nonsense.
+        {
+            let socket = sockets.get_mut::<smoltcp::socket::dns::Socket>(dns);
+            let mut i = queries.len();
+            while i > 0 {
+                i -= 1;
+                use smoltcp::socket::dns::GetQueryResultError as E;
+                let outcome = match socket.get_query_result(queries[i].0) {
+                    Err(E::Pending) => continue,
+                    Ok(addrs) => match addrs.first() {
+                        Some(IpAddress::Ipv4(v4)) => Ok(IpAddr::from(std::net::Ipv4Addr::from(*v4))),
+                        Some(IpAddress::Ipv6(v6)) => Ok(IpAddr::from(std::net::Ipv6Addr::from(*v6))),
+                        // A successful query with no address is NXDOMAIN's
+                        // quieter cousin, and it has to read as "no such host"
+                        // rather than as a lookup that is still running.
+                        None => Err(anyhow::anyhow!("{} has no address", queries[i].1)),
+                    },
+                    Err(e) => Err(anyhow::anyhow!("resolving {}: {e:?}", queries[i].1)),
+                };
+                let (_, _, answer) = queries.swap_remove(i);
+                let _ = answer.send(outcome);
+            }
         }
 
         // Move bytes between each socket and its caller.
@@ -362,6 +469,32 @@ mod tests {
         assert!(parse_cidr("10.2.0.2/33").is_err());
         assert!(parse_cidr("not-an-address/32").is_err());
         assert!(parse_cidr("10.2.0.2/abc").is_err());
+    }
+
+    /// A config with no DNS must be REFUSED rather than quietly falling back
+    /// to this machine's resolver.
+    ///
+    /// The fallback is the tempting thing to write and it is the whole leak:
+    /// every site the profile opens would be announced to the operator's own
+    /// resolver, from the operator's own address, before a single byte went
+    /// through the tunnel. The bytes would be private and the intent would not.
+    #[tokio::test]
+    async fn a_tunnel_with_no_resolver_is_refused_rather_than_leaking_to_the_machine() {
+        const KEY: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+        let text = format!(
+            "[Interface]\nPrivateKey = {KEY}\nAddress = 10.2.0.2/32\n\n\
+             [Peer]\nPublicKey = {KEY}\nEndpoint = 127.0.0.1:51820\n\
+             AllowedIPs = 0.0.0.0/0\n"
+        );
+        let config = crate::wireguard::Config::parse(&text).expect("a valid config");
+        assert!(config.dns.is_empty(), "the fixture must have no DNS line");
+
+        let err = Stack::start(&config).await.unwrap_err().to_string();
+        assert!(err.contains("DNS"), "{err}");
+        assert!(
+            err.contains("resolver"),
+            "the message has to say what would leak: {err}"
+        );
     }
 
     /// The device is where a wrong medium turns into a tunnel that establishes
