@@ -730,6 +730,32 @@ impl Agent {
             }
             "profiles.upsert" => {
                 let profile: Profile = serde_json::from_value(params)?;
+
+                // The persona is checked HERE rather than only at launch.
+                //
+                // `launch` already refuses an inconsistent one, and that is the
+                // backstop — but it means the operator finds out when they
+                // click open, after the profile is made, named and filed. A
+                // persona that cannot exist is a property of the profile, so
+                // the moment to say so is while it is being written.
+                //
+                // An unknown id is refused for the same reason: it is a profile
+                // that will never open, and storing it is storing a fault.
+                let persona = crate::personas::load(&profile.persona_id).map_err(|_| {
+                    anyhow::anyhow!(
+                        "no persona {:?} — `personas.list` has the ones that exist",
+                        profile.persona_id
+                    )
+                })?;
+                if let Err(errs) = persona.validate() {
+                    anyhow::bail!(
+                        "persona {} is inconsistent and a profile using it would \
+                         stand out:\n  {}",
+                        persona.id,
+                        errs.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("\n  ")
+                    );
+                }
+
                 Ok(json!({ "id": self.store.upsert_profile(&profile).await? }))
             }
             // Make many at once. The one-at-a-time dialog is fine for a first

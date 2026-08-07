@@ -13,3 +13,6 @@ fury-shared = { path = "../../shared-rs" }
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# For the release report: what was measured is only checkable if the report
+# names the exact bytes it was measured against.
+sha2.workspace = true

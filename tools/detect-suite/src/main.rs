@@ -28,6 +28,7 @@ fn main() -> Result<()> {
     match args.first().map(String::as_str) {
         Some("diff") => cmd_diff(&args[1..]),
         Some("gate") => cmd_gate(&args[1..]),
+        Some("report") => cmd_report(&args[1..]),
         Some("flatten") => cmd_flatten(&args[1..]),
         Some("redact") => cmd_redact(&args[1..]),
         Some("persona") => persona::cmd_persona(&args[1..]),
@@ -723,23 +724,35 @@ fn report(findings: &[Finding], mode: Mode, a_path: &str, b_path: &str) -> Resul
 // ---------------------------------------------------------------------------
 
 /// Single-dump checks, mirroring the release gate in docs/07-detection-baseline.md.
-/// These need no baseline: they are internal contradictions.
-fn cmd_gate(args: &[String]) -> Result<()> {
-    let path = args.first().context("usage: fury-detect gate <dump.json>")?;
-    let flat = load(path)?;
+/// These need no baseline: they are internal contradictions./// Checks that need no baseline: they are internal contradictions.
+///
+/// A browser can be wrong about itself without anything to compare against —
+/// a canvas that changes between two calls in the same page, a getter that is
+/// not native, a scrollbar that disagrees with the platform it claims. That is
+/// what the gate asks, and it is why it can run on a single capture.
+
+/// One gate claim and how it came out.
+///
+/// At module level rather than inside `cmd_gate` because `cmd_report` runs the
+/// same checks. Two copies of "what a passing browser looks like" is one of
+/// them being separately wrong, and the one nobody runs is the one that rots.
+pub struct Check {
+    pub what: &'static str,
+    pub verdict: Verdict,
+    pub detail: String,
+}
+
+#[derive(PartialEq)]
+pub enum Verdict {
+    Pass,
+    Fail,
+    Skip,
+}
+
+/// Every check the gate makes, against one capture.
+fn gate_checks(flat: &std::collections::BTreeMap<String, String>) -> Vec<Check> {
     let get = |k: &str| flat.get(k).map(String::as_str);
 
-    struct Check {
-        what: &'static str,
-        verdict: Verdict,
-        detail: String,
-    }
-    #[derive(PartialEq)]
-    enum Verdict {
-        Pass,
-        Fail,
-        Skip,
-    }
 
     let mut checks = Vec::new();
     let mut add = |what: &'static str, verdict: Verdict, detail: String| {
@@ -907,6 +920,138 @@ fn cmd_gate(args: &[String]) -> Result<()> {
     }
 
     // --- report ---
+    checks
+}
+
+/// A release report: the gate's verdict, plus everything needed to re-take it.
+///
+///     fury-detect report <dump.json> --core <binary> [--out report.md]
+///
+/// The point is not the verdict. Anyone can print a verdict; ShardBrowser's
+/// evidence is screenshots on imgur and CloakBrowser's is a table in a README,
+/// and neither can be re-taken by a reader because the binary that produced it
+/// cannot be rebuilt or even inspected.
+///
+/// This names the exact bytes. The core's SHA-256, its own version string, the
+/// hash of the capture, the hash of the patch series that produced the binary,
+/// and the commit. A reader with the same release can run the same command and
+/// get the same document — and if they get a different one, one of those
+/// hashes says which input changed.
+///
+/// What it deliberately does NOT do is sign. Signing needs a key and a decision
+/// about who holds it, and a report that claims a signature it does not have
+/// would be worse than one that plainly has none. The hashes are what make it
+/// checkable; a signature would only say who ran it.
+fn cmd_report(args: &[String]) -> Result<()> {
+    use sha2::{Digest, Sha256};
+
+    let mut dump = None;
+    let mut core: Option<String> = None;
+    let mut out: Option<String> = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--core" => core = it.next().cloned(),
+            "--out" => out = it.next().cloned(),
+            other if dump.is_none() => dump = Some(other.to_string()),
+            other => anyhow::bail!("unexpected argument {other:?}"),
+        }
+    }
+    let dump = dump.context(
+        "usage: fury-detect report <dump.json> --core <binary> [--out report.md]",
+    )?;
+
+    let hash_of = |path: &str| -> Result<String> {
+        let bytes = std::fs::read(path).with_context(|| format!("reading {path}"))?;
+        Ok(format!("{:x}", Sha256::digest(&bytes)))
+    };
+
+    let flat = load(&dump)?;
+    let checks = gate_checks(&flat);
+    let failed = checks.iter().filter(|c| c.verdict == Verdict::Fail).count();
+    let skipped = checks.iter().filter(|c| c.verdict == Verdict::Skip).count();
+
+    // What the binary says it is, asked of the binary rather than assumed from
+    // a file name. A report about a build nobody can identify is a report about
+    // nothing.
+    let (core_hash, core_version) = match &core {
+        Some(path) => {
+            let version = std::process::Command::new(path)
+                .arg("--version")
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .unwrap_or_else(|| "(the binary did not answer --version)".into());
+            (hash_of(path)?, version)
+        }
+        None => ("(not given — pass --core)".into(), "(unknown)".into()),
+    };
+
+    // The series is the design record AND the build input: two binaries built
+    // from different series are different browsers, whatever they call
+    // themselves.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let series = hash_of(&root.join("core/patches/series").display().to_string())
+        .unwrap_or_else(|_| "(series not found)".into());
+    let commit = std::process::Command::new("git")
+        .args(["-C", &root.display().to_string(), "rev-parse", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_else(|| "(not a git checkout)".into());
+
+    let mut md = String::new();
+    md.push_str("# Fury — measurement report\n\n");
+    md.push_str(&format!(
+        "{}\n\n",
+        if failed == 0 {
+            format!("**PASS** — {} checks, {skipped} skipped.", checks.len())
+        } else {
+            format!("**FAIL** — {failed} of {} checks failed.", checks.len())
+        }
+    ));
+
+    md.push_str("## What was measured\n\n");
+    md.push_str("| | |\n|---|---|\n");
+    md.push_str(&format!("| core | `{core_version}` |\n"));
+    md.push_str(&format!("| core sha256 | `{core_hash}` |\n"));
+    md.push_str(&format!("| capture | `{}` |\n", hash_of(&dump)?));
+    md.push_str(&format!("| patch series sha256 | `{series}` |\n"));
+    md.push_str(&format!("| commit | `{commit}` |\n"));
+
+    md.push_str("\n## Claims\n\n| | claim | detail |\n|---|---|---|\n");
+    for c in &checks {
+        let mark = match c.verdict {
+            Verdict::Pass => "ok",
+            Verdict::Fail => "**FAIL**",
+            Verdict::Skip => "skip",
+        };
+        md.push_str(&format!("| {mark} | {} | {} |\n", c.what, c.detail));
+    }
+
+    md.push_str(
+        "\n## Taking it again\n\n         This document is a claim about a specific binary, and the hashes above          are what make it checkable rather than believable. With the same          release:\n\n         ```bash\n         shasum -a 256 <the core binary>          # must match `core sha256`\n         tools/detect-suite/capture-chrome.sh mine <the core binary>\n         cargo run -p fury-detect -- report tools/detect-suite/baselines/mine.json \\\n             --core <the core binary>\n         ```\n\n         A different verdict from the same core hash is a bug worth reporting          (SECURITY.md). A different verdict from a different core hash is a          different browser.\n",
+    );
+
+    match out {
+        Some(path) => {
+            std::fs::write(&path, &md).with_context(|| format!("writing {path}"))?;
+            println!("wrote {path}");
+        }
+        None => print!("{md}"),
+    }
+    if failed > 0 {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+fn cmd_gate(args: &[String]) -> Result<()> {
+    let path = args.first().context("usage: fury-detect gate <dump.json>")?;
+    let flat = load(path)?;
+    let checks = gate_checks(&flat);
     println!("gate  {}\n", Path::new(path).display());
     let mut failed = 0;
     for c in &checks {

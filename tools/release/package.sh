@@ -144,3 +144,27 @@ echo "Verify a download with:"
 echo "  shasum -a 256 -c SHA256SUMS"
 echo
 echo "in $out"
+
+# ---------------------------------------------------------------------------
+# The measurement report
+# ---------------------------------------------------------------------------
+# Beside the checksums, because a release that says "it spoofs" and a release
+# that says WHAT WAS MEASURED, on WHICH BYTES, are different products.
+#
+# Competitors' evidence is screenshots and a table in a README, and neither can
+# be re-taken by a reader: their binaries cannot be rebuilt or inspected. This
+# names the core's sha256, the capture's, the patch series' and the commit, so
+# a reader with the same release runs one command and compares documents.
+#
+# Skipped rather than fatal when there is no capture to report on. A release
+# built on a machine that has not run the probe is a release with no
+# measurement, and saying so beats inventing one.
+CAPTURE="${FURY_CAPTURE:-tools/detect-suite/baselines/ctx-fury-redacted.json}"
+if [ -f "$CAPTURE" ]; then
+  echo "==> measurement report"
+  cargo run -q -p fury-detect -- report "$CAPTURE" \
+    ${CORE_BINARY:+--core "$CORE_BINARY"} \
+    --out "$out/REPORT.md" || echo "!! the gate failed — see $out/REPORT.md"
+else
+  echo "==> no capture at $CAPTURE — the release will carry no measurement report"
+fi
