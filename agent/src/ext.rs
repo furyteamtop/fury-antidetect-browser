@@ -153,26 +153,7 @@ pub fn install(crx: &[u8], dir: &Path) -> Result<Installed> {
     }
     std::fs::create_dir_all(dir)?;
 
-    // The ZIP goes to a file and then through tar, rather than through a zip
-    // crate. Two reasons, and the second is the real one: install_core already
-    // shells out to tar for archives and it was MEASURED that bsdtar reads zip
-    // on both platforms this ships for — Windows has carried it since build
-    // 17063. A second archive implementation is a second set of bugs about
-    // permissions and paths.
-    let staging = dir.with_extension("crx-zip");
-    std::fs::write(&staging, &crx[parsed.zip_at..])
-        .with_context(|| format!("writing {}", staging.display()))?;
-    let status = std::process::Command::new("tar")
-        .arg("-xf")
-        .arg(&staging)
-        .arg("-C")
-        .arg(dir)
-        .status()
-        .context("running tar to unpack the extension")?;
-    let _ = std::fs::remove_file(&staging);
-    if !status.success() {
-        bail!("tar could not unpack the extension archive");
-    }
+    unzip(&crx[parsed.zip_at..], dir)?;
 
     let manifest_path = dir.join("manifest.json");
     if !manifest_path.is_file() {
@@ -238,6 +219,112 @@ pub fn installed(root: &Path) -> Vec<Installed> {
         });
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// Just enough ZIP
+// ---------------------------------------------------------------------------
+//
+// The first version shelled out to `tar`, on a measurement that bsdtar reads
+// zip — which is true on macOS and on Windows, and false on Linux, where `tar`
+// is GNU tar and answers "This does not look like a tar archive". Linux is not
+// a shipped platform but CI runs there, so the first CI run after that commit
+// failed on four tests. The measurement was right and the generalisation from
+// "bsdtar" to "tar" was not.
+//
+// Reading it here is better than fixing the fallback, for a reason that has
+// nothing to do with platforms: an external unpacker does not check where the
+// entries land. A .crx is supplied by the operator, and an archive entry named
+// `../../../../etc/cron.d/x` is the oldest trick there is. `safe_join` below is
+// the guard, and it is a test rather than a hope.
+//
+// flate2 is already a dependency of this crate, so this adds nothing.
+
+/// Unpacks a ZIP into `dir`. Stored and deflated entries only, which is what
+/// every real .crx contains.
+fn unzip(zip: &[u8], dir: &Path) -> Result<()> {
+    // The end-of-central-directory record, found by searching backwards for its
+    // signature. It is at the very end unless the archive has a comment, which
+    // is why this is a search rather than a fixed offset.
+    let eocd = (0..zip.len().saturating_sub(21))
+        .rev()
+        .find(|&i| zip[i..].starts_with(&0x0605_4b50u32.to_le_bytes()))
+        .context("not a ZIP archive: no end-of-central-directory record")?;
+
+    let count = u16::from_le_bytes(zip[eocd + 10..eocd + 12].try_into().unwrap()) as usize;
+    let mut at = u32::from_le_bytes(zip[eocd + 16..eocd + 20].try_into().unwrap()) as usize;
+
+    for _ in 0..count {
+        if !zip[at..].starts_with(&0x0201_4b50u32.to_le_bytes()) {
+            bail!("the ZIP central directory is malformed");
+        }
+        let method = u16::from_le_bytes(zip[at + 10..at + 12].try_into().unwrap());
+        let compressed = u32::from_le_bytes(zip[at + 20..at + 24].try_into().unwrap()) as usize;
+        let name_len = u16::from_le_bytes(zip[at + 28..at + 30].try_into().unwrap()) as usize;
+        let extra_len = u16::from_le_bytes(zip[at + 30..at + 32].try_into().unwrap()) as usize;
+        let comment_len = u16::from_le_bytes(zip[at + 32..at + 34].try_into().unwrap()) as usize;
+        let local_at = u32::from_le_bytes(zip[at + 42..at + 46].try_into().unwrap()) as usize;
+        let name = String::from_utf8_lossy(&zip[at + 46..at + 46 + name_len]).to_string();
+        at += 46 + name_len + extra_len + comment_len;
+
+        // The local header repeats the name and extra fields, and its extra
+        // field length may DIFFER from the central one — reading the central
+        // value here is the classic way a zip reader lands mid-file.
+        if !zip[local_at..].starts_with(&0x0403_4b50u32.to_le_bytes()) {
+            bail!("a ZIP entry points at no local header");
+        }
+        let l_name = u16::from_le_bytes(zip[local_at + 26..local_at + 28].try_into().unwrap()) as usize;
+        let l_extra = u16::from_le_bytes(zip[local_at + 28..local_at + 30].try_into().unwrap()) as usize;
+        let data_at = local_at + 30 + l_name + l_extra;
+        let data = zip
+            .get(data_at..data_at + compressed)
+            .context("a ZIP entry runs past the end of the archive")?;
+
+        // Directory entries end in a slash and carry no data.
+        if name.ends_with('/') {
+            std::fs::create_dir_all(safe_join(dir, &name)?)?;
+            continue;
+        }
+
+        let out = safe_join(dir, &name)?;
+        if let Some(parent) = out.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        match method {
+            0 => std::fs::write(&out, data)?,
+            8 => {
+                use std::io::Read;
+                let mut decoder = flate2::read::DeflateDecoder::new(data);
+                let mut bytes = Vec::new();
+                decoder
+                    .read_to_end(&mut bytes)
+                    .with_context(|| format!("inflating {name}"))?;
+                std::fs::write(&out, bytes)?;
+            }
+            other => bail!("{name} uses compression method {other}, which this does not read"),
+        }
+    }
+    Ok(())
+}
+
+/// Joins an archive entry name onto a directory, refusing anything that would
+/// land outside it.
+///
+/// Absolute paths, `..`, and Windows drive letters and backslashes — a
+/// well-formed zip has none of them and an attack has all of them.
+fn safe_join(dir: &Path, name: &str) -> Result<PathBuf> {
+    if name.starts_with('/') || name.starts_with('\\') || name.contains(':') {
+        bail!("the archive entry {name:?} is an absolute path");
+    }
+    let mut out = dir.to_path_buf();
+    for part in name.split(['/', '\\']) {
+        match part {
+            "" | "." => continue,
+            ".." => bail!("the archive entry {name:?} climbs out of the extension directory"),
+            other => out.push(other),
+        }
+    }
+    Ok(out)
 }
 
 // ---------------------------------------------------------------------------
@@ -561,6 +648,30 @@ mod tests {
 
         install(&crx, &dir).unwrap();
         assert!(!dir.join("leftover.js").exists(), "a stale file survived a reinstall");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// The reason the tar shell-out was replaced rather than patched. An
+    /// external unpacker does not check where entries land, and a .crx comes
+    /// from whoever the operator downloaded it from.
+    #[test]
+    fn an_archive_entry_cannot_climb_out_of_the_extension_directory() {
+        let root = scratch("escape");
+        let dir = root.join("ext");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        for evil in ["../../../../tmp/pwned", "/etc/passwd", "a/../../b"] {
+            let err = super::unzip(&stored_zip(evil, b"x"), &dir).unwrap_err().to_string();
+            assert!(
+                err.contains("climbs out") || err.contains("absolute"),
+                "{evil} gave {err:?}"
+            );
+        }
+        // And the ordinary case still works, so the guard is not just refusing
+        // everything.
+        super::unzip(&stored_zip("sub/dir/file.js", b"ok"), &dir).unwrap();
+        assert_eq!(std::fs::read(dir.join("sub/dir/file.js")).unwrap(), b"ok");
+
         std::fs::remove_dir_all(&root).unwrap();
     }
 
