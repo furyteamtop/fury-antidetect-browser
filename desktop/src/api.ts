@@ -424,6 +424,19 @@ export const api = {
 
   // ---- the team (server only) ------------------------------------------
 
+  /** Who did what, newest first. Owners and admins only; the server refuses
+   *  everyone else, so a Member never sees this screen offered. */
+  audit: (before?: number): Promise<
+    {
+      id: number;
+      actor: string;
+      action: string;
+      target_id: string | null;
+      detail: unknown;
+      at: string;
+    }[]
+  > => cmd("audit", { before: before ?? null }),
+
   orgMembers: (): Promise<{
     members: {
       user_id: string;

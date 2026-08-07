@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Perm, type Project } from "../api";
 import { useI18n } from "../i18n";
+import { Audit } from "./Audit";
 import { useAsk } from "./Ask";
 
 type Members = Awaited<ReturnType<typeof api.orgMembers>>;
@@ -350,6 +351,26 @@ export function Users({
               ))}
             </tbody>
           </table>
+        </>
+      )}
+
+      {/* Who did what.
+          Here rather than as a fifth entry in the sidebar, and that is
+          deliberate: the sidebar's own comment says the same four appear
+          everywhere so that an operator does not have to relearn the layout
+          the day their team grows. Audit does not exist at all in local mode —
+          there is nobody else to account for — so a tab that appeared and
+          disappeared would be exactly the rearrangement that argument is
+          against.
+
+          Shown to owners and admins only. The server refuses everyone else,
+          and offering a section that answers with a permission error is worse
+          than not offering it. */}
+      {(team.members.find((m) => m.is_you)?.role === "owner" ||
+        team.members.find((m) => m.is_you)?.role === "admin") && (
+        <>
+          <h2 className="sectionTitle">{t("team.audit")}</h2>
+          <Audit />
         </>
       )}
     </div>

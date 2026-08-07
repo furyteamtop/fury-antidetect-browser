@@ -15,7 +15,7 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use fury_shared::api::{
@@ -59,6 +59,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/v1/profiles/trash", get(list_trash))
         .route("/v1/profiles/{profile_id}/restore", post(restore_profile))
         .route("/v1/profiles/{profile_id}/purge", axum::routing::delete(purge_profile))
+        .route("/v1/audit", get(list_audit))
         .route("/v1/proxies", get(list_proxies).post(create_proxy))
         .route(
             "/v1/proxies/{proxy_id}",
@@ -1281,6 +1282,96 @@ async fn create_proxy(
 /// needs to tell them apart, which is a name and a masked host; the sealed
 /// credentials are handed out once, bound to a lock, when a profile is actually
 /// launched.
+/// Who did what, and when.
+///
+/// The table has been written to since 0001 and until now there was no way to
+/// read it — which made it a table, not an audit. An audit nobody can read is
+/// a compliance story rather than a feature, and for the agencies this product
+/// is for, "who opened that profile on Tuesday" is the question that gets asked
+/// after somebody leaves.
+///
+/// Owners and admins only. A member being able to see every action of every
+/// colleague is surveillance rather than accountability, and the roles already
+/// draw that line for `ManageAccess`.
+///
+/// Row-level security already confines this to the caller's organisation
+/// (`org_isolation ON audit_events`), and the `org_id = $1` below is the second
+/// lock rather than the first — every other handler here is written the same
+/// way, and the RLS work exists precisely because one of them was once wrong.
+///
+/// Orphaned rows — `org_id IS NULL`, left by migration 0007 when an
+/// organisation is deleted so the record of who did what outlives the tenant —
+/// are invisible here by construction: `user_in_org(NULL)` is false, and the
+/// explicit predicate does not match either. That is deliberate. They are for
+/// somebody with database access, which is the right audience for the history
+/// of a deleted organisation.
+async fn list_audit(
+    mut db: auth::Db,
+    Query(q): Query<AuditQuery>,
+) -> ApiResult<Json<Vec<AuditEntry>>> {
+    let caller = db.caller;
+
+    use fury_shared::rbac::OrgRole;
+    if !matches!(caller.role, OrgRole::Owner | OrgRole::Admin) {
+        return Err(ApiError::Denied(Perm::ManageAccess));
+    }
+
+    // Bounded, and bounded here rather than trusted from the query: a client
+    // asking for a million rows is a client that gets a timeout instead of an
+    // answer, and the operator reads it as the server being broken.
+    let limit = q.limit.unwrap_or(200).clamp(1, 1000);
+
+    let rows: Vec<(i64, Option<String>, Option<String>, String, Option<Uuid>, serde_json::Value, String)> =
+        sqlx::query_as(&format!(
+            "SELECT e.id, u.email, u.name, e.action, e.target_id, e.detail, {} \
+             FROM audit_events e LEFT JOIN users u ON u.id = e.actor_user_id \
+             WHERE e.org_id = $1 AND ($2::bigint IS NULL OR e.id < $2) \
+             ORDER BY e.id DESC LIMIT $3",
+            rfc3339("e.at"),
+        ))
+        .bind(caller.org_id)
+        .bind(q.before)
+        .bind(limit)
+        .fetch_all(db.as_mut())
+        .await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|(id, email, name, action, target_id, detail, at)| AuditEntry {
+                id,
+                // A deleted user leaves their rows behind — 0007 nulls the
+                // actor rather than removing the history. Naming them "someone
+                // who has left" beats an empty cell, which reads as a bug.
+                actor: name
+                    .or(email)
+                    .unwrap_or_else(|| "(a user who has since been removed)".into()),
+                action,
+                target_id,
+                detail,
+                at,
+            })
+            .collect(),
+    ))
+}
+
+#[derive(serde::Deserialize)]
+struct AuditQuery {
+    limit: Option<i64>,
+    /// Page by id rather than by offset: rows arrive while somebody is
+    /// reading, and OFFSET would show them a row twice or not at all.
+    before: Option<i64>,
+}
+
+#[derive(serde::Serialize)]
+struct AuditEntry {
+    id: i64,
+    actor: String,
+    action: String,
+    target_id: Option<Uuid>,
+    detail: serde_json::Value,
+    at: String,
+}
+
 async fn list_proxies(
     mut db: auth::Db,
 ) -> ApiResult<Json<Vec<ProxySummary>>> {

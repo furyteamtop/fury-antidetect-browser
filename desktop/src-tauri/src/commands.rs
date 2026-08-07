@@ -1144,6 +1144,16 @@ pub async fn set_remember_org_key(state: State<'_, AppState>, remember: bool) ->
     shell_state(state).await
 }
 
+/// Who did what. Owners and admins only — the server decides that, not this.
+#[tauri::command]
+pub async fn audit(state: State<'_, AppState>, before: Option<i64>) -> R<serde_json::Value> {
+    let path = match before {
+        Some(id) => format!("/v1/audit?limit=200&before={id}"),
+        None => "/v1/audit?limit=200".to_string(),
+    };
+    state.call(reqwest::Method::GET, &path, Body::None, true).await
+}
+
 #[tauri::command]
 pub async fn org_members(state: State<'_, AppState>) -> R<serde_json::Value> {
     state.call(reqwest::Method::GET, "/v1/org/members", Body::None, true).await
