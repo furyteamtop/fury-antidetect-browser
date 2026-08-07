@@ -1,5 +1,5 @@
 diff --git a/third_party/blink/renderer/platform/fonts/font_cache.cc b/third_party/blink/renderer/platform/fonts/font_cache.cc
-index 506b181809..cfa1bf2b65 100644
+index 506b181809..711e10ecad 100644
 --- a/third_party/blink/renderer/platform/fonts/font_cache.cc
 +++ b/third_party/blink/renderer/platform/fonts/font_cache.cc
 @@ -29,6 +29,12 @@
@@ -15,7 +15,7 @@ index 506b181809..cfa1bf2b65 100644
  #include <limits>
  #include <memory>
  
-@@ -146,10 +152,120 @@ void FontCache::AcceptLanguagesChanged(const String& accept_languages) {
+@@ -146,10 +152,135 @@ void FontCache::AcceptLanguagesChanged(const String& accept_languages) {
    LayoutLocale::AcceptLanguagesChanged(accept_languages);
  }
  
@@ -62,11 +62,15 @@ index 506b181809..cfa1bf2b65 100644
 +
 +}  // namespace
 +
-+// Set while Blink is asking for its floor — the font it falls back to when every
-+// family a page named has failed. Not in the anonymous namespace above because
-+// the two hooks below have external linkage and must touch the same object.
++// Non-zero while Blink is resolving a family the PAGE did not name: its
++// last-resort floor, or the concrete font behind a generic keyword. Not in the
++// anonymous namespace above because the hooks below have external linkage and
++// must touch the same object.
++//
++// A depth rather than a bool, so that one suspension ending cannot switch the
++// filter back on inside another.
 +namespace {
-+thread_local bool g_fury_in_last_resort = false;
++thread_local int g_fury_filter_suspended = 0;
 +}
 +
 +namespace fury_internal {
@@ -79,13 +83,24 @@ index 506b181809..cfa1bf2b65 100644
 +// macOS, where GetLastResortFallbackFont passes kAllowAlternate.
 +//
 +// So the exemption is a flag set around the call instead. It cannot be reached
-+// from a page: only FontFallbackList sets it, and only after every family the
-+// document asked for has already been refused.
-+void EnterLastResort() {
-+  g_fury_in_last_resort = true;
++// from a page: only FontFallbackList sets it, and only for a family the
++// document did not ask for by name.
++//
++// The second caller is generic-family resolution, and that one was found by
++// measurement. FuryIsGenericFamily below exempts the KEYWORD, which is not
++// where the problem was: by the time a family reaches this filter, style
++// resolution has already turned `monospace` into whatever the platform's fixed
++// font is — Menlo on macOS — and it is that concrete name the filter refused.
++// Every generic then fell through to the last resort, which is Times. Measured
++// on this build before the fix: serif, sans-serif, monospace and cursive all
++// rendered at 1044.53 px where an unconfigured build gives 1044.53, 1075.50,
++// 866.95 and 1036.30. A page that compares the width of monospace against
++// serif and finds them equal has found a machine that does not exist.
++void SuspendFilter() {
++  ++g_fury_filter_suspended;
 +}
-+void LeaveLastResort() {
-+  g_fury_in_last_resort = false;
++void ResumeFilter() {
++  --g_fury_filter_suspended;
 +}
 +
 +}  // namespace fury_internal
@@ -124,7 +139,7 @@ index 506b181809..cfa1bf2b65 100644
 +  // So: a filter may narrow, never to zero. Same rule as the speech-voice
 +  // filter in 0041, for the same reason.
 +  if (altername_font_name != AlternateFontName::kLastResort &&
-+      !g_fury_in_last_resort) {
++      g_fury_filter_suspended == 0) {
 +    if (const std::set<std::string>* allowed = FuryAllowedFonts()) {
 +      const std::string lower = FuryLower(family.Utf8());
 +      if (!FuryIsGenericFamily(lower) && !allowed->count(lower)) {
@@ -137,25 +152,38 @@ index 506b181809..cfa1bf2b65 100644
            font_description,
            FontFaceCreationParams(
 diff --git a/third_party/blink/renderer/platform/fonts/font_fallback_list.cc b/third_party/blink/renderer/platform/fonts/font_fallback_list.cc
-index c38cf414f9..d1509af8b1 100644
+index c38cf414f9..4ecc8440cd 100644
 --- a/third_party/blink/renderer/platform/fonts/font_fallback_list.cc
 +++ b/third_party/blink/renderer/platform/fonts/font_fallback_list.cc
-@@ -45,6 +45,22 @@
+@@ -28,6 +28,8 @@
+ 
+ #include "third_party/blink/renderer/platform/fonts/font_fallback_list.h"
+ 
++#include <optional>
++
+ #include "base/timer/elapsed_timer.h"
+ #include "third_party/blink/renderer/platform/font_family_names.h"
+ #include "third_party/blink/renderer/platform/fonts/alternate_font_family.h"
+@@ -45,6 +47,26 @@
  
  namespace blink {
  
 +namespace fury_internal {
-+// Defined in font_cache.cc. Suspends the profile's font filter for the duration
-+// of a last-resort lookup: each platform names its own floor fonts, and refusing
-+// those leaves Blink with nothing to draw with at all.
-+void EnterLastResort();
-+void LeaveLastResort();
++// Defined in font_cache.cc. Suspends the profile's font filter while Blink
++// resolves a family the PAGE did not name: its last-resort floor, whose fonts
++// each platform picks for itself, and the concrete font behind a generic
++// keyword, which style resolution has already substituted by the time the
++// filter sees it. Refusing either leaves Blink with nothing to draw with —
++// and, for the generics, leaves serif, monospace and cursive all rendering in
++// the same face, which is a machine that does not exist.
++void SuspendFilter();
++void ResumeFilter();
 +
 +// RAII so an early return cannot leave the filter switched off.
-+class ScopedLastResort {
++class ScopedFilterSuspend {
 + public:
-+  ScopedLastResort() { EnterLastResort(); }
-+  ~ScopedLastResort() { LeaveLastResort(); }
++  ScopedFilterSuspend() { SuspendFilter(); }
++  ~ScopedFilterSuspend() { ResumeFilter(); }
 +};
 +}  // namespace fury_internal
 +
@@ -163,19 +191,45 @@ index c38cf414f9..d1509af8b1 100644
  FontFallbackList::FontFallbackList(FontSelector* font_selector)
      : font_selector_(font_selector) {}
  
-@@ -100,6 +116,7 @@ const SimpleFontData* FontFallbackList::DeterminePrimarySimpleFontDataCore(
+@@ -100,6 +122,7 @@ const SimpleFontData* FontFallbackList::DeterminePrimarySimpleFontDataCore(
          return font_data->FontDataForCharacter(lookup_character);
  
        FontCache& font_cache = FontCache::Get();
-+      fury_internal::ScopedLastResort fury_last_resort;
++      fury_internal::ScopedFilterSuspend fury_last_resort;
        const SimpleFontData* last_resort_fallback =
            font_cache.GetLastResortFallbackFont(font_description);
        DCHECK(last_resort_fallback);
-@@ -189,6 +206,7 @@ const FontData* FontFallbackList::GetFontData(
+@@ -154,6 +177,14 @@ const FontData* FontFallbackList::GetFontData(
+ 
+   for (; curr_family; curr_family = curr_family->Next()) {
+     family_index_++;
++    // `serif`, `monospace` and the rest arrive here already resolved to a
++    // concrete family name by style resolution, with only this flag left to say
++    // the page asked for a keyword. Filtering that name is what collapsed every
++    // generic into the last-resort face; see fury_internal in font_cache.cc.
++    std::optional<fury_internal::ScopedFilterSuspend> fury_generic;
++    if (curr_family->FamilyIsGeneric()) {
++      fury_generic.emplace();
++    }
+     if (!font_selector_) {
+       // Don't query system fonts for empty font family name.
+       if (!curr_family->FamilyName().empty()) {
+@@ -179,7 +210,9 @@ const FontData* FontFallbackList::GetFontData(
+   family_index_ = kCAllFamiliesScanned;
+ 
+   if (font_selector_) {
+-    // Try the user's preferred standard font.
++    // Try the user's preferred standard font. Generic, and not a family the
++    // page named, so the filter is suspended for it too.
++    fury_internal::ScopedFilterSuspend fury_standard;
+     FontFamily font_family(font_family_names::kWebkitStandard,
+                            FontFamily::Type::kGenericFamily);
+     if (const FontData* data =
+@@ -189,6 +222,7 @@ const FontData* FontFallbackList::GetFontData(
    }
  
    // Still no result. Hand back our last resort fallback font.
-+  fury_internal::ScopedLastResort fury_last_resort;
++  fury_internal::ScopedFilterSuspend fury_last_resort;
    auto* last_resort =
        FontCache::Get().GetLastResortFallbackFont(font_description);
    return last_resort;

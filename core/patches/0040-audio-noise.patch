@@ -31,7 +31,7 @@ index 64cc335435..6e986a7582 100644
    return std::round(output_position_.hardware_output_latency / factor) * factor;
  }
 diff --git a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
-index fcac660801..0b25eb3da8 100644
+index fcac660801..7c44c1d5e8 100644
 --- a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
 +++ b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
 @@ -25,6 +25,8 @@
@@ -43,7 +43,7 @@ index fcac660801..0b25eb3da8 100644
  #include "base/metrics/histogram_functions.h"
  #include "base/metrics/histogram_macros.h"
  #include "media/base/audio_glitch_info.h"
-@@ -432,6 +434,40 @@ void OfflineAudioContext::FireCompletionEvent() {
+@@ -432,6 +434,46 @@ void OfflineAudioContext::FireCompletionEvent() {
        return;
      }
  
@@ -73,7 +73,13 @@ index fcac660801..0b25eb3da8 100644
 +            h = (h ^ (channel * 0x9e3779b9u)) * 0x100000001b3ULL;
 +            h = (h ^ i) * 0x100000001b3ULL;
 +            h ^= h >> 29;
-+            // +/- one part in ten million, sign from the hash.
++            // Sign from the hash, magnitude from the next eight bits: up to
++            // 255 parts in ten million, so 2.55e-5 at the extreme. That is
++            // about one least-significant bit of 16-bit audio (-92 dBFS) and
++            // roughly eight bits above the float32 floor — inaudible, below the
++            // noise of any real converter, and still enough to move the sum
++            // every fingerprinting library computes. verify-0040.py measures
++            // the largest per-sample move and holds it under 3e-5.
 +            const float delta = (h & 1) ? 1.0e-7f : -1.0e-7f;
 +            samples[i] += delta * static_cast<float>((h >> 1) & 0xff);
 +          }

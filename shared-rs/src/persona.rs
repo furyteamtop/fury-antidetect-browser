@@ -204,6 +204,13 @@ fn sub_seed(seed: u64, purpose: &str) -> u32 {
     for byte in purpose.as_bytes() {
         h = mix(h ^ u64::from(*byte));
     }
+    // Masked to 31 bits because the core reads these through
+    // FuryConfig::GetInt, which is base::Value's int — 32-bit and SIGNED. A
+    // seed above 2^31 does not clamp or error there; GetIfInt returns nullopt,
+    // GetCanvasNoiseSeed answers false, and the surface is left entirely
+    // unnoised while every log line still says the profile is configured.
+    // verify-0033.py demonstrated it by accident with a seed of 0xC1EC7001:
+    // identical geometry across two seeds and the unconfigured build.
     (mix(h) & 0x7fff_ffff) as u32
 }
 
