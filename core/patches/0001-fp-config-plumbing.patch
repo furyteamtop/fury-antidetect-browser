@@ -32,10 +32,10 @@ index 0000000000..b11a7ce829
 +}
 diff --git a/components/fury/fury_config.cc b/components/fury/fury_config.cc
 new file mode 100644
-index 0000000000..f741678258
+index 0000000000..72e603d1c6
 --- /dev/null
 +++ b/components/fury/fury_config.cc
-@@ -0,0 +1,244 @@
+@@ -0,0 +1,247 @@
 +// Copyright 2026 The Fury Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -97,8 +97,11 @@ index 0000000000..f741678258
 +  std::string out;
 +  char buf[4096];
 +  while (true) {
-+    std::optional<size_t> n = file.ReadAtCurrentPos(base::as_writable_byte_span(
-+        base::span(buf, sizeof(buf))));
++    // span(buf), not span(buf, sizeof(buf)): the two-argument form is the one
++    // -Wunsafe-buffer-usage rejects, and deducing the extent from the array is
++    // both safe and one fewer place for the size to be wrong.
++    std::optional<size_t> n =
++        file.ReadAtCurrentPos(base::as_writable_byte_span(base::span(buf)));
 +    if (!n.has_value()) {
 +      LOG(ERROR) << "fury: reading fingerprint config";
 +      return std::nullopt;
@@ -397,10 +400,10 @@ index 0000000000..90accae0fd
 +#endif  // COMPONENTS_FURY_FURY_CONFIG_H_
 diff --git a/components/fury/fury_noise.cc b/components/fury/fury_noise.cc
 new file mode 100644
-index 0000000000..9b71de3fda
+index 0000000000..cd8a58a86f
 --- /dev/null
 +++ b/components/fury/fury_noise.cc
-@@ -0,0 +1,135 @@
+@@ -0,0 +1,142 @@
 +// Copyright 2026 The Fury Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -480,7 +483,8 @@ index 0000000000..9b71de3fda
 +                      int height,
 +                      size_t row_bytes,
 +                      int origin_x,
-+                      int origin_y) {
++                      int origin_y,
++                      ChannelOrder order) {
 +  if (width <= 0 || height <= 0 || row_bytes == 0) {
 +    return;
 +  }
@@ -516,7 +520,13 @@ index 0000000000..9b71de3fda
 +
 +      // One of R, G, B — never alpha. Changing alpha would alter compositing
 +      // and could be visible.
-+      const size_t channel = (h >> 3) % 3;
++      //
++      // Chosen as a COLOUR and then translated to a byte, because the two
++      // readback paths do not agree on the layout: green sits in the middle
++      // either way, but red and blue swap. See ChannelOrder in the header.
++      const size_t colour = (h >> 3) % 3;
++      const size_t channel =
++          (order == ChannelOrder::kBGRA && colour != 1) ? 2 - colour : colour;
 +      uint8_t& value = line[offset + channel];
 +      if ((h >> 5) & 1) {
 +        if (value < 255) {
@@ -538,10 +548,10 @@ index 0000000000..9b71de3fda
 +}  // namespace fury
 diff --git a/components/fury/fury_noise.h b/components/fury/fury_noise.h
 new file mode 100644
-index 0000000000..cd235cc77c
+index 0000000000..f1c8705b74
 --- /dev/null
 +++ b/components/fury/fury_noise.h
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,89 @@
 +// Copyright 2026 The Fury Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -581,9 +591,24 @@ index 0000000000..cd235cc77c
 +// invisible to the eye and to any rendering comparison, but it changes the hash
 +// of every readback.
 +//
-+// `pixels` is RGBA8888. Fully transparent pixels are skipped — with
-+// premultiplied alpha the change would be undone on the round trip, which would
-+// break property 1.
++// Fully transparent pixels are skipped — with premultiplied alpha the change
++// would be undone on the round trip, which would break property 1.
++//
++// The channel order has to be told, and getting it wrong is a REAL leak rather
++// than a cosmetic one. `ImageData` is RGBA8888 by specification everywhere,
++// but the pixmap behind `toDataURL()`/`toBlob()` is whatever N32 is on the
++// platform — BGRA8888 on macOS and Windows. Perturbing "byte 0" instead of
++// "red" then moves red on one path and blue on the other, so a site that
++// decodes the PNG and compares it against getImageData finds ~5% of bytes
++// differing by one, on exactly the R and B channels and never on G or A.
++// Measured on this build before this parameter existed: 190 differing bytes in
++// the first 4096, against 0 for an unconfigured build. `verify-0030.py` keeps
++// that comparison.
++enum class ChannelOrder {
++  kRGBA,
++  kBGRA,
++};
++
 +COMPONENT_EXPORT(FURY)
 +void ApplyCanvasNoise(uint64_t seed,
 +                      base::span<uint8_t> pixels,
@@ -591,7 +616,8 @@ index 0000000000..cd235cc77c
 +                      int height,
 +                      size_t row_bytes,
 +                      int origin_x,
-+                      int origin_y);
++                      int origin_y,
++                      ChannelOrder order);
 +
 +// The canvas noise seed from the active config, or std::nullopt when no config
 +// is present or it does not ask for canvas noise. Callers must leave the pixels

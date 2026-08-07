@@ -1,5 +1,5 @@
 diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
-index ceb4c3f606..679a0c45c7 100644
+index ceb4c3f606..78e41822f7 100644
 --- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 +++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 @@ -25,6 +25,11 @@
@@ -172,7 +172,7 @@ index ceb4c3f606..679a0c45c7 100644
    return result;
  }
  
-@@ -5341,6 +5486,31 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
+@@ -5341,6 +5486,33 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
      }
      ContextGL()->ReadPixels(x, y, width, height, format, type, data);
    }
@@ -198,7 +198,9 @@ index ceb4c3f606..679a0c45c7 100644
 +          // pixels, which ReadPixels has just filled.
 +          UNSAFE_BUFFERS(base::span(static_cast<uint8_t*>(data),
 +                                    row_bytes * static_cast<size_t>(height))),
-+          width, height, row_bytes, x, y);
++          width, height, row_bytes, x, y,
++          // GL_RGBA/GL_UNSIGNED_BYTE, which is the condition above.
++          fury::ChannelOrder::kRGBA);
 +    }
 +  }
  }

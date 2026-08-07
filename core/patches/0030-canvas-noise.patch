@@ -1,5 +1,5 @@
 diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
-index f939e8dcb0..7e589e30c3 100644
+index f939e8dcb0..b1e8ea7076 100644
 --- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
 +++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
 @@ -4,6 +4,8 @@
@@ -11,7 +11,7 @@ index f939e8dcb0..7e589e30c3 100644
  #include <cmath>
  #include <cstdint>
  #include <cstdlib>
-@@ -511,6 +513,33 @@ ImageData* BaseRenderingContext2D::getImageDataInternal(
+@@ -511,6 +513,35 @@ ImageData* BaseRenderingContext2D::getImageDataInternal(
            snapshot->PaintImageForCurrentFrame().GetSkImageInfo().bounds();
        DCHECK(!bounds.intersect(SkIRect::MakeXYWH(sx, sy, sw, sh)));
      }
@@ -39,14 +39,16 @@ index f939e8dcb0..7e589e30c3 100644
 +            UNSAFE_BUFFERS(base::span(
 +                static_cast<uint8_t*>(noised.writable_addr()),
 +                noised.rowBytes() * static_cast<size_t>(noised.height()))),
-+            noised.width(), noised.height(), noised.rowBytes(), sx, sy);
++            noised.width(), noised.height(), noised.rowBytes(), sx, sy,
++            // ImageData is RGBA8888 by specification, on every platform.
++            fury::ChannelOrder::kRGBA);
 +      }
 +    }
    }
  
    return image_data;
 diff --git a/third_party/blink/renderer/platform/graphics/image_data_buffer.cc b/third_party/blink/renderer/platform/graphics/image_data_buffer.cc
-index c76f6553e1..f8a661b9a1 100644
+index c76f6553e1..63bb51d5ed 100644
 --- a/third_party/blink/renderer/platform/graphics/image_data_buffer.cc
 +++ b/third_party/blink/renderer/platform/graphics/image_data_buffer.cc
 @@ -32,6 +32,8 @@
@@ -58,7 +60,7 @@ index c76f6553e1..f8a661b9a1 100644
  #include "base/compiler_specific.h"
  #include "base/memory/ptr_util.h"
  #include "third_party/blink/renderer/platform/image-encoders/image_encoder_utils.h"
-@@ -110,15 +112,45 @@ std::unique_ptr<ImageDataBuffer> ImageDataBuffer::Create(
+@@ -110,15 +112,51 @@ std::unique_ptr<ImageDataBuffer> ImageDataBuffer::Create(
        base::WrapUnique(new ImageDataBuffer(image));
    if (!buffer->IsValid())
      return nullptr;
@@ -86,9 +88,15 @@ index c76f6553e1..f8a661b9a1 100644
 +  // SAFETY: pixmap_ is valid and describes exactly `total` bytes.
 +  UNSAFE_BUFFERS(memcpy(fury_noised_pixels_.data(), pixmap_.addr(), total));
 +
++  // Not RGBA here: this pixmap is the canvas's own backing store, which is N32
++  // — BGRA8888 on macOS and Windows. Asking it rather than assuming is what
++  // keeps the encoded PNG agreeing with getImageData.
 +  fury::ApplyCanvasNoise(seed, base::span(fury_noised_pixels_),
 +                         pixmap_.width(), pixmap_.height(), pixmap_.rowBytes(),
-+                         /*origin_x=*/0, /*origin_y=*/0);
++                         /*origin_x=*/0, /*origin_y=*/0,
++                         pixmap_.colorType() == kBGRA_8888_SkColorType
++                             ? fury::ChannelOrder::kBGRA
++                             : fury::ChannelOrder::kRGBA);
 +
 +  pixmap_.reset(pixmap_.info(), fury_noised_pixels_.data(),
 +                pixmap_.rowBytes());
