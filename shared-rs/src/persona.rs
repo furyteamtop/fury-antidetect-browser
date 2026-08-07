@@ -537,6 +537,47 @@ impl Persona {
                 self.memory_gb
             ));
         }
+        // devicePixelRatio is not a free number. macOS ships exactly two —
+        // Retina and not — and Windows exposes its scaling slider, which moves
+        // in 25% steps. A ratio outside these is a machine that does not exist,
+        // and it is one `window.devicePixelRatio` hands to any page that asks.
+        let dpr = self.screen.device_pixel_ratio;
+        let allowed: &[f64] = if is_mac {
+            &[1.0, 2.0]
+        } else {
+            &[1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 3.0]
+        };
+        if !allowed.iter().any(|a| (a - dpr).abs() < 1e-9) {
+            errs.push(format!(
+                "devicePixelRatio {dpr} is not one {} reports ({allowed:?})",
+                self.os.name
+            ));
+        }
+
+        // The logical size times the ratio is the panel, and a panel cannot
+        // have a fractional pixel. This catches a persona assembled by taking
+        // one machine's resolution and another's scaling.
+        for (what, logical) in [("width", self.screen.width), ("height", self.screen.height)] {
+            let physical = logical as f64 * dpr;
+            if (physical - physical.round()).abs() > 1e-6 {
+                errs.push(format!(
+                    "screen.{what} {logical} at devicePixelRatio {dpr} is \
+                     {physical} physical pixels, which no panel has"
+                ));
+            }
+        }
+
+        // Logical cores. Every shipping Mac and every consumer x86 part is an
+        // even number — hyperthreading and Apple's core clusters both come in
+        // pairs — and `navigator.hardwareConcurrency` is read by every
+        // fingerprinting script there is.
+        if self.cpu.cores == 0 || self.cpu.cores % 2 != 0 || self.cpu.cores > 128 {
+            errs.push(format!(
+                "cpu.cores {} is not a count a real machine reports (even, 2 to 128)",
+                self.cpu.cores
+            ));
+        }
+
         if self.memory_gb < 4 && self.cpu.cores > 8 {
             errs.push(format!(
                 "{} GB with {} cores is not a machine that exists",
@@ -932,6 +973,44 @@ mod tests {
         let c = p.derive_core_config(1, &ctx());
         let brands = c["clientHints"]["brands"].as_array().unwrap();
         assert!(brands.iter().any(|b| b.as_str().unwrap().starts_with("Google Chrome/")));
+    }
+
+    /// The three checks added when docs/16 asked for a persona that refuses to
+    /// be impossible. Each is a value a page reads directly.
+    #[test]
+    fn a_machine_that_does_not_exist_is_rejected() {
+        // devicePixelRatio. macOS ships Retina and not; there is no 1.5 Mac.
+        let mut p = load("macos-15-m-series-1728x1117");
+        p.screen.device_pixel_ratio = 1.5;
+        let errs = p.validate().unwrap_err();
+        assert!(errs.iter().any(|e| e.contains("devicePixelRatio")), "{errs:?}");
+
+        // Windows moves in 25% steps, so 1.25 is fine and 1.33 is not.
+        let mut p = load("windows-11-rtx4060-1920x1080");
+        p.screen.device_pixel_ratio = 1.25;
+        assert!(p.validate().is_ok(), "{:?}", p.validate());
+        p.screen.device_pixel_ratio = 1.33;
+        assert!(p.validate().is_err());
+
+        // A fractional panel. This is what taking one machine's resolution and
+        // another's scaling produces.
+        let mut p = load("windows-11-rtx4060-1920x1080");
+        p.screen.width = 1921;
+        p.screen.avail_width = 1921;
+        p.screen.device_pixel_ratio = 1.5;
+        let errs = p.validate().unwrap_err();
+        assert!(errs.iter().any(|e| e.contains("physical pixels")), "{errs:?}");
+
+        // Logical cores. Hyperthreading and Apple's clusters both come in
+        // pairs, so an odd count is a machine nobody sells.
+        let mut p = load("macos-15-m-series-1728x1117");
+        p.cpu.cores = 7;
+        let errs = p.validate().unwrap_err();
+        assert!(errs.iter().any(|e| e.contains("cpu.cores")), "{errs:?}");
+        p.cpu.cores = 0;
+        assert!(p.validate().is_err());
+        p.cpu.cores = 256;
+        assert!(p.validate().is_err());
     }
 
     #[test]
