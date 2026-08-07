@@ -32,6 +32,7 @@ mod transfer;
 mod usage;
 mod vault;
 mod widevine;
+mod wireguard;
 
 use std::time::Duration;
 

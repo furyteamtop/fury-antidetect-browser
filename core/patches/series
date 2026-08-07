@@ -411,7 +411,22 @@
 #                                         connection, so real Chrome has no
 #                                         stable JA3 to match
 #   SSL_CTX_set_grease_enabled(ctx_, 1)   further per-connection variation
-#   SSL_CTX_set_cipher_list                never called — BoringSSL defaults
+#   SSL_set_strict_cipher_list             called, but with BoringSSL's default
+#                                          list plus whatever an enterprise
+#                                          policy disabled — so on a stock
+#                                          config the suites are the defaults
+#
+# Re-verified 05.08.2026 against the tree, line by line, when docs/16 proposed
+# reviving this from a competitor's feature list:
+#   net/socket/ssl_client_socket_impl.cc:879  SSL_set_permute_extensions(ssl_.get(), 1)
+#   net/socket/ssl_client_socket_impl.cc:207  SSL_CTX_set_grease_enabled(ssl_ctx_.get(), 1)
+#   net/socket/ssl_client_socket_impl.cc:770  the cipher command is built from
+#                                             config().disabled_cipher_suites,
+#                                             empty by default
+#
+# The earlier note said set_cipher_list was "never called", which was wrong in
+# wording and right in substance. Corrected rather than left, because this file
+# is the design record and a claim in it gets believed.
 #
 # Our build is the same Chromium with the same BoringSSL on the same code path,
 # so its ClientHello is already indistinguishable from Chrome 150's. Pinning a
