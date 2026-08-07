@@ -340,6 +340,7 @@ mod tests {
             name: name.into(),
             notes: String::new(),
             tags: vec!["de".into()],
+            blocklists: Vec::new(),
             persona_id: "win11-rtx4060-1920x1080".into(),
             fp_seed: 0,
             proxy: None,

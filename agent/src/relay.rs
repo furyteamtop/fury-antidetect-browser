@@ -88,11 +88,28 @@ pub enum RelayError {
 
 pub struct Relay {
     upstream: Upstream,
+    /// Hosts this profile refuses to talk to. Empty for most profiles, and
+    /// then it costs one `is_empty` per connection.
+    blocked: std::sync::Arc<crate::blocklist::Blocklist>,
 }
 
 impl Relay {
     pub fn new(upstream: Upstream) -> Self {
-        Self { upstream }
+        Self { upstream, blocked: Default::default() }
+    }
+
+    /// Refuse connections to these hosts.
+    ///
+    /// Enforced HERE rather than at DNS, and that is the stronger place. A
+    /// DNS-level blocker is bypassed by DNS-over-HTTPS, which is a setting
+    /// inside the very browser being filtered. Everything a profile sends goes
+    /// through this relay by construction — `--proxy-bypass-list=<-loopback>`,
+    /// no exceptions — so a refusal here cannot be routed around.
+    ///
+    /// See `blocklist.rs` for what it can and cannot match.
+    pub fn blocking(mut self, list: std::sync::Arc<crate::blocklist::Blocklist>) -> Self {
+        self.blocked = list;
+        self
     }
 
     /// Bind on loopback only and serve until the returned handle is dropped.
@@ -170,6 +187,21 @@ impl Relay {
                 .and_then(|h| split_host_port(&h, 80))
                 .ok_or(RelayError::BadRequest)?
         };
+
+        // Before dialling, and before anything is resolved: the CONNECT
+        // carries a NAME, which is the only moment this decision can be made
+        // on a name at all.
+        //
+        // 403 rather than 502: a blocked host is a decision, and reporting it
+        // as a gateway failure would send whoever is debugging to look at the
+        // proxy.
+        if self.blocked.blocks(&host) {
+            tracing::debug!(target = %host, "blocked by the profile's list");
+            let _ = client
+                .write_all(b"HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n")
+                .await;
+            return Ok(());
+        }
 
         // Kill-switch lives here: a failure to reach upstream produces an error
         // response, never a direct connection.
@@ -585,6 +617,49 @@ v.textContent=problems.length?problems.join(" · "):"Consistent — the platform
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The blocklist, through the relay rather than through the matcher.
+    ///
+    /// The matcher has its own tests; this one asserts that the refusal happens
+    /// where it is supposed to — BEFORE the upstream is dialled. The upstream
+    /// here is a port with nothing on it, so if the block did not fire first
+    /// the answer would be 502 rather than 403, and the test would say so.
+    #[tokio::test]
+    async fn a_blocked_host_is_refused_before_the_upstream_is_dialled() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let list = std::sync::Arc::new(crate::blocklist::Blocklist::parse("doubleclick.net"));
+        let relay = Relay::new(Upstream::Http {
+            // Nothing listens here. Reaching it at all is the failure.
+            host: "127.0.0.1".into(),
+            port: 1,
+            auth: None,
+        })
+        .blocking(list);
+
+        let (port, task) = relay.serve(0).await.unwrap();
+
+        async fn ask(port: u16, host: &str) -> String {
+            let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+            s.write_all(format!("CONNECT {host}:443 HTTP/1.1\r\nHost: {host}\r\n\r\n").as_bytes())
+                .await
+                .unwrap();
+            let mut buf = [0u8; 64];
+            let n = s.read(&mut buf).await.unwrap_or(0);
+            String::from_utf8_lossy(&buf[..n]).to_string()
+        }
+
+        let blocked = ask(port, "ad.doubleclick.net").await;
+        assert!(blocked.starts_with("HTTP/1.1 403"), "{blocked:?}");
+
+        // The control: an unblocked host reaches the dial and fails there, so
+        // the 403 above is the list and not the relay refusing everything.
+        let allowed = ask(port, "example.com").await;
+        assert!(allowed.starts_with("HTTP/1.1 502"), "{allowed:?}");
+
+        task.abort();
+    }
+
 
     #[test]
     fn a_proxy_password_never_reaches_a_log_line() {

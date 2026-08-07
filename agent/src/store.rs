@@ -130,6 +130,11 @@ pub struct Profile {
     pub name: String,
     pub notes: String,
     pub tags: Vec<String>,
+    /// Names of blocklists the relay refuses connections against. Empty for a
+    /// profile that blocks nothing, which is the default and costs one
+    /// `is_empty` per connection. See `blocklist.rs`.
+    #[serde(default)]
+    pub blocklists: Vec<String>,
     pub persona_id: String,
     pub fp_seed: i64,
     /// The proxy in full, for a caller that is READING a profile: the list
@@ -321,6 +326,10 @@ impl Store {
             // than two reals because it is only ever handed on whole, and a pair
             // of columns invites one of them being set without the other.
             "ALTER TABLE proxies ADD COLUMN last_location TEXT",
+            // Which blocklists this profile refuses connections to. Names, not
+            // contents: a list is a hundred thousand domains and belongs in a
+            // file that several profiles share, not copied into every row.
+            "ALTER TABLE profiles ADD COLUMN blocklists TEXT NOT NULL DEFAULT '[]'",
         ] {
             let _ = sqlx::query(stmt).execute(&self.pool).await;
         }
@@ -693,7 +702,7 @@ impl Store {
     /// round.
     pub async fn profiles(&self, project_id: Option<&str>) -> anyhow::Result<Vec<Profile>> {
         let rows = sqlx::query(
-            "SELECT f.id, f.project_id, f.name, f.notes, f.tags, f.persona_id, f.fp_seed,
+            "SELECT f.id, f.project_id, f.name, f.notes, f.tags, f.blocklists, f.persona_id, f.fp_seed,
                     f.timezone, f.languages, f.start_urls, f.last_opened_at,
                     p.name AS project_name,
                     x.id AS px_id, x.name AS px_name, x.kind AS px_kind, x.host AS px_host,
@@ -751,7 +760,7 @@ impl Store {
     /// So the two paths are separate on purpose: the list shows, this one acts.
     pub async fn profile(&self, id: &str) -> anyhow::Result<Option<Profile>> {
         let row = sqlx::query(
-            "SELECT f.id, f.project_id, f.name, f.notes, f.tags, f.persona_id, f.fp_seed,
+            "SELECT f.id, f.project_id, f.name, f.notes, f.tags, f.blocklists, f.persona_id, f.fp_seed,
                     f.timezone, f.languages, f.start_urls, f.last_opened_at,
                     p.name AS project_name,
                     x.id AS px_id, x.name AS px_name, x.kind AS px_kind, x.host AS px_host,
@@ -786,12 +795,13 @@ impl Store {
         let seed = if p.fp_seed == 0 { random_seed() } else { p.fp_seed };
         sqlx::query(
             "INSERT INTO profiles
-                (id, project_id, name, notes, tags, persona_id, fp_seed, proxy_id,
+                (id, project_id, name, notes, tags, blocklists, persona_id, fp_seed, proxy_id,
                  timezone, languages, start_urls, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
                 project_id = excluded.project_id, name = excluded.name,
                 notes = excluded.notes, tags = excluded.tags,
+                blocklists = excluded.blocklists,
                 persona_id = excluded.persona_id, proxy_id = excluded.proxy_id,
                 timezone = excluded.timezone, languages = excluded.languages,
                 start_urls = excluded.start_urls, deleted_at = NULL",
@@ -801,6 +811,7 @@ impl Store {
         .bind(&p.name)
         .bind(&p.notes)
         .bind(to_json_array(&p.tags))
+        .bind(to_json_array(&p.blocklists))
         .bind(&p.persona_id)
         .bind(seed)
         .bind(
@@ -843,7 +854,7 @@ impl Store {
     /// which folder it was in.
     pub async fn deleted_profiles(&self) -> anyhow::Result<Vec<Profile>> {
         let rows = sqlx::query(
-            "SELECT f.id, f.project_id, f.name, f.notes, f.tags, f.persona_id, f.fp_seed,
+            "SELECT f.id, f.project_id, f.name, f.notes, f.tags, f.blocklists, f.persona_id, f.fp_seed,
                     f.timezone, f.languages, f.start_urls, f.deleted_at AS last_opened_at,
                     x.id AS px_id, x.name AS px_name, x.kind AS px_kind, x.host AS px_host,
                     x.port AS px_port, x.username AS px_user, x.password AS px_pass,
@@ -923,6 +934,13 @@ fn row_to_profile(r: sqlx::sqlite::SqliteRow) -> Profile {
         name: r.get("name"),
         notes: r.get("notes"),
         tags: from_json_array(r.get("tags")),
+        // try_get rather than get: a database written before the column
+        // existed has no such value, and a profile without a blocklist is the
+        // ordinary case rather than a fault.
+        blocklists: r
+            .try_get::<String, _>("blocklists")
+            .map(|s| from_json_array(s))
+            .unwrap_or_default(),
         persona_id: r.get("persona_id"),
         fp_seed: r.get("fp_seed"),
         timezone: r.get("timezone"),
@@ -1016,6 +1034,7 @@ mod credential_tests {
                 name: "acct".into(),
                 notes: String::new(),
                 tags: vec![],
+                blocklists: Vec::new(),
                 persona_id: "x".into(),
                 fp_seed: 1,
                 proxy: None,
@@ -1154,6 +1173,7 @@ mod tests {
             name: name.into(),
             notes: String::new(),
             tags: vec![],
+            blocklists: Vec::new(),
             persona_id: "macos-15-m-series-1728x1117".into(),
             fp_seed: 0,
             proxy: None,

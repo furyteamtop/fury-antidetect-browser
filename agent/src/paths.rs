@@ -60,6 +60,16 @@ pub fn profile_dir(profile_id: &str) -> PathBuf {
     data_dir().join("profiles").join(profile_id)
 }
 
+/// Where named blocklists are kept.
+///
+/// Files rather than database rows. A published list is a hundred thousand
+/// domains; copying that into every profile that uses it would be the same
+/// megabytes stored fifty times, and the profile row would stop being something
+/// a person can read.
+pub fn blocklists_dir() -> PathBuf {
+    data_dir().join("blocklists")
+}
+
 /// Where this profile's unpacked extensions sit.
 ///
 /// INSIDE the profile directory, which means the team bundle carries them

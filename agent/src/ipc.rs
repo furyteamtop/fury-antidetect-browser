@@ -426,6 +426,53 @@ impl Agent {
                 Ok(serde_json::to_value(report)?)
             }
 
+            // Named blocklists, shared between profiles. A profile names the
+            // ones it wants; `profiles.upsert` carries the names.
+            "blocklists.list" => {
+                let dir = paths::blocklists_dir();
+                let mut out = Vec::new();
+                if let Ok(entries) = std::fs::read_dir(&dir) {
+                    let mut files: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+                    files.sort();
+                    for f in files {
+                        if f.extension().and_then(|e| e.to_str()) != Some("txt") {
+                            continue;
+                        }
+                        let name = f.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                        // Parsed rather than counted by lines: what matters is
+                        // how many domains it will actually block, and a list
+                        // is mostly comments.
+                        let n = std::fs::read_to_string(&f)
+                            .map(|t| crate::blocklist::Blocklist::parse(&t).len())
+                            .unwrap_or(0);
+                        out.push(json!({ "name": name, "domains": n }));
+                    }
+                }
+                Ok(json!(out))
+            }
+
+            "blocklists.upsert" => {
+                let name = str_param(&params, "name")?;
+                let text = str_param(&params, "text")?;
+                let file = blocklist_path(&name)?;
+                std::fs::create_dir_all(paths::blocklists_dir())?;
+                // Parsed before it is written, so a list that turns out to
+                // contain nothing usable says so now rather than at the next
+                // launch.
+                let parsed = crate::blocklist::Blocklist::parse(&text);
+                std::fs::write(&file, text)?;
+                Ok(json!({ "name": name, "domains": parsed.len() }))
+            }
+
+            "blocklists.delete" => {
+                let name = str_param(&params, "name")?;
+                let file = blocklist_path(&name)?;
+                if file.is_file() {
+                    std::fs::remove_file(&file)?;
+                }
+                Ok(json!({ "deleted": true }))
+            }
+
             "extensions.install" => {
                 let id = str_param(&params, "profile_id")?;
                 let path = str_param(&params, "path")?;
@@ -1320,7 +1367,14 @@ impl Agent {
         })?;
 
         let upstream = crate::parse_upstream(&proxy.url())?;
-        let (relay_port, relay_task) = crate::relay::Relay::new(upstream).serve(0).await?;
+        // The profile's lists, unioned. Read at launch rather than held in
+        // memory: a list edited between launches should take effect on the
+        // next one without anything having to notice it changed.
+        let blocked = std::sync::Arc::new(load_blocklists(&profile.blocklists));
+        let (relay_port, relay_task) = crate::relay::Relay::new(upstream)
+            .blocking(blocked)
+            .serve(0)
+            .await?;
 
         let persona = crate::personas::load(&profile.persona_id)?;
         if let Err(errs) = persona.validate() {
@@ -1738,6 +1792,39 @@ async fn devtools_endpoint(profile_dir: &std::path::Path) -> Option<(u16, String
     None
 }
 
+/// One list file, with the name checked rather than trusted.
+///
+/// The name comes from a caller and is joined onto a path, so anything that
+/// could climb out of the directory is refused here rather than sanitised —
+/// sanitising invents a name the caller did not ask for.
+fn blocklist_path(name: &str) -> anyhow::Result<std::path::PathBuf> {
+    let ok = !name.is_empty()
+        && name.len() <= 64
+        && name
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_');
+    if !ok {
+        anyhow::bail!("a blocklist name may only be letters, digits, - and _");
+    }
+    Ok(paths::blocklists_dir().join(format!("{name}.txt")))
+}
+
+/// Every named list, unioned into one. A name that no longer exists is skipped
+/// rather than fatal: deleting a list must not make the profiles that referred
+/// to it unlaunchable.
+fn load_blocklists(names: &[String]) -> crate::blocklist::Blocklist {
+    let mut text = String::new();
+    for name in names {
+        if let Ok(path) = blocklist_path(name) {
+            if let Ok(body) = std::fs::read_to_string(&path) {
+                text.push_str(&body);
+                text.push('\n');
+            }
+        }
+    }
+    crate::blocklist::Blocklist::parse(&text)
+}
+
 fn str_param(params: &serde_json::Value, name: &str) -> anyhow::Result<String> {
     params
         .get(name)
@@ -1814,6 +1901,34 @@ mod tests {
         let text = serde_json::to_string(&bad).unwrap();
         assert!(text.contains("\"err\""));
         assert!(!text.contains("\"ok\""));
+    }
+}
+
+#[cfg(test)]
+mod blocklist_name_tests {
+    /// The name is joined onto a path, so it is checked rather than trusted.
+    /// Sanitising would be worse than refusing: it invents a file name the
+    /// caller did not ask for and then writes to it.
+    #[test]
+    fn a_name_that_could_climb_out_of_the_directory_is_refused() {
+        for bad in ["../secrets", "a/b", "..", "", "with space", "quote\"", "a".repeat(65).as_str()] {
+            assert!(super::blocklist_path(bad).is_err(), "accepted {bad:?}");
+        }
+        for good in ["easylist", "my_list", "ads-2026", "A1"] {
+            let p = super::blocklist_path(good).expect(good);
+            assert_eq!(p.extension().unwrap(), "txt");
+            assert!(p.parent().unwrap().ends_with("blocklists"), "{p:?}");
+        }
+    }
+
+    /// Deleting a list must not make the profiles that named it unlaunchable.
+    #[test]
+    fn a_name_that_no_longer_exists_is_skipped_rather_than_fatal() {
+        let list = super::load_blocklists(&[
+            "definitely-not-there".to_string(),
+            "../../etc/hosts".to_string(),
+        ]);
+        assert!(list.is_empty());
     }
 }
 
