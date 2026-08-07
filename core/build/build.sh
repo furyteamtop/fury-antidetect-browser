@@ -127,6 +127,25 @@ if [ -n "${J:-}" ]; then
   echo "==> limiting to $J parallel jobs"
 fi
 
+# An output directory that siso built once and ninja is being asked to build
+# now makes ninja refuse outright: "Run gn clean before switching from siso to
+# ninja". Following that advice costs the full 2 h 42 min, and it is not what
+# the situation calls for — .ninja_log and .ninja_deps are intact and describe
+# a perfectly good incremental build. Only the stale siso bookkeeping is in the
+# way, so it is moved aside rather than obeyed or deleted.
+#
+# Met on a tree whose siso state was three days older than its ninja state; the
+# rebuild that followed took four minutes.
+if [ -e "$SRC/$OUT/.siso_deps" ] && [ -e "$SRC/$OUT/.ninja_log" ]; then
+  echo "==> moving stale siso state aside (ninja will not run beside it)"
+  mkdir -p "$SRC/$OUT/.siso-stale"
+  for f in "$SRC/$OUT"/.siso_*; do
+    [ -e "$f" ] || continue
+    case "$f" in */.siso-stale) continue ;; esac
+    mv "$f" "$SRC/$OUT/.siso-stale/"
+  done
+fi
+
 echo "==> autoninja chrome"
 (cd "$SRC" && autoninja -C "$OUT" $JOBS_ARG chrome)
 

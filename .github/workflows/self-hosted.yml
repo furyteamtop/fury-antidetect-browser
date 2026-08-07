@@ -54,10 +54,10 @@ jobs:
           set -euo pipefail
           CORE="core/src/out/macos-arm64.noindex/Fury.app/Contents/MacOS/Fury"
           test -x "$CORE" || CORE="core/src/out/macos-arm64-lowmem.noindex/Fury.app/Contents/MacOS/Fury"
-          for v in core/verify/verify-*.py; do
-            echo "== $v"
-            python3 "$v" "$CORE"
-          done
+          # run-all.py rather than a shell loop: `set -e` stops at the first
+          # failure, and when an uprev breaks four patches, one failure and
+          # twenty-six unknowns costs four builds to learn what one would say.
+          python3 core/verify/run-all.py "$CORE"
 
       # The headline number: the same values from the main frame, a dedicated
       # Worker, a SharedWorker, a ServiceWorker, an AudioWorklet and three kinds
