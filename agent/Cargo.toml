@@ -50,6 +50,19 @@ flate2 = "1"
 chacha20poly1305 = "0.10"
 argon2 = "0.5"
 keyring = "4"
+# Userspace WireGuard. `wg-quick` routes the whole machine, which is the
+# opposite of what a per-profile tunnel needs, and neither macOS nor Windows
+# gives an unprivileged process its own route — so the tunnel lives here.
+#
+# It pulls `ring`, which is fine in THIS crate: sqlx and reqwest already do.
+# It must never reach platform-rs, which stays thin so the Windows target can
+# be cross-checked from a Mac (see platform-rs/src/lib.rs).
+#
+# 0.7 rather than 0.6, and not for a feature: 0.6 pins
+# `x25519-dalek = "=2.0.0-rc.3"`, a release candidate, while shared-rs uses the
+# stable 2.x. Both are semver-compatible so cargo unifies them and the
+# resolution fails outright. 0.7 dropped the pin.
+boringtun = { version = "0.7", default-features = false }
 base64 = "0.22"
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["handshake", "connect"] }
 futures-util = { version = "0.3.33", default-features = false, features = ["sink"] }
