@@ -32,6 +32,7 @@ mod transfer;
 mod usage;
 mod vault;
 mod widevine;
+mod wg_stack;
 mod wg_tunnel;
 mod wireguard;
 

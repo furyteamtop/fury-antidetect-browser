@@ -63,6 +63,16 @@ keyring = "4"
 # stable 2.x. Both are semver-compatible so cargo unifies them and the
 # resolution fails outright. 0.7 dropped the pin.
 boringtun = { version = "0.7", default-features = false }
+# The TCP stack that runs inside the tunnel. There is no borrowing the
+# operating system's: the kernel's stack is bound to the kernel's interfaces,
+# and the point of a userspace tunnel is that there is no interface.
+smoltcp = { version = "0.12", default-features = false, features = [
+    "std",
+    "medium-ip",
+    "proto-ipv4",
+    "proto-ipv6",
+    "socket-tcp",
+] }
 base64 = "0.22"
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["handshake", "connect"] }
 futures-util = { version = "0.3.33", default-features = false, features = ["sink"] }
