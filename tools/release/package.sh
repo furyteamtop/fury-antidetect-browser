@@ -166,7 +166,25 @@ echo
 echo "== checksums"
 # One file listing everything, in the format `shasum -c` reads, so verifying is
 # a command a person can run rather than a hex string to compare by eye.
-(cd "$out" && shasum -a 256 ./*.tar.xz > SHA256SUMS)
+#
+# EVERYTHING, not ./*.tar.xz, which is what this said until the shell started
+# shipping as a .dmg. The glob then matched nothing, shasum wrote an empty
+# SHA256SUMS, and the failure was cosmetic in the output and severe in the
+# artifact: docs/15 tells a downloader to run `shasum -a 256 -c SHA256SUMS` and
+# expect OK lines, and an empty file gives them silence — a verification step
+# that verifies nothing while looking like it ran. Caught by running package.sh
+# against a real .dmg rather than by reading the change that caused it.
+#
+# find rather than a glob so the failure mode is an empty release directory
+# refusing loudly, not a shell passing an unmatched pattern through as a literal.
+shopt -s nullglob
+artifacts=("$out"/*.tar.xz "$out"/*.dmg "$out"/*.exe "$out"/*.msi)
+shopt -u nullglob
+if [ ${#artifacts[@]} -eq 0 ]; then
+  echo "!! nothing was packaged into $out — no checksums to write" >&2
+  exit 1
+fi
+(cd "$out" && shasum -a 256 $(printf './%s\n' "${artifacts[@]##*/}") > SHA256SUMS)
 cat "$out/SHA256SUMS"
 
 echo
