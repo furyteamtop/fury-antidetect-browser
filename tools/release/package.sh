@@ -69,9 +69,20 @@ if [ -z "$version" ]; then
   version=$(awk '/^\[workspace\.package\]/{f=1;next} /^\[/{f=0} f&&/^version/{gsub(/[^0-9.]/,"");print;exit}' \
             "$here/Cargo.toml")
 fi
-case "$version" in
-  ''|*[!0-9.]*) echo "!! could not read a version (got \"$version\") — pass --version" >&2; exit 1 ;;
-esac
+# The shape is checked rather than the character set. `[!0-9.]` stood here and
+# rejected every pre-release version there is — 0.1.0-pre1 among them — which
+# made this script unable to express the one kind of release that comes first.
+#
+# The guard it replaces still holds: what it was written to catch is
+# `version.workspace = true` reaching a filename, and that has letters, spaces
+# and an `=`, so an anchored MAJOR.MINOR.PATCH[-suffix] refuses it just as
+# firmly. The suffix is deliberately narrow — alphanumerics and dots — so a
+# stray shell expansion cannot arrive as a "version" and end up in a name.
+if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+  echo "!! could not read a version (got \"$version\") — pass --version" >&2
+  echo "   expected 1.2.3, optionally with a suffix: 1.2.3-pre1" >&2
+  exit 1
+fi
 
 arch=$(uname -m)
 case "$(uname -s)" in
@@ -208,6 +219,29 @@ echo "in $out"
 # built on a machine that has not run the probe is a release with no
 # measurement, and saying so beats inventing one.
 CAPTURE="${FURY_CAPTURE:-tools/detect-suite/baselines/ctx-fury-redacted.json}"
+
+# CORE_BINARY is derived here. It used to be referenced on the line below and
+# assigned nowhere at all, so `--core` never reached the report: every release
+# document said
+#
+#     | core        | (unknown)                     |
+#     | core sha256 | (not given — pass --core)     |
+#
+# including the ones built WITH --core, advising the operator to pass a flag
+# they had just passed. `${VAR:+...}` is exempt from `set -u`, so nothing warned.
+#
+# The consequence is not cosmetic. REPORT.md says of itself that "the hashes
+# above are what make it checkable rather than believable", and the core's hash
+# is the one that matters — a reader can rebuild the patch series and re-take a
+# capture, but without the core's digest they cannot tell whether the document
+# describes the binary they downloaded. A verifiability claim with the evidence
+# missing is worse than no claim.
+CORE_BINARY="${CORE_BINARY:-}"
+if [ -z "$CORE_BINARY" ] && [ -n "$core_app" ]; then
+  CORE_BINARY="$core_app/Contents/MacOS/Fury"
+  [ -x "$CORE_BINARY" ] || CORE_BINARY=""
+fi
+
 if [ -f "$CAPTURE" ]; then
   echo "==> measurement report"
   cargo run -q -p fury-detect -- report "$CAPTURE" \
