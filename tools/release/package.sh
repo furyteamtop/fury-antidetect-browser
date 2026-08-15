@@ -33,7 +33,11 @@ usage: package.sh [--core PATH] [--shell PATH] [--version V] [--out DIR]
 
   --core PATH     A signed Fury.app for the browser core. Produce one with
                   tools/release/sign-core.sh.
-  --shell PATH    The desktop application bundle, from `npm run app:build`.
+  --shell PATH    The desktop application, from `npm run app:build`. Prefer the
+                  installer that build produced — target/release/bundle/dmg/*.dmg
+                  on macOS, bundle/nsis/*-setup.exe on Windows — which is copied
+                  through as-is. A Fury.app directory is also accepted and gets
+                  tarred, which is what you have if you built `app` only.
   --version V     Release version. Default: the agent crate's version.
   --out DIR       Where to write (default dist/).
 
@@ -108,13 +112,39 @@ package_core() {
   size_of "$out/$name"
 }
 
+# The shell now arrives in whatever form its platform actually installs from,
+# and the argument may be a FILE rather than a directory.
+#
+# `tauri build` emits .dmg on macOS and the NSIS .exe on Windows (both are in
+# bundle.targets), and either is already the finished artifact: signed, and in
+# the DMG's case stapleable, which a tarball is not — a .tar.xz carries no
+# notarisation ticket of its own, only the .app inside it does. Re-wrapping a
+# .dmg in a tarball would also hand a Mac user two unpacking steps to reach a
+# window that exists to have exactly one.
+#
+# The directory branch is kept rather than replaced: a bare .app is still what
+# you have if you built with only the `app` target, and refusing it would turn a
+# working local packaging run into an error about a missing file.
 package_shell() {
   local app="$1"
-  [ -d "$app" ] || { echo "!! no such bundle: $app" >&2; exit 1; }
+  local name
 
-  local name="fury-$version-$platform-$arch.tar.xz"
-  echo "== packing $name"
-  tar -cJf "$out/$name" -C "$(dirname "$app")" "$(basename "$app")"
+  if [ -f "$app" ]; then
+    # Already an installer. Keep the extension it came with — the whole point is
+    # that macOS sees .dmg and Windows sees .exe.
+    name="fury-$version-$platform-$arch.${app##*.}"
+    echo "== copying $name"
+    cp "$app" "$out/$name"
+  elif [ -d "$app" ]; then
+    name="fury-$version-$platform-$arch.tar.xz"
+    echo "== packing $name"
+    tar -cJf "$out/$name" -C "$(dirname "$app")" "$(basename "$app")"
+  else
+    echo "!! no such bundle: $app" >&2
+    echo "   expected a .dmg or .exe from \`tauri build\`, or a Fury.app directory" >&2
+    exit 1
+  fi
+
   size_of "$out/$name"
 }
 

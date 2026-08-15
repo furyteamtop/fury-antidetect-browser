@@ -33,12 +33,13 @@ corrupt download rather than at us.
 
 ### 1. The application
 
-Download `fury-<version>-macos-<arch>.tar.xz` from
+Download `fury-<version>-macos-<arch>.dmg` from
 [Releases](https://github.com/furyteamtop/fury-antidetect-browser/releases). `arch` is `arm64` for
 any Apple-silicon Mac (M1 and later) and `x86_64` for an Intel one — if you are
 not sure,  → About This Mac says which.
 
-Unpack it and drag **Fury.app** into `/Applications`.
+Open it and drag **Fury.app** into `/Applications`, the way every other Mac
+application is installed.
 
 ### 2. The browser core
 
@@ -172,7 +173,7 @@ did not set up yourself.
 
 ## Updating
 
-Download and unpack the new application over the old one. For a new core, run
+Download the new `.dmg` and drag the application over the old one. For a new core, run
 `install-core` again with the new archive — it verifies the new one starts
 before it replaces the one you have, so a bad download leaves you with a working
 browser rather than none.
