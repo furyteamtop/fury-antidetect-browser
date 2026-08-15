@@ -1,0 +1,34 @@
+# Line endings. Written 15.08.2026, after the first Windows checkout of this
+# repository cost an hour to a failure that named the wrong thing.
+#
+# What happened: the Git for Windows installer writes core.autocrlf=true into
+# the SYSTEM gitconfig, so every text file in a fresh clone is materialised with
+# CRLF. The Chromium tree does not get this treatment — gclient sets
+# core.autocrlf=false for its own checkouts — so apply.sh ended up feeding CRLF
+# patches to an LF tree, and `git apply` reported only:
+#
+#     !! 0001-fp-config-plumbing.patch DOES NOT APPLY
+#
+# which reads as "the patch is stale against this Chromium version" and sends
+# you to rebase a patch that was perfectly correct.
+#
+# Telling contributors to fix their global config does not work: the setting is
+# system-level, it is the installer's default, and it is re-applied by the next
+# Git update. The repository has to state its own requirement.
+
+# Patches are diffs against a tree that is LF. A CRLF patch does not apply, and
+# -text means "never convert this, in either direction, on any platform".
+*.patch -text
+
+# Shell scripts run under Git Bash on Windows. A CRLF shebang makes bash report
+# `/usr/bin/env^M: bad interpreter: No such file or directory` — an error that
+# names an interpreter which is installed and fine.
+*.sh text eol=lf
+
+# GN reads these on every platform and the build is byte-compared across
+# machines for task 3.1; line endings must not vary by who checked out.
+*.gn  text eol=lf
+*.gni text eol=lf
+
+# PowerShell is the one place CRLF is the native convention.
+*.ps1 text eol=crlf

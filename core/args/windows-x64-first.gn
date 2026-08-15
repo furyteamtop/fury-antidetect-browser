@@ -1,0 +1,99 @@
+# GN args — Windows x64, FIRST build on a machine that has never built this.
+#
+# Use this before windows-x64.gn. Its job is to answer one question — does the
+# Windows port work — and to answer it in the fewest hours possible. Once it
+# succeeds, move to windows-x64.gn, which is the shippable configuration.
+#
+# WHY THIS FILE EXISTS, and it is not the reason macos-arm64-lowmem.gn exists.
+# That one is about memory: 16 GB cannot hold a ThinLTO link. This one is about
+# ISOLATION. The first Windows build turns on two things that have never run
+# anywhere, at the same time:
+#
+#   1. The Windows half of patch 0001. core/patches/series says it outright —
+#      "The Windows half has never been run: there is no Windows core" — and
+#      records a near miss found by reading it: the config carrier was about to
+#      be given a switch name the browser process does not read, which would
+#      have launched every Windows profile with no persona and said nothing.
+#
+#   2. is_official_build = true, with ThinLTO and chrome_pgo_phase = 1. No
+#      official build of this tree exists on any platform; the one measured
+#      build (2 h 42 min, 30.07.2026) was macos-arm64-lowmem, which is
+#      is_official_build = false.
+#
+# Debugging both at once means a failure has two candidate causes and no way to
+# tell them apart. This file removes the second, so a failure is the port.
+#
+# A build from these args is NOT shippable: no LTO and no PGO means slower and
+# larger than real Chrome. It is a valid detect-suite subject, which is the
+# point — every value-measuring vector reads the same. Anything measuring TIME
+# must be re-measured on windows-x64.gn, for the same reason docs/16 gives for
+# task 3.5 on macOS.
+
+target_os = "win"
+target_cpu = "x64"
+
+# --- the isolation choices ---------------------------------------------------
+# The only lines that differ from windows-x64.gn. Everything below this block is
+# identical on purpose: a trial build that differs in de-Googling or codecs
+# would answer a question nobody asked.
+is_official_build = false
+chrome_pgo_phase = 0
+
+is_debug = false
+symbol_level = 0
+blink_symbol_level = 0
+dcheck_always_on = false
+
+# concurrent_links is deliberately NOT set, unlike macos-arm64-lowmem.gn.
+#
+# There it is 1 because 16 GB cannot hold several concurrent links. The machine
+# this file is written for has 64 GB, so throttling links would only make the
+# build slower for no reason. If this is ever run on a smaller Windows box, add
+# `concurrent_links = 1` and expect the build to take substantially longer.
+
+# --- CRITICAL for anti-detect, kept even in the trial build ------------------
+# A build without these cannot decode H.264/AAC while real Chrome can, and two
+# lines of JS tell them apart. Keeping them means the trial build can still be
+# put in front of the detect-suite.
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"
+
+# --- de-Google ---------------------------------------------------------------
+is_chrome_branded = false
+use_official_google_api_keys = false
+google_api_key = ""
+google_default_client_id = ""
+google_default_client_secret = ""
+enable_reporting = false
+enable_remoting = false
+enable_hangout_services_extension = false
+
+# Turned ON here and OFF in windows-x64.gn, and that asymmetry is inherited
+# from macOS rather than invented: macos-arm64-lowmem.gn builds WITH Widevine
+# because that is the configuration in which the release gate was measured
+# green, 13/13. Matching it means a failing Widevine check on this build is a
+# real finding and not a known difference in the args.
+#
+# The staging half is written for Windows already — agent/src/widevine.rs knows
+# widevinecdm.dll and the WindowsCdm layout — but it has never been executed on
+# Windows, and the developer-side helper (core/build/link-widevine.sh) is macOS
+# only. So on this machine expect to stage the blob by hand or to see the
+# Widevine check fail, and know which of the two you are looking at.
+enable_widevine = true
+bundle_widevine_cdm = true
+
+enable_print_preview = true
+use_lld = true
+
+# --- match real Chrome's feature set ----------------------------------------
+# An unbranded build applies testing/variations/fieldtrial_testing_config.json
+# by default, which force-enables features real stable Chrome ships disabled.
+# ReduceAcceptLanguage is in there for windows, and it trims Accept-Language to
+# one language while navigator.languages still reports the full list — a browser
+# contradicting itself, from a build setting rather than from the patches.
+disable_fieldtrial_testing_config = true
+
+# Keep ninja. autoninja in this depot_tools prefers Siso and then refuses an
+# output directory ninja created — "run gn clean", which throws away every
+# object file.
+use_siso = false
