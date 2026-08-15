@@ -194,6 +194,7 @@ the release criteria and exits non-zero on failure, so it drops into CI
 | [13 — Self-hosting](docs/13-self-hosting.md) | Standing up a team server |
 | [14 — Team server](docs/14-team-server.md) | Accounts, enrolment, the RBAC model in practice |
 | [15 — Installing](docs/15-install.md) | For somebody with no toolchain ([ru](docs/15-install.ru.md)) |
+| [17 — Apple signing](docs/17-apple-signing.md) | Getting the Developer ID certificate that task 0.2 waits on, and what still has to be written once it exists |
 
 Documents are in Russian except 15, which is the one a downloader reads;
 translation of the rest is planned.
@@ -271,6 +272,24 @@ carries no Chrome or Google branding. Chromium is used under its own licence.
 The User-Agent declares Chrome because sites branch on it and a browser that says
 anything else is distinguishable in one line — which is the whole point of the
 exercise, and is what every Chromium fork does.
+
+## Support
+
+Everything here is free, for everyone, and stays that way. No seats, no
+per-profile pricing, no paid tier held back, no telemetry. That is a decision
+rather than a stage: the licence is AGPL and every measurement is published
+precisely so nobody has to take anyone's word for what the browser does.
+
+There is no company behind this and nothing is sold. What it costs is ordinary
+and dull — a code-signing certificate so the download does not fight Gatekeeper,
+and a machine to rebuild the core against every Chromium release
+([docs/11](docs/11-budget.md) itemises it). If the project is useful to you and
+you want to put something toward that:
+
+**USDT (TRC20)** — `TBdbQDuUKHf14gvuyjSWevuL6FMS19ABzG`
+
+Nothing is gated behind it, now or later. And a persona measured on your own
+machine is still worth more than money — see [Contributing](#contributing).
 
 ## Author
 
