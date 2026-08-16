@@ -97,7 +97,7 @@ impl From<crate::agent::AgentError> for ApiErr {
 }
 
 impl ApiErr {
-    fn local(message: impl Into<String>) -> Self {
+    pub(crate) fn local(message: impl Into<String>) -> Self {
         Self {
             status: 0,
             body: serde_json::Value::Null,

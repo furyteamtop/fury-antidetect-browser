@@ -560,6 +560,11 @@ export const api = {
    *  has started; watch shell.core_download for the rest. */
   downloadCore: (): Promise<void> => cmd<void>("download_core"),
 
+  /** Open a link in the operator's own browser. An <a target="_blank"> inside
+   *  the application window has nowhere to go — the window is not a browser —
+   *  so a link that looks like one does nothing until it goes through here. */
+  openUrl: (url: string): Promise<void> => cmd<void>("open_url", { url }),
+
   totpCode: (profileId: string, id: string): Promise<TotpCode> =>
     cmd<TotpCode>("totp_code", { profileId, id }),
 

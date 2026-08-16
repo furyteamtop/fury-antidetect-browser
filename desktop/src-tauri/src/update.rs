@@ -193,3 +193,47 @@ mod tests {
         assert!(!newer("banana", "0.0.1"));
     }
 }
+
+/// Open a release page in the operator's own browser.
+///
+/// Tauri needs this because an <a target="_blank"> inside the application window
+/// has nowhere to go: the window is not a browser and has no tab to open. The
+/// link in Settings -> About looked like a link, and did nothing at all, until
+/// somebody pressed it and said so.
+///
+/// No plugin for fifteen lines, and no shell either. `open` and rundll32 take
+/// the URL as an argument rather than as part of a command line a shell will
+/// re-parse, so there is no quoting to get wrong and nothing to inject into.
+///
+/// The scheme is checked because the argument arrives from a network response.
+/// The release feed is ours today, and a `file:` or `javascript:` URL from a
+/// feed that stopped being ours is exactly the kind of thing that should fail
+/// here rather than be handed to the operating system.
+#[tauri::command]
+pub async fn open_url(url: String) -> Result<(), crate::commands::ApiErr> {
+    if !url.starts_with("https://") {
+        return Err(crate::commands::ApiErr::local(format!(
+            "refusing to open {url}: only https links"
+        )));
+    }
+
+    #[cfg(target_os = "macos")]
+    let spawned = std::process::Command::new("open").arg(&url).spawn();
+
+    #[cfg(windows)]
+    let spawned = {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        std::process::Command::new("rundll32")
+            .args(["url.dll,FileProtocolHandler", &url])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+    };
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let spawned = std::process::Command::new("xdg-open").arg(&url).spawn();
+
+    spawned
+        .map(|_| ())
+        .map_err(|e| crate::commands::ApiErr::local(format!("could not open a browser: {e}")))
+}

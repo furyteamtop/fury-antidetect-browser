@@ -357,7 +357,16 @@ function About({ shell }: { shell: Shell }) {
               <>
                 {t("about.available", { version: check.latest ?? "" })}{" "}
                 {check.url && (
-                  <a href={check.url} target="_blank" rel="noreferrer">
+                  <a
+                    href={check.url}
+                    onClick={(e) => {
+                      // The href stays for the address it shows on hover and
+                      // for a right-click copy; the click is handled, because
+                      // in a Tauri window the navigation itself goes nowhere.
+                      e.preventDefault();
+                      void api.openUrl(check.url!);
+                    }}
+                  >
                     {t("about.openRelease")}
                   </a>
                 )}

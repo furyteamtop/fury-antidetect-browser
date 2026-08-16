@@ -104,6 +104,7 @@ fn main() {
             commands::profiles,
             commands::move_profiles,
             update::check_update,
+            update::open_url,
             commands::set_remember_org_key,
             commands::audit,
             commands::org_members,
