@@ -245,9 +245,106 @@ try {
         # The claim: the config travels as an inherited HANDLE and only the slot
         # number is in argv. Task Manager, WMI and any process of this user can
         # read a command line, so a persona there is a persona anyone can read.
-        Skip "TODO once a Windows core exists: launch a profile, then assert"
-        Skip "  Get-CimInstance Win32_Process shows --fury-fp-handle=<n> and no persona,"
-        Skip "  and that the browser applied it (navigator.userAgent over CDP)."
+        #
+        # Written 16.08.2026, the day a Windows core first existed to write it
+        # against. Everything above this point has a macOS counterpart that has
+        # been passing for weeks; this section does not, because a file
+        # descriptor and an inherited HANDLE are different mechanisms and only
+        # one of them had ever been executed.
+        #
+        # `fury-agent launch` rather than a stored profile: the bare CLI takes a
+        # persona file and a proxy and needs no database, no vault and no shell.
+        # Fewer moving parts between the claim and the thing it is about.
+        $persona = Join-Path $repo 'shared\personas\windows-11-rtx4060-1920x1080.json'
+        Claim (Test-Path $persona) "the Windows persona file is where the test expects it"
+
+        # Port 9 is discard: nothing listens, so the exit lookup fails at once
+        # instead of spending fifteen seconds timing out. A launch does not need
+        # the proxy to work -- the relay is local and the browser is pointed at
+        # it -- and this test asserts nothing about traffic.
+        $dbgPort = 9333
+        $launchLog = Join-Path $home_ 'launch.log'
+        $launcher = Start-Process -FilePath $agentExe `
+            -ArgumentList @('launch', $persona, '--proxy', 'socks5://127.0.0.1:9',
+                            '--debug-port', "$dbgPort", '--seed', '7') `
+            -PassThru -WindowStyle Hidden `
+            -RedirectStandardOutput (Join-Path $home_ 'launch.out') `
+            -RedirectStandardError  $launchLog
+
+        # Wait for the core, not for the launcher: the launcher returns quickly
+        # and then blocks on the child, so its own liveness proves nothing.
+        # The browser process and its children carry DIFFERENT switches, and
+        # conflating them is the mistake this test made on its own first run.
+        # carrier.rs:273 warns about exactly this collision:
+        #
+        #   --fury-fp-file-handle   browser, Windows   an inherited HANDLE
+        #   --fury-fp-handle        children, both     a shared memory region
+        #
+        # So the browser is the one WITHOUT --type=, and asserting the child
+        # switch on it fails while everything is working correctly.
+        $coreProc = $null
+        for ($i = 0; $i -lt 150; $i++) {
+            Start-Sleep -Milliseconds 200
+            $coreProc = Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
+                        Where-Object { $_.CommandLine -notmatch '--type=' } |
+                        Select-Object -First 1
+            if ($coreProc) { break }
+        }
+
+        if (-not $coreProc) {
+            Claim $false "the core started -- see $launchLog"
+            Get-Content $launchLog -ErrorAction SilentlyContinue | Select-Object -Last 8 |
+                ForEach-Object { Write-Host "       $_" }
+        } else {
+            # Give the children time to exist; a renderer that has not spawned
+            # yet cannot be checked, and an empty set would pass every claim.
+            Start-Sleep -Seconds 3
+            $all = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue)
+            $kids = @($all | Where-Object { $_.CommandLine -match '--type=' -and $_.CommandLine -notmatch 'crashpad' })
+
+            $cmdline = $coreProc.CommandLine
+            Claim ($cmdline -match '--fury-fp-file-handle=\d+') `
+                "the browser gets --fury-fp-file-handle=<n>, an inherited HANDLE and nothing else"
+            Claim ($kids.Count -gt 0) "the browser spawned children to check ($($kids.Count))"
+            Claim (@($kids | Where-Object { $_.CommandLine -notmatch '--fury-fp-handle=\d+' }).Count -eq 0) `
+                "every child gets --fury-fp-handle=<n>, a shared memory region and nothing else"
+
+            # The whole point of the mechanism, and it has to hold for the
+            # CHILDREN too: Chromium copies --user-data-dir into every one of
+            # them, so a persona in that path is a persona in eight command
+            # lines. That is how the directory naming below was found.
+            foreach ($secret in @('RTX 4060', 'NVIDIA', 'i5-13400F', 'Win64; x64', 'rtx4060', '1920')) {
+                $leaky = @($all | Where-Object { $_.CommandLine -like "*$secret*" })
+                Claim ($leaky.Count -eq 0) `
+                    "no process has '$secret' in argv$(if ($leaky.Count) { " (leaked by $($leaky.Count) of $($all.Count))" })"
+            }
+
+            # And the other half: absent from argv is worthless if it never
+            # arrived. /json/version is CDP's HTTP side and reports the browser's
+            # own User-Agent, which is what patch 0011 overrides -- no WebSocket
+            # needed, and PowerShell 5.1 has no comfortable one.
+            $ver = $null
+            for ($i = 0; $i -lt 50; $i++) {
+                Start-Sleep -Milliseconds 200
+                try { $ver = Invoke-RestMethod "http://127.0.0.1:$dbgPort/json/version" -TimeoutSec 2; break }
+                catch { }
+            }
+            Claim ($null -ne $ver) "CDP answers on 127.0.0.1:$dbgPort"
+            if ($ver) {
+                $ua = $ver.'User-Agent'
+                Write-Host "  UA: $ua"
+                Claim ($ua -like '*Windows NT 10.0; Win64; x64*') `
+                    "the browser reports the persona's platform, not the host's"
+                Claim ($ua -notlike '*Headless*') "and does not announce itself as headless"
+            }
+
+            # Close it the way a person would, so this also exercises the
+            # shutdown path the port had to write from scratch.
+            Stop-Process -Id $coreProc.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+        if ($launcher -and -not $launcher.HasExited) {
+            Stop-Process -Id $launcher.Id -Force -ErrorAction SilentlyContinue
+        }
     }
 
 } finally {

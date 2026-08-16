@@ -254,8 +254,35 @@ async fn cmd_launch(args: &[String]) -> anyhow::Result<()> {
         .map(std::path::PathBuf::from)
         .ok_or_else(|| anyhow::anyhow!("no core binary: pass --core or set FURY_CORE"))?;
 
+    // The directory is named after a digest of the persona and seed, not after
+    // the persona itself, and that is not tidiness.
+    //
+    // It used to be `fury-profile-{persona.id}-{seed}`, and persona ids describe
+    // the machine they imitate: windows-11-rtx4060-1920x1080. The directory ends
+    // up in --user-data-dir, Chromium passes that switch to EVERY child process,
+    // and a command line is readable by any process this user runs. So the whole
+    // point of carrying the config in an inherited handle -- that argv holds a
+    // slot number and nothing else -- was undone by the folder it ran in.
+    //
+    // Measured 16.08.2026 on Windows: eight processes, and seven of them
+    // advertised "rtx4060-1920x1080" in argv while the browser process itself
+    // was clean. Found by the verify-windows section written to prove the
+    // opposite, which is what that section is for.
+    //
+    // Eight hex characters, the same shape the IPC endpoint tag uses. Same
+    // persona and seed still means the same directory, so a repeated launch
+    // reuses its profile rather than growing a new one each time.
     let profile_dir = opt("--profile-dir").map(std::path::PathBuf::from).unwrap_or_else(|| {
-        std::env::temp_dir().join(format!("fury-profile-{}-{seed}", persona.id))
+        use sha2::Digest;
+        let mut h = sha2::Sha256::new();
+        h.update(persona.id.as_bytes());
+        h.update(b"\0");
+        h.update(seed.to_le_bytes());
+        let tag = h.finalize();
+        std::env::temp_dir().join(format!(
+            "fury-profile-{:02x}{:02x}{:02x}{:02x}",
+            tag[0], tag[1], tag[2], tag[3]
+        ))
     });
     std::fs::create_dir_all(&profile_dir)?;
 
