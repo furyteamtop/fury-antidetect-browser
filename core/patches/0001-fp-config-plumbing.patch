@@ -646,7 +646,7 @@ new file mode 100644
 index 0000000000..32ac0fc6d0
 --- /dev/null
 +++ b/components/fury/fury_switches.cc
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,15 @@
 +// Copyright 2026 The Fury Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -660,12 +660,6 @@ index 0000000000..32ac0fc6d0
 +const char kFingerprintFileHandle[] = "fury-fp-file-handle";
 +const char kFingerprintHandle[] = "fury-fp-handle";
 +
-+// Must match agent/src/launcher.rs. Nothing in either language checks the other,
-+// so verify-0302.py launches with the Rust spelling and asserts the browser
-+// refuses — a drifted name would otherwise fail silently and forever.
-+const char kLockDevTools[] = "fury-lock-devtools";
-+const char kLockDataExport[] = "fury-lock-data-export";
-+
 +}  // namespace switches
 +}  // namespace fury
 diff --git a/components/fury/fury_switches.h b/components/fury/fury_switches.h
@@ -673,7 +667,7 @@ new file mode 100644
 index 0000000000..9400652a6a
 --- /dev/null
 +++ b/components/fury/fury_switches.h
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,44 @@
 +// Copyright 2026 The Fury Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -713,33 +707,6 @@ index 0000000000..9400652a6a
 +// via base::shared_memory::SharedMemorySwitch, the same mechanism Chromium
 +// already uses for field trials and histograms.
 +COMPONENT_EXPORT(FURY) extern const char kFingerprintHandle[];
-+
-+// Browser process only. Refuses DevTools and every CDP attach for this launch.
-+//
-+// A switch and NOT a config key, deliberately. The fingerprint config describes
-+// a persona — what the profile claims to be — and it is republished into shared
-+// memory for every child process including renderers. This is not a claim about
-+// a machine, it is a restriction on an operator, and the two must not share a
-+// channel. argv also has the property this needs: it is fixed when the browser
-+// starts and nothing running inside the profile can change it afterwards, while
-+// a preference lives in a JSON file inside the user-data-dir that anyone with
-+// the unpacked profile can edit between launches.
-+//
-+// What it does not stop, stated plainly because a restriction whose limits are
-+// undocumented gets trusted past them: an operator who has the binary can
-+// relaunch it by hand without this switch. That is the threat model in
-+// docs/04 — a dishonest employee with the profile, not one with root on the
-+// machine.
-+COMPONENT_EXPORT(FURY) extern const char kLockDevTools[];
-+
-+// Browser process only. Refuses the paths that take a profile's secrets out of
-+// it in bulk: the password CSV export, the per-password plaintext reveal, and
-+// the bookmark HTML export.
-+//
-+// Same channel and the same limits as kLockDevTools above. Not a claim about a
-+// machine — a restriction on a person — so it does not travel in the persona
-+// config that every renderer can see.
-+COMPONENT_EXPORT(FURY) extern const char kLockDataExport[];
 +
 +}  // namespace switches
 +}  // namespace fury

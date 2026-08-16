@@ -2,16 +2,14 @@ diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
 index 311a3dfebc..d5d69e6f79 100644
 --- a/chrome/browser/BUILD.gn
 +++ b/chrome/browser/BUILD.gn
-@@ -2309,6 +2309,9 @@ static_library("browser") {
-     "//components/optimization_guide/public/mojom",
+@@ -2309,6 +2309,7 @@ static_library("browser") {
      "//components/origin_trials:browser",
      "//components/origin_trials:common",
-+    "//components/fury",
+     "//components/fury",
 +    "//components/fury/key_provider",
-+    "//components/fury/location",
+     "//components/fury/location",
      "//components/os_crypt/async/browser",
      "//components/page_info/core:proto",
-     "//components/page_load_metrics/browser",
 diff --git a/chrome/browser/browser_process_impl.cc b/chrome/browser/browser_process_impl.cc
 index 3389caba30..7f79cdd85a 100644
 --- a/chrome/browser/browser_process_impl.cc
@@ -83,7 +81,7 @@ new file mode 100644
 index 0000000000..1bb45e4007
 --- /dev/null
 +++ b/components/fury/key_provider/fury_key.cc
-@@ -0,0 +1,109 @@
+@@ -0,0 +1,119 @@
 +// Copyright 2026 The Fury Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -103,17 +101,27 @@ index 0000000000..1bb45e4007
 +
 +namespace {
 +
-+// The descriptor carrying the key. Named here rather than in fury_switches.h
++// The switch carrying the key. Named here rather than in fury_switches.h
 +// because that header belongs to the fingerprint patch, and a patch series is
 +// only rebaseable if each patch owns what it touches. The launcher has its own
 +// copy of this string, as it does for every switch it passes.
-+constexpr char kOsCryptFdSwitch[] = "fury-oscrypt-fd";
++//
++// One of the two and never both. Chromium compiles with -Werror and
++// -Wunused-const-variable, so declaring the POSIX name unconditionally is a
++// build failure on Windows rather than a harmless leftover:
++//
++//   error: unused variable 'kOsCryptFdSwitch' [-Werror,-Wunused-const-variable]
++//
++// Met on the first Windows build of this patch, 16.08.2026 — which is also the
++// first time any of it was compiled for Windows at all.
 +#if BUILDFLAG(IS_WIN)
-+// The same thing where there are no descriptors: a HANDLE the agent created
-+// inheritable. `-file-handle` and not `-handle` for the reason spelled out in
++// Where there are no descriptors: a HANDLE the agent created inheritable.
++// `-file-handle` and not `-handle` for the reason spelled out in
 +// components/fury/fury_switches.h — a bare `-handle` already means a shared
 +// memory region elsewhere in this series.
 +constexpr char kOsCryptHandleSwitch[] = "fury-oscrypt-file-handle";
++#else
++constexpr char kOsCryptFdSwitch[] = "fury-oscrypt-fd";
 +#endif
 +
 +// A function-local static rather than base::NoDestructor: the type is

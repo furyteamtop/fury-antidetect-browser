@@ -187,8 +187,9 @@ diff --git a/components/fury/fury_switches.cc b/components/fury/fury_switches.cc
 index 25f80d9..65b3ca1 100644
 --- a/components/fury/fury_switches.cc
 +++ b/components/fury/fury_switches.cc
-@@ -10,5 +10,10 @@ namespace switches {
+@@ -10,6 +10,11 @@ namespace switches {
  const char kFingerprintFd[] = "fury-fp-fd";
+ const char kFingerprintFileHandle[] = "fury-fp-file-handle";
  const char kFingerprintHandle[] = "fury-fp-handle";
  
 +// Must match agent/src/launcher.rs. Nothing in either language checks the other,
