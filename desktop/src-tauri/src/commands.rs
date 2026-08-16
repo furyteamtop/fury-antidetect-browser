@@ -237,6 +237,11 @@ fn unauthenticated() -> ApiErr {
 
 #[derive(Serialize)]
 pub struct Shell {
+    /// The agent's `core_download` block, passed through verbatim. None until
+    /// the agent has answered once; a shell that has never asked and a download
+    /// that has never started look the same to the user and should.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub core_download: Option<serde_json::Value>,
     pub server_url: Option<String>,
     pub machine_name: String,
     pub signed_in: bool,
@@ -281,6 +286,20 @@ fn mode_of(state: &AppState) -> &'static str {
     }
 }
 
+/// Ask the agent to fetch the browser and install it.
+///
+/// Returns as soon as the download has started; progress arrives in
+/// `shell_state`, which the window already polls. A command that waited would
+/// hold the UI for the length of a 134 MB download.
+#[tauri::command]
+pub async fn download_core(_state: State<'_, AppState>) -> Result<(), ApiErr> {
+    crate::agent::ensure_running().await.map_err(ApiErr::from)?;
+    crate::agent::call::<serde_json::Value>("core.download", serde_json::json!({}))
+        .await
+        .map(|_| ())
+        .map_err(ApiErr::from)
+}
+
 #[tauri::command]
 pub async fn shell_state(state: State<'_, AppState>) -> Result<Shell, ApiErr> {
     let mode = mode_of(&state);
@@ -292,10 +311,17 @@ pub async fn shell_state(state: State<'_, AppState>) -> Result<Shell, ApiErr> {
     // Asked once, here, rather than discovered on the first launch attempt.
     // A missing core is a five-minute fix and a confusing failure, and the
     // order those happen in is the whole difference.
+    let mut core_download = None;
     let (core_ready, core_problem) = if agent_ready {
         match crate::agent::call::<serde_json::Value>("status", serde_json::json!({})).await {
             Ok(v) => (
-                v.get("core").map(|c| !c.is_null()).unwrap_or(false),
+                {
+                    // Carried through untouched. The shell decides what to draw
+                    // from it, and a struct here would be a third place that has
+                    // to learn about every new field.
+                    core_download = v.get("core_download").cloned();
+                    v.get("core").map(|c| !c.is_null()).unwrap_or(false)
+                },
                 v.get("core_problem")
                     .and_then(|p| p.as_str())
                     .map(str::to_string),
@@ -328,6 +354,7 @@ pub async fn shell_state(state: State<'_, AppState>) -> Result<Shell, ApiErr> {
         native: true,
         mode,
         agent_ready,
+        core_download,
         core_ready,
         core_problem,
         version: env!("CARGO_PKG_VERSION"),

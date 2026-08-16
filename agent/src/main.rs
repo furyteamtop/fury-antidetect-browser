@@ -13,6 +13,7 @@
 mod blocklist;
 mod bundle;
 mod cookies;
+mod core_download;
 mod ext;
 mod http;
 mod import_browser;
@@ -369,11 +370,10 @@ pub fn core_binary() -> Option<std::path::PathBuf> {
     // Beside the agent first, because a development tree and a bundle that
     // shipped both together are both that shape, and an explicitly placed
     // binary should win over an installed one.
-    let beside = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|dir| dir.join(core_leaf())));
-    if let Some(path) = beside.filter(|p| p.exists()) {
-        return Some(path);
+    if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(std::path::Path::to_path_buf)) {
+        if let Some(path) = core_leaves().iter().map(|l| dir.join(l)).find(|p| p.exists()) {
+            return Some(path);
+        }
     }
 
     // Then the installed location. This is the ordinary case for anybody who
@@ -385,8 +385,8 @@ pub fn core_binary() -> Option<std::path::PathBuf> {
     // installed before that has to be brought along, or it silently stops
     // being found.
     crate::install_core::migrate_legacy_dir();
-    let installed = crate::paths::core_dir().join(core_leaf());
-    installed.exists().then_some(installed)
+    let dir = crate::paths::core_dir();
+    core_leaves().iter().map(|l| dir.join(l)).find(|p| p.exists())
 }
 
 /// Something wrong with how the core is being found, in a sentence.
@@ -465,17 +465,49 @@ fn how_to_unset(current: &str) -> String {
 /// is how the core is found, and a file named `fury` with no extension does not
 /// exist under the name `fury.exe` that everything else would then look for.
 fn core_leaf() -> &'static str {
+    core_leaves()[0]
+}
+
+/// Every name a core may go by, most-preferred first.
+///
+/// The second name in each list is the UNBRANDED one, and it is here because a
+/// core built from a clean checkout of this repository has it. Patch 0900 --
+/// branding -- is not written: docs/09 says so, and it is blocked on icon
+/// assets rather than on code.
+///
+/// What that meant in practice, found 16.08.2026 by installing a published
+/// release onto a Windows machine:
+///
+///     Error: no core found in fury-core-0.1.0-pre2-windows-x64.tar.xz
+///     -- expected fury.exe somewhere inside it
+///
+/// The Windows core is chrome.exe, because a clean checkout produces chrome.exe.
+/// The macOS core is Fury.app only because the developer's Chromium tree carries
+/// uncommitted edits to chrome/app/theme/chromium/BRANDING that no patch in this
+/// repository reproduces -- so the macOS build was branded and the Windows build,
+/// built from what is actually committed, was not. The agent worked on one
+/// machine and could not have worked on any other, which is the same shape of
+/// bug ci.yml already documents about the sidecar.
+///
+/// Accepting both is not a workaround for that. An agent's job is to drive the
+/// core it was given, and refusing one over its filename would be refusing a
+/// browser that is otherwise correct. Branding still has to become patch 0900,
+/// and until it does this list is what makes a clean checkout usable.
+fn core_leaves() -> &'static [&'static str] {
     #[cfg(target_os = "macos")]
     {
-        "Fury.app/Contents/MacOS/Fury"
+        &[
+            "Fury.app/Contents/MacOS/Fury",
+            "Chromium.app/Contents/MacOS/Chromium",
+        ]
     }
     #[cfg(windows)]
     {
-        "fury.exe"
+        &["fury.exe", "chrome.exe"]
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        "fury-core"
+        &["fury-core", "chrome"]
     }
 }
 

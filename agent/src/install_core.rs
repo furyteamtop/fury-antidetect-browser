@@ -59,7 +59,30 @@ pub fn install(src: &Path) -> Result<PathBuf> {
 
     // A failed install must not eat the working core. Everything lands beside
     // the real directory and only replaces it once it has been checked.
-    let _ = std::fs::remove_dir_all(&staging);
+    //
+    // The failure to remove is reported rather than swallowed, and that is not
+    // tidiness. It used to be `let _ = remove_dir_all(&staging)`, which on Unix
+    // is harmless -- a file can be unlinked while something reads it -- and on
+    // Windows is not: an executable held open by a running process cannot be
+    // deleted at all. Measured 16.08.2026, with eight chrome.exe left over from
+    // earlier runs:
+    //
+    //     Fury/dxcompiler.dll: Can't unlink already-existing object: Permission denied
+    //     Error: tar could not unpack C:\...\fury-core-...tar.xz
+    //
+    // The cleanup had failed silently, tar met the leftovers, and the message
+    // blamed the archive. Somebody reading that goes and re-downloads a file
+    // that was never the problem.
+    if staging.exists() {
+        std::fs::remove_dir_all(&staging).with_context(|| {
+            format!(
+                "clearing {}. On Windows this usually means a browser from an \
+                 earlier install is still running and holding its own files -- \
+                 close every Fury window and try again",
+                staging.display()
+            )
+        })?;
+    }
     std::fs::create_dir_all(&staging)
         .with_context(|| format!("creating {}", staging.display()))?;
 
@@ -77,7 +100,7 @@ pub fn install(src: &Path) -> Result<PathBuf> {
         .ok_or_else(|| anyhow::anyhow!(
             "no core found in {} — expected {} somewhere inside it",
             src.display(),
-            super::core_leaf(),
+            super::core_leaves().join(" or "),
         ))?;
 
     // The quarantine flag is set by the browser that downloaded the file and is
@@ -243,15 +266,21 @@ fn unpack(archive: &Path, into: &Path) -> Result<()> {
 /// wrapping directory, and descending further would find helper executables
 /// with the same name inside the framework.
 fn find_core(root: &Path) -> Option<PathBuf> {
-    let leaf = super::core_leaf();
-    let direct = root.join(leaf);
-    if direct.exists() {
-        return Some(direct);
+    // Every accepted name, at the top level and one directory down. An archive
+    // may or may not have a top-level directory, and the core may or may not be
+    // branded -- see core_leaves() for why the unbranded name is accepted.
+    for leaf in super::core_leaves() {
+        let direct = root.join(leaf);
+        if direct.exists() {
+            return Some(direct);
+        }
     }
     for entry in std::fs::read_dir(root).ok()?.flatten() {
-        let candidate = entry.path().join(leaf);
-        if candidate.exists() {
-            return Some(candidate);
+        for leaf in super::core_leaves() {
+            let candidate = entry.path().join(leaf);
+            if candidate.exists() {
+                return Some(candidate);
+            }
         }
     }
     None

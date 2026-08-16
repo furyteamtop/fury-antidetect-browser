@@ -53,7 +53,11 @@ const en = {
   "cred.copyCode": "Copy this code",
   "cred.next": "Next: {code}",
   "app.noCore": "The browser itself is not installed yet.",
-  "app.noCoreHow": "Fury is two downloads: this application, and the browser it drives. Download fury-core from the releases page, then run: fury-agent install-core ~/Downloads/fury-core-*.tar.xz",
+  "app.noCoreHow": "Fury is two downloads: this application, and the browser it drives. Press the button and it will fetch it -- about 134 MB, once.",
+  "app.coreDownload": "Download the browser",
+  "app.coreDownloadingShort": "Downloading",
+  "app.coreStarting": "Asking the releases page which file to fetch",
+  "app.coreDownloading": "Downloading the browser: {done} of {total} MB",
   "app.staleCoreVar": "The browser is working — but FURY_CORE points at something that is gone.",
 
   // toolbar
@@ -510,7 +514,11 @@ const ru: Record<Key, string> = {
   "cred.copyCode": "Скопировать код",
   "cred.next": "Следующий: {code}",
   "app.noCore": "Сам браузер ещё не установлен.",
-  "app.noCoreHow": "Fury — это две загрузки: это приложение и браузер, которым оно управляет. Скачайте fury-core со страницы релизов и выполните: fury-agent install-core ~/Downloads/fury-core-*.tar.xz",
+  "app.noCoreHow": "Fury — это две загрузки: это приложение и браузер, которым оно управляет. Нажмите кнопку, и он скачается сам — около 134 МБ, один раз.",
+  "app.coreDownload": "Скачать браузер",
+  "app.coreDownloadingShort": "Качается",
+  "app.coreStarting": "Спрашиваем страницу релизов, какой файл нужен",
+  "app.coreDownloading": "Скачивается браузер: {done} из {total} МБ",
   "app.staleCoreVar": "Браузер работает, но FURY_CORE указывает на то, чего больше нет.",
 
   "bar.newProfile": "Новый профиль",

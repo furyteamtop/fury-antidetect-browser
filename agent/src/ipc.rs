@@ -85,6 +85,11 @@ pub struct Agent {
     store: Store,
     running: Mutex<HashMap<String, Running>>,
     core: Option<std::path::PathBuf>,
+    /// Progress of a core download, if one was asked for. Shared rather than
+    /// owned because the download outlives the IPC call that started it: 134 MB
+    /// is minutes, and a call that blocks for minutes is a shell that looks
+    /// hung. See core_download.rs.
+    core_download: crate::core_download::Shared,
 }
 
 /// What the exit checker can tell us about where a proxy comes out.
@@ -186,6 +191,7 @@ impl Agent {
             store,
             running: Mutex::new(HashMap::new()),
             core: crate::core_binary(),
+            core_download: Default::default(),
         }))
     }
 
@@ -328,6 +334,11 @@ impl Agent {
                     // stale FURY_CORE and a missing download need opposite
                     // actions, and "no browser found" describes both.
                     "core_problem": crate::core_lookup_problem(),
+                    // Present always, not only while downloading: the shell
+                    // needs to tell "never asked" from "finished" from "failed",
+                    // and a field that appears and disappears makes that three
+                    // states in two shapes.
+                    "core_download": &*self.core_download.lock().await,
                     "core_dir": paths::core_dir().display().to_string(),
                     "running": running.keys().collect::<Vec<_>>(),
                     "data_dir": paths::data_dir().display().to_string(),
@@ -353,6 +364,27 @@ impl Agent {
                 self.store.delete_project(&str_param(&params, "id")?).await?;
                 Ok(json!({}))
             }
+
+            // Download the browser and install it, because a person pressed a
+            // button. Returns at once: the download is minutes and the shell
+            // watches `core_download` in `status`.
+            //
+            // Nothing schedules this. See core_download.rs for why that
+            // sentence is the whole design.
+            "core.download" => {
+                if self.core.is_some() {
+                    // Refused rather than allowed-and-ignored: replacing a
+                    // working core is a different operation from installing a
+                    // missing one, and the button that means the second should
+                    // not quietly do the first.
+                    anyhow::bail!("a core is already installed; remove it first to replace it");
+                }
+                crate::core_download::start(Arc::clone(&self.core_download));
+                Ok(json!({ "started": true }))
+            }
+            // Same thing the shell shows in its bar, on its own, for the CLI
+            // and for anybody polling without wanting the rest of `status`.
+            "core.downloadStatus" => Ok(serde_json::to_value(&*self.core_download.lock().await)?),
 
             "proxies.list" => Ok(serde_json::to_value(self.store.proxies().await?)?),
             // How big is it, and how much of that is throwaway.

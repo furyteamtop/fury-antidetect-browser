@@ -170,6 +170,16 @@ export interface Shell {
   /** The agent's own sentence about why there is none, when it has one — a
    *  stale FURY_CORE reads nothing like a missing download. */
   core_problem: string | null;
+  /** Progress of a core download the user asked for, straight from the agent.
+   *  Absent until the agent has been asked once. `running` false with
+   *  `installed` set means it finished; with `error` set means it did not. */
+  core_download?: {
+    running: boolean;
+    downloaded: number;
+    total: number;
+    installed: string | null;
+    error: string | null;
+  } | null;
   /** Whether the organisation key is remembered between launches. */
   remember_org_key: boolean;
   /** This build, for the About panel and for any bug report that follows. */
@@ -324,6 +334,7 @@ export const api = {
       agent_ready: false,
       core_ready: true,
       core_problem: null,
+      core_download: null,
       remember_org_key: true,
       version: "dev",
       org_key_ready: false,
@@ -545,6 +556,10 @@ export const api = {
   deleteCredential: (id: string, profileId: string): Promise<unknown> =>
     cmd("delete_credential", { id, profileId }),
   /** Six digits and how long they last. The seed stays in the agent. */
+  /** Ask the agent to fetch and install the browser. Returns once the download
+   *  has started; watch shell.core_download for the rest. */
+  downloadCore: (): Promise<void> => cmd<void>("download_core"),
+
   totpCode: (profileId: string, id: string): Promise<TotpCode> =>
     cmd<TotpCode>("totp_code", { profileId, id }),
 

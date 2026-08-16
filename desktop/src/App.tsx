@@ -31,6 +31,9 @@ export function App() {
   // it, works before this machine has a server configured — the code carries
   // the address. So it is its own state rather than a branch of `signed_in`.
   const [enrolling, setEnrolling] = useState(false);
+  // Held only between the click and the first poll that sees the download
+  // running, so one button press cannot become two downloads.
+  const [coreBusy, setCoreBusy] = useState(false);
   const [signingUp, setSigningUp] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -382,6 +385,9 @@ export function App() {
           }
   };
 
+  // Read once per render rather than reached for in three places in the JSX.
+  const dl = shell?.core_download ?? null;
+
   return (
     <div className="app">
       {askDialog}
@@ -481,14 +487,54 @@ export function App() {
             download. A FURY_CORE naming a deleted build blocks nothing any more
             — it is ignored — but it is somebody's leftover and will confuse
             them again next week, so it is worth saying without shouting. */}
+        {/* A button rather than a command to paste. The browser is a second,
+            134 MB download — that split is deliberate and stays — but asking
+            somebody to open a terminal to finish installing a desktop
+            application is asking most people to give up.
+
+            Only ever on press. Nothing here polls for versions or downloads on
+            a schedule: an anti-detect browser that phones a known host at a
+            predictable time is a beacon, and this is the same request the user
+            would have made by visiting the releases page. See
+            agent/src/core_download.rs. */}
         {shell.agent_ready && !shell.core_ready && (
           <div className="notice warnBar" role="status">
-            <div>
+            <div style={{ flex: 1 }}>
               <strong>{t("app.noCore")}</strong>
               <div className="muted" style={{ marginTop: "var(--s-1)" }}>
-                {shell.core_problem ?? t("app.noCoreHow")}
+                {dl?.running
+                  ? dl.total > 0
+                    ? t("app.coreDownloading", {
+                        done: Math.round(dl.downloaded / 1e6).toString(),
+                        total: Math.round(dl.total / 1e6).toString(),
+                      })
+                    : t("app.coreStarting")
+                  : (dl?.error ?? shell.core_problem ?? t("app.noCoreHow"))}
               </div>
+              {dl?.running && dl.total > 0 && (
+                <progress
+                  value={dl.downloaded}
+                  max={dl.total}
+                  style={{ width: "100%", marginTop: "var(--s-1)" }}
+                />
+              )}
             </div>
+            <button
+              disabled={dl?.running || coreBusy}
+              onClick={async () => {
+                setCoreBusy(true);
+                try {
+                  await api.downloadCore();
+                } finally {
+                  // Cleared by the next poll seeing running: true. Held only
+                  // for the gap between the click and that poll, so the button
+                  // cannot be pressed twice into two downloads.
+                  setTimeout(() => setCoreBusy(false), 3000);
+                }
+              }}
+            >
+              {dl?.running ? t("app.coreDownloadingShort") : t("app.coreDownload")}
+            </button>
           </div>
         )}
 

@@ -22,7 +22,14 @@ use serde::Serialize;
 
 /// Where releases are published. The repository is also in Cargo.toml; here it
 /// is the API host, so a fork changes one constant.
-const RELEASES: &str = "https://api.github.com/repos/furyteamtop/fury-antidetect-browser/releases/latest";
+//
+// The LIST, not `/releases/latest`, and the difference is not cosmetic:
+// `/releases/latest` excludes pre-releases and answers 404 when every release
+// is one. This project's releases are all pre-releases today, so the endpoint
+// that sounds right would have told every user "nothing has been published"
+// while two releases sat on the page. Measured 16.08.2026, the day the second
+// one went up. The list is newest-first, so the first entry is the answer.
+const RELEASES: &str = "https://api.github.com/repos/furyteamtop/fury-antidetect-browser/releases?per_page=5";
 
 #[derive(Serialize)]
 pub struct UpdateCheck {
@@ -111,6 +118,23 @@ pub async fn check_update(state: tauri::State<'_, crate::commands::AppState>) ->
     let body: serde_json::Value = match res.json().await {
         Ok(v) => v,
         Err(e) => return Ok(unreachable(format!("The release feed was unreadable: {e}"))),
+    };
+
+    // The feed is an array now. An empty one is a repository with no releases,
+    // which is the same honest "unpublished" the 404 used to mean.
+    let newest = body.as_array().and_then(|a| a.first());
+    let body = match newest {
+        Some(r) => r.clone(),
+        None => {
+            return Ok(UpdateCheck {
+                current: current(),
+                latest: None,
+                url: None,
+                notes: None,
+                status: "unpublished",
+                message: None,
+            })
+        }
     };
 
     let latest = body.get("tag_name").and_then(|v| v.as_str()).unwrap_or_default();

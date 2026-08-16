@@ -89,6 +89,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::shell_state,
+            commands::download_core,
             commands::set_server,
             commands::invitation,
             commands::enrol,
