@@ -54,7 +54,11 @@ enable_print_preview = true
 
 # --- toolchain ---------------------------------------------------------------
 use_lld = true
-chrome_pgo_phase = 1
+# 2, not 1 -- see the block in windows-x64.gn. 1 is the INSTRUMENTED build,
+# which is a third slower and writes profile data when it exits; it was here by
+# mistake and produced a 701 MB chrome.dll on Windows before anyone noticed.
+# The profiles it reads come with the checkout (checkout_pgo_profiles).
+chrome_pgo_phase = 2
 
 # An unbranded build otherwise applies fieldtrial_testing_config.json, which
 # force-enables features real stable Chrome ships disabled — including

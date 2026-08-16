@@ -32,7 +32,29 @@ enable_widevine = false
 enable_print_preview = true
 
 use_lld = true
-chrome_pgo_phase = 1
+# 2 and not 1. The difference is not a tuning knob, it is which of two entirely
+# different binaries comes out:
+#
+#   0  no profile-guided optimisation at all
+#   1  an INSTRUMENTED build, whose purpose is to RUN and record a profile
+#   2  an optimised build that READS a recorded profile
+#
+# This file said 1, and 1 was built: eight hours on 16.08.2026 produced a
+# chrome.dll of 701 MB against 293 MB for the same tree without PGO, and
+# `grep -a __llvm_profile chrome.dll` found the instrumentation runtime in it.
+# An instrumented Chromium is roughly a third slower, writes .profraw files when
+# it exits, and for this project is worse than merely unshippable -- a browser
+# whose timings are visibly not Chrome's fails the thing every patch here exists
+# to achieve.
+#
+# Nothing complained, and nothing would have: an instrumented build is a correct
+# build of a different thing. It was found by the size, after the eight hours.
+#
+# Phase 2 needs chrome/build/pgo_profiles/*.profdata, which arrives with the
+# checkout because .gclient carries checkout_pgo_profiles: True. Verified present
+# on both machines before this line was changed. If a tree ever lacks them the
+# build fails at gn time with a clear message, which is the right way round.
+chrome_pgo_phase = 2
 
 # --- match real Chrome's feature set ----------------------------------------
 # An unbranded build applies testing/variations/fieldtrial_testing_config.json
