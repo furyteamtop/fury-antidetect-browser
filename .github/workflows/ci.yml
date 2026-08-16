@@ -74,7 +74,7 @@ jobs:
       #
       #     resource path `binaries/fury-agent-aarch64-apple-darwin` doesn't exist
       #
-      # scripts/sidecar.sh builds the agent and puts it there under the right
+      # scripts/sidecar.mjs builds the agent and puts it there under the right
       # name, which is the same script a release uses.
       #
       # This was invisible until the first CI run, and it is the oldest bug
@@ -83,7 +83,7 @@ jobs:
       # else. Reproduced by moving the directory aside and watching it fail
       # with the same message — the first guess was the frontend, and moving
       # dist/ aside disproved that before it reached a commit.
-      - run: desktop/scripts/sidecar.sh
+      - run: node desktop/scripts/sidecar.mjs
 
       # The whole workspace, so this is also the job that proves the agent and
       # the server build on the platform that is actually released.
