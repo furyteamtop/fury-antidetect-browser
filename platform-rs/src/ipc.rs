@@ -297,7 +297,38 @@ impl Listener {
             // first_pipe_instance: fail rather than join. If something already
             // holds this name the honest outcome is an error naming the
             // address, not an agent that shares its channel with a stranger.
-            let next = security.create_pipe(&endpoint.0, true)?;
+            //
+            // ERROR_ACCESS_DENIED is what CreateNamedPipe returns for exactly
+            // that case, and passing it through verbatim was wrong in the way
+            // that costs someone an afternoon: a second agent printed
+            //
+            //     Error: Access is denied. (os error 5)
+            //
+            // which reads as a permissions problem -- run as administrator, check
+            // the DACL, look at the data directory -- when the cause is that the
+            // machine already has an agent. Measured 16.08.2026 by the first run
+            // of tools/verify-windows.ps1, whose claim is precisely that a second
+            // agent "refuses the machine rather than sharing it": it exited
+            // non-zero, correctly, and could not say why.
+            //
+            // The agent does probe with `Stream::connect` before binding and
+            // reports the same thing there (agent/src/ipc.rs), but that probe can
+            // lose a race -- the server creates its next instance after accept
+            // returns -- and a message this important should not depend on
+            // winning one. AddrInUse is the kind the Unix half already produces
+            // for a live socket, so both platforms now fail the same way.
+            let next = security.create_pipe(&endpoint.0, true).map_err(|e| {
+                if e.raw_os_error() == Some(5) {
+                    io::Error::new(
+                        io::ErrorKind::AddrInUse,
+                        format!(
+                            "another fury-agent is already running on this machine ({endpoint})"
+                        ),
+                    )
+                } else {
+                    e
+                }
+            })?;
             Ok(Listener {
                 endpoint: endpoint.clone(),
                 next: Some(next),

@@ -99,12 +99,36 @@ try {
     # The claim the whole transport rests on. On macOS this is a 0600 socket and
     # `ls -l` settles it; here it is a DACL, and a DACL that grants nobody looks
     # exactly like a DACL that works until somebody checks.
-    $acl = Get-Acl -Path $pipePath
-    $sddl = $acl.Sddl
+    # Get-Acl cannot read this, and the way it fails is worth writing down so
+    # nobody rediscovers it: it goes through the FileSystem provider, which does
+    # not open \\.\pipe\..., and reports
+    #
+    #     Cannot find path '...\\.\pipe\fury-xxxxxxxx' because it does not exist
+    #
+    # about a pipe that plainly does exist and that this script listed four lines
+    # earlier. Measured 16.08.2026 on the first Windows run of this file; the
+    # check had never executed, so the DACL it was written to prove had never
+    # been looked at.
+    #
+    # PipeStream.GetAccessControl() is the API that works. It needs a connected
+    # client, and that connection is not a detour: if this user could not open
+    # the pipe there would be no descriptor to read, so the claim below about
+    # our own access is partly made by getting this far. Measured too: reading
+    # it does not exhaust the instance, and the client at the bottom of this
+    # script still connects afterwards.
+    $aclClient = New-Object System.IO.Pipes.NamedPipeClientStream(
+        '.', $pipe.Name, [System.IO.Pipes.PipeDirection]::In)
+    $aclClient.Connect(5000)
+    $pipeSec = $aclClient.GetAccessControl()
+    $sddl = $pipeSec.GetSecurityDescriptorSddlForm('Owner,Group,Access')
     Write-Host "  sddl: $sddl"
 
-    $granted = $acl.Access | Where-Object { $_.AccessControlType -eq 'Allow' } |
-               ForEach-Object { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value }
+    # Asked for as SecurityIdentifier, so there is no Translate() to fail on an
+    # account that has no name -- a deleted user, or a SID from another machine.
+    $granted = $pipeSec.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]) |
+               Where-Object { $_.AccessControlType -eq 'Allow' } |
+               ForEach-Object { $_.IdentityReference.Value }
+    $aclClient.Dispose()
 
     Claim ($granted -contains $mySid) `
         "this user ($mySid) is granted access -- a DACL that locks US out is the classic CREATOR OWNER mistake"
@@ -199,7 +223,19 @@ try {
     # -----------------------------------------------------------------------
     Write-Host "`nthe persona reaches the browser without being written down"
     # -----------------------------------------------------------------------
-    $core = & $agentExe doctor 2>&1 | Select-String -Pattern 'core' | Out-String
+    # $ErrorActionPreference is Stop for this whole file, and that turns a native
+    # command's stderr into a thrown NativeCommandError the moment it is merged
+    # with 2>&1. `fury-agent doctor` prints its banner ("fury-agent 0.0.1") on
+    # stderr, so this line aborted the script on output that was not an error at
+    # all -- measured 16.08.2026, and it stopped the run before the section that
+    # matters most, the one with no macOS equivalent.
+    #
+    # The preference is restored immediately rather than relaxed for the rest of
+    # the file: everything after this still deserves to stop on a real failure.
+    $core = & {
+        $ErrorActionPreference = 'Continue'
+        & $agentExe doctor 2>&1 | Select-String -Pattern 'core' | Out-String
+    }
     $haveCore = ($core -notmatch 'no core|not installed' -and $core.Trim().Length -gt 0)
     if (-not $haveCore) {
         Skip "no core installed -- run 'fury-agent install-core <path>' and run this again"
