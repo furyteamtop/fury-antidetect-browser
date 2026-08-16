@@ -153,12 +153,39 @@ pub async fn ensure_running() -> Result<(), AgentError> {
     }
 
     let binary = agent_binary().ok_or(AgentError::NotRunning)?;
-    std::process::Command::new(&binary)
-        .arg("serve")
+    let mut cmd = std::process::Command::new(&binary);
+    cmd.arg("serve")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()?;
+        .stderr(std::process::Stdio::null());
+
+    // Without this Windows draws a console window for the agent, and it sits on
+    // top of the application that just started it: a black box titled with a
+    // path, no content, no obvious way to understand it, and closing it kills
+    // the agent every profile depends on.
+    //
+    // The cause is that fury-agent is a console-subsystem binary -- correct, it
+    // is also a CLI -- and Windows gives a console to any console binary a GUI
+    // process starts unless told otherwise. Redirecting the three standard
+    // streams to null, which this already did, does not prevent the window: the
+    // window is about the subsystem, not about whether anything is written.
+    //
+    // Found by running the built application on a real desktop 16.08.2026.
+    // Nothing over SSH would have shown it, and no test asserts the absence of
+    // a window, so this is the kind of defect only a person looking at a screen
+    // can report.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW. Not DETACHED_PROCESS: the agent must outlive this
+        // window, and on Windows it already does -- a child is not killed when
+        // its parent exits -- so the only thing needed here is to stop the
+        // console appearing.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    cmd.spawn()?;
 
     // The socket appears a moment after the process does. Poll rather than
     // sleep once: on a cold start the database has to be created first.
