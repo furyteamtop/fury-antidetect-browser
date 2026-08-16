@@ -94,7 +94,7 @@ Thirteen checks; all must pass.
 `agent/`, `server/`, `desktop/`, `shared-rs/` are ordinary Rust and TypeScript.
 
 ```bash
-desktop/scripts/sidecar.sh      # once, before the first cargo test
+desktop/scripts/sidecar.mjs      # once, before the first cargo test
 cargo test --workspace          # 253 tests
 cd desktop && npm run build     # typechecks and bundles the shell
 ```
@@ -110,7 +110,7 @@ resource path `binaries/fury-agent-aarch64-apple-darwin` doesn't exist
 ```
 
 which names a path that has never existed on your machine and does not mention
-the script that creates it. `sidecar.sh` builds the agent and puts it there,
+the script that creates it. `sidecar.mjs` builds the agent and puts it there,
 and it is the same script a release uses.
 
 It went unnoticed until the first CI run, because every machine that had ever

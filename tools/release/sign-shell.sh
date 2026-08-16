@@ -104,7 +104,7 @@ if [ "$build" = 1 ]; then
   echo "== building the shell with APPLE_SIGNING_IDENTITY set"
   echo "   identity: $identity"
   # Exported, not passed as an argument, because two consumers read it: the
-  # bundler for the outer app, and desktop/scripts/sidecar.sh — which runs as
+  # bundler for the outer app, and desktop/scripts/sidecar.mjs — which runs as
   # beforeBuildCommand — for the agent binary. Signing must go inside-out, and
   # this is what makes that happen in one build.
   export APPLE_SIGNING_IDENTITY="$identity"
