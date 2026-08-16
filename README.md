@@ -9,19 +9,29 @@ team. No seats, no per-profile pricing, no telemetry.
 
 *[Русская версия](README.ru.md)*
 
-> **Status: in development. macOS only, for now.** The core builds and spoofs;
-> the agent launches profiles; the server and desktop shell work. There are no
-> releases yet — you build it yourself, and [docs/03](docs/03-chromium-fork.md)
-> says what that takes.
+> **Status: in development, and now on both macOS and Windows.** The core builds
+> and spoofs; the agent launches profiles; the server and desktop shell work.
+> Builds are on the [Releases](https://github.com/furyteamtop/fury-antidetect-browser/releases)
+> page, marked pre-release and **not signed yet** — see below.
 >
-> **Windows** is one build away, not one port away. The launcher — agent and
-> desktop shell — is ported and cross-compiles for `x86_64-pc-windows-msvc` on
-> every commit, and the core patches read their config from an inherited HANDLE.
-> What is missing is that nobody has run the Chromium build on a Windows
-> machine, so no Windows core exists and none has been measured. That is a
-> machine, not a problem — and until it happens, this says *not yet* rather than
-> *soon*, because a date nobody can keep is worth less than a sentence that is
-> true.
+> **Windows works, as of 16.08.2026.** The Chromium core built (57 528 targets),
+> the agent runs on it, and `tools/verify-windows.ps1` passes 29 claims on a real
+> machine: the config reaches the browser as an inherited HANDLE, argv carries a
+> slot number and nothing else, no process in the tree has a persona string in
+> its command line, and the browser reports the persona's platform rather than
+> the host's. The desktop shell builds to an NSIS installer. This paragraph used
+> to say *not yet*, and it said so for as long as that was true.
+>
+> Getting there found eight defects that only running could find — a BSD `df`
+> flag, a bootstrap that returned success having done nothing, CRLF making
+> `git apply` claim a patch was stale, PowerShell reading UTF-8 as
+> Windows-1252, a persona leaking through `--user-data-dir` into every child
+> process, and a `beforeBuildCommand` that cmd.exe could not execute. They are in
+> the history, one commit each, with what they cost.
+>
+> **Nothing is signed.** macOS will refuse to open the download and Windows will
+> warn; the Apple certificate is paid for and waiting on activation
+> ([docs/17](docs/17-apple-signing.md)). Until then, a release is a preview.
 >
 > **Linux** is not a target. See the table at the bottom.
 >

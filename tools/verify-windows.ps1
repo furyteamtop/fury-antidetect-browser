@@ -282,11 +282,21 @@ try {
         #
         # So the browser is the one WITHOUT --type=, and asserting the child
         # switch on it fails while everything is working correctly.
+        # Scoped to THIS launch by its data directory, not to "any chrome.exe on
+        # the machine". That distinction is not pedantry: an earlier run of this
+        # section left processes behind, the next run adopted them, and the
+        # result was three claims failing while three others passed about the
+        # same browser -- a combination that cannot happen and therefore says the
+        # test is measuring the wrong process. A build machine has other
+        # Chromiums on it; a browser this test did not start is not evidence
+        # about the core this test was given.
+        $mineOnly = { $_.CommandLine -like "*$($home_.Replace('\','\\'))*" -or $_.CommandLine -like "*$home_*" }
         $coreProc = $null
         for ($i = 0; $i -lt 150; $i++) {
             Start-Sleep -Milliseconds 200
             $coreProc = Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
                         Where-Object { $_.CommandLine -notmatch '--type=' } |
+                        Where-Object $mineOnly |
                         Select-Object -First 1
             if ($coreProc) { break }
         }
