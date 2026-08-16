@@ -69,6 +69,51 @@ case "$TARGET" in
       echo "!! Build Windows on Windows. Cross-building is possible but brittle." >&2
       exit 1 ;;
     esac
+
+    # Point Chromium at Visual Studio by hand, because it cannot find it itself
+    # from here.
+    #
+    # build/vs_toolchain.py locates the compiler by running vswhere.exe out of
+    # "%ProgramFiles(x86)%\Microsoft Visual Studio\Installer". That expands to
+    # nothing under Git Bash: bash refuses to import environment variables whose
+    # names contain parentheses, so `ProgramFiles(x86)` — the one Microsoft
+    # picked — is silently absent from every shell we run builds in. The failure
+    # arrives four levels deep as "No supported Visual Studio can be found",
+    # which reads like the compiler is missing rather than like the path is.
+    #
+    # vs_toolchain.py checks $vs2022_install before it reaches for vswhere, so
+    # supplying that skips the broken lookup entirely. WINDOWSSDKDIR has the
+    # same problem for the same reason and is set the same way.
+    #
+    # Hardcoding the two default install paths rather than searching: these are
+    # where the Build Tools and the full IDE put themselves, and a machine that
+    # has VS somewhere else can set vs2022_install itself and be left alone.
+    if [ -z "${vs2022_install:-}" ]; then
+      for candidate in \
+        "/c/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools" \
+        "/c/Program Files/Microsoft Visual Studio/2022/BuildTools" \
+        "/c/Program Files/Microsoft Visual Studio/2022/Community" \
+        "/c/Program Files/Microsoft Visual Studio/2022/Professional" \
+        "/c/Program Files/Microsoft Visual Studio/2022/Enterprise"; do
+        if [ -d "$candidate" ]; then
+          export vs2022_install="$(cygpath -w "$candidate")"
+          echo "==> vs2022_install=$vs2022_install"
+          break
+        fi
+      done
+    fi
+    if [ -z "${vs2022_install:-}" ]; then
+      echo "!! Visual Studio 2022 not found. Install the Build Tools with the" >&2
+      echo "!! 'Desktop development with C++' workload, or set vs2022_install." >&2
+      exit 1
+    fi
+    if [ -z "${WINDOWSSDKDIR:-}" ] && [ -d "/c/Program Files (x86)/Windows Kits/10" ]; then
+      export WINDOWSSDKDIR="$(cygpath -w "/c/Program Files (x86)/Windows Kits/10")"
+    fi
+    # Use the locally installed toolchain, not Google's internal package. Set
+    # system-wide on the build server already; exported here so a fresh machine
+    # or a stripped environment does not fail differently.
+    export DEPOT_TOOLS_WIN_TOOLCHAIN=0
     ;;
   *) echo "!! Unknown target: $TARGET" >&2; exit 1 ;;
 esac

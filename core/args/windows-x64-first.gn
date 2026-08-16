@@ -80,7 +80,30 @@ enable_hangout_services_extension = false
 # only. So on this machine expect to stage the blob by hand or to see the
 # Widevine check fail, and know which of the two you are looking at.
 enable_widevine = true
-bundle_widevine_cdm = true
+
+# bundle_widevine_cdm is false, and the paragraph above predicted why without
+# quite drawing the conclusion. Setting it true makes the build REQUIRE the blob
+# at link time:
+#
+#   ninja: error: '../../third_party/widevine/cdm/win/x64/widevinecdm.dll',
+#   needed by 'WidevineCdm/_platform_specific/win_x64/widevinecdm.dll',
+#   missing and no known rule to make it
+#
+# — met on the first Windows build, 16.08.2026. On macOS the blob is staged out
+# of the locally installed Chrome by core/build/link-widevine.sh, which is macOS
+# only; the build server has no Chrome and no equivalent script.
+#
+# Installing Chrome on the build server to harvest the DLL would work and is the
+# wrong answer: the blob would then be inside every binary we hand out, which is
+# exactly the redistribution docs/10 says we may not do. The macOS release args
+# avoid it and this file now does too.
+#
+# The support code is still compiled in (enable_widevine above), so the browser
+# can advertise and load a CDM it finds at runtime — which agent/src/widevine.rs
+# stages from the user's own installed Chrome. A Windows machine with no Chrome
+# gets a browser that refuses com.widevine.alpha and is detectable on that one
+# vector. Known, stated, and better than shipping someone else's blob.
+bundle_widevine_cdm = false
 
 enable_print_preview = true
 use_lld = true
