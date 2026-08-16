@@ -1443,7 +1443,7 @@ dependencies = [
 
 [[package]]
 name = "fury-agent"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1474,7 +1474,7 @@ dependencies = [
 
 [[package]]
 name = "fury-desktop"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1500,7 +1500,7 @@ dependencies = [
 
 [[package]]
 name = "fury-detect"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "fury-shared",
@@ -1511,7 +1511,7 @@ dependencies = [
 
 [[package]]
 name = "fury-platform"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "libc",
  "sha2",
@@ -1521,7 +1521,7 @@ dependencies = [
 
 [[package]]
 name = "fury-server"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1545,7 +1545,7 @@ dependencies = [
 
 [[package]]
 name = "fury-shared"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "argon2",
  "chacha20poly1305",

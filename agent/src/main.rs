@@ -470,29 +470,32 @@ fn core_leaf() -> &'static str {
 
 /// Every name a core may go by, most-preferred first.
 ///
-/// The second name in each list is the UNBRANDED one, and it is here because a
-/// core built from a clean checkout of this repository has it. Patch 0900 --
-/// branding -- is not written: docs/09 says so, and it is blocked on icon
-/// assets rather than on code.
+/// The second name in each list is the UNBRANDED one: chrome.exe, Chromium.app.
+/// A core has it whenever patch 0900 has not been applied to the tree it was
+/// built from, and that is not a hypothetical -- it is what shipped.
 ///
-/// What that meant in practice, found 16.08.2026 by installing a published
-/// release onto a Windows machine:
+/// Found 16.08.2026 by installing a published release onto a Windows machine:
 ///
 ///     Error: no core found in fury-core-0.1.0-pre2-windows-x64.tar.xz
 ///     -- expected fury.exe somewhere inside it
 ///
-/// The Windows core is chrome.exe, because a clean checkout produces chrome.exe.
-/// The macOS core is Fury.app only because the developer's Chromium tree carries
-/// uncommitted edits to chrome/app/theme/chromium/BRANDING that no patch in this
-/// repository reproduces -- so the macOS build was branded and the Windows build,
-/// built from what is actually committed, was not. The agent worked on one
-/// machine and could not have worked on any other, which is the same shape of
-/// bug ci.yml already documents about the sidecar.
+/// The first diagnosis of that, written here and committed, said patch 0900 did
+/// not exist and that the macOS core was branded only by uncommitted edits in
+/// one developer's checkout. That was wrong, and wrong in the way this file is
+/// supposed to be against: it was inferred from `git status` showing modified
+/// files -- which is what an applied 27-patch series looks like -- instead of
+/// from opening core/patches/. 0900 is written, is in the series, and sets
+/// PRODUCT_FULLNAME and MAC_BUNDLE_ID.
 ///
-/// Accepting both is not a workaround for that. An agent's job is to drive the
-/// core it was given, and refusing one over its filename would be refusing a
-/// browser that is otherwise correct. Branding still has to become patch 0900,
-/// and until it does this list is what makes a clean checkout usable.
+/// What actually happened is duller and worse: apply.sh stopped at 0110, so the
+/// Windows tree got 20 patches of 27 and never reached 0900. The core in that
+/// release is missing os_crypt, performance.memory, battery, the automation
+/// traces and both locks as well as its name.
+///
+/// So the list stays, and its justification changes. An agent's job is to drive
+/// the core it was given, and a browser that is otherwise correct should not be
+/// refused over a filename -- a developer building without the branding patch
+/// has a usable core. It is a tolerance, not a substitute for applying 0900.
 fn core_leaves() -> &'static [&'static str] {
     #[cfg(target_os = "macos")]
     {
