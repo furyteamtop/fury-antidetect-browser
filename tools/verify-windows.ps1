@@ -6,7 +6,7 @@
 #     powershell -ExecutionPolicy Bypass -File tools\verify-windows.ps1
 #
 # `cargo check -p fury-platform --target x86_64-pc-windows-msvc` runs on a Mac
-# and is in CI, and it catches a real class of mistake — it has already caught
+# and is in CI, and it catches a real class of mistake -- it has already caught
 # three. It cannot catch any of these, because every one of them is a question
 # about what Windows DOES rather than about what compiles:
 #
@@ -23,7 +23,7 @@
 # Sections that need an installed core say so and skip. Run it again once
 # `fury-agent install-core` has one, and everything runs.
 #
-# State claims, not steps — same rule as core/verify/README.md. Each claim
+# State claims, not steps -- same rule as core/verify/README.md. Each claim
 # prints one line and the script exits non-zero if any is false.
 
 $ErrorActionPreference = 'Stop'
@@ -52,7 +52,7 @@ if (-not (Test-Path $agentExe)) {
     $agentExe = Join-Path $repo 'target\debug\fury-agent.exe'
 }
 if (-not (Test-Path $agentExe)) {
-    Write-Host "no fury-agent.exe — run: cargo build --release -p fury-agent" -ForegroundColor Red
+    Write-Host "no fury-agent.exe -- run: cargo build --release -p fury-agent" -ForegroundColor Red
     exit 2
 }
 
@@ -63,7 +63,7 @@ $home_ = Join-Path $env:TEMP ("fury-verify-" + [System.Guid]::NewGuid().ToString
 New-Item -ItemType Directory -Path $home_ -Force | Out-Null
 $env:FURY_HOME = $home_
 
-Write-Host "verify windows — $agentExe"
+Write-Host "verify windows -- $agentExe"
 Write-Host "  data directory: $home_"
 
 $me = [System.Security.Principal.WindowsIdentity]::GetCurrent()
@@ -88,7 +88,7 @@ try {
         if ($pipe) { break }
     }
     Claim ($null -ne $pipe) "a named pipe called fury-* exists"
-    if (-not $pipe) { throw "the agent never listened — see $home_\err.log" }
+    if (-not $pipe) { throw "the agent never listened -- see $home_\err.log" }
 
     $pipePath = "\\.\pipe\" + $pipe.Name
     Write-Host "  pipe: $pipePath"
@@ -107,7 +107,7 @@ try {
                ForEach-Object { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value }
 
     Claim ($granted -contains $mySid) `
-        "this user ($mySid) is granted access — a DACL that locks US out is the classic CREATOR OWNER mistake"
+        "this user ($mySid) is granted access -- a DACL that locks US out is the classic CREATOR OWNER mistake"
 
     # S-1-5-18 is LOCAL SYSTEM, which is deliberately in there. Everything else
     # is not. S-1-1-0 Everyone, S-1-5-11 Authenticated Users and S-1-5-32-545
@@ -117,7 +117,7 @@ try {
     }
 
     Claim ($sddl -match '^[OGD]?.*D:P') `
-        "the DACL is PROTECTED (D:P) — without it the parent's inheritable entries come back"
+        "the DACL is PROTECTED (D:P) -- without it the parent's inheritable entries come back"
 
     # -----------------------------------------------------------------------
     Write-Host "`nthe shell's half of the conversation works"
@@ -137,7 +137,7 @@ try {
     # The bug this catches is specific and would otherwise look like "the agent
     # keeps dying": on Windows every concurrent connection is a separate server
     # instance, and if `accept` does not create the replacement before handing
-    # the current one over, the second client gets ERROR_PIPE_BUSY — which the
+    # the current one over, the second client gets ERROR_PIPE_BUSY -- which the
     # shell reports as "the agent is not running".
     $second = $true
     for ($i = 0; $i -lt 5; $i++) {
@@ -152,7 +152,7 @@ try {
             $c.Dispose()
         } catch { $second = $false }
     }
-    Claim $second "five clients in a row are all served — the next pipe instance is created before accept returns"
+    Claim $second "five clients in a row are all served -- the next pipe instance is created before accept returns"
 
     # -----------------------------------------------------------------------
     Write-Host "`na second agent refuses the machine rather than sharing it"
@@ -173,7 +173,7 @@ try {
     Claim ($dirGranted -contains $mySid) "this user can read it"
     Claim (-not ($dirGranted -contains 'S-1-1-0')) "Everyone cannot"
     Claim ($dirAcl.AreAccessRulesProtected) `
-        "inheritance is disabled — an inherited entry from a relocated FURY_HOME would undo all of this"
+        "inheritance is disabled -- an inherited entry from a relocated FURY_HOME would undo all of this"
 
     $token = Join-Path $home_ 'api-token'
     if (Test-Path $token) {
@@ -189,12 +189,12 @@ try {
     Write-Host "`nthe vault key is in the Credential Manager"
     # -----------------------------------------------------------------------
     # keyring 4 pulls windows-native-keyring-store by default, so there is
-    # nothing of ours to check — only that it worked. A failure here shows up
+    # nothing of ours to check -- only that it worked. A failure here shows up
     # as proxy passwords stored as typed, which is a downgrade the agent logs
     # and carries on from, so it is easy to miss.
     $vaultLog = Get-Content (Join-Path $home_ 'err.log') -Raw -ErrorAction SilentlyContinue
     Claim (-not ($vaultLog -match 'no credential store|could not store the vault key')) `
-        "no 'could not store the vault key' in the log — secrets are sealed rather than stored as typed"
+        "no 'could not store the vault key' in the log -- secrets are sealed rather than stored as typed"
 
     # -----------------------------------------------------------------------
     Write-Host "`nthe persona reaches the browser without being written down"
@@ -202,7 +202,7 @@ try {
     $core = & $agentExe doctor 2>&1 | Select-String -Pattern 'core' | Out-String
     $haveCore = ($core -notmatch 'no core|not installed' -and $core.Trim().Length -gt 0)
     if (-not $haveCore) {
-        Skip "no core installed — run 'fury-agent install-core <path>' and run this again"
+        Skip "no core installed -- run 'fury-agent install-core <path>' and run this again"
         Skip "  (this is the section that checks handle inheritance, which is the"
         Skip "   one thing in the port with no macOS equivalent to fall back on)"
     } else {
@@ -223,8 +223,8 @@ try {
 
 Write-Host ""
 if ($script:Failures -gt 0) {
-    Write-Host "FAIL — $($script:Failures) of $($script:Checks) claims are false" -ForegroundColor Red
+    Write-Host "FAIL -- $($script:Failures) of $($script:Checks) claims are false" -ForegroundColor Red
     exit 1
 }
-Write-Host "PASS — $($script:Checks) claims" -ForegroundColor Green
+Write-Host "PASS -- $($script:Checks) claims" -ForegroundColor Green
 exit 0

@@ -120,6 +120,25 @@ jobs:
       - name: the Windows surface type-checks
         run: cargo check -p fury-platform --target x86_64-pc-windows-msvc --all-targets
 
+      # Windows PowerShell 5.1 -- what `powershell.exe` still is on Windows 11 --
+      # reads a .ps1 as Windows-1252 unless the file carries a UTF-8 BOM. Every
+      # non-ASCII character then arrives as mojibake, and one inside a string
+      # ends the string early. Measured 15.08.2026 on the first Windows run:
+      # verify-windows.ps1 was UTF-8 with em dashes in its comments and would not
+      # PARSE, reporting "Unexpected token 'see'" and five more errors on lines
+      # whose only fault was punctuation. The script had never been run.
+      #
+      # A BOM would also fix it and is not what this checks, because a BOM is
+      # invisible and one editor saving without it puts the bug back silently.
+      # ASCII cannot be lost by accident, and this is two lines.
+      - name: PowerShell scripts are ASCII
+        run: |
+          if LC_ALL=C grep -n -P '[^\x00-\x7F]' $(git ls-files '*.ps1'); then
+            echo "!! non-ASCII above: Windows PowerShell 5.1 reads .ps1 as Windows-1252 and will fail to parse" >&2
+            exit 1
+          fi
+          echo "ok: $(git ls-files '*.ps1' | wc -l) PowerShell scripts, all ASCII"
+
       # The check above is worth exactly as much as the crate is thin. A
       # dependency with a build script needing a C toolchain silently makes it
       # impossible again, so the failure is here, next to the reason.

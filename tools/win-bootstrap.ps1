@@ -13,7 +13,7 @@
 #
 # What this does NOT do: fetch or build. Those are core/build/fetch.sh and
 # core/build/build.sh, they are bash, and build.sh already refuses to run
-# anywhere but MINGW/MSYS/CYGWIN — that is, Git Bash, which this installs. The
+# anywhere but MINGW/MSYS/CYGWIN -- that is, Git Bash, which this installs. The
 # split is deliberate: machine preparation is a Windows problem, the build is
 # not, and duplicating the build into PowerShell would create the second script
 # that must stay in step with the first.
@@ -27,7 +27,7 @@ function Warn($msg) { Write-Host "!!  $msg" -ForegroundColor Yellow }
 
 # Where the tree will live. Short on purpose: Chromium generates paths that are
 # already close to Windows' limits, and starting from C:\Users\<name>\... spends
-# characters on nothing. See the long-path step below — that raises the ceiling
+# characters on nothing. See the long-path step below -- that raises the ceiling
 # but does not make every tool in the build honour it.
 $Root = if ($env:FURY_ROOT) { $env:FURY_ROOT } else { 'C:\fury' }
 
@@ -95,7 +95,7 @@ $vsComponents = @(
 $vsArgs = ($vsComponents | ForEach-Object { "--add $_" }) -join ' '
 
 if (Test-Path 'C:\Program Files (x86)\Microsoft Visual Studio\2022') {
-    Write-Host '    a 2022 install already exists — not touching it'
+    Write-Host '    a 2022 install already exists -- not touching it'
     Warn 'verify it carries the components listed above, ATL included'
 } else {
     winget install --id Microsoft.VisualStudio.2022.BuildTools -e --source winget `
@@ -113,21 +113,21 @@ $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
 
 # --- 7. Disk ------------------------------------------------------------------
 # fetch.sh refuses below 150 GB free. That number is its own cautious estimate
-# rather than a measurement — docs/03 records ~30 GB of source and ~9 GB per
-# build directory actually observed — but the check is what will stop you, so
+# rather than a measurement -- docs/03 records ~30 GB of source and ~9 GB per
+# build directory actually observed -- but the check is what will stop you, so
 # check it here where it costs a second.
 Step 'checking free space'
 # Written the long way on purpose: `??` is PowerShell 7 and `powershell.exe` on
-# Windows 11 is 5.1, where it is a parse error — the script would die on load
+# Windows 11 is 5.1, where it is a parse error -- the script would die on load
 # with a syntax message pointing at a line that looks fine.
 if (-not (Test-Path $Root)) { New-Item -ItemType Directory -Path $Root -Force | Out-Null }
 $drive = Get-Item $Root
 $free = (Get-PSDrive -Name $drive.PSDrive.Name).Free / 1GB
 Write-Host ("    free on {0}: {1:N0} GB" -f $drive.PSDrive.Name, $free)
-if ($free -lt 150) { Warn 'fetch.sh refuses below 150 GB free — it will stop you' }
+if ($free -lt 150) { Warn 'fetch.sh refuses below 150 GB free -- it will stop you' }
 
 # --- what is left, and it is not scriptable -----------------------------------
-Step 'DONE — but read this'
+Step 'DONE -- but read this'
 
 Warn 'Debugging Tools for Windows must be added by hand.'
 Write-Host @'
@@ -141,7 +141,7 @@ Write-Host @'
 '@
 
 Write-Host @"
-Next, from *Git Bash* (not PowerShell — both scripts are bash):
+Next, from *Git Bash* (not PowerShell -- both scripts are bash):
 
     git clone <your remote> $Root
     cd $Root
@@ -156,6 +156,6 @@ header of core/args/windows-x64-first.gn: the Windows half of patch 0001 has
 never run anywhere, and neither has an official build of this tree, and starting
 both at once leaves a failure with two candidate causes.
 
-Once that build exists and tools/verify-windows.ps1 passes, build windows-x64 —
+Once that build exists and tools/verify-windows.ps1 passes, build windows-x64 --
 that is the shippable one.
 "@
