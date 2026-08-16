@@ -26,6 +26,7 @@ out="${OUT:-$here/dist}"
 core_app=""
 shell_app=""
 version=""
+allow_unsigned=0
 
 usage() {
   cat <<'EOF'
@@ -40,6 +41,11 @@ usage: package.sh [--core PATH] [--shell PATH] [--version V] [--out DIR]
                   tarred, which is what you have if you built `app` only.
   --version V     Release version. Default: the agent crate's version.
   --out DIR       Where to write (default dist/).
+  --allow-unsigned
+                  Package a macOS shell that is only ad-hoc signed. Off by
+                  default, because a downloaded ad-hoc bundle is refused by
+                  Gatekeeper with "is damaged" and the person who downloaded it
+                  has no way to know that a signature is what is missing.
 
 Either may be omitted; whatever is given gets packaged.
 EOF
@@ -51,6 +57,7 @@ while [ $# -gt 0 ]; do
     --shell)   shell_app="${2:?--shell needs a path}"; shift 2 ;;
     --version) version="${2:?--version needs a value}"; shift 2 ;;
     --out)     out="${2:?--out needs a path}"; shift 2 ;;
+    --allow-unsigned) allow_unsigned=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -136,6 +143,78 @@ package_core() {
 # The directory branch is kept rather than replaced: a bare .app is still what
 # you have if you built with only the `app` target, and refusing it would turn a
 # working local packaging run into an error about a missing file.
+# Refuse to publish a shell that macOS will not open, and refuse to publish one
+# that lies about its version.
+#
+# Both of these shipped in v0.1.0-pre1..pre3 and both were found by a person
+# rather than by this script, which is why the checks are here now.
+#
+# 1. THE SIGNATURE. `tauri build` without a signing identity emits a bundle whose
+#    executable carries only the linker's ad-hoc signature while the bundle
+#    itself is not signed at all — `Sealed Resources=none`, `Info.plist=not
+#    bound`. Nothing complains locally, because a file you built yourself has no
+#    quarantine attribute. A file somebody DOWNLOADS does, and quarantine plus an
+#    invalid bundle signature produces the flat refusal:
+#
+#      "Приложение «Fury» повреждено, и его не удаётся открыть."
+#
+#    The user is told to move it to the Trash. Nothing in that message suggests a
+#    signature, so the natural reading is that the software is broken — and the
+#    natural next step, reinstalling, reproduces it exactly.
+#
+# 2. THE VERSION. The release version reached the FILE NAMES and never the
+#    bundle: tauri.conf.json carried its own hardcoded "0.0.1", so
+#    fury-0.1.0-pre3-macos-arm64.dmg installed an application that reported
+#    0.0.1 to itself. The in-app update check compares against that number, so
+#    it answered about a version nobody was running. tauri.conf.json no longer
+#    holds a version — it inherits from [workspace.package] — and this check is
+#    what keeps the two from drifting apart again.
+verify_shell_app() {
+  local app="$1"
+  [ "$platform" = "macos" ] || return 0
+
+  local plist="$app/Contents/Info.plist"
+  local said
+  said=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" 2>/dev/null || echo "")
+  # A pre-release suffix cannot go in CFBundleShortVersionString: Apple wants
+  # digits and dots there. Compare against the numeric part and let the suffix
+  # live in the tag and the file name.
+  local numeric="${version%%-*}"
+  if [ "$said" != "$numeric" ]; then
+    echo "!! the bundle says version \"$said\", the release is \"$version\"" >&2
+    echo "!! whoever installs this gets an app that reports the wrong version to" >&2
+    echo "!! itself, and the update check then answers about a version nobody runs." >&2
+    exit 1
+  fi
+  echo "   bundle version $said"
+
+  if ! codesign -v --deep --strict "$app" 2>/dev/null; then
+    echo "!! the bundle signature is not valid:" >&2
+    codesign -v --deep --strict "$app" 2>&1 | sed 's/^/!!   /' >&2
+    echo "!! macOS will refuse to open this after download, with \"is damaged\"." >&2
+    echo "!! Sign it: tools/release/sign-shell.sh --identity 'Developer ID Application: ...'" >&2
+    exit 1
+  fi
+
+  # Valid but ad-hoc is still not shippable. An ad-hoc signature has no team
+  # behind it, so Gatekeeper rejects it on a downloaded file exactly like an
+  # invalid one — the only difference is that this one passes the check above.
+  if codesign -dv "$app" 2>&1 | grep -q 'Signature=adhoc'; then
+    if [ "${allow_unsigned:-0}" = "1" ]; then
+      echo "   WARNING: ad-hoc signature, --allow-unsigned given"
+      echo "   Anyone who downloads this must run:"
+      echo "     xattr -dr com.apple.quarantine /Applications/Fury.app"
+    else
+      echo "!! this bundle is ad-hoc signed, which is not distributable: a" >&2
+      echo "!! downloaded copy is quarantined and Gatekeeper refuses it." >&2
+      echo "!! Sign with a Developer ID and notarise (tools/release/sign-shell.sh)," >&2
+      echo "!! or pass --allow-unsigned if you accept that every downloader must" >&2
+      echo "!! strip the quarantine attribute by hand." >&2
+      exit 1
+    fi
+  fi
+}
+
 package_shell() {
   local app="$1"
   local name
@@ -143,10 +222,28 @@ package_shell() {
   if [ -f "$app" ]; then
     # Already an installer. Keep the extension it came with — the whole point is
     # that macOS sees .dmg and Windows sees .exe.
+    #
+    # Look INSIDE the .dmg rather than at the bundle it was made from. They are
+    # supposed to be the same application and the checks are about what a person
+    # actually downloads, so the copy that ships is the copy to inspect.
+    if [ "${app##*.}" = "dmg" ]; then
+      echo "== checking the application inside the disk image"
+      local mnt
+      mnt=$(mktemp -d)
+      hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$app" >/dev/null
+      # Detach even if a check exits — an image left mounted registers its copy
+      # of Fury.app with LaunchServices, and then the machine has two.
+      trap 'hdiutil detach "$mnt" -quiet 2>/dev/null || true; rmdir "$mnt" 2>/dev/null || true' RETURN
+      local inner="$mnt/Fury.app"
+      [ -d "$inner" ] || { echo "!! no Fury.app inside $app" >&2; exit 1; }
+      verify_shell_app "$inner"
+    fi
+
     name="fury-$version-$platform-$arch.${app##*.}"
     echo "== copying $name"
     cp "$app" "$out/$name"
   elif [ -d "$app" ]; then
+    verify_shell_app "$app"
     name="fury-$version-$platform-$arch.tar.xz"
     echo "== packing $name"
     tar -cJf "$out/$name" -C "$(dirname "$app")" "$(basename "$app")"
