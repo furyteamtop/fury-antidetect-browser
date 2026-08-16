@@ -190,6 +190,19 @@ pub fn status() -> Result<()> {
 /// unpack perfectly and all fail here, in two seconds, next to the command that
 /// caused them — rather than an hour later when a profile will not start.
 fn probe_version(exe: &Path) -> Result<String> {
+    // Windows does not get to be asked this way. `chrome.exe --version` there
+    // is not a fast path: it starts a browser, takes the process singleton, and
+    // never exits, so `output()` below would wait forever and the install would
+    // hang on its last step. fury_platform::version explains what reading the
+    // resource proves and what it does not.
+    #[cfg(windows)]
+    {
+        return fury_platform::version::file_version(exe)
+            .with_context(|| format!("reading the version of {}", exe.display()));
+    }
+
+    #[cfg(not(windows))]
+    {
     let out = std::process::Command::new(exe)
         .arg("--version")
         .output()
@@ -221,6 +234,7 @@ fn probe_version(exe: &Path) -> Result<String> {
         bail!("the core started but reported no version");
     }
     Ok(said)
+    }
 }
 
 fn unpack(archive: &Path, into: &Path) -> Result<()> {

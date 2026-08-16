@@ -25,6 +25,22 @@
 #
 # State claims, not steps -- same rule as core/verify/README.md. Each claim
 # prints one line and the script exits non-zero if any is false.
+#
+#     powershell -ExecutionPolicy Bypass -File tools\verify-windows.ps1 `
+#         -CoreArchive dist\fury-core-windows.tar.xz
+#
+# -CoreArchive is how the core section actually runs. Without it that section
+# always skips, and it always skipped: this script gives the run a private
+# FURY_HOME so it cannot disturb a real installation, and a private FURY_HOME by
+# definition has no core in it. So the check with no macOS counterpart -- the one
+# that proves the config crosses CreateProcess as an inherited HANDLE and that
+# the persona is not in anybody's command line -- had never once executed, while
+# the script reported success. Pass the archive and it is installed into that
+# private home first.
+
+param(
+    [string]$CoreArchive = ''
+)
 
 $ErrorActionPreference = 'Stop'
 $script:Failures = 0
@@ -65,6 +81,28 @@ $env:FURY_HOME = $home_
 
 Write-Host "verify windows -- $agentExe"
 Write-Host "  data directory: $home_"
+
+if ($CoreArchive) {
+    if (-not (Test-Path $CoreArchive)) {
+        Write-Host "no such archive: $CoreArchive" -ForegroundColor Red
+        exit 2
+    }
+    Write-Host "  installing the core into it from $CoreArchive"
+    # ErrorActionPreference is relaxed for this one call, for the reason spelled
+    # out further down beside `doctor`: with it at Stop, PowerShell turns ANY
+    # stderr output from a native program into a terminating NativeCommandError.
+    # install-core writes its progress there, so a successful install --
+    # "installed 150.0.7871.187" -- killed the run that was verifying it.
+    $said = & {
+        $ErrorActionPreference = 'Continue'
+        & $agentExe install-core $CoreArchive 2>&1 | Out-String
+    }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host $said -ForegroundColor Red
+        Write-Host "install-core failed" -ForegroundColor Red
+        exit 2
+    }
+}
 
 $me = [System.Security.Principal.WindowsIdentity]::GetCurrent()
 $mySid = $me.User.Value

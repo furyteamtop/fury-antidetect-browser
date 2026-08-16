@@ -46,6 +46,8 @@ pub mod ipc;
 pub mod perms;
 pub mod process;
 pub mod tree;
+#[cfg(windows)]
+pub mod version;
 
 pub use carrier::Carrier;
 pub use dirs::{data_dir, ipc_endpoint, short_tag};

@@ -250,10 +250,27 @@ async fn cmd_launch(args: &[String]) -> anyhow::Result<()> {
     }
     let config = persona.derive_core_config(seed, &ctx);
 
+    // The installed core is the last resort and it was missing entirely: this
+    // took --core or FURY_CORE and nothing else, so on a machine where
+    // `install-core` had just succeeded, `fury-agent launch` still answered
+    // "no core binary: pass --core or set FURY_CORE". The shell never hit it --
+    // ipc.rs asks core_binary() -- so the gap was only in the CLI, which is
+    // exactly what a developer reaches for first and what verify-windows.ps1
+    // drives. Found 16.08.2026 on the first Windows verification run.
+    //
+    // Order is unchanged where it matters: an explicit --core still wins over
+    // FURY_CORE, and FURY_CORE still wins over whatever is installed, so
+    // pointing the CLI at a build directory keeps working.
     let core = opt("--core")
         .or_else(|| std::env::var("FURY_CORE").ok())
         .map(std::path::PathBuf::from)
-        .ok_or_else(|| anyhow::anyhow!("no core binary: pass --core or set FURY_CORE"))?;
+        .or_else(core_binary)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "no core binary: install one with `fury-agent install-core <file>`, \
+                 or pass --core, or set FURY_CORE"
+            )
+        })?;
 
     // The directory is named after a digest of the persona and seed, not after
     // the persona itself, and that is not tidiness.
@@ -506,7 +523,26 @@ fn core_leaves() -> &'static [&'static str] {
     }
     #[cfg(windows)]
     {
-        &["fury.exe", "chrome.exe"]
+        // The subdirectory is not decoration and not a mistake: the Windows
+        // archive carries a top-level `Fury\` exactly as the macOS one carries
+        // `Fury.app`, so the leaf is relative to core.bundle and includes it.
+        //
+        // Without the first two entries `install-core` unpacks a perfectly good
+        // core, reports "installed 150.0.7871.187", and every launch afterwards
+        // says "no core binary: pass --core or set FURY_CORE" -- an installation
+        // that succeeded and a browser that cannot be found, which is the worst
+        // combination to debug. Measured 16.08.2026 by verify-windows.ps1, the
+        // first run in which a Windows core existed to install.
+        //
+        // The bare names stay last, for a build directory handed over with
+        // FURY_CORE and for anything installed before the archive gained its
+        // top-level directory.
+        &[
+            "Fury/chrome.exe",
+            "Fury/fury.exe",
+            "fury.exe",
+            "chrome.exe",
+        ]
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
