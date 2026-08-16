@@ -192,7 +192,23 @@ if [ -e "$SRC/$OUT/.siso_deps" ] && [ -e "$SRC/$OUT/.ninja_log" ]; then
 fi
 
 echo "==> autoninja chrome"
-(cd "$SRC" && autoninja -C "$OUT" $JOBS_ARG chrome)
+# Keep the progress counter. ninja prints "[4213/57740] CXX ..." for every step
+# and that line is the only place the TOTAL appears — .ninja_log records what
+# finished and never what remains, so without this the question "how far along
+# is it" has no answer for eight hours at a stretch.
+#
+# It used to be lost: every caller ran this through `tail`, which shows nothing
+# until the pipe closes. Written to a file as well as to the terminal, so
+# tools/build-status.sh can answer from another machine while the build runs.
+#
+# `> file` and not `>> file`: one build, one log. Appending would leave the last
+# line of the previous build looking like progress in this one.
+PROGRESS="$SRC/$OUT/build-progress.log"
+(cd "$SRC" && autoninja -C "$OUT" $JOBS_ARG chrome 2>&1 | tee "$PROGRESS")
+# tee's exit status is not ninja's. Without this a failed build reports success
+# to every caller, which is the same class of quiet lie as the rest of this file.
+status=${PIPESTATUS[0]}
+[ "$status" -eq 0 ] || exit "$status"
 
 echo "==> Built: $SRC/$OUT"
 
