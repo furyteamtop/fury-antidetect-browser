@@ -209,7 +209,11 @@ export function App() {
         onLocal={() => void api.shell().then(setShell)}
       />
     ) : (
-      <ServerSetup onDone={setShell} onSignup={() => setSigningUp(true)} />
+      <ServerSetup
+        onDone={setShell}
+        onSignup={() => setSigningUp(true)}
+        onLocal={() => void api.shell().then(setShell)}
+      />
     );
   }
 
