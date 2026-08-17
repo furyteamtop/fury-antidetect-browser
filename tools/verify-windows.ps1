@@ -270,11 +270,23 @@ try {
     #
     # The preference is restored immediately rather than relaxed for the rest of
     # the file: everything after this still deserves to stop on a real failure.
+    # `install-core` with no argument, and NOT `doctor`.
+    #
+    # This asked `doctor` and looked for the word "core" in the answer. There is
+    # no doctor subcommand: the agent printed its usage text, which mentions core
+    # eleven times, so the gate was reading the help and would have opened for a
+    # machine with nothing installed -- then failed inside the section with a
+    # message about a missing binary rather than skipping cleanly. It passed
+    # anyway because -CoreArchive had put a real core there, which is the kind of
+    # luck a verification script should not depend on.
+    #
+    # install-core with no file reports what is installed, exits 0 either way,
+    # and says "no core installed" when there is none.
     $core = & {
         $ErrorActionPreference = 'Continue'
-        & $agentExe doctor 2>&1 | Select-String -Pattern 'core' | Out-String
+        & $agentExe install-core 2>&1 | Out-String
     }
-    $haveCore = ($core -notmatch 'no core|not installed' -and $core.Trim().Length -gt 0)
+    $haveCore = ($core -notmatch 'no core installed' -and $core.Trim().Length -gt 0)
     if (-not $haveCore) {
         Skip "no core installed -- run 'fury-agent install-core <path>' and run this again"
         Skip "  (this is the section that checks handle inheritance, which is the"
