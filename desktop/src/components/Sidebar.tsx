@@ -84,31 +84,39 @@ export function Sidebar({
                 <span>{t(`nav.${v}` as never)}</span>
               </button>
             ))}
-        <div className="section" style={{ marginTop: "var(--s-3)" }}>
-          {t("app.projects")}
-          {/* Two of them when there is a server, because there are two places a
-              folder can be and the one + used to make only the server's. The
-              icons say which is which: an upload arrow for the shared one, a
-              laptop-shaped nothing for here -- so the hover text carries it. */}
-          {!local && (
-            <button
-              className="linky"
-              onClick={() => onNewProject("local")}
-              title={t("app.newProjectLocalTip")}
-            >
-              +{t("app.hereShort")}
-            </button>
-          )}
-          <button
-            className="linky"
-            onClick={() => onNewProject(local ? "local" : "team")}
-            title={local ? t("app.newProject") : t("app.newProjectTeamTip")}
-          >
-            +
-          </button>
-        </div>
-        {projects.length === 0 && <div className="empty">{t("app.nothingShared")}</div>}
-        {projects.map((p) => (
+        {/* A heading per world, each with an ordinary +.
+            The first attempt put two buttons under one heading and labelled the
+            second "+тут", which meant nothing to anybody -- "что такое +тут?"
+            was the whole of the feedback and it was right. A heading explains
+            itself, and it also makes the badge on each row unnecessary: a
+            folder under "On this machine" does not need to be told it is on
+            this machine. */}
+        {(local
+          ? ([["local", "app.projects"]] as const)
+          : ([
+              ["team", "app.projectsTeam"],
+              ["local", "app.projectsHere"],
+            ] as const)
+        ).map(([side, label]) => (
+          <div key={side}>
+            <div className="section" style={{ marginTop: "var(--s-3)" }}>
+              {t(label as never)}
+              <button
+                className="linky"
+                onClick={() => onNewProject(side)}
+                title={t(side === "local" ? "app.newProjectHere" : "app.newProject")}
+              >
+                +
+              </button>
+            </div>
+            {projects.filter((p) => p.origin === side).length === 0 && (
+              <div className="empty">
+                {side === "team" ? t("app.nothingShared") : t("app.noFoldersHere")}
+              </div>
+            )}
+            {projects
+              .filter((p) => p.origin === side)
+              .map((p) => (
           <div key={p.id} className="projectRow">
             <button
               className={p.id === active?.id && view === "profiles" ? "nav active" : "nav"}
@@ -124,13 +132,6 @@ export function Sidebar({
               }}
             >
               <span className="ellipsis">{p.name}</span>
-              {/* Marked only when the sidebar is showing both kinds, which is
-                  only ever true with a server connected. */}
-              {!local && p.origin === "local" && (
-                <span className="badge" title={t("col.onlyHereWhy")}>
-                  {t("app.hereShort")}
-                </span>
-              )}
               <span className="count">{p.profile_count}</span>
             </button>
             {menu === p.id && (
@@ -182,6 +183,8 @@ export function Sidebar({
                 </button>
               </div>
             )}
+          </div>
+              ))}
           </div>
         ))}
       </nav>
