@@ -74,8 +74,24 @@ say "checksums   SHA256SUMS-$version.txt"
 desktop="$USERPROFILE/Desktop"
 desktop="${desktop//\\//}"
 if [ -d "$desktop" ] && [ -f "$dest/fury-$version-windows-x64-setup.exe" ]; then
-  cp "$dest/fury-$version-windows-x64-setup.exe" "$desktop/"
-  say "and a copy of the installer is on the Desktop"
+  # A short ASCII name, and both halves of that are deliberate.
+  #
+  # SHORT, because the Desktop truncates: the release name arrived there as
+  # "fury-0.1.0-w..." and the version, the platform and the word setup were all
+  # in the part that got cut.
+  #
+  # ASCII, because a Cyrillic name written from here does not survive the trip.
+  # A .ps1 saved as UTF-8 without a byte-order mark is read by PowerShell 5.1 as
+  # Windows-1252, so "Fury установка" reached the Desktop as
+  # "Fury ÑƒÑÑ‚Ð°Ð½Ð¾Ð²ÐºÐ°" -- a thing this repository already documents in
+  # tools/verify-windows.ps1 and which I then did anyway.
+  cp "$dest/fury-$version-windows-x64-setup.exe" "$desktop/Fury-Setup-$version.exe"
+  say "and Fury-Setup-$version.exe is on the Desktop"
+  # Windows caches a file's icon BY PATH. An installer built before the icon was
+  # configured leaves that icon behind for every later build written to the same
+  # place, which reads as "the logo did not work" when the logo is in the file.
+  # ie4uinit refreshes the cache without restarting Explorer.
+  ( cd /c/Windows 2>/dev/null && ./System32/ie4uinit.exe -show 2>/dev/null ) || true
 fi
 
 echo
