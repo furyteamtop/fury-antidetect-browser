@@ -36,6 +36,20 @@ LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchSe
 
 [ -d "$built" ] || { echo "!! no build at $built -- run: cd desktop && npm run app:build" >&2; exit 1; }
 
+# A scratch image left mounted by an interrupted build.
+#
+# bundle_dmg.sh mounts one while making the .dmg and detaches it at the end. A
+# build that dies in between leaves it mounted, and the NEXT build then fails at
+# the packaging step with nothing but "failed to run bundle_dmg.sh" -- met on
+# 17.08.2026. It also registers its copy of Fury.app, which is one of the ways
+# two of them keep appearing.
+for v in /Volumes/dmg.*; do
+  [ -d "$v" ] || continue
+  echo "== detaching a leftover build volume: $v"
+  hdiutil detach "$v" -quiet 2>/dev/null || hdiutil detach "$v" -force >/dev/null 2>&1 || true
+done
+rm -f "$here/target/release/bundle/macos"/rw.*.dmg
+
 echo "== closing Fury if it is running"
 osascript -e 'quit app "Fury"' 2>/dev/null || true
 sleep 2
