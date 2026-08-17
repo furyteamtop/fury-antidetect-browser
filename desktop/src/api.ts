@@ -606,6 +606,17 @@ export const api = {
   revokeShare: (profileId: string, userId: string): Promise<unknown> =>
     cmd("revoke_share", { profileId, userId }),
 
+  /** Copy a local profile onto the server, browser data and all.
+   *
+   *  The local original stays where it is. `needs_proxy` comes back true when
+   *  the profile had one here: proxies belong to the organisation's own list on
+   *  the server and are not carried across, so somebody has to attach one. */
+  uploadProfile: (
+    id: string,
+    projectId: string,
+  ): Promise<{ id: string; bytes: number; needs_proxy: boolean }> =>
+    cmd("upload_profile", { id, projectId }),
+
   /** What other people have given to this account. */
   sharedWithMe: (): Promise<Profile[]> => cmd<Profile[]>("shared_with_me"),
 

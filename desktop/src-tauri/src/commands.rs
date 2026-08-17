@@ -2672,3 +2672,133 @@ pub async fn shared_with_me(state: State<'_, AppState>) -> R<Vec<UiProfile>> {
         })
         .collect())
 }
+
+
+/// Send a profile that lives on this machine to the team server.
+///
+/// The missing half of showing both worlds in one list: local profiles became
+/// visible beside the server's, and there was still no way to move one across.
+/// Sharing needs the profile to be on a server, so without this the answer to
+/// "give this to a colleague" was export a file and hand it over -- a copy
+/// nobody can ever take back.
+///
+/// WHAT TRAVELS: the settings, and the browser data. The persona and the seed
+/// above all -- a profile that arrives with a fresh fingerprint is a different
+/// machine as far as every site it is logged into is concerned, which would
+/// undo the warming it exists for.
+///
+/// WHAT DOES NOT: the proxy. A local proxy's credentials are sealed under this
+/// machine's vault, and the organisation's proxies are managed in one list on
+/// the server for the whole team. Carrying one across would put a private copy
+/// of somebody's proxy password into that list without anybody choosing to.
+/// The profile arrives with no exit and the interface says so; attaching one is
+/// a click in a screen that exists for it.
+///
+/// The local original is left alone. This is a copy, and the machine it came
+/// from keeps working while somebody decides whether the move was right.
+#[tauri::command]
+pub async fn upload_profile(
+    state: State<'_, AppState>,
+    id: String,
+    project_id: String,
+) -> R<serde_json::Value> {
+    if mode_of(&state) == "local" {
+        return Err(ApiErr::local(
+            "There is no server to send it to. Connect one first.".to_string(),
+        ));
+    }
+    let org_key = state.org_key().ok_or_else(|| {
+        ApiErr::local(
+            "This machine is not holding the organisation key, and a profile \
+             cannot be sealed for the team without it."
+                .to_string(),
+        )
+    })?;
+
+    // Read it from the agent rather than trusting what the interface last drew:
+    // the seed and the persona are the things that must survive exactly, and a
+    // stale row would move a profile that quietly differs from the one on disk.
+    let local: Vec<crate::agent::LocalProfile> =
+        crate::agent::call("profiles.list", serde_json::json!({})).await?;
+    let me = local
+        .into_iter()
+        .find(|p| p.id == id)
+        .ok_or_else(|| ApiErr::local("That profile is not on this machine.".to_string()))?;
+
+    let created: serde_json::Value = state
+        .call(
+            reqwest::Method::POST,
+            &format!("/v1/projects/{project_id}/profiles"),
+            Body::Json(serde_json::json!({
+                "name": me.name,
+                "tags": me.tags,
+                "persona_id": me.persona_id,
+                // The seed moves as it is. Everything else here is a label; this
+                // is the profile's identity.
+                "fp_seed": me.fp_seed,
+                "timezone": me.timezone,
+                "languages": me.languages,
+                "proxy_id": null,
+            })),
+            true,
+        )
+        .await?;
+    let remote_id = created
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiErr::local("The server created no profile.".to_string()))?
+        .to_string();
+
+    // A bundle upload needs a lock, because every bundle upload does: the lock
+    // is what makes "nobody else is writing this" true rather than hoped.
+    let grant: LockGrant = state
+        .call(
+            reqwest::Method::POST,
+            &format!("/v1/profiles/{remote_id}/lock"),
+            Body::Json(serde_json::json!({
+                "machine_id": state.machine_id(),
+                "machine_name": settings::machine_name(),
+                "force": false,
+            })),
+            true,
+        )
+        .await?;
+
+    let key = crypto::profile_key(&org_key, &remote_id);
+    let key_hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
+
+    let uploaded: R<serde_json::Value> = crate::agent::call(
+        "profile.uploadTo",
+        serde_json::json!({
+            "id": id,
+            "remote_id": remote_id,
+            "key": key_hex,
+            "url": state.server_url()?,
+            "token": state.session.token().ok_or_else(unauthenticated)?,
+            "lock_token": grant.lock_token,
+        }),
+    )
+    .await
+    .map_err(Into::into);
+
+    // The lock goes back whatever happened. A profile that arrived and stayed
+    // locked by a machine that is not opening it is worse than one that did not
+    // arrive: somebody has to be found to release it.
+    let _: R<serde_json::Value> = state
+        .call(
+            reqwest::Method::POST,
+            &format!("/v1/profiles/{remote_id}/unlock"),
+            Body::None,
+            true,
+        )
+        .await;
+
+    let uploaded = uploaded?;
+    Ok(serde_json::json!({
+        "id": remote_id,
+        "bytes": uploaded.get("bytes"),
+        // Said back so the interface can tell somebody what they now have to do
+        // rather than leaving them to discover it at the first launch.
+        "needs_proxy": me.proxy.is_some(),
+    }))
+}

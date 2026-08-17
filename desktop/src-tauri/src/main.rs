@@ -103,6 +103,7 @@ fn main() {
             commands::projects,
             commands::profiles,
             commands::share_profile,
+            commands::upload_profile,
             commands::profile_shares,
             commands::revoke_share,
             commands::shared_with_me,

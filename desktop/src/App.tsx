@@ -653,6 +653,54 @@ export function App() {
                     {t("row.share")}
                   </button>
                 )}
+                {/* The other direction, and the one that makes sharing reachable
+                    for a profile that started here. Offered only for local rows,
+                    and only when there is a server to send them to. */}
+                {!local && chosen.length > 0 && chosen.every((p) => p.origin === "local") && (
+                  <button
+                    className="ghost"
+                    disabled={busy}
+                    onClick={async () => {
+                      // Into the project being viewed, or the only one there
+                      // is. No picker: Ask has no list, and adding one for this
+                      // would be a screen of its own -- while choosing a
+                      // project is already what the sidebar is for.
+                      const target = active?.id ?? (projects.length === 1 ? projects[0].id : null);
+                      if (!target) {
+                        setError(t("up.pickProject"));
+                        return;
+                      }
+                      const go = await ask({
+                        title: t("up.send"),
+                        detail: t("up.confirm", {
+                          n: String(chosen.length),
+                          project: projects.find((p) => p.id === target)?.name ?? "",
+                        }),
+                        confirmLabel: t("up.send"),
+                      });
+                      if (go === null) return;
+                      setBusy(true);
+                      let needsProxy = false;
+                      try {
+                        for (const p of chosen) {
+                          const r = await api.uploadProfile(p.id, target);
+                          needsProxy = needsProxy || r.needs_proxy;
+                        }
+                        setError(
+                          t("up.done", { name: chosen[0].name }) +
+                            (needsProxy ? " " + t("up.needsProxy") : ""),
+                        );
+                      } catch (e) {
+                        setError((e as Error).message);
+                      } finally {
+                        setBusy(false);
+                        await refreshProfiles();
+                      }
+                    }}
+                  >
+                    {t("up.send")}
+                  </button>
+                )}
                 {closable.length > 0 && (
                   <button
                     className="ghost"

@@ -1182,6 +1182,70 @@ impl Agent {
                 }))
             }
 
+            // Send a profile that lives on this machine to a team server.
+            //
+            // The half only the agent can do. A local profile's browser data is
+            // sealed under the MACHINE key -- deliberately, nothing else needs
+            // to open it -- and a copy on the server has to be sealed under the
+            // key derived from the organisation key, or the colleague it was
+            // uploaded for cannot open it. Both keys are here and in no other
+            // process: the machine key never leaves the vault, and the shell
+            // hands down the one profile subkey rather than the organisation
+            // key it came from.
+            //
+            // The profile must be closed, for the same reason profile.pack
+            // insists: a browser writes its cookie jar on its own schedule, and
+            // a bundle taken mid-run restores logged out.
+            "profile.uploadTo" => {
+                let id = str_param(&params, "id")?;
+                let remote_id = str_param(&params, "remote_id")?;
+                let key_hex = str_param(&params, "key")?;
+                let lock_token = str_param(&params, "lock_token")?;
+                let server = crate::sync::Server {
+                    url: str_param(&params, "url")?,
+                    token: str_param(&params, "token")?,
+                };
+
+                {
+                    let running = self.running.lock().await;
+                    if running.contains_key(&id) {
+                        anyhow::bail!(
+                            "close the profile first — a browser writes its cookie jar on its \
+                             own schedule, and a bundle taken mid-run restores logged out"
+                        );
+                    }
+                }
+
+                let mut key = [0u8; 32];
+                let raw = (0..key_hex.len())
+                    .step_by(2)
+                    .map(|i| u8::from_str_radix(&key_hex[i..i + 2], 16))
+                    .collect::<Result<Vec<u8>, _>>()
+                    .map_err(|_| anyhow::anyhow!("the profile key is not hex"))?;
+                if raw.len() != 32 {
+                    anyhow::bail!("the profile key is not 32 bytes");
+                }
+                key.copy_from_slice(&raw);
+
+                let sealed = crate::bundle::pack(
+                    &paths::profile_dir(&id),
+                    &crate::bundle::Sealer::Shared {
+                        key,
+                        vault: Some(self.store.vault()),
+                    },
+                )?;
+
+                // base_version 0: this profile has never been on that server,
+                // so there is no version to be behind. A conflict here would
+                // mean somebody else uploaded to the same fresh id, which is
+                // worth failing on rather than overwriting.
+                let version = server
+                    .push_bundle(&remote_id, &sealed.bytes, &sealed.wrapped_key, &sealed.sha256, 0, &lock_token)
+                    .await?;
+
+                Ok(json!({ "bytes": sealed.bytes.len(), "version": version }))
+            }
+
             "profile.unpack" => {
                 let id = str_param(&params, "id")?;
                 let path = std::path::PathBuf::from(str_param(&params, "path")?);
