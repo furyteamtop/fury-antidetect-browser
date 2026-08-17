@@ -59,6 +59,10 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/v1/users/lookup", get(crate::shares::lookup_user))
         .route("/v1/profiles/shared-with-me", get(crate::shares::shared_with_me))
         .route(
+            "/v1/profiles/{profile_id}/share-material",
+            get(crate::shares::share_material),
+        )
+        .route(
             "/v1/profiles/{profile_id}/shares",
             get(crate::shares::list_shares).post(crate::shares::share_profile),
         )

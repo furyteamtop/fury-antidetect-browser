@@ -364,6 +364,42 @@ td.actions {
   text-align: right;
 }
 
+/* A square, quiet button holding one glyph.
+   Sized to the same height as the text buttons beside it so the row does not
+   change height when a profile is running and "Open" turns into "Close". The
+   hit area is 28px rather than the 15px icon: a target smaller than a fingertip
+   is a target people miss, and this one sits next to delete. */
+button.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+button.icon:hover:not(:disabled) {
+  background: var(--raised);
+  color: var(--text);
+}
+
+/* Delete only turns red under the cursor. Red at rest on every row makes a list
+   look like a list of problems. */
+button.icon.danger:hover:not(:disabled) {
+  /* The same warm red the danger buttons use, rather than a new one. */
+  color: #f0a08c;
+}
+
+button.icon:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 /* ---- state ------------------------------------------------------------- */
 
 /* A dot and a word. Colour alone would fail for the roughly one man in twelve

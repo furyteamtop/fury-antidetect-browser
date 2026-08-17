@@ -19,6 +19,7 @@ import { Enrol } from "./components/Enrol";
 import { Signup } from "./components/Signup";
 import { Settings } from "./components/Settings";
 import { Sidebar, type View } from "./components/Sidebar";
+import { ShareDialog } from "./components/ShareDialog";
 import { useTheme } from "./theme";
 
 export function App() {
@@ -39,6 +40,9 @@ export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [active, setActive] = useState<Project | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [shared, setShared] = useState<Profile[]>([]);
+  /** The profiles a share dialog is open for, or null. */
+  const [sharing, setSharing] = useState<Profile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<Profile | null | undefined>(undefined);
@@ -143,6 +147,20 @@ export function App() {
       setProfiles(rows);
       setProjects(list);
       setShell(current);
+      // Borrowed profiles come from a different endpoint and a different
+      // account's organisation, so they are fetched separately and their
+      // failure is not allowed to empty the main list -- a server that answers
+      // about your own profiles and stumbles on somebody else's grant should
+      // cost you the borrowed ones only.
+      if (current.mode !== "local") {
+        try {
+          setShared(await api.sharedWithMe());
+        } catch {
+          setShared([]);
+        }
+      } else {
+        setShared([]);
+      }
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) void api.shell().then(setShell);
       else setError(say(e));
@@ -468,10 +486,15 @@ export function App() {
                 ? t("nav.proxies")
                 : view === "users"
                   ? t("nav.users")
-                  : (active?.name ?? t("nav.profiles"))}
+                  : view === "sharedWithMe"
+                    ? t("nav.sharedWithMe")
+                    : (active?.name ?? t("nav.profiles"))}
           </h1>
           {view === "profiles" && (
             <span className="muted">{t("app.profileCount", { n: profiles.length })}</span>
+          )}
+          {view === "sharedWithMe" && (
+            <span className="muted">{t("app.profileCount", { n: shared.length })}</span>
           )}
         </header>
 
@@ -620,6 +643,16 @@ export function App() {
                     {t("bar.openSelected", { n: openable.length })}
                   </button>
                 )}
+                {/* Only what is on the server can be given away, so the button
+                    appears only when every selected row is. A local profile
+                    exists nowhere the other person can reach, and offering to
+                    share it would end in an error that reads like a fault
+                    rather than like an explanation. */}
+                {!local && chosen.length > 0 && chosen.every((p) => p.origin === "team") && (
+                  <button className="ghost" disabled={busy} onClick={() => setSharing(chosen)}>
+                    {t("row.share")}
+                  </button>
+                )}
                 {closable.length > 0 && (
                   <button
                     className="ghost"
@@ -740,6 +773,33 @@ export function App() {
           />
         )}
 
+        {/* Borrowed profiles, in a room of their own.
+            Not merged into the main list, and deliberately: one of these can be
+            taken back while you are looking at it, its name was chosen by
+            somebody else, and two people can both have a "Shop DE". The column
+            that shows a project shows who lent it instead. */}
+        {view === "sharedWithMe" && (
+          <div className="tableWrap">
+            {shared.length === 0 ? (
+              <p className="muted" style={{ padding: "var(--s-3)" }}>{t("shared.empty")}</p>
+            ) : (
+              <ProfileTable
+                profiles={shared}
+                showProject
+                selected={new Set()}
+                onToggle={() => {}}
+                onToggleAll={() => {}}
+                me={me}
+                thisMachine={shell.machine_name}
+                local={false}
+                busy={busy}
+                onLaunch={onLaunch}
+                onStop={onStop}
+              />
+            )}
+          </div>
+        )}
+
         {view === "profiles" && (
           <div className="tableWrap">
             <ProfileTable
@@ -755,9 +815,14 @@ export function App() {
               onLaunch={onLaunch}
               onStop={onStop}
               onEdit={setEditing}
+              /* Offered always, and gated per row rather than per mode.
+                 It used to be handed over only in local mode, so connecting to
+                 a server removed the delete button from EVERY row -- including
+                 the local ones now shown beside the server's, which the server
+                 has no say over at all. The table shows it when the row's own
+                 permissions allow it, and a local row carries all of them. */
               onDelete={
-                local
-                  ? async (p) => {
+                (async (p) => {
                       const go = await ask({
                         title: t("row.delete"),
                         detail: t("row.confirmDelete", { name: p.name }),
@@ -767,11 +832,20 @@ export function App() {
                       if (go === null) return;
                       await api.deleteProfile(p.id, p.origin);
                       await refreshProfiles();
-                    }
-                  : undefined
+                })
               }
             />
           </div>
+        )}
+
+        {sharing && (
+          <ShareDialog
+            profiles={sharing}
+            onClose={() => {
+              setSharing(null);
+              void refreshProfiles();
+            }}
+          />
         )}
 
         {paletteOpen && (

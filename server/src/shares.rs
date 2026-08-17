@@ -342,3 +342,46 @@ pub async fn revoke_share(
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }
+
+/// What the sharer's client needs in order to seal the keys.
+///
+/// One request rather than three, and it returns only what cannot be derived
+/// locally: the profile key comes from the organisation key the client already
+/// holds, but the PROXY's data key is wrapped under that organisation key and
+/// lives on the server. Without it a share would go out with no proxy, and a
+/// profile that goes out through the receiver's own address is the failure this
+/// product exists to prevent -- so it is fetched rather than skipped.
+///
+/// Behind ManageAccess, the same right that sharing needs. It hands over a
+/// wrapped key, and a wrapped key is only useful to somebody who already has
+/// the organisation key.
+pub async fn share_material(
+    mut db: auth::Db,
+    Path(profile_id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let caller = db.caller;
+    let perms = rbac_guard::permissions_for_profile(db.as_mut(), caller.user_id, profile_id).await?;
+    if !perms.has(Perm::ManageAccess) {
+        return Err(ApiError::Denied(Perm::ManageAccess));
+    }
+
+    let row: Option<(Option<Uuid>, Option<Vec<u8>>)> = sqlx::query_as(
+        "SELECT p.proxy_id, x.wrapped_dek \
+         FROM profiles p LEFT JOIN proxies x ON x.id = p.proxy_id AND x.deleted_at IS NULL \
+         WHERE p.id = $1 AND p.deleted_at IS NULL",
+    )
+    .bind(profile_id)
+    .fetch_optional(db.as_mut())
+    .await?;
+
+    let (proxy_id, wrapped_dek) = row.ok_or(ApiError::NotFound)?;
+    // Hex, not base64. A wrapped data key is spelled in hex everywhere else
+    // this pair talks about proxies -- rotation_material, edit_proxy -- and a
+    // second spelling for the same thing is a decoding bug waiting for the day
+    // somebody copies the wrong helper.
+    let hex = |v: &[u8]| v.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    Ok(Json(serde_json::json!({
+        "proxy_id": proxy_id,
+        "wrapped_proxy_dek": wrapped_dek.map(|v| hex(&v)),
+    })))
+}

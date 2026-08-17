@@ -181,6 +181,17 @@ pub fn rewrap_data_key(old: &[u8; 32], new: &[u8; 32], wrapped_hex: &str) -> any
     Ok(hex(&keys::wrap(new, &dek)))
 }
 
+/// Open a data key wrapped under the organisation key.
+///
+/// The first half of `rewrap_data_key`, needed on its own by sharing: the key
+/// is not being moved to another organisation key, it is being sealed to one
+/// person's public key.
+pub fn unwrap_data_key(org_key: &[u8; 32], wrapped_hex: &str) -> anyhow::Result<[u8; 32]> {
+    let wrapped = unhex("wrapped_dek", wrapped_hex)?;
+    let dek = keys::unwrap(org_key, &wrapped)?;
+    key32("the proxy data key", dek)
+}
+
 fn hex(v: &[u8]) -> String {
     v.iter().map(|b| format!("{b:02x}")).collect()
 }

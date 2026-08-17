@@ -44,10 +44,15 @@ export function ProfileTable({
   showProject: boolean;
 }) {
   const { t } = useI18n();
-  // Is this list showing both worlds at once? Only then does saying which one a
-  // row belongs to tell anybody anything.
-  const mixed = profiles.some((p) => p.origin === "local") &&
-                profiles.some((p) => p.origin === "team");
+  // Marked whenever there IS a server and the row is not on it.
+  //
+  // The first rule was "only when the list holds both kinds", and it was wrong
+  // the moment somebody signed up: a brand new organisation has no profiles, so
+  // the list was entirely local, nothing was marked, and the one row on screen
+  // gave no hint that it was invisible to the team. The question the badge
+  // answers is "is this on the server", and that question exists as soon as
+  // there is a server.
+  const hasServer = !local;
   if (profiles.length === 0) {
     return <p className="empty pad">{t("row.emptyProject")}</p>;
   }
@@ -84,6 +89,8 @@ export function ProfileTable({
           const canLaunch = p.permissions.includes("launch");
           const canForce = p.permissions.includes("manage_access");
           const canReveal = p.permissions.includes("reveal_secrets");
+          const canDelete = p.permissions.includes("delete_profile");
+          const canEdit = p.permissions.includes("edit_profile");
           const locked = p.lock !== null;
           // "Mine" means this user *on this machine*. Matching on the user
           // alone was wrong: the same person signed in on a laptop and a
@@ -111,7 +118,7 @@ export function ProfileTable({
                       mixed. Connected to a server, every row without this badge
                       is the team's; on a machine with no server every row would
                       carry it, which is noise rather than information. */}
-                  {mixed && p.origin === "local" && (
+                  {hasServer && p.origin === "local" && (
                     <span className="badge" title={t("col.onlyHereWhy")}>
                       {t("col.onlyHere")}
                     </span>
@@ -183,14 +190,45 @@ export function ProfileTable({
                 {!open && locked && !canForce && (
                   <span className="muted small">{t("row.askThem")}</span>
                 )}
-                {onEdit && (
-                  <button className="ghost" disabled={busy} onClick={() => onEdit(p)}>
-                    {t("row.edit")}
+                {/* Edit and delete are icons; open keeps its word.
+                    Three text buttons on every row read as three equal
+                    choices, and they are not: opening a profile is what
+                    somebody came to do, editing is occasional and deleting is
+                    rare and irreversible. The icons carry title and aria-label,
+                    so the name is a hover away and a screen reader still gets
+                    a word rather than a glyph. */}
+                {onEdit && canEdit && (
+                  <button
+                    className="icon"
+                    disabled={busy}
+                    title={t("row.edit")}
+                    aria-label={t("row.edit")}
+                    onClick={() => onEdit(p)}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" strokeWidth="1.9"
+                         strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                    </svg>
                   </button>
                 )}
-                {onDelete && (
-                  <button className="ghost" disabled={busy || open} onClick={() => onDelete(p)}>
-                    {t("row.delete")}
+                {onDelete && canDelete && (
+                  <button
+                    className="icon danger"
+                    disabled={busy || open}
+                    title={open ? t("row.closeFirst") : t("row.delete")}
+                    aria-label={t("row.delete")}
+                    onClick={() => onDelete(p)}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" strokeWidth="1.9"
+                         strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M3 6h18" />
+                      <path d="M8 6V4h8v2" />
+                      <path d="M19 6l-1 14H6L5 6" />
+                      <path d="M10 11v6M14 11v6" />
+                    </svg>
                   </button>
                 )}
                 </div>

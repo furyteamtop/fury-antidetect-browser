@@ -2440,3 +2440,235 @@ fn shellexpand(p: &str) -> String {
     }
     p.to_string()
 }
+
+
+// ---------------------------------------------------------------------------
+// Giving one profile to one person
+// ---------------------------------------------------------------------------
+//
+// The sealing happens HERE and not on the server, and that is the whole design
+// rather than a detail. A member derives a profile's key from the organisation
+// key; somebody in another organisation never can. So the owner's shell derives
+// it, seals it to the recipient's public key, and posts a blob the server
+// stores without being able to open -- exactly what it already does with
+// wrapped_ork.
+//
+// The proxy key goes with it. A profile handed over without its proxy leaves
+// through the receiver's own address, and an account that has only ever been
+// seen from one country appearing from another is the failure every patch in
+// core/patches exists to prevent. It is fetched rather than derived because it
+// is wrapped under the organisation key and stored on the server.
+
+/// Percent-encode an address for a query string.
+///
+/// Written out rather than pulled in: the shell has no URL crate, and the set
+/// that matters for an email address is small and known. `+` is the one that
+/// bites -- it is legal in an address, means a space in a query, and
+/// alice+shop@example.com would otherwise be looked up as
+/// "alice shop@example.com" and not found.
+fn query_escape(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+#[derive(serde::Deserialize)]
+struct FoundUser {
+    user_id: String,
+    public_key: String,
+}
+
+#[tauri::command]
+pub async fn share_profile(
+    state: State<'_, AppState>,
+    profile_id: String,
+    email: String,
+    permissions: Vec<String>,
+    expires_at: Option<String>,
+) -> R<serde_json::Value> {
+    if mode_of(&state) == "local" {
+        return Err(ApiErr::local(
+            "This profile is on this machine only. Sharing needs a server: send \
+             it to one first, or export the project and hand over the file."
+                .to_string(),
+        ));
+    }
+
+    let org_key = state.org_key().ok_or_else(|| {
+        ApiErr::local(
+            "This machine is not holding the organisation key, and the profile \
+             cannot be sealed for anybody without it."
+                .to_string(),
+        )
+    })?;
+
+    // Whole address, and a 404 here means exactly one thing worth saying: no
+    // such account. The server deliberately cannot be asked "who is on you".
+    let found: FoundUser = state
+        .call(
+            reqwest::Method::GET,
+            &format!("/v1/users/lookup?email={}", query_escape(email.trim())),
+            Body::None,
+            true,
+        )
+        .await
+        .map_err(|e| match e.status {
+            404 => ApiErr::local(format!(
+                "Nobody on this server uses {}. They need an account here before \
+                 a profile can be given to them.",
+                email.trim()
+            )),
+            _ => e,
+        })?;
+
+    let profile_key = crypto::profile_key(&org_key, &profile_id);
+    let wrapped_key = crypto::wrap_for_member(&profile_key, &found.public_key)
+        .map_err(|e| ApiErr::local(format!("Could not seal the profile key: {e}")))?;
+
+    // The proxy, when there is one.
+    let material: serde_json::Value = state
+        .call(
+            reqwest::Method::GET,
+            &format!("/v1/profiles/{profile_id}/share-material"),
+            Body::None,
+            true,
+        )
+        .await?;
+    let wrapped_proxy_key = match material.get("wrapped_proxy_dek").and_then(|v| v.as_str()) {
+        Some(wrapped) => {
+            let dek = crypto::unwrap_data_key(&org_key, wrapped)
+                .map_err(|e| ApiErr::local(format!("Could not open the proxy key: {e}")))?;
+            Some(
+                crypto::wrap_for_member(&dek, &found.public_key)
+                    .map_err(|e| ApiErr::local(format!("Could not seal the proxy key: {e}")))?,
+            )
+        }
+        None => None,
+    };
+
+    state
+        .call(
+            reqwest::Method::POST,
+            &format!("/v1/profiles/{profile_id}/shares"),
+            Body::Json(serde_json::json!({
+                "user_id": found.user_id,
+                "permissions": permissions,
+                "wrapped_key": wrapped_key,
+                "wrapped_proxy_key": wrapped_proxy_key,
+                "expires_at": expires_at,
+            })),
+            true,
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn profile_shares(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> R<serde_json::Value> {
+    if mode_of(&state) == "local" {
+        return Ok(serde_json::json!([]));
+    }
+    state
+        .call(
+            reqwest::Method::GET,
+            &format!("/v1/profiles/{profile_id}/shares"),
+            Body::None,
+            true,
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn revoke_share(
+    state: State<'_, AppState>,
+    profile_id: String,
+    user_id: String,
+) -> R<serde_json::Value> {
+    state
+        .call(
+            reqwest::Method::DELETE,
+            &format!("/v1/profiles/{profile_id}/shares/{user_id}"),
+            Body::None,
+            true,
+        )
+        .await
+}
+
+
+/// Profiles other people have given to this account.
+///
+/// A separate list rather than more rows in the main one, and deliberately: a
+/// profile somebody lent you is not a profile you own. It can be taken back
+/// while you are looking at it, its name is somebody else's choice, and two
+/// people can easily have one called "Shop DE". The list says who gave it.
+#[tauri::command]
+pub async fn shared_with_me(state: State<'_, AppState>) -> R<Vec<UiProfile>> {
+    if mode_of(&state) == "local" {
+        return Ok(Vec::new());
+    }
+
+    #[derive(serde::Deserialize)]
+    struct Row {
+        id: String,
+        name: String,
+        persona_id: String,
+        tags: Vec<String>,
+        shared_by: String,
+        permissions: i64,
+        proxy_display: Option<String>,
+    }
+
+    let rows: Vec<Row> = state
+        .call(
+            reqwest::Method::GET,
+            "/v1/profiles/shared-with-me",
+            Body::None,
+            true,
+        )
+        .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|r| UiProfile {
+            id: r.id,
+            // Not in any project of this account's: it is in the OWNER's
+            // project, which this account cannot see and has no business
+            // seeing. The name of who lent it goes where the project would be,
+            // because that is the useful fact about a borrowed profile.
+            project_id: None,
+            project_name: Some(r.shared_by),
+            name: r.name,
+            tags: r.tags,
+            persona_id: r.persona_id,
+            fp_seed: 0,
+            proxy: r.proxy_display.map(|display| UiProxy {
+                id: String::new(),
+                name: String::new(),
+                kind: String::new(),
+                display,
+                country: None,
+            }),
+            timezone: None,
+            languages: None,
+            // PermSet is a bitmask with no iterator, so the names are filtered
+            // out of the canonical list rather than invented here -- one
+            // spelling of a permission in this repository, not two.
+            permissions: fury_shared::rbac::Perm::ALL
+                .iter()
+                .filter(|p| fury_shared::rbac::PermSet(r.permissions).has(**p))
+                .map(perm_name)
+                .collect(),
+            lock: None,
+            running: false,
+            last_opened_at: None,
+            origin: "shared",
+        })
+        .collect())
+}

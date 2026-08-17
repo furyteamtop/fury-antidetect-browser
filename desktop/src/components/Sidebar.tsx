@@ -5,7 +5,7 @@ import { useI18n } from "../i18n";
 import { useState } from "react";
 import type { Me, Project, Shell } from "../api";
 
-export type View = "profiles" | "proxies" | "trash" | "users";
+export type View = "profiles" | "sharedWithMe" | "proxies" | "trash" | "users";
 
 export function Sidebar({
   projects,
@@ -53,7 +53,12 @@ export function Sidebar({
                 has other people in it — and an interface that rearranges itself
                 around that makes the operator relearn where things are the day
                 their team grows. */}
-        {(["profiles", "proxies", "users", "trash"] as const).map((v) => (
+        {/* "Shared with me" only when there is a server to be shared from.
+            On a machine working alone it would be a permanently empty room. */}
+        {((local
+          ? (["profiles", "proxies", "users", "trash"] as const)
+          : (["profiles", "sharedWithMe", "proxies", "users", "trash"] as const)) as readonly View[]
+        ).map((v) => (
               <button
                 key={v}
                 // Profiles is only "the current section" when no project is

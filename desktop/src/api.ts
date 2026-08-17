@@ -82,7 +82,7 @@ export interface TotpCode {
  *  Connected to a server the list carries both, so the shell's mode no longer
  *  tells an action where to send itself -- the row does. Every call that acts
  *  on ONE existing profile passes it. */
-export type Origin = "local" | "team";
+export type Origin = "local" | "team" | "shared";
 
 export interface Profile {
   id: string;
@@ -585,6 +585,30 @@ export const api = {
   }> => cmd("check_proxy", { url, checkerUrl: checkerUrl || null, proxyId: proxyId || null }),
   rotateProxy: (id: string): Promise<{ ok: boolean; error?: string }> =>
     cmd("rotate_proxy", { id }),
+  // ---- giving one profile to one person --------------------------------
+
+  /** Seals the profile key to the recipient and posts it. All of that happens
+   *  in Rust: the key is derived from the organisation key, which the webview
+   *  never sees and must not. */
+  shareProfile: (
+    profileId: string,
+    email: string,
+    permissions: string[],
+    expiresAt?: string | null,
+  ): Promise<{ ok: boolean }> =>
+    cmd("share_profile", { profileId, email, permissions, expiresAt: expiresAt ?? null }),
+
+  profileShares: (
+    profileId: string,
+  ): Promise<{ user_id: string; email: string; permissions: number; expires_at: string | null }[]> =>
+    cmd("profile_shares", { profileId }),
+
+  revokeShare: (profileId: string, userId: string): Promise<unknown> =>
+    cmd("revoke_share", { profileId, userId }),
+
+  /** What other people have given to this account. */
+  sharedWithMe: (): Promise<Profile[]> => cmd<Profile[]>("shared_with_me"),
+
   saveProfile: (profile: unknown, origin?: Origin): Promise<{ id: string }> =>
     cmd<{ id: string }>("save_profile", { profile, origin: origin ?? null }),
   deleteProfile: (id: string, origin?: Origin): Promise<unknown> =>
