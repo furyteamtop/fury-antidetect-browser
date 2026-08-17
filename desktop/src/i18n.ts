@@ -132,6 +132,11 @@ const en = {
   "col.status": "Status",
   "col.lastOpened": "Last opened",
   "row.open": "Open",
+  /// The status, which is a different word from the button even in English:
+  /// "Open" in a column headed Status reads as something to press. It says
+  /// "here" because that is the distinction the column is drawing — this
+  /// machine, as against `row.inUse`, which names somebody else's.
+  "row.openHere": "In use here",
   "row.close": "Close",
   "row.edit": "Edit",
   "row.closeFirst": "Close it first",
@@ -165,7 +170,17 @@ const en = {
   "about.madeBy": "Made by",
   "about.contact": "Telegram",
   "about.source": "Source",
-  "app.launchRestricted": "Opened with limits from your permissions: {list}.",
+  /// Information, and it used to read as five failures: the bar printed the
+  /// server's own field names — autofill_only, deny_cdp, lock_data_export,
+  /// lock_devtools, wipe_on_exit — in the same styling errors use. They are one
+  /// decision, taken on purpose, so it is said as one sentence.
+  "app.launchRestricted": "The profile is open. Your access is to work the account, not to carry it away, so: {list}.",
+  "restrict.autofillOnly": "passwords fill in but are never shown",
+  "restrict.denyCdp": "automation over the debugging port is closed",
+  "restrict.lockDevtools": "developer tools are off",
+  "restrict.lockDataExport": "exporting passwords and bookmarks is blocked",
+  "restrict.wipeOnExit": "nothing of the profile stays on this machine after it closes",
+  "restrict.other": "and one further limit",
   "auth.unlock": "Unlock",
   "auth.unlockWhy": "Your session is still valid, but this machine is not holding the key that opens the team's data. Either you asked not to keep it between launches, or nobody has handed it to you yet — in which case a password will not help and an owner has to grant it.",
   "err.notSignedIn": "Not signed in.",
@@ -175,6 +190,10 @@ const en = {
   "err.noOrgKeySeal": "This machine does not hold the organisation key yet, so it cannot seal a proxy's credentials. Ask an owner or admin to hand the key over first.",
   "err.noOrgKeyGive": "You do not hold the organisation key on this machine, so you cannot hand it to anyone. Unlock first, or ask an owner.",
   "err.teamProfileNeedsProxy": "A team profile needs a proxy. Everything the browser does goes through one.",
+  /// The same rule, met while sending an existing local profile rather than
+  /// while filling in a new one — so it names the thing to do next.
+  "err.uploadNeedsProxy":
+    "This profile has no proxy, and one on the server opens on other people's machines — without a proxy it would go out through whoever opened it. Give it a proxy, then send it.",
   "err.teamProfileNeedsProject": "A team profile has to live in a project — that is what carries access to it.",
   "app.retry": "Try again",
   "set.rememberKey": "Stay unlocked between launches",
@@ -197,6 +216,10 @@ const en = {
   "team.aloneHere": "Nobody but you. Everything is on this machine — no account, no server, nothing leaving it. Connect a server when there is a team to share projects with, and the people you invite appear here.",
   "team.connectToWork": "Connect a server",
   "team.remove": "Remove from team",
+  /// The same action, as it appears in a table row. Three buttons of full
+  /// sentences pushed the last one off the right edge of the window; the
+  /// confirmation behind this one still says what it does, at length.
+  "team.removeShort": "Remove",
   "team.confirmRemove": "Remove {email}? Their access ends immediately and the organisation key is replaced, so nothing they kept a copy of opens anything from now on. What they already downloaded stays on their machine — that part cannot be undone by anyone.",
   "team.rotate": "Replace the organisation key",
   "team.rotateHint": "Replacing the key re-seals it to everyone who is still here and re-wraps every proxy. Worth doing if a machine holding it was lost — removing a member does it for you.",
@@ -204,9 +227,9 @@ const en = {
   "team.thisAccount": "This account",
   "team.loading": "Loading the team…",
   "team.how1": "Invite them below. You get a code — send it to them however you like.",
-  "team.how2": "They install Fury, open Settings → Team server → \"I have an invitation\", and enter the address, the code and a password of their own. You never see that password, and neither does the server.",
-  "team.how3": "They appear in the list above as waiting. Press \"Give them the key\" — until you do, they can sign in, see the team, and open nothing.",
-  "team.how4": "Choose a project below the list and press \"Grant access\" on their row. Without a grant they are in the team and can reach no project.",
+  "team.how2": "They install Fury and press \"I have an invitation\" on the first screen — or, in a copy already running, Settings → Team server → \"I have an invitation\". Then the code and a password of their own. You never see that password, and neither does the server.",
+  "team.how3": "They appear in the list above as waiting. Press \"Let them in\" on their row — that hands over the key and opens every folder the team has. Until you do, they can sign in, see the team, and open nothing.",
+  "team.how4": "That is all. Access can be narrowed afterwards: pick a project below the list and \"Revoke\" on their row takes that one back.",
   "team.aloneOnServer": "You are the only one here. Invite somebody below and the steps above will have somewhere to happen — the buttons for handing over the key and granting access appear on their row once they have enrolled.",
   "team.people": "People",
   "team.member": "Member",
@@ -324,10 +347,17 @@ const en = {
   "px.confirmDelete": "Delete \"{name}\"? Profiles using it keep working but lose their exit, and cannot be opened until they have another.",
   "px.lastSeen": "Last seen",
   "proj.rename": "Rename",
-  "proj.sendAll": "Send the whole folder to the server",
+  /// Short, because the menu is as wide as the sidebar and this label was
+  /// longer: "Send the whole folder to the server" was cut off mid-word with no
+  /// ellipsis to say so, which reads as a rendering fault rather than a long
+  /// label. What it applies to is not in doubt — the menu opened on the folder
+  /// that was right-clicked.
+  "proj.sendAll": "Send to the server",
   "proj.shareAll": "Give the whole project to somebody…",
   "proj.sendAllConfirm": "Copy all {n} profiles from \"{name}\" onto the server, into a project of the same name? Their proxies go too and become the team's. The originals stay on this machine.",
   "proj.sendAllDone": "Sent: {n}. They are in the project \"{name}\" on the server now.",
+  "proj.sendAllPartly":
+    "{sent} of {n} arrived in \"{name}\" on the server. The rest stayed here, and the folder is on the server either way — first failure: {why}",
   "proj.shareAllNote": "This gives away the {n} profiles that are in it NOW. One added tomorrow is not shared until you say so — each profile carries its own key, and there is no key that opens a folder.",
   "proj.delete": "Delete project",
   "proj.confirmDelete": 'Delete the project "{name}"? Its {n} profile(s) stay — they move to Profiles, filed under nothing.',
@@ -406,6 +436,31 @@ const en = {
   "enrol.noRecovery": "This password cannot be reset by anyone, including whoever runs the server — it is what unlocks your team\u2019s data, and nobody else holds a copy. Save it in a password manager.",
   "enrol.create": "Create the account",
   "enrol.creating": "Generating keys…",
+  "enrol.serverPrefilled":
+    "The address is filled in with the open server, for anyone who has not got one of their own. If your invitation is for a different server, replace it — a code is only valid on the server that issued it.",
+  "pw.generate": "Generate",
+  "pw.show": "Show",
+  "pw.hide": "Hide",
+  "pw.copy": "Copy",
+  "pw.copied": "Copied",
+  "pw.copyFailed":
+    "The clipboard refused. The password is shown above — select it and copy it by hand.",
+  "pw.saveIt":
+    "Written into both fields and shown deliberately. Copy it somewhere safe before you go on — no screen here can show it to you a second time.",
+  // The member who has enrolled and holds nothing.
+  "auth.awaitingKey":
+    "You are in the team, but the key that opens its data has not been handed to you yet. A password cannot help: the key is sealed to your public key on the machine of whoever holds it, and only they can do that. Ask an owner or admin to open Users and press “Give the key” on your row.",
+  "auth.stillNoKey":
+    "The password was right — but there is still no key for you on this server. An owner has to hand it over before anything can be opened.",
+  "team.noTeamProjects":
+    "There are no folders on the server yet, so there is nothing to grant access to. Folders on this machine are not shared — make one on the server (Projects → New project) and it will appear here.",
+  "team.letIn": "Let them in",
+  "team.letInHint":
+    "“Let them in” hands over the key and opens every folder the team has on the server, because a colleague who can decrypt and cannot reach a single folder is nobody's intention. Close any of it again with “Revoke” on their row. A folder made later is not covered — grant it on the row when you make one.",
+  "auth.recheck": "Check again",
+  "auth.rechecking": "Checking…",
+  "auth.stillWaiting":
+    "Looked, and there is still no key for you. This screen lets you through by itself once it arrives.",
   "role.owner": "owner",
   "role.admin": "admin",
   "role.manager": "manager",
@@ -641,6 +696,7 @@ const ru: Record<Key, string> = {
   "col.status": "Статус",
   "col.lastOpened": "Последний запуск",
   "row.open": "Открыть",
+  "row.openHere": "Используется здесь",
   "row.close": "Закрыть",
   "row.edit": "Изменить",
   "row.closeFirst": "Сначала закройте профиль",
@@ -674,7 +730,13 @@ const ru: Record<Key, string> = {
   "about.madeBy": "Сделал",
   "about.contact": "Телеграм",
   "about.source": "Исходный код",
-  "app.launchRestricted": "Открыт с ограничениями по вашим правам: {list}.",
+  "app.launchRestricted": "Профиль открыт. Доступ у вас на работу с аккаунтом, а не на вынос данных, поэтому: {list}.",
+  "restrict.autofillOnly": "пароли подставляются в поля, но не показываются",
+  "restrict.denyCdp": "автоматизация через отладочный порт закрыта",
+  "restrict.lockDevtools": "инструменты разработчика выключены",
+  "restrict.lockDataExport": "экспорт паролей и закладок запрещён",
+  "restrict.wipeOnExit": "после закрытия профиль не остаётся на этой машине",
+  "restrict.other": "и ещё одно ограничение",
   "auth.unlock": "Разблокировать",
   "auth.unlockWhy": "Сессия жива, но на этой машине нет ключа, которым открываются данные команды. Либо вы просили не хранить его между запусками, либо вам его ещё не выдали — тогда пароль не поможет и ключ должен выдать владелец.",
   "err.notSignedIn": "Вы не вошли.",
@@ -684,6 +746,8 @@ const ru: Record<Key, string> = {
   "err.noOrgKeySeal": "На этой машине пока нет ключа организации, поэтому запечатать учётку прокси нечем. Попросите владельца или админа выдать ключ.",
   "err.noOrgKeyGive": "У вас на этой машине нет ключа организации, значит и выдать его некому. Разблокируйте вход или попросите владельца.",
   "err.teamProfileNeedsProxy": "Командному профилю нужен прокси. Через него идёт всё, что делает браузер.",
+  "err.uploadNeedsProxy":
+    "У этого профиля нет прокси, а профиль на сервере открывают на чужих машинах — без прокси он пойдёт через того, кто его открыл. Назначьте прокси и отправляйте.",
   "err.teamProfileNeedsProject": "Командный профиль должен лежать в проекте — именно проект несёт доступ к нему.",
   "app.retry": "Ещё раз",
   "set.rememberKey": "Оставаться разблокированным между запусками",
@@ -706,6 +770,7 @@ const ru: Record<Key, string> = {
   "team.aloneHere": "Кроме вас никого. Всё на этой машине — ни аккаунта, ни сервера, ничего не уходит. Подключите сервер, когда появится команда, с которой надо делить проекты, и приглашённые появятся здесь.",
   "team.connectToWork": "Подключить сервер",
   "team.remove": "Убрать из команды",
+  "team.removeShort": "Убрать",
   "team.confirmRemove": "Убрать {email}? Доступ прекратится сразу, а ключ организации будет заменён — то, что он сохранил, больше ничего не откроет. Скачанное им раньше останется у него на машине: этого не отменить никому.",
   "team.rotate": "Заменить ключ организации",
   "team.rotateHint": "Замена перепечатывает ключ всем, кто остался, и перезаворачивает каждый прокси. Имеет смысл, если машина с ключом потерялась — при удалении участника это делается само.",
@@ -713,9 +778,9 @@ const ru: Record<Key, string> = {
   "team.thisAccount": "Этот аккаунт",
   "team.loading": "Загружаю команду…",
   "team.how1": "Пригласите человека ниже. Появится код — передайте ему любым способом.",
-  "team.how2": "Он ставит Fury, открывает Настройки → Командный сервер → «У меня есть приглашение» и вводит адрес, код и свой пароль. Ни вы, ни сервер этот пароль не увидите.",
-  "team.how3": "Он появится в списке выше с пометкой «ждёт». Нажмите «Выдать ключ» — до этого он входит, видит команду и не открывает ничего.",
-  "team.how4": "Выберите проект под списком и нажмите «Выдать доступ» в его строке. Без этого он в команде, но не достаёт ни до одного проекта.",
+  "team.how2": "Он ставит Fury и на первом же экране жмёт «У меня есть приглашение» — или, если Fury у него уже работает, Настройки → Командный сервер → «У меня есть приглашение». Дальше код и свой пароль. Ни вы, ни сервер этот пароль не увидите.",
+  "team.how3": "Он появится в списке выше с пометкой «ждёт». Нажмите «Впустить» в его строке — это выдаёт ключ и открывает все папки, которые есть у команды. До этого он входит, видит команду и не открывает ничего.",
+  "team.how4": "Всё. Доступ можно сузить потом: выберите проект под списком, и «Отозвать» в его строке заберёт именно этот.",
   "team.aloneOnServer": "Кроме вас тут никого. Пригласите кого-нибудь ниже — и шагам выше будет где произойти: кнопки «Выдать ключ» и «Выдать доступ» появятся в его строке после регистрации.",
   "team.people": "Участники",
   "team.member": "Участник",
@@ -831,10 +896,12 @@ const ru: Record<Key, string> = {
   "px.confirmDelete": "Удалить «{name}»? Профили с ним останутся, но потеряют выход, и открыть их будет нельзя, пока не назначите другой.",
   "px.lastSeen": "Последний выход",
   "proj.rename": "Переименовать",
-  "proj.sendAll": "Отправить папку на сервер целиком",
+  "proj.sendAll": "Отправить на сервер",
   "proj.shareAll": "Выдать доступ ко всему проекту…",
   "proj.sendAllConfirm": "Скопировать все профили ({n}) из «{name}» на сервер, в проект с тем же именем? Их прокси уедут вместе с ними и станут общими для команды. Оригиналы останутся на этой машине.",
   "proj.sendAllDone": "Отправлено: {n}. Они в проекте «{name}» на сервере.",
+  "proj.sendAllPartly":
+    "Доехало {sent} из {n} в «{name}» на сервере. Остальные остались здесь, а папка на сервере создана в любом случае. Первая ошибка — {why}",
   "proj.shareAllNote": "Выдаются те профили ({n}), что лежат в нём СЕЙЧАС. Добавленный завтра надо будет выдать отдельно — у каждого профиля свой ключ, и ключа «на всю папку» не существует.",
   "proj.delete": "Удалить проект",
   "proj.confirmDelete": "Удалить проект «{name}»? Профили ({n}) останутся — они перейдут в «Профили», без проекта.",
@@ -911,6 +978,31 @@ const ru: Record<Key, string> = {
   "enrol.noRecovery": "Этот пароль не сможет сбросить никто, включая владельца сервера, — именно им открываются данные вашей команды, и копии нет ни у кого. Сохраните его в менеджере паролей.",
   "enrol.create": "Создать аккаунт",
   "enrol.creating": "Генерирую ключи…",
+  "enrol.serverPrefilled":
+    "Адрес подставлен — это открытый сервер, для тех, у кого своего нет. Если приглашение с другого сервера, впишите его: код действует только там, где его выдали.",
+  "pw.generate": "Придумать",
+  "pw.show": "Показать",
+  "pw.hide": "Скрыть",
+  "pw.copy": "Копировать",
+  "pw.copied": "Скопирован",
+  "pw.copyFailed":
+    "Буфер обмена отказал. Пароль показан выше — выделите его и скопируйте вручную.",
+  "pw.saveIt":
+    "Вписан в оба поля и показан намеренно. Сохраните его, прежде чем идти дальше, — показать второй раз будет неоткуда.",
+  // Участник, который зарегистрировался и не держит ничего.
+  "auth.awaitingKey":
+    "Вы в команде, но ключ, которым открываются её данные, вам ещё не выдали. Пароль тут не поможет: ключ заворачивается под ваш открытый ключ на машине того, кто им владеет, и сделать это может только он. Попросите владельца или администратора открыть «Пользователи» и нажать «Выдать ключ» в вашей строке.",
+  "auth.stillNoKey":
+    "Пароль верный — но ключа для вас на этом сервере всё ещё нет. Пока владелец не выдаст его, открыть будет нечего.",
+  "team.noTeamProjects":
+    "На сервере пока нет ни одной папки, поэтому выдавать доступ не к чему. Папки на этой машине не общие — создайте папку на сервере (Проекты → Новый проект), и она появится здесь.",
+  "team.letIn": "Впустить",
+  "team.letInHint":
+    "«Впустить» выдаёт ключ и открывает все папки, которые есть у команды на сервере, — коллега, который умеет расшифровать и не достаёт ни до одной папки, не нужен никому. Закрыть что угодно обратно можно кнопкой «Отозвать» в его строке. Папку, созданную позже, это не покрывает — выдайте доступ в строке, когда создадите.",
+  "auth.recheck": "Проверить снова",
+  "auth.rechecking": "Проверяю…",
+  "auth.stillWaiting":
+    "Посмотрел — ключа для вас всё ещё нет. Когда его выдадут, этот экран пропустит вас сам.",
   "role.owner": "владелец",
   "role.admin": "администратор",
   "role.manager": "менеджер",

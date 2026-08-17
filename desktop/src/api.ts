@@ -201,6 +201,12 @@ export interface Shell {
    *  decrypt" are different states, and both have to be visible. */
   org_key_ready: boolean;
   last_email: string | null;
+  /** Signed in, holding no key, and there is none on the server to hold — the
+   *  member enrolled and nobody has handed it over yet. Distinct from
+   *  `org_key_ready` being false for the ordinary reason, because a password
+   *  fixes one of those and cannot fix the other. False against a server too
+   *  old to answer the question. */
+  awaiting_key: boolean;
 }
 
 /** Note what is absent: the lock token. It authorises overwriting a bundle,
@@ -351,6 +357,7 @@ export const api = {
       version: "dev",
       org_key_ready: false,
       last_email: null,
+      awaiting_key: false,
       // Vite proxies /v1, so in this mode the address is fixed by the dev
       // config rather than chosen by the operator.
       server_url: "http://127.0.0.1:8901 (vite proxy)",

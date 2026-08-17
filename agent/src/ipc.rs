@@ -1875,6 +1875,17 @@ impl Agent {
                 )
                 .await?;
             pushed = serde_json::json!(version);
+
+            // And hand the lock back, after the bundle and not before: the push
+            // is what the lock authorises, so releasing first would be racing
+            // ourselves for it.
+            //
+            // Not fatal if it fails — the lock lapses ninety seconds after the
+            // heartbeat stopped, which is a moment ago — but the wait is the
+            // whole problem it fixes, so it is logged rather than swallowed.
+            if let Err(e) = srv.release_lock(profile_id, &token).await {
+                tracing::warn!(profile = %profile_id, error = %e, "could not release the lock");
+            }
         }
         // The exit closes with the profile. Leaving it up would keep a port
         // forwarding to the customer's proxy with no browser behind it.

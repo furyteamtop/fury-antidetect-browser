@@ -11,6 +11,31 @@ import type { Me, Profile } from "../api";
  *
  *  In local mode there are no permissions to resolve, and the state that
  *  matters is different: not "who holds this" but "is it open right now". */
+/** Is this profile open on THIS machine, right now?
+ *
+ *  Two different questions behind one answer, and which one applies depends on
+ *  where the profile lives. A local profile is open when its browser process is
+ *  running here, which the agent reports. A team profile is open when the
+ *  server's lock is held by this user ON THIS MACHINE — matching on the user
+ *  alone was wrong, because the same person signed in on a laptop and a desktop
+ *  would see the laptop's live lock labelled "open here", with a Close button
+ *  that worked and released a lock whose browser was still running elsewhere.
+ *
+ *  Exported because the window outside this table needs the same answer — a
+ *  notice about a launch has to stop being shown when that launch has ended —
+ *  and two spellings of "is it open" would drift the first time one changed. */
+export function isOpenHere(
+  p: Profile,
+  where: { local: boolean; userId?: string; machine: string },
+): boolean {
+  if (where.local) return p.running;
+  return (
+    p.lock !== null &&
+    p.lock.user_id === where.userId &&
+    p.lock.machine_name === where.machine
+  );
+}
+
 export function ProfileTable({
   profiles,
   me,
@@ -93,14 +118,7 @@ export function ProfileTable({
           const canDelete = p.permissions.includes("delete_profile");
           const canEdit = p.permissions.includes("edit_profile");
           const locked = p.lock !== null;
-          // "Mine" means this user *on this machine*. Matching on the user
-          // alone was wrong: the same person signed in on a laptop and a
-          // desktop would see the laptop's live lock labelled "Open here", with
-          // a Close button that worked — releasing a lock whose browser was
-          // still running on the other machine.
-          const mine =
-            locked && p.lock!.user_id === me?.user_id && p.lock!.machine_name === thisMachine;
-          const open = local ? p.running : mine;
+          const open = isOpenHere(p, { local, userId: me?.user_id, machine: thisMachine });
 
           return (
             <tr key={p.id} className={selected.has(p.id) ? "picked" : undefined}>
@@ -171,7 +189,14 @@ export function ProfileTable({
                 )}
               </td>
               <td>
-                {open && <span className="state mineLock">{t("row.open")}</span>}
+                {/* A state, not an instruction.
+                    This cell rendered `row.open` — the label on the button two
+                    columns to the right — so a profile that was open said
+                    "Open" in the column headed Status, next to a Close button.
+                    Read as an offer to do something, which is what an
+                    imperative is, and it was reported as exactly that: "if it
+                    means it is open somewhere, then it is not Open". */}
+                {open && <span className="state mineLock">{t("row.openHere")}</span>}
                 {!open && locked && (
                   <span className="state lock">
                     {t("row.inUse", { who: p.lock!.user_email, machine: p.lock!.machine_name })}

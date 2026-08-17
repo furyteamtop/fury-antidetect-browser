@@ -602,6 +602,25 @@ async fn complete_enrollment(
     })))
 }
 
+/// The address, and whether a wrapped organisation key exists for this member.
+///
+/// The second is not the same question as "are they signed in", and it is the
+/// difference between two screens that used to be one. A member who has
+/// enrolled holds nothing until an owner seals the key to their public key. The
+/// client cannot tell that state from "the key is simply not in this process
+/// yet" — both are "no key here" — so it showed one screen for both: a password
+/// box above a sentence offering both explanations. For the member waiting on
+/// the owner that box can never work, and they typed into it, correctly, and
+/// arrived back at it.
+///
+/// A constant for the same reason `audit_page_sql` is a function: a query that
+/// names a column is a claim about the schema, and the only place that claim
+/// can be checked is a real database.
+pub(crate) const WHOAMI_SQL: &str = "SELECT u.email, EXISTS ( \
+         SELECT 1 FROM org_members m \
+         WHERE m.user_id = u.id AND m.wrapped_ork IS NOT NULL \
+     ) FROM users u WHERE u.id = $1";
+
 /// Who the presented token belongs to.
 ///
 /// The login response already carries this, but a client that restarts holds
@@ -612,7 +631,7 @@ async fn whoami(
     State(state): State<Arc<AppState>>,
     caller: Caller,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let (email,): (String,) = sqlx::query_as("SELECT email FROM users WHERE id = $1")
+    let (email, has_org_key): (String, bool) = sqlx::query_as(WHOAMI_SQL)
         .bind(caller.user_id)
         .fetch_one(&state.db)
         .await?;
@@ -621,6 +640,7 @@ async fn whoami(
         "email": email,
         "org_id": caller.org_id,
         "role": caller.role,
+        "has_org_key": has_org_key,
     })))
 }
 
@@ -1329,12 +1349,31 @@ async fn create_proxy(
     Ok(Json(json!({ "id": id })))
 }
 
-/// The organisation's proxies, for the picker on a profile.
+/// One page of the log, as SQL.
 ///
-/// Never returns `credentials_enc`. Someone choosing which exit a profile uses
-/// needs to tell them apart, which is a name and a masked host; the sealed
-/// credentials are handed out once, bound to a lock, when a profile is actually
-/// launched.
+/// A function rather than a string inside the handler so that a test can run
+/// the real query against a real schema, which is the only thing that would
+/// have caught what was wrong with it: it selected `u.email, u.name`, and users
+/// have never had a name — 0001 gives them an id, an email, keys and
+/// timestamps, and no migration has added one since. Every call to this
+/// endpoint failed in the database and came back a 500, so the team screen has
+/// shown "Request failed (500)" under Actions since the day it was written, and
+/// the audit was unreadable by exactly the people it exists for.
+///
+/// Nothing caught it because the text is assembled with `format!` and run
+/// through `query_as`, which checks at run time. The compile-time `query_as!`
+/// cannot be used here — the timestamp expression is interpolated — so the
+/// guard is `the_audit_page_query_matches_the_schema` in rls_tests.rs.
+pub(crate) fn audit_page_sql() -> String {
+    format!(
+        "SELECT e.id, u.email, e.action, e.target_id, e.detail, {} \
+         FROM audit_events e LEFT JOIN users u ON u.id = e.actor_user_id \
+         WHERE e.org_id = $1 AND ($2::bigint IS NULL OR e.id < $2) \
+         ORDER BY e.id DESC LIMIT $3",
+        rfc3339("e.at"),
+    )
+}
+
 /// Who did what, and when.
 ///
 /// The table has been written to since 0001 and until now there was no way to
@@ -1374,14 +1413,8 @@ async fn list_audit(
     // answer, and the operator reads it as the server being broken.
     let limit = q.limit.unwrap_or(200).clamp(1, 1000);
 
-    let rows: Vec<(i64, Option<String>, Option<String>, String, Option<Uuid>, serde_json::Value, String)> =
-        sqlx::query_as(&format!(
-            "SELECT e.id, u.email, u.name, e.action, e.target_id, e.detail, {} \
-             FROM audit_events e LEFT JOIN users u ON u.id = e.actor_user_id \
-             WHERE e.org_id = $1 AND ($2::bigint IS NULL OR e.id < $2) \
-             ORDER BY e.id DESC LIMIT $3",
-            rfc3339("e.at"),
-        ))
+    let rows: Vec<(i64, Option<String>, String, Option<Uuid>, serde_json::Value, String)> =
+        sqlx::query_as(&audit_page_sql())
         .bind(caller.org_id)
         .bind(q.before)
         .bind(limit)
@@ -1390,13 +1423,12 @@ async fn list_audit(
 
     Ok(Json(
         rows.into_iter()
-            .map(|(id, email, name, action, target_id, detail, at)| AuditEntry {
+            .map(|(id, email, action, target_id, detail, at)| AuditEntry {
                 id,
                 // A deleted user leaves their rows behind — 0007 nulls the
                 // actor rather than removing the history. Naming them "someone
                 // who has left" beats an empty cell, which reads as a bug.
-                actor: name
-                    .or(email)
+                actor: email
                     .unwrap_or_else(|| "(a user who has since been removed)".into()),
                 action,
                 target_id,
@@ -1425,6 +1457,12 @@ struct AuditEntry {
     at: String,
 }
 
+/// The organisation's proxies, for the picker on a profile.
+///
+/// Never returns `credentials_enc`. Someone choosing which exit a profile uses
+/// needs to tell them apart, which is a name and a masked host; the sealed
+/// credentials are handed out once, bound to a lock, when a profile is actually
+/// launched.
 async fn list_proxies(
     mut db: auth::Db,
 ) -> ApiResult<Json<Vec<ProxySummary>>> {
@@ -1477,6 +1515,17 @@ pub struct NewProfileRequest {
     fp_seed: String,
     timezone: String,
     languages: Vec<String>,
+    /// Required, and it stays required.
+    ///
+    /// The column allows NULL and this struct does not, which looks like an
+    /// oversight and is not: `launch_spec` refuses a profile with no proxy —
+    /// "launching without it would send traffic from the operator's own
+    /// address" — so a proxyless row here would be creatable, listable, and
+    /// dead at the moment a colleague needed it. That is the exact failure the
+    /// note above this struct exists to prevent, and it costs a colleague their
+    /// afternoon rather than costing us a validation error.
+    ///
+    /// The client says so before sending, so nobody meets this as a 422.
     proxy_id: Uuid,
     #[serde(default)]
     start_urls: Vec<String>,

@@ -13,9 +13,20 @@ import { DEFAULT_SERVER } from "../defaults";
 export function ServerSetup({
   onDone,
   onSignup,
+  onEnrol,
   onLocal,
 }: {
   onDone: (shell: Shell) => void;
+  /** Somebody arriving with a code from a colleague, which is the commonest way
+   *  a second person ever reaches this screen — and the one door it did not
+   *  have.
+   *
+   *  The steps on the team screen told them to find it under Settings → Team
+   *  server, and that is true of an install already running: it is not true of
+   *  a fresh one, where Settings is behind a window that has nothing in it yet.
+   *  So an invited colleague read an instruction naming a place their copy did
+   *  not have, on the only screen it would show them. */
+  onEnrol: () => void;
   /** This screen assumes an account already exists on the address typed in.
    *  Somebody who has none needs the other door, and it has to be on this
    *  screen — it is the first one a new install shows. */
@@ -91,6 +102,13 @@ export function ServerSetup({
       {error && <p className="error">{error}</p>}
       <button type="submit" disabled={busy || !url.trim()}>
         {busy ? t("srv.checking") : t("srv.connect")}
+      </button>
+      {/* Above sign-up, because the two are not equally likely here and picking
+          the wrong one is expensive: an invited colleague who presses "create
+          an account" owns a new organisation of one and wonders where the
+          team's profiles are. */}
+      <button type="button" className="alt" onClick={onEnrol} disabled={busy}>
+        {t("enrol.have")}
       </button>
       <button type="button" className="alt" onClick={onSignup} disabled={busy}>
         {t("signup.start")}

@@ -12,6 +12,13 @@ type Grants = Awaited<ReturnType<typeof api.grants>>;
 
 const ROLES = ["admin", "manager", "member"] as const;
 
+/** What being let into a project means: see it, open the profiles in it, and
+ *  edit them. Not `reveal_secrets`, not `manage_access`, not deletion — those
+ *  stay a deliberate act on a row, which is the whole argument for the
+ *  permission set existing. The server caps this by the recipient's role
+ *  anyway (`role_ceiling`), so a generous list here cannot promote anyone. */
+const MEMBER_PERMS = ["view", "launch", "edit_profile"] as Perm[];
+
 /** The team, and who can reach what.
  *
  *  Two things happen here that happen nowhere else, and both are easy to get
@@ -47,8 +54,33 @@ export function Users({
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<string>("member");
   const [code, setCode] = useState<{ code: string; email: string } | null>(null);
-  const [project, setProject] = useState<string>(projects[0]?.id ?? "");
+
+  /** The server's folders, and only those.
+   *
+   *  Access is a thing the server keeps: a row in project_grants, checked by
+   *  the guard on every call. A folder on this machine has no such row and no
+   *  such id — the server has never heard of it — so asking to grant access to
+   *  one is asking about a project that does not exist, and the server answers
+   *  the way it answers every invisible project: 404, rendered here as
+   *  "Not found, or you no longer have access."
+   *
+   *  Which is exactly what an owner saw, because this picker was fed the whole
+   *  list. A fresh organisation has no folders on the server yet, so the only
+   *  entry in it was "My profiles" from this machine, it was selected by
+   *  default, and the one button on the screen answered with a permission
+   *  error about a folder sitting in front of them. */
+  const teamProjects = projects.filter((p) => p.origin === "team");
+  const [project, setProject] = useState<string>(teamProjects[0]?.id ?? "");
   const [grants, setGrants] = useState<Grants | null>(null);
+
+  // The list arrives after the first render and changes while the screen is
+  // open — a folder created on the server, or the last one deleted. A selection
+  // that is no longer in it would keep asking about a project nobody can see.
+  useEffect(() => {
+    if (!teamProjects.some((p) => p.id === project)) {
+      setProject(teamProjects[0]?.id ?? "");
+    }
+  }, [projects]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const load = useCallback(async () => {
     try {
@@ -147,7 +179,7 @@ export function Users({
             <th>{t("team.member")}</th>
             <th>{t("team.role")}</th>
             <th>{t("team.key")}</th>
-            {project && <th>{t("team.access", { project: projects.find((p) => p.id === project)?.name ?? "" })}</th>}
+            {project && <th>{t("team.access", { project: teamProjects.find((p) => p.id === project)?.name ?? "" })}</th>}
             <th />
           </tr>
         </thead>
@@ -177,27 +209,46 @@ export function Users({
               )}
               <td className="actions">
                 <div>
+                  {/* One button for letting somebody in, and it does both halves.
+                      Handing the key over and granting access were two buttons
+                      on the same row, pressed one after the other, every time —
+                      because a member who can decrypt and cannot reach a single
+                      folder is nobody's intention. The second press was a step
+                      the interface asked for and the work never needed.
+
+                      Not the same operation underneath, and that is worth
+                      knowing: the key is sealed to their public key HERE, on
+                      this machine, because the server cannot do it. The grants
+                      are ordinary server calls. What is shared is the moment an
+                      owner decides this person is in. */}
                   {!m.has_key && (
                     <button
                       disabled={busy}
-                      onClick={() => run(() => api.handOverKey(m.user_id, m.public_key))}
+                      onClick={() =>
+                        run(async () => {
+                          await api.handOverKey(m.user_id, m.public_key);
+                          // Every folder the team has, not just the one the
+                          // picker happens to show. Access to one project out
+                          // of six, chosen by whatever was selected above, is
+                          // not what "let them in" means.
+                          //
+                          // Sequential rather than concurrent: each is audited,
+                          // and a half-applied burst leaves an owner reading a
+                          // failure with no way to tell which ones landed.
+                          for (const p of teamProjects) {
+                            await api.grantAccess(p.id, m.user_id, MEMBER_PERMS);
+                          }
+                        })
+                      }
                     >
-                      {t("team.giveKey")}
+                      {teamProjects.length > 0 ? t("team.letIn") : t("team.giveKey")}
                     </button>
                   )}
-                  {project && !implicit.has(m.user_id) && !granted.has(m.user_id) && (
+                  {project && m.has_key && !implicit.has(m.user_id) && !granted.has(m.user_id) && (
                     <button
                       className="ghost"
                       disabled={busy}
-                      onClick={() =>
-                        run(() =>
-                          api.grantAccess(project, m.user_id, [
-                            "view",
-                            "launch",
-                            "edit_profile",
-                          ] as Perm[]),
-                        )
-                      }
+                      onClick={() => run(() => api.grantAccess(project, m.user_id, MEMBER_PERMS))}
                     >
                       {t("team.grant")}
                     </button>
@@ -217,7 +268,7 @@ export function Users({
                         await run(() => api.removeMember(m.user_id));
                       }}
                     >
-                      {t("team.remove")}
+                      {t("team.removeShort")}
                     </button>
                   )}
                   {project && granted.has(m.user_id) && (
@@ -236,7 +287,15 @@ export function Users({
         </tbody>
       </table>
 
-      {projects.length > 0 && (
+      {/* What the one button did, spelled out where it was pressed. A default
+          that opens every folder is a reasonable default and a bad secret. */}
+      {teamProjects.length > 0 && (
+        <p className="hint" style={{ maxWidth: 620, marginTop: "var(--s-3)" }}>
+          {t("team.letInHint")}
+        </p>
+      )}
+
+      {teamProjects.length > 0 ? (
         <p className="hint" style={{ marginTop: "var(--s-3)" }}>
           {t("team.accessFor")}{" "}
           <select
@@ -244,12 +303,20 @@ export function Users({
             value={project}
             onChange={(e) => setProject(e.target.value)}
           >
-            {projects.map((p) => (
+            {teamProjects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>
             ))}
           </select>
+        </p>
+      ) : (
+        // Said rather than left blank. Step 4 above tells an owner to pick a
+        // project and grant access; with no folder on the server there is
+        // nothing to pick, and an instruction pointing at an absent control is
+        // how somebody concludes the screen is broken.
+        <p className="hint" style={{ maxWidth: 620, marginTop: "var(--s-3)" }}>
+          {t("team.noTeamProjects")}
         </p>
       )}
 

@@ -132,6 +132,42 @@ impl AppState {
             .ok_or_else(|| ApiErr::local("No server configured yet."))
     }
 
+    /// Whether the server is holding no organisation key for this account.
+    ///
+    /// Its own request rather than `call`, and the reason is the timeout. This
+    /// is asked from `shell_state`, which is the first thing the window calls
+    /// and the thing it waits on before drawing anything — so a server that has
+    /// gone away would hold the splash screen for the client's full twenty
+    /// seconds before the person could reach the button that says "work without
+    /// an account". Five, and an unanswered question is treated as "no", which
+    /// leaves the screen saying the thing that is true either way.
+    async fn key_withheld(&self) -> bool {
+        let (Ok(base), Some(token)) = (self.server_url(), self.session.token()) else {
+            return false;
+        };
+        let res = self
+            .http
+            .get(format!("{base}/v1/me"))
+            .bearer_auth(token)
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .await;
+        let Ok(res) = res else { return false };
+        // The same treatment `call` gives a dead session: drop it here rather
+        // than let every later request rediscover it.
+        if res.status() == reqwest::StatusCode::UNAUTHORIZED {
+            self.session.clear();
+            return false;
+        }
+        let Ok(body) = res.json::<serde_json::Value>().await else {
+            return false;
+        };
+        // Absent — an older server — is not "withheld". Being wrong in that
+        // direction offers a password that works; the other direction tells
+        // somebody to wait for a colleague who has nothing to do.
+        body.get("has_org_key").and_then(|v| v.as_bool()) == Some(false)
+    }
+
     /// The organisation key, from memory or from the keychain.
     ///
     /// Lazy: the first command that needs it pays for the keychain read, and
@@ -276,6 +312,16 @@ pub struct Shell {
     pub org_key_ready: bool,
     /// Who signed in last, so unlocking asks for one field instead of two.
     pub last_email: Option<String>,
+    /// Signed in, holding no key, and there is no key on the server to hold.
+    ///
+    /// The other half of `org_key_ready`, and the reason it is not enough on its
+    /// own: "this process has no key" covers two people. One turned off
+    /// remembering it and needs to type a password. The other enrolled with an
+    /// invitation and has not been handed the key yet — for them a password is
+    /// not a slower way in, it is no way in at all, and the screen offered them
+    /// one anyway. They typed it, it was right, and they arrived back at the
+    /// same box. Reported from the machine somebody was trying to join on.
+    pub awaiting_key: bool,
 }
 
 /// Does this action go to the local store, or to the server?
@@ -371,9 +417,18 @@ pub async fn shell_state(state: State<'_, AppState>) -> Result<Shell, ApiErr> {
     };
     let org_key_ready = state.org_key().is_some();
 
+    // Asked of the server only in the one state where the answer changes what
+    // the screen says: signed in, and holding nothing. Everywhere else it is
+    // decided locally and this poll — which runs every five seconds — makes no
+    // request at all.
+    let awaiting_key =
+        !org_key_ready && state.session.is_signed_in() && state.key_withheld().await;
+
     Ok(Shell {
         server_url,
         machine_name: settings::machine_name(),
+        // Read after the call above, which drops the session if the server says
+        // it is dead.
         signed_in: state.session.is_signed_in(),
         native: true,
         mode,
@@ -384,6 +439,7 @@ pub async fn shell_state(state: State<'_, AppState>) -> Result<Shell, ApiErr> {
         version: env!("CARGO_PKG_VERSION"),
         org_key_ready,
         last_email,
+        awaiting_key,
     })
 }
 
@@ -753,9 +809,22 @@ pub async fn enrol(
         }
     }
 
-    state
+    let me: Me = state
         .call(reqwest::Method::GET, "/v1/me", Body::None, true)
-        .await
+        .await?;
+
+    // Remembered here as well as at sign-in. A member enrolling with an
+    // invitation holds no organisation key yet, so the very next screen they
+    // see is the one that asks for it — and without this it did not know who
+    // they were and asked for the address again, on the machine that had just
+    // typed it in.
+    {
+        let mut s = state.settings.lock().unwrap();
+        s.last_email = Some(me.email.clone());
+        let _ = s.save(&state.config_dir);
+    }
+
+    Ok(me)
 }
 
 #[tauri::command]
@@ -2836,6 +2905,40 @@ pub async fn shared_with_me(state: State<'_, AppState>) -> R<Vec<UiProfile>> {
 ///
 /// The local original is left alone. This is a copy, and the machine it came
 /// from keeps working while somebody decides whether the move was right.
+/// A local profile as the server's create endpoint wants it.
+///
+/// A function, and tested, because this body was wrong in three places at once
+/// and every one of them failed the same way: axum rejects a body that does not
+/// match `NewProfileRequest` before the handler runs, with 422 and no text. The
+/// interface showed "Request failed (422)" over a profile that was in every way
+/// fine, and no log anywhere said which field.
+///
+///  * `fp_seed` went as a number. The server wants the wire form — sixteen hex
+///    characters — and a seed is always a number locally, so EVERY upload that
+///    has ever been attempted failed here. That is also why sending a folder to
+///    the server produced a folder with nothing in it.
+///  * `timezone` and `languages` went as `null` for a profile that follows its
+///    exit, which is the ordinary case. The server means the same thing by an
+///    empty string and an empty list — it stores NULL and '{}' — and `null` is
+///    the one shape it will not parse.
+///
+/// `from_i64` reinterprets the eight bytes rather than converting them: half of
+/// all seeds are negative as an i64, and a numeric cast would hand the profile
+/// a different machine.
+fn upload_body(me: &crate::agent::LocalProfile, proxy_id: Option<String>) -> serde_json::Value {
+    serde_json::json!({
+        "name": me.name,
+        "tags": me.tags,
+        "persona_id": me.persona_id,
+        "fp_seed": fury_shared::persona::seed::to_hex(
+            fury_shared::persona::seed::from_i64(me.fp_seed),
+        ),
+        "timezone": me.timezone.clone().unwrap_or_default(),
+        "languages": me.languages.clone().unwrap_or_default(),
+        "proxy_id": proxy_id,
+    })
+}
+
 #[tauri::command]
 pub async fn upload_profile(
     state: State<'_, AppState>,
@@ -2865,10 +2968,49 @@ pub async fn upload_profile(
         .find(|p| p.id == id)
         .ok_or_else(|| ApiErr::local("That profile is not on this machine.".to_string()))?;
 
+    // A team profile goes out through a proxy, always, and that is a rule of the
+    // product rather than of this function: the server's launch spec refuses a
+    // profile without one, because launching it would send a colleague's
+    // traffic from their own address. So it is said here, in a sentence, before
+    // anything is created — the alternative is a profile that uploads, lists,
+    // and dies the first time somebody opens it, on their machine and not ours.
+    //
+    // The same code the team-profile form raises, because it is the same rule
+    // and a second wording for one rule is how two screens end up disagreeing
+    // about it.
+    if me.proxy.is_none() {
+        return Err(ApiErr::coded(
+            "err.uploadNeedsProxy",
+            "A team profile needs a proxy. Everything the browser does goes through one.",
+        ));
+    }
+
+    // The exit's credentials, read from the proxy list and not from the profile.
+    //
+    // `profiles.list` returns every proxy with `password: None`, on purpose and
+    // correctly — a list view renders a host and a country, and a secret that is
+    // never decrypted is a secret that cannot leak through one. `proxies.list`
+    // is the call that opens the machine vault, and it is the one this needed.
+    //
+    // Taking the password from the profile row meant sealing `password: None`
+    // under the organisation key and posting that. The colleague's machine
+    // unsealed it faithfully, got a username and no password, and offered that
+    // to a proxy which requires both — so the browser opened, every request
+    // died in the relay, and Chrome said ERR_TUNNEL_CONNECTION_FAILED over a
+    // proxy that was reachable and working. Reported as exactly that, from a
+    // machine where `curl` reached the same proxy and was refused for want of
+    // credentials.
+    let local_proxies: Vec<crate::agent::LocalProxy> =
+        crate::agent::call("proxies.list", serde_json::json!({})).await?;
+    let full = me
+        .proxy
+        .as_ref()
+        .and_then(|p| local_proxies.into_iter().find(|x| x.id == p.id));
+
     // The exit, before the profile, so the profile can be created pointing at
     // it. Failing here fails the whole upload rather than producing a profile
     // with no way out.
-    let proxy_id = match &me.proxy {
+    let proxy_id = match full.as_ref().or(me.proxy.as_ref()) {
         None => None,
         Some(p) => {
             let existing: serde_json::Value = state
@@ -2884,18 +3026,53 @@ pub async fn upload_profile(
                 })
                 .and_then(|x| x.get("id").and_then(|v| v.as_str()).map(str::to_string));
 
+            let credentials = fury_shared::api::ProxyCredentials {
+                username: p.username.clone().filter(|v| !v.is_empty()),
+                password: p.password.clone().filter(|v| !v.is_empty()),
+            };
+            let (enc, dek) = crypto::seal_proxy_credentials(&org_key, &credentials)
+                .map_err(|e| ApiErr::local(format!("Could not seal the proxy credentials: {e}")))?;
+            let hex = |v: &[u8]| v.iter().map(|b| format!("{b:02x}")).collect::<String>();
+
             match matching {
+                // Found, and re-sealed anyway when this machine holds a
+                // password for it.
+                //
+                // Every proxy the broken version of this function created is
+                // sitting on the server with a username and no password, and
+                // matching one and moving on would leave it that way for ever:
+                // the profile would upload cleanly and fail in the relay, which
+                // is the failure that is hardest to attribute to an upload
+                // three days earlier.
+                //
+                // It writes over what is stored, and that is the trade. Two
+                // operators holding different passwords for one host and port
+                // would take turns; against that, a proxy nobody can use is
+                // certain rather than possible, and the operator sending the
+                // profile is the one who just proved the credentials work.
+                Some(id) if credentials.password.is_some() => {
+                    let updated: R<serde_json::Value> = state
+                        .call(
+                            reqwest::Method::PATCH,
+                            &format!("/v1/proxies/{id}"),
+                            Body::Json(serde_json::json!({
+                                "name": p.name,
+                                "kind": p.kind,
+                                "host": p.host,
+                                "port": p.port,
+                                "credentials_enc": hex(&enc),
+                                "wrapped_dek": hex(&dek),
+                            })),
+                            true,
+                        )
+                        .await;
+                    if let Err(e) = &updated {
+                        tracing::warn!(proxy = %id, error = %e.message, "could not refresh the stored proxy credentials");
+                    }
+                    Some(id)
+                }
                 Some(id) => Some(id),
                 None => {
-                    let credentials = fury_shared::api::ProxyCredentials {
-                        username: p.username.clone().filter(|v| !v.is_empty()),
-                        password: p.password.clone().filter(|v| !v.is_empty()),
-                    };
-                    let (enc, dek) = crypto::seal_proxy_credentials(&org_key, &credentials)
-                        .map_err(|e| {
-                            ApiErr::local(format!("Could not seal the proxy credentials: {e}"))
-                        })?;
-                    let hex = |v: &[u8]| v.iter().map(|b| format!("{b:02x}")).collect::<String>();
                     let made: serde_json::Value = state
                         .call(
                             reqwest::Method::POST,
@@ -2921,17 +3098,7 @@ pub async fn upload_profile(
         .call(
             reqwest::Method::POST,
             &format!("/v1/projects/{project_id}/profiles"),
-            Body::Json(serde_json::json!({
-                "name": me.name,
-                "tags": me.tags,
-                "persona_id": me.persona_id,
-                // The seed moves as it is. Everything else here is a label; this
-                // is the profile's identity.
-                "fp_seed": me.fp_seed,
-                "timezone": me.timezone,
-                "languages": me.languages,
-                "proxy_id": proxy_id,
-            })),
+            Body::Json(upload_body(&me, proxy_id)),
             true,
         )
         .await?;
@@ -2976,14 +3143,34 @@ pub async fn upload_profile(
     // The lock goes back whatever happened. A profile that arrived and stayed
     // locked by a machine that is not opening it is worse than one that did not
     // arrive: somebody has to be found to release it.
-    let _: R<serde_json::Value> = state
+    //
+    // WITH THE TOKEN, which is what this was missing. `release_lock` matches on
+    // `lock_token` and refuses a body without one — deliberately, so that one
+    // person signed in on a laptop and a desktop cannot close the other's
+    // browser — and this call sent no body at all. It failed every time, and
+    // the failure was discarded, so the profile stayed locked by the machine
+    // that had just uploaded it.
+    //
+    // What that looked like: the uploader's own row went green and said "open",
+    // and a colleague's said "In use — MacBook Air" over a browser nobody had
+    // started. It cleared itself after ninety seconds, when the lock lapsed
+    // with no heartbeat to renew it — which is why it reads as the application
+    // being confused rather than as a lock, and why it was reported as "it is
+    // not open, so why does it say it is".
+    let released: R<serde_json::Value> = state
         .call(
             reqwest::Method::POST,
             &format!("/v1/profiles/{remote_id}/unlock"),
-            Body::None,
+            Body::Json(serde_json::json!({ "lock_token": grant.lock_token })),
             true,
         )
         .await;
+    if let Err(e) = &released {
+        // Not fatal — the bundle is on the server and the lock lapses on its
+        // own in ninety seconds — but never silent again: silence is what let
+        // this survive.
+        tracing::warn!(error = %e.message, profile = %remote_id, "could not release the upload lock");
+    }
 
     let uploaded = uploaded?;
     Ok(serde_json::json!({
@@ -2994,4 +3181,79 @@ pub async fn upload_profile(
         // and usable by anyone the profile is shared with.
         "proxy_moved": me.proxy.is_some(),
     }))
+}
+
+#[cfg(test)]
+mod upload_tests {
+    use super::*;
+    use crate::agent::LocalProfile;
+
+    /// The profile that met the 422, as the local store actually holds it:
+    /// a seed that is a number, and no timezone or languages, because it
+    /// follows whatever its exit turns out to be.
+    fn follows_its_exit() -> LocalProfile {
+        LocalProfile {
+            id: "019fc39d-e44e-7b60-ad56-3297061f04bd".into(),
+            project_id: None,
+            project_name: None,
+            name: "RU".into(),
+            tags: vec![],
+            persona_id: "win11-chrome".into(),
+            fp_seed: 4985899071852176304,
+            proxy: None,
+            timezone: None,
+            languages: None,
+            running: false,
+            last_opened_at: None,
+        }
+    }
+
+    #[test]
+    fn the_seed_crosses_in_the_form_the_server_parses() {
+        let body = upload_body(&follows_its_exit(), Some("p".into()));
+        let seed = body["fp_seed"].as_str().expect("a string, not a number");
+        assert_eq!(seed.len(), 16, "the wire form is sixteen hex characters");
+        // Parsed back exactly the way the server parses it, and equal to what
+        // the local store holds. A seed that survives the trip as a different
+        // number is a warmed account with a different machine.
+        assert_eq!(
+            fury_shared::persona::seed::from_hex(seed),
+            Some(4985899071852176304u64),
+        );
+    }
+
+    #[test]
+    fn a_seed_with_the_top_bit_set_survives() {
+        // Half of all seeds are negative as an i64. This is the half a numeric
+        // conversion would lose, silently.
+        let mut p = follows_its_exit();
+        p.fp_seed = -1234567890123456789;
+        let body = upload_body(&p, Some("p".into()));
+        let seed = body["fp_seed"].as_str().unwrap();
+        assert_eq!(
+            fury_shared::persona::seed::from_hex(seed),
+            Some((-1234567890123456789i64) as u64),
+        );
+    }
+
+    #[test]
+    fn following_the_exit_is_sent_as_empty_and_never_as_null() {
+        // The server reads an empty string and an empty list as "this profile
+        // follows its exit" and stores NULL and '{}'. It cannot parse null into
+        // either field, so null is a 422 for the commonest profile there is.
+        let body = upload_body(&follows_its_exit(), Some("p".into()));
+        assert_eq!(body["timezone"], serde_json::json!(""));
+        assert_eq!(body["languages"], serde_json::json!([]));
+        assert!(!body["timezone"].is_null() && !body["languages"].is_null());
+    }
+
+    #[test]
+    fn a_zone_that_was_chosen_is_carried_across_unchanged() {
+        let mut p = follows_its_exit();
+        p.timezone = Some("Europe/Berlin".into());
+        p.languages = Some(vec!["de-DE".into(), "de".into()]);
+        let body = upload_body(&p, Some("p".into()));
+        assert_eq!(body["timezone"], serde_json::json!("Europe/Berlin"));
+        assert_eq!(body["languages"], serde_json::json!(["de-DE", "de"]));
+    }
 }

@@ -10,7 +10,7 @@ import { BulkProfiles } from "./components/BulkProfiles";
 import { Cookies } from "./components/Cookies";
 import { useAsk } from "./components/Ask";
 import { CommandPalette, type Command } from "./components/CommandPalette";
-import { ProfileTable } from "./components/ProfileTable";
+import { ProfileTable, isOpenHere } from "./components/ProfileTable";
 import { Proxies } from "./components/Proxies";
 import { Trash } from "./components/Trash";
 import { Users } from "./components/Users";
@@ -55,7 +55,13 @@ export function App() {
   const [cookiesFor, setCookiesFor] = useState<Profile | null>(null);
   const [view, setView] = useState<View>("profiles");
   const [openOnly, setOpenOnly] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  /** A line of information at the top of the window, and — when it is about a
+   *  launch — which profile it is about.
+   *
+   *  One piece of state rather than two, so the sentence and the thing it
+   *  describes cannot get out of step. `forProfile` is null for a notice with
+   *  no lifetime: an export that finished, an import that landed. */
+  const [notice, setNotice] = useState<{ text: string; forProfile: string | null } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Applied at the root before anything renders, so the first paint is already
@@ -154,6 +160,25 @@ export function App() {
       setProfiles(rows);
       setProjects(list);
       setShell(current);
+      // A launch notice outlives its launch by exactly one poll.
+      //
+      // Here rather than in the Close button, because the browser is closed
+      // from its own window at least as often as from ours, and a message that
+      // only clears when you press the right button is the same bug with a
+      // narrower door. A profile that has left the list entirely counts as
+      // closed too.
+      setNotice((n) => {
+        if (n?.forProfile == null) return n;
+        const row = rows.find((p) => p.id === n.forProfile);
+        const stillOpen =
+          row !== undefined &&
+          isOpenHere(row, {
+            local: current.mode === "local",
+            userId: me?.user_id,
+            machine: current.machine_name,
+          });
+        return stillOpen ? n : null;
+      });
       // Borrowed profiles come from a different endpoint and a different
       // account's organisation, so they are fetched separately and their
       // failure is not allowed to empty the main list -- a server that answers
@@ -172,7 +197,7 @@ export function App() {
       if (e instanceof ApiError && e.status === 401) void api.shell().then(setShell);
       else setError(say(e));
     }
-  }, [active, ready]);
+  }, [active, ready, me?.user_id]);
 
   useEffect(() => {
     void refreshProfiles();
@@ -221,6 +246,7 @@ export function App() {
           void api.shell().then(setShell);
         }}
         onCancel={() => setEnrolling(false)}
+        serverUrl={shell.server_url}
       />
     );
   }
@@ -237,6 +263,7 @@ export function App() {
       <ServerSetup
         onDone={setShell}
         onSignup={() => setSigningUp(true)}
+        onEnrol={() => setEnrolling(true)}
         onLocal={() => void api.shell().then(setShell)}
       />
     );
@@ -256,6 +283,7 @@ export function App() {
         onSignup={() => setSigningUp(true)}
         onLocal={() => void api.shell().then(setShell)}
         unlockFor={shell.last_email}
+        awaitingKey={shell.awaiting_key}
       />
     );
   }
@@ -277,11 +305,21 @@ export function App() {
       // data home", and they are applied silently. Saying which ones landed is
       // the difference between a browser that behaves oddly and one whose
       // limits were explained.
+      // Named in words, not in flags. This printed the field names off the
+      // wire — "autofill_only, deny_cdp, lock_data_export, lock_devtools,
+      // wipe_on_exit" — which is the server's vocabulary and nobody else's, and
+      // in a bar that looks like the one errors use. It was read as five things
+      // having gone wrong. They are one thing, decided on purpose: this account
+      // was opened for somebody who may use it and may not carry it away.
       const applied = Object.entries(res.restrictions ?? {})
         .filter(([, on]) => on)
-        .map(([k]) => k);
+        .map(([k]) => t(restrictionKey(k)))
+        .filter(Boolean);
       if (applied.length > 0) {
-        setNotice(t("app.launchRestricted", { list: applied.join(", ") }));
+        setNotice({
+          text: t("app.launchRestricted", { list: applied.join("; ") }),
+          forProfile: profile.id,
+        });
       }
       await refreshProfiles();
     } catch (e) {
@@ -385,7 +423,10 @@ export function App() {
           if (!pass) return;
           try {
             const r = await api.exportProject(active.id, path, pass);
-            setNotice(t("ex.done", { kb: Math.round(r.bytes / 1024), path: r.path }));
+            setNotice({
+              text: t("ex.done", { kb: Math.round(r.bytes / 1024), path: r.path }),
+              forProfile: null,
+            });
           } catch (e) {
             setError(say(e));
           }
@@ -407,7 +448,7 @@ export function App() {
           if (!pass) return;
           try {
             const r = await api.importProject(path, pass);
-            setNotice(t("ex.imported", { n: r.profiles }));
+            setNotice({ text: t("ex.imported", { n: r.profiles }), forProfile: null });
             await load();
           } catch (e) {
             setError(say(e));
@@ -495,10 +536,36 @@ export function App() {
           try {
             const made = await api.createProjectIn(p.name, "team");
             const target = (made as { id: string }).id;
-            for (const row of rows) await api.uploadProfile(row.id, target);
-            setError(t("proj.sendAllDone", { n: String(rows.length), name: p.name }));
+            // Counted, and the first failure named rather than swallowed.
+            //
+            // This was a bare loop that stopped on the first error and reported
+            // it alone: the folder had been created by then, so the sidebar
+            // showed a team project with nothing in it and a message about a
+            // request, and the two did not obviously belong to each other. What
+            // an operator needs to know is how many of the n arrived — and if
+            // none did, that the empty folder on the server is the reason.
+            let sent = 0;
+            let failure: string | null = null;
+            for (const row of rows) {
+              try {
+                await api.uploadProfile(row.id, target);
+                sent++;
+              } catch (e) {
+                failure ??= `${row.name}: ${say(e)}`;
+              }
+            }
+            setError(
+              failure === null
+                ? t("proj.sendAllDone", { n: String(sent), name: p.name })
+                : t("proj.sendAllPartly", {
+                    sent: String(sent),
+                    n: String(rows.length),
+                    name: p.name,
+                    why: failure,
+                  }),
+            );
           } catch (e) {
-            setError((e as Error).message);
+            setError(say(e));
           } finally {
             setBusy(false);
             await load();
@@ -625,8 +692,8 @@ export function App() {
         )}
 
         {notice && (
-          <div className="notice" role="status">
-            {notice}
+          <div className="notice infoBar" role="status">
+            {notice.text}
             <button className="ghost" onClick={() => setNotice(null)}>
               {t("app.dismiss")}
             </button>
@@ -1083,4 +1150,30 @@ function matching(profiles: Profile[], query: string): Profile[] {
       .toLowerCase()
       .includes(q),
   );
+}
+
+/** A restriction as a sentence, from the flag the server sends.
+ *
+ *  Spelled out rather than composed as `restrict.${k}`: the flags arrive as
+ *  free text over the wire, and a key built from one would neither typecheck
+ *  nor fail visibly — it would render the key, which is the thing this exists
+ *  to stop. An unknown flag falls back to `restrict.other`, so a server that
+ *  learns a new one says something true rather than something raw. */
+function restrictionKey(
+  flag: string,
+): "restrict.autofillOnly" | "restrict.denyCdp" | "restrict.lockDataExport" | "restrict.lockDevtools" | "restrict.wipeOnExit" | "restrict.other" {
+  switch (flag) {
+    case "autofill_only":
+      return "restrict.autofillOnly";
+    case "deny_cdp":
+      return "restrict.denyCdp";
+    case "lock_data_export":
+      return "restrict.lockDataExport";
+    case "lock_devtools":
+      return "restrict.lockDevtools";
+    case "wipe_on_exit":
+      return "restrict.wipeOnExit";
+    default:
+      return "restrict.other";
+  }
 }

@@ -109,6 +109,33 @@ impl Server {
         Ok(body.get("version").and_then(|v| v.as_i64()).unwrap_or(0) as i32)
     }
 
+    /// Give the lock back, now rather than in ninety seconds.
+    ///
+    /// Stopping the heartbeat is enough for correctness — the lock lapses on
+    /// its own — and it is not enough for the person looking at the screen.
+    /// Closing the browser from its own window left the row saying "in use
+    /// here" and a colleague's saying "In use — MacBook Air" for up to a minute
+    /// and a half after the window was gone, which reads as the application
+    /// having lost track rather than as a lock timing out. Reported as exactly
+    /// that: "I closed the browser and it still hangs there as if it were
+    /// open."
+    ///
+    /// The shell's own Close button has always released it here; only the
+    /// close-by-hand path did not, and the whole argument for the reaper is
+    /// that those two paths should be one.
+    pub async fn release_lock(&self, profile_id: &str, lock_token: &str) -> anyhow::Result<()> {
+        let res = Self::client()?
+            .post(format!("{}/v1/profiles/{profile_id}/unlock", self.url))
+            .bearer_auth(&self.token)
+            .json(&serde_json::json!({ "lock_token": lock_token }))
+            .send()
+            .await?;
+        if !res.status().is_success() {
+            anyhow::bail!("the server refused to release the lock ({})", res.status());
+        }
+        Ok(())
+    }
+
     async fn beat(&self, profile_id: &str, lock_token: &str) -> anyhow::Result<()> {
         let res = Self::client()?
             .post(format!("{}/v1/profiles/{profile_id}/lock/heartbeat", self.url))

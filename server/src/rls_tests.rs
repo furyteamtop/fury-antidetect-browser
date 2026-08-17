@@ -493,3 +493,72 @@ db_test!(sharing_a_profile_does_not_share_the_organisations_proxy_list, c, {
         .expect("list proxies");
     assert_eq!(names, vec!["used".to_string()]);
 });
+
+// ---------------------------------------------------------------------------
+// Queries that name columns
+// ---------------------------------------------------------------------------
+//
+// Not row-level security, and here anyway: these are the only tests in the
+// repository that have a real schema to ask, and what they ask is whether a
+// query the handler builds at run time still matches it.
+//
+// The reason is a screen that read "Request failed (500)". `list_audit`
+// selected `u.name`, users have never had one, and every call to the endpoint
+// died in the database — for as long as the endpoint has existed, because a
+// `format!`ed query is checked when it runs and not when it compiles. A
+// handler assembling SQL from a string is a claim about the schema that only a
+// database can settle.
+
+db_test!(the_audit_page_query_matches_the_schema, c, {
+    bind(&mut c, USER_A).await;
+    let sql = format!(
+        "INSERT INTO audit_events (org_id, actor_user_id, action, target_id, detail)
+           VALUES ('{ORG_A}','{USER_A}','profile.launch',NULL,'{{\"n\":1}}');"
+    );
+    c.execute(sql.as_str()).await.expect("seed an event");
+
+    let rows: Vec<(i64, Option<String>, String, Option<uuid::Uuid>, serde_json::Value, String)> =
+        sqlx::query_as(&crate::api::audit_page_sql())
+            .bind(uuid::Uuid::parse_str(ORG_A).unwrap())
+            .bind(None::<i64>)
+            .bind(200i64)
+            .fetch_all(&mut c)
+            .await
+            .expect("the audit page query no longer matches the schema");
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1.as_deref(), Some("a@example.com"), "the actor is named by email");
+    assert_eq!(rows[0].2, "profile.launch");
+    // The timestamp is rendered in SQL rather than by serde, so its shape is
+    // part of what this query promises.
+    assert!(rows[0].5.ends_with('Z'), "not RFC 3339: {}", rows[0].5);
+});
+
+db_test!(whoami_can_tell_a_member_holding_the_key_from_one_waiting_for_it, c, {
+    // The seed gives both users a wrapped key. A third has enrolled and is
+    // waiting, which is the state the sign-in screen could not name.
+    let waiting = "00000000-0000-0000-0000-0000000000d1";
+    let sql = format!(
+        "INSERT INTO users (id, email, password_hash, public_key, wrapped_private_key, kdf_salt)
+           VALUES ('{waiting}','w@example.com','x','\\x00','\\x00','\\x00');
+         INSERT INTO org_members (org_id, user_id, role, wrapped_ork, ork_generation)
+           VALUES ('{ORG_A}','{waiting}','member',NULL,1);"
+    );
+    c.execute(sql.as_str()).await.expect("seed a member without a key");
+
+    let (email, has_key): (String, bool) = sqlx::query_as(crate::api::WHOAMI_SQL)
+        .bind(uuid::Uuid::parse_str(USER_A).unwrap())
+        .fetch_one(&mut c)
+        .await
+        .expect("the whoami query no longer matches the schema");
+    assert_eq!(email, "a@example.com");
+    assert!(has_key, "the owner holds the organisation key");
+
+    let (email, has_key): (String, bool) = sqlx::query_as(crate::api::WHOAMI_SQL)
+        .bind(uuid::Uuid::parse_str(waiting).unwrap())
+        .fetch_one(&mut c)
+        .await
+        .expect("whoami for a member without a key");
+    assert_eq!(email, "w@example.com");
+    assert!(!has_key, "a member waiting on the owner must not look like one holding the key");
+});

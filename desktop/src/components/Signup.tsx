@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
 import { DEFAULT_SERVER } from "../defaults";
+import { PasswordPair } from "./PasswordPair";
 
 /** Making an account from nothing.
  *
@@ -160,17 +161,11 @@ export function Signup({
             value={org}
             onChange={(e) => setOrg(e.target.value)}
           />
-          <input
-            type="password"
-            placeholder={t("enrol.password")}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          <input
-            type="password"
-            placeholder={t("enrol.passwordAgain")}
-            value={again}
-            onChange={(e) => setAgain(e.target.value)}
+          <PasswordPair
+            password={password}
+            again={again}
+            onPassword={setPassword}
+            onAgain={setAgain}
           />
           {/* The same warning enrolment gives, for the same reason: this
               password is the only thing that opens the organisation key, and

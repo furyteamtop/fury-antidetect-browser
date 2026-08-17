@@ -386,6 +386,19 @@ td.actions > div {
   gap: var(--s-1);
   align-items: center;
   justify-content: flex-end;
+  /* Onto a second line rather than off the right edge.
+   *
+   * A table is laid out from its content, and a cell that may not wrap sets a
+   * floor under the whole column: three buttons plus their gaps, whatever the
+   * window is. On the team screen that floor is wider than the window at any
+   * ordinary size — "Выдать ключ", "Выдать доступ" and "Убрать из команды" side
+   * by side — so the row overflowed and the last button was cut in half by the
+   * edge of the window. Reported with the two clipped labels circled.
+   *
+   * Wrapping is what a flex container does when told it may; `white-space` on
+   * the cell governs text and never applied to these. */
+  flex-wrap: wrap;
+  row-gap: var(--s-1);
 }
 
 td.actions {
@@ -606,6 +619,20 @@ input::placeholder {
   border-left-color: var(--warn);
 }
 
+/* Something that happened, as against something that went wrong.
+ *
+ * Notices and failures were the same bar with the same accent stripe: "Opened
+ * with limits from your rights" and "Request failed (500)" appeared
+ * identically, so the first was read as an error — reported that way — and the
+ * second did not stand out as one. The stripe is also the accent colour, which
+ * rule 1 at the top of this file reserves for the primary action.
+ *
+ * A hairline for information; the louder stripe stays on the bars that want
+ * something from you. */
+.infoBar {
+  border-left-color: var(--line-strong);
+}
+
 .error {
   margin: 0;
   color: #f0a08c;
@@ -622,12 +649,34 @@ input::placeholder {
   font-weight: 650;
 }
 
+/* The screens that come before the window: sign in, enrol, sign up, connect.
+ *
+ * It used to be `margin: 18vh auto 0` and nothing else, which works for the
+ * four-line sign-in form and breaks for every longer one. Sign-up is the long
+ * one — a warning, a note about the missing confirmation mail, and a sentence
+ * saying which field is not filled in yet — and pushed 18vh down inside a body
+ * that is `overflow: hidden`, its last 260 px were off the bottom of the
+ * window. Both buttons, including the only way back, were unreachable and the
+ * form read as sitting wrong on the screen. Reported as exactly that.
+ *
+ * So the form owns the window and scrolls inside it. Centring is done with
+ * `margin: auto` on the first and last child rather than `justify-content`,
+ * and that is the whole trick: auto margins absorb the free space when there
+ * is any and collapse to zero when there is none, so a form taller than the
+ * window starts at the top and scrolls. `justify-content: center` overflows
+ * equally in both directions instead — the top would go out of reach, which is
+ * the same bug moved to the other end. */
 .login {
   display: flex;
   flex-direction: column;
   gap: var(--s-2);
-  width: 300px;
-  margin: 18vh auto 0;
+  /* 300px of form plus the padding either side, so the fields keep the width
+     they had before the padding existed. */
+  width: min(calc(300px + var(--s-4) * 2), 100%);
+  height: 100vh;
+  margin: 0 auto;
+  padding: var(--s-5) var(--s-4);
+  overflow-y: auto;
 }
 
 .login h1 {
@@ -698,6 +747,34 @@ input::placeholder {
   font-size: 12px;
   line-height: 1.45;
   text-align: center;
+}
+
+/* The two halves of the centring described on `.login`, and they live here
+ * rather than beside it because they have to win against `.login .hint` —
+ * equal specificity, so the one written later is the one that applies, and the
+ * last child of the sign-in screen is a hint. */
+.login > *:first-child {
+  margin-top: auto;
+}
+
+.login > *:last-child {
+  margin-bottom: auto;
+}
+
+/* Generating a password, revealing it, and taking a copy.
+ *
+ * Three buttons on one line under the pair of password fields, equal width so
+ * that a label changing to "Copied" does not move the other two. */
+.login .pwTools {
+  display: flex;
+  gap: var(--s-2);
+}
+
+.login .pwTools button {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 4px;
+  font-size: 12px;
 }
 
 /* ---- modal ------------------------------------------------------------- */
@@ -1106,6 +1183,16 @@ input::placeholder {
   overflow-y: auto;
 }
 
+/* Headers here may wrap; everywhere else they may not.
+ *
+ * One of them carries a project's name — "Access to «Q3 accounts, Germany»" —
+ * and a header that cannot wrap is another floor under the table's width, set
+ * by a string the operator types. The profile table's headers are single words
+ * and keep the nowrap that stops them breaking mid-word. */
+.teamPane .grid th {
+  white-space: normal;
+}
+
 /* ---- settings tabs ------------------------------------------------------ */
 
 .tabs {
@@ -1357,6 +1444,18 @@ select option {
   justify-content: flex-start;
   text-align: left;
   padding: 6px var(--s-2);
+  /* Wraps here, against the global `button { white-space: nowrap }`.
+   *
+   * That rule is right where it was written — a label wrapping inside a flex
+   * row of buttons doubles the row's height and reads as a broken control —
+   * and wrong in a menu, which is a column as wide as the sidebar and has
+   * height to spare. Nowrap plus a fixed width meant a label longer than
+   * 184 px was simply cut, with no ellipsis to admit it: "Отправить папку на
+   * сервер целиком" appeared as "Отправить папку на сервер", which is a
+   * different and entirely plausible sentence. Reported as text that does not
+   * fit. The label is shorter now; this is so that the next translation of it
+   * cannot be silently truncated into something that still reads as finished. */
+  white-space: normal;
 }
 
 /* Logins — a profile's passwords and two-factor codes.
