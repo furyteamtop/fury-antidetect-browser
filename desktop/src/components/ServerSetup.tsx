@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { useI18n } from "../i18n";
 import { api, type Shell } from "../api";
+import { DEFAULT_SERVER } from "../defaults";
 
 /** First run. Fury is self-hosted, so there is no address to default to — the
  *  app cannot do anything until someone says where their server is. The address
@@ -36,7 +37,9 @@ export function ServerSetup({
    *  server. */
   onLocal: () => void;
 }) {
-  const [url, setUrl] = useState("");
+  // Prefilled, not hidden: see defaults.ts. Somebody with their own server
+  // clears one field; somebody with none is no longer stuck.
+  const [url, setUrl] = useState(DEFAULT_SERVER);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const { t } = useI18n();

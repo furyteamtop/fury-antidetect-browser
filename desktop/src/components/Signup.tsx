@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
 import { api } from "../api";
+import { DEFAULT_SERVER } from "../defaults";
 
 /** Making an account from nothing.
  *
@@ -37,7 +38,10 @@ export function Signup({
   serverUrl?: string | null;
 }) {
   const { t, say } = useI18n();
-  const [url, setUrl] = useState(serverUrl ?? "");
+  // serverUrl wins when the shell is already pointed at one -- somebody
+  // signing up on their own server should not have to retype it. Otherwise
+  // the offered server, for the person who has none.
+  const [url, setUrl] = useState(serverUrl ?? DEFAULT_SERVER);
   const [allowed, setAllowed] = useState<boolean | null>(null);
   /// Whether the address step was skipped, so "Back" goes somewhere sensible.
   const [asked, setAsked] = useState(false);
