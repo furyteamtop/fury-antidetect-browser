@@ -248,15 +248,27 @@ textarea {
 /* Always present, never appearing and disappearing with selection — buttons
    that move break the muscle memory of someone who opens fifty profiles a day
    (docs/12). They go dim, not away. */
+/* Wraps, because it grew past one line and the end of it fell off the window.
+   Selecting a profile adds six controls to a row that already had four, and on
+   a laptop the last of them -- Refresh, which is how somebody recovers from
+   whatever confused them -- was simply not there. */
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--s-2);
+  row-gap: var(--s-1);
   margin-bottom: var(--s-3);
 }
 
+/* min-width, and this is the "extra empty box" in the screenshot rather than a
+   stray control: the search field is flexible, and with enough buttons beside
+   it flex-shrink took it to nothing. An input squeezed to zero width still
+   draws its border, so what was left looked like a small empty button nobody
+   could explain. */
 .search {
-  flex: 1;
+  flex: 1 1 12rem;
+  min-width: 12rem;
   max-width: 360px;
 }
 
@@ -1145,8 +1157,10 @@ input::placeholder {
    cursor at the exact moment someone is aiming at one. */
 .bulk {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--s-2);
+  row-gap: var(--s-1);
 }
 
 /* ---- command palette --------------------------------------------------- */

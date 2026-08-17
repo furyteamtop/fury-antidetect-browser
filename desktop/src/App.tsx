@@ -648,8 +648,24 @@ export function App() {
                     exists nowhere the other person can reach, and offering to
                     share it would end in an error that reads like a fault
                     rather than like an explanation. */}
-                {!local && chosen.length > 0 && chosen.every((p) => p.origin === "team") && (
-                  <button className="ghost" disabled={busy} onClick={() => setSharing(chosen)}>
+                {/* Shown for local rows too, disabled, with the reason on it.
+                    Hiding it was worse: a profile on this machine cannot be
+                    given away until it is on a server, and with no button there
+                    was nothing on screen to say so -- the question "how do I
+                    give somebody this profile" had no answer anywhere in the
+                    window. A greyed control that explains itself teaches the
+                    order of the two steps. */}
+                {!local && chosen.length > 0 && (
+                  <button
+                    className="ghost"
+                    disabled={busy || !chosen.every((p) => p.origin === "team")}
+                    title={
+                      chosen.every((p) => p.origin === "team")
+                        ? undefined
+                        : t("row.shareNeedsServer")
+                    }
+                    onClick={() => setSharing(chosen)}
+                  >
                     {t("row.share")}
                   </button>
                 )}
@@ -667,7 +683,12 @@ export function App() {
                       // project is already what the sidebar is for.
                       const target = active?.id ?? (projects.length === 1 ? projects[0].id : null);
                       if (!target) {
-                        setError(t("up.pickProject"));
+                        // Two different situations and two different answers.
+                        // A fresh account has NO project, and telling somebody
+                        // to pick one from an empty list is the kind of
+                        // instruction that makes people think the application
+                        // is broken.
+                        setError(projects.length === 0 ? t("up.noProjects") : t("up.pickProject"));
                         return;
                       }
                       const go = await ask({
