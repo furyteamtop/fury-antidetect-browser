@@ -398,9 +398,36 @@ function About({ shell }: { shell: Shell }) {
         <dl className="kv">
           <dt>{t("about.madeBy")}</dt>
           <dd>Bogdan Shapovalov</dd>
+          <dt>{t("about.contact")}</dt>
+          <dd>
+            <a
+              href="https://t.me/shapovalovbogdan"
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => {
+                e.preventDefault();
+                void api.openUrl("https://t.me/shapovalovbogdan");
+              }}
+            >
+              @shapovalovbogdan
+            </a>
+          </dd>
           <dt>{t("about.source")}</dt>
           <dd>
-            <a href="https://github.com/furyteamtop/fury-antidetect-browser" target="_blank" rel="noreferrer">
+            {/* target="_blank" alone does nothing here, and this link was proof
+                of it: a Tauri window has no tab to open and no browser behind
+                it, so the click was silence. Same handler as the release link
+                above -- the href stays for the address on hover and for a
+                right-click copy, and the click is handed to the system. */}
+            <a
+              href="https://github.com/furyteamtop/fury-antidetect-browser"
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => {
+                e.preventDefault();
+                void api.openUrl("https://github.com/furyteamtop/fury-antidetect-browser");
+              }}
+            >
               github.com/furyteamtop/fury-antidetect-browser
             </a>
           </dd>
