@@ -608,13 +608,14 @@ export const api = {
 
   /** Copy a local profile onto the server, browser data and all.
    *
-   *  The local original stays where it is. `needs_proxy` comes back true when
-   *  the profile had one here: proxies belong to the organisation's own list on
-   *  the server and are not carried across, so somebody has to attach one. */
+   *  The local original stays where it is. `proxy_moved` comes back true when an
+   *  exit went with it: it is re-sealed under the organisation key, joins the
+   *  team's proxy list, and becomes usable by anyone the profile is shared
+   *  with. */
   uploadProfile: (
     id: string,
     projectId: string,
-  ): Promise<{ id: string; bytes: number; needs_proxy: boolean }> =>
+  ): Promise<{ id: string; bytes: number; proxy_moved: boolean }> =>
     cmd("upload_profile", { id, projectId }),
 
   /** What other people have given to this account. */

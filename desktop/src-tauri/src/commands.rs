@@ -2687,12 +2687,28 @@ pub async fn shared_with_me(state: State<'_, AppState>) -> R<Vec<UiProfile>> {
 /// machine as far as every site it is logged into is concerned, which would
 /// undo the warming it exists for.
 ///
-/// WHAT DOES NOT: the proxy. A local proxy's credentials are sealed under this
-/// machine's vault, and the organisation's proxies are managed in one list on
-/// the server for the whole team. Carrying one across would put a private copy
-/// of somebody's proxy password into that list without anybody choosing to.
-/// The profile arrives with no exit and the interface says so; attaching one is
-/// a click in a screen that exists for it.
+/// THE PROXY GOES TOO, and the first version of this left it behind. That was
+/// wrong for a reason worth stating: a profile without its exit leaves through
+/// the receiver's own address, and an account only ever seen from one country
+/// appearing from another is the failure the whole patch series exists to
+/// prevent. A profile that arrives unusable is not a profile that arrived.
+///
+/// What that costs, said here and in the interface rather than discovered: the
+/// credentials become the organisation's. They are re-sealed under the
+/// organisation key -- they have to be, or nobody else's machine can open them
+/// -- and anyone the profile is shared with can USE them. Whether they can READ
+/// them is a separate right, `reveal_secrets`, which the share dialog leaves
+/// off by default.
+///
+/// And the limit of that right, because a promise here would be a lie: the
+/// proxy has to work on their machine, so the password has to be usable on
+/// their machine, so somebody determined and technical can extract it. Not
+/// showing it is real; making it unreadable to its own user is not possible.
+///
+/// An exit already in the organisation's list is REUSED rather than duplicated,
+/// matched on host and port. Ten operators uploading profiles that share one
+/// provider should not produce ten copies of one proxy, each with its own name
+/// and its own separately-entered password.
 ///
 /// The local original is left alone. This is a copy, and the machine it came
 /// from keeps working while somebody decides whether the move was right.
@@ -2725,6 +2741,58 @@ pub async fn upload_profile(
         .find(|p| p.id == id)
         .ok_or_else(|| ApiErr::local("That profile is not on this machine.".to_string()))?;
 
+    // The exit, before the profile, so the profile can be created pointing at
+    // it. Failing here fails the whole upload rather than producing a profile
+    // with no way out.
+    let proxy_id = match &me.proxy {
+        None => None,
+        Some(p) => {
+            let existing: serde_json::Value = state
+                .call(reqwest::Method::GET, "/v1/proxies", Body::None, true)
+                .await?;
+            let matching = existing
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|x| {
+                    x.get("host").and_then(|v| v.as_str()) == Some(p.host.as_str())
+                        && x.get("port").and_then(|v| v.as_i64()) == Some(p.port as i64)
+                })
+                .and_then(|x| x.get("id").and_then(|v| v.as_str()).map(str::to_string));
+
+            match matching {
+                Some(id) => Some(id),
+                None => {
+                    let credentials = fury_shared::api::ProxyCredentials {
+                        username: p.username.clone().filter(|v| !v.is_empty()),
+                        password: p.password.clone().filter(|v| !v.is_empty()),
+                    };
+                    let (enc, dek) = crypto::seal_proxy_credentials(&org_key, &credentials)
+                        .map_err(|e| {
+                            ApiErr::local(format!("Could not seal the proxy credentials: {e}"))
+                        })?;
+                    let hex = |v: &[u8]| v.iter().map(|b| format!("{b:02x}")).collect::<String>();
+                    let made: serde_json::Value = state
+                        .call(
+                            reqwest::Method::POST,
+                            "/v1/proxies",
+                            Body::Json(serde_json::json!({
+                                "name": p.name,
+                                "kind": p.kind,
+                                "host": p.host,
+                                "port": p.port,
+                                "credentials_enc": hex(&enc),
+                                "wrapped_dek": hex(&dek),
+                            })),
+                            true,
+                        )
+                        .await?;
+                    made.get("id").and_then(|v| v.as_str()).map(str::to_string)
+                }
+            }
+        }
+    };
+
     let created: serde_json::Value = state
         .call(
             reqwest::Method::POST,
@@ -2738,7 +2806,7 @@ pub async fn upload_profile(
                 "fp_seed": me.fp_seed,
                 "timezone": me.timezone,
                 "languages": me.languages,
-                "proxy_id": null,
+                "proxy_id": proxy_id,
             })),
             true,
         )
@@ -2797,8 +2865,9 @@ pub async fn upload_profile(
     Ok(serde_json::json!({
         "id": remote_id,
         "bytes": uploaded.get("bytes"),
-        // Said back so the interface can tell somebody what they now have to do
-        // rather than leaving them to discover it at the first launch.
-        "needs_proxy": me.proxy.is_some(),
+        // True when a proxy was carried across, so the interface can say whose
+        // it has become -- the organisation's, visible in the team's proxy list
+        // and usable by anyone the profile is shared with.
+        "proxy_moved": me.proxy.is_some(),
     }))
 }

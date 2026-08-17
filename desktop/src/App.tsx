@@ -680,15 +680,15 @@ export function App() {
                       });
                       if (go === null) return;
                       setBusy(true);
-                      let needsProxy = false;
+                      let proxyMoved = false;
                       try {
                         for (const p of chosen) {
                           const r = await api.uploadProfile(p.id, target);
-                          needsProxy = needsProxy || r.needs_proxy;
+                          proxyMoved = proxyMoved || r.proxy_moved;
                         }
                         setError(
                           t("up.done", { name: chosen[0].name }) +
-                            (needsProxy ? " " + t("up.needsProxy") : ""),
+                            (proxyMoved ? " " + t("up.proxyMoved") : ""),
                         );
                       } catch (e) {
                         setError((e as Error).message);

@@ -55,6 +55,17 @@ pub struct LocalProxy {
     pub host: String,
     pub port: u16,
     pub last_country: Option<String>,
+    /// Only ever filled for a proxy of THIS machine's, where the agent keeps
+    /// them readable because there is nobody to hide them from.
+    ///
+    /// Read for exactly one purpose: sending a local profile to a server, where
+    /// the exit has to be re-sealed under the organisation key or nobody else's
+    /// machine can open it. Defaulted rather than required, because the same
+    /// struct is deserialised from listings that do not carry them.
+    #[serde(default)]
+    pub username: Option<String>,
+    #[serde(default)]
+    pub password: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]

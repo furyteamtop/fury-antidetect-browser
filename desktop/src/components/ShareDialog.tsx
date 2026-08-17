@@ -138,6 +138,7 @@ export function ShareDialog({
             <input type="checkbox" checked={canReveal} onChange={(e) => setCanReveal(e.target.checked)} />
             {t("share.mayReveal")}
           </label>
+          <p className="hint">{t("share.revealHint")}</p>
 
           {/* Said before the button, not after. Revoking closes the door and
               does not reach what somebody already opened, and anybody handing
