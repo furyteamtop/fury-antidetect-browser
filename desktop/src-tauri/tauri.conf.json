@@ -60,7 +60,9 @@
           "Russian",
           "English"
         ],
-        "displayLanguageSelector": true
+        "displayLanguageSelector": true,
+        "installerHooks": "installer/hooks.nsh",
+        "uninstallerIcon": "icons/icon.ico"
       }
     }
   }

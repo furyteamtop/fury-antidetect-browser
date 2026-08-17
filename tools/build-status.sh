@@ -35,6 +35,7 @@ watch=0
 for a in "$@"; do [ "$a" = "--watch" ] && watch=1; done
 
 BASH_EXE='"C:\Program Files\Git\bin\bash.exe"'
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # The question is asked by a small script COPIED to the server and run there,
 # rather than piped into ssh.
@@ -48,7 +49,7 @@ remote() {
   local tmp
   tmp=$(mktemp -t fury-status)
   cat > "$tmp" <<'REMOTE'
-out=/c/fury/core/src/out/TARGET_PLACEHOLDER.noindex
+out=OUT_ROOT_PLACEHOLDER/TARGET_PLACEHOLDER.noindex
 log="$out/build-progress.log"
 # The last progress line ninja printed. tr, because that line is rewritten in
 # place with a carriage return rather than a newline -- the whole build is one
@@ -76,13 +77,36 @@ echo "fallback_total=$(cat "$out/.fury-total" 2>/dev/null || echo 0)"
 # When this build started. args.gn is written by gn gen, the first thing build.sh
 # does, and it is rewritten every run -- so unlike .ninja_log it never carries a
 # time from the previous build.
-echo "started=$(stat -c %Y "$out/args.gn" 2>/dev/null || echo 0)"
+# GNU stat spells this -c %Y and BSD stat spells it -f %m, and this script now
+# runs on both -- a Windows build read through Git Bash, and a macOS build read
+# directly. Asking the wrong one silently yields an empty string, which becomes
+# 0, which becomes an elapsed time of half a million hours. That is what it
+# printed before this line had a fallback.
+echo "started=$(stat -c %Y "$out/args.gn" 2>/dev/null || stat -f %m "$out/args.gn" 2>/dev/null || echo 0)"
 echo "now=$(date +%s)"
-echo "running=$(ps -W 2>/dev/null | grep -c clang-cl || echo 0)"
+echo "running=$( { ps -W 2>/dev/null || ps ax; } | grep -c '[c]lang' || echo 0)"
 echo "failed=$(grep -c 'ninja: build stopped' "$log" 2>/dev/null || echo 0)"
 REMOTE
-  sed -i '' "s/TARGET_PLACEHOLDER/$TARGET/" "$tmp" 2>/dev/null \
-    || sed -i "s/TARGET_PLACEHOLDER/$TARGET/" "$tmp"
+  # The same probe, asked of whichever machine is doing the building.
+  #
+  # A macOS build runs HERE and a Windows build runs on the server, and the
+  # first version of this file only knew how to ask the server -- so
+  # `build-status.sh macos-arm64-16gb`, which is what somebody watching a macOS
+  # build would type, went over SSH to Windows and reported nothing at all.
+  #
+  # Which machine is decided by looking rather than by parsing the name: if the
+  # output directory is here, the build is here.
+  local root_local="$here/core/src/out"
+  if [ -d "$root_local/$TARGET.noindex" ]; then
+    sed -i '' "s#OUT_ROOT_PLACEHOLDER#$root_local#; s/TARGET_PLACEHOLDER/$TARGET/" "$tmp" 2>/dev/null \
+      || sed -i "s#OUT_ROOT_PLACEHOLDER#$root_local#; s/TARGET_PLACEHOLDER/$TARGET/" "$tmp"
+    bash "$tmp"
+    rm -f "$tmp"
+    return
+  fi
+
+  sed -i '' "s#OUT_ROOT_PLACEHOLDER#/c/fury/core/src/out#; s/TARGET_PLACEHOLDER/$TARGET/" "$tmp" 2>/dev/null \
+    || sed -i "s#OUT_ROOT_PLACEHOLDER#/c/fury/core/src/out#; s/TARGET_PLACEHOLDER/$TARGET/" "$tmp"
   scp -i "$KEY" -o BatchMode=yes -q "$tmp" "$SERVER:C:/Users/root/fury-status.sh"
   rm -f "$tmp"
   ssh -i "$KEY" -o BatchMode=yes -o ConnectTimeout=20 "$SERVER" \
