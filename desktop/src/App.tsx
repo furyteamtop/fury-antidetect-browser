@@ -247,7 +247,7 @@ export function App() {
     setBusy(true);
     setError(null);
     try {
-      const res = await api.launch(profile.id, force);
+      const res = await api.launch(profile.id, force, profile.origin);
       // Restrictions are the technical half of "an operator cannot take the
       // data home", and they are applied silently. Saying which ones landed is
       // the difference between a browser that behaves oddly and one whose
@@ -309,7 +309,7 @@ export function App() {
     setError(t("bar.openingMany"));
     try {
       for (const p of openable) {
-        await api.launch(p.id);
+        await api.launch(p.id, false, p.origin);
         await refreshProfiles();
       }
       setError(null);
@@ -323,7 +323,7 @@ export function App() {
   const onStop = async (profile: Profile) => {
     setBusy(true);
     try {
-      await api.stop(profile.id);
+      await api.stop(profile.id, profile.origin);
       await refreshProfiles();
     } catch (e) {
       setError(say(e));
@@ -626,7 +626,7 @@ export function App() {
                     disabled={busy}
                     onClick={async () => {
                       setBusy(true);
-                      for (const p of closable) await api.stop(p.id);
+                      for (const p of closable) await api.stop(p.id, p.origin);
                       await refreshProfiles();
                       setBusy(false);
                     }}
@@ -646,7 +646,7 @@ export function App() {
                     });
                     if (go === null) return;
                     setBusy(true);
-                    for (const p of chosen) await api.deleteProfile(p.id);
+                    for (const p of chosen) await api.deleteProfile(p.id, p.origin);
                     setSelected(new Set());
                     await load();
                     await refreshProfiles();
@@ -765,7 +765,7 @@ export function App() {
                         danger: true,
                       });
                       if (go === null) return;
-                      await api.deleteProfile(p.id);
+                      await api.deleteProfile(p.id, p.origin);
                       await refreshProfiles();
                     }
                   : undefined

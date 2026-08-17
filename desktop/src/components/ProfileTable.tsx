@@ -44,6 +44,10 @@ export function ProfileTable({
   showProject: boolean;
 }) {
   const { t } = useI18n();
+  // Is this list showing both worlds at once? Only then does saying which one a
+  // row belongs to tell anybody anything.
+  const mixed = profiles.some((p) => p.origin === "local") &&
+                profiles.some((p) => p.origin === "team");
   if (profiles.length === 0) {
     return <p className="empty pad">{t("row.emptyProject")}</p>;
   }
@@ -101,7 +105,18 @@ export function ProfileTable({
                 />
               </td>
               <td>
-                <div className="name">{p.name}</div>
+                <div className="name">
+                  {p.name}
+                  {/* Only the local ones are marked, and only when the list is
+                      mixed. Connected to a server, every row without this badge
+                      is the team's; on a machine with no server every row would
+                      carry it, which is noise rather than information. */}
+                  {mixed && p.origin === "local" && (
+                    <span className="badge" title={t("col.onlyHereWhy")}>
+                      {t("col.onlyHere")}
+                    </span>
+                  )}
+                </div>
                 {p.tags.length > 0 && (
                   <div className="tags">{p.tags.map((t) => <span key={t}>{t}</span>)}</div>
                 )}

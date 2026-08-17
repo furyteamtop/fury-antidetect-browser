@@ -278,6 +278,26 @@ pub struct Shell {
     pub last_email: Option<String>,
 }
 
+/// Does this action go to the local store, or to the server?
+///
+/// The question used to be "what mode is the shell in", which was the same
+/// question while the list showed one world at a time. It is not the same
+/// question any more: connected to a server, the list carries both, and a row
+/// from this machine must be launched, edited and deleted here no matter what
+/// the shell is connected to.
+///
+/// `origin` comes back from the interface, on the row the person clicked. When
+/// it is absent -- an older caller, or an action that is not about one
+/// particular profile -- the mode decides, which is exactly the previous
+/// behaviour.
+fn local_for(state: &AppState, origin: Option<&str>) -> bool {
+    match origin {
+        Some("local") => true,
+        Some("team") => false,
+        _ => mode_of(state) == "local",
+    }
+}
+
 fn mode_of(state: &AppState) -> &'static str {
     if state.settings.lock().unwrap().server_url.is_some() {
         "team"
@@ -818,6 +838,19 @@ pub struct UiProfile {
     /// In team mode a colleague's browser is visible through `lock`, not here.
     pub running: bool,
     pub last_opened_at: Option<String>,
+    /// Which world this row came from: "local" for this machine's own store,
+    /// "team" for the server.
+    ///
+    /// Added because the list stopped being one world. Connecting to a server
+    /// used to hide every local profile, and the first person to try it read
+    /// that as his profiles having been deleted -- reasonably, since nothing
+    /// said otherwise and they were nowhere on screen. They were in the store
+    /// the whole time.
+    ///
+    /// Every action that used to ask `mode_of(state)` now asks this instead,
+    /// because with both worlds in one list the mode no longer says which one a
+    /// row belongs to. See `local_for`.
+    pub origin: &'static str,
 }
 
 /// Everything a local profile allows. There are no roles without a server —
@@ -863,6 +896,44 @@ pub async fn projects(state: State<'_, AppState>) -> R<Vec<UiProject>> {
 
 #[tauri::command]
 /// `project_id` absent means every profile on this machine — the Profiles view.
+/// This machine's own profiles, whatever the shell is connected to.
+///
+/// Split out of `profiles` so that team mode can show them beside the server's.
+/// A project id is only ever a SERVER project, so it is not passed down here --
+/// filtering local rows by a project they cannot be in would return nothing and
+/// look like the local profiles had vanished again.
+async fn local_profiles() -> R<Vec<UiProfile>> {
+    let local: Vec<crate::agent::LocalProfile> =
+        crate::agent::call("profiles.list", serde_json::json!({})).await?;
+    Ok(local
+        .into_iter()
+        .map(|p| UiProfile {
+            proxy: p.proxy.map(|x| UiProxy {
+                display: format!("{}:{}", x.host, x.port),
+                country: x.last_country,
+                id: x.id,
+                name: x.name,
+                kind: x.kind,
+            }),
+            permissions: all_permissions(),
+            lock: None,
+            running: p.running,
+            last_opened_at: p.last_opened_at,
+            id: p.id,
+            project_id: p.project_id,
+            project_name: p.project_name,
+            name: p.name,
+            tags: p.tags,
+            persona_id: p.persona_id,
+            fp_seed: p.fp_seed,
+            timezone: p.timezone,
+            languages: p.languages,
+            origin: "local",
+        })
+        .collect())
+}
+
+#[tauri::command]
 pub async fn profiles(
     state: State<'_, AppState>,
     project_id: Option<String>,
@@ -899,6 +970,7 @@ pub async fn profiles(
                 fp_seed: p.fp_seed,
                 timezone: p.timezone,
                 languages: p.languages,
+                origin: "local",
             })
             .collect());
     }
@@ -912,7 +984,7 @@ pub async fn profiles(
     let remote: Vec<ProfileSummary> = state
         .call(reqwest::Method::GET, &path, Body::None, true)
         .await?;
-    Ok(remote
+    let mut rows: Vec<UiProfile> = remote
         .into_iter()
         .map(|p| UiProfile {
             id: p.id.to_string(),
@@ -943,8 +1015,27 @@ pub async fn profiles(
             })),
             running: false,
             last_opened_at: None,
+            origin: "team",
         })
-        .collect())
+        .collect();
+
+    // And this machine's own, beside them.
+    //
+    // Only on the flat list. Asked for a particular project the answer is the
+    // server's project and nothing else, because a local profile is in no
+    // server project and putting it there would be a lie about where it lives.
+    //
+    // A failure here is deliberately not fatal: an agent that is not answering
+    // should cost the local rows, not the whole list. Losing the server's
+    // profiles because the local half stumbled would be a worse trade than the
+    // one this function exists to make.
+    if project_id.is_none() {
+        match local_profiles().await {
+            Ok(mut mine) => rows.append(&mut mine),
+            Err(e) => tracing::warn!("local profiles unavailable, showing the server's only: {e:?}"),
+        }
+    }
+    Ok(rows)
 }
 
 /// Serde already spells these the way the interface expects; going through it
@@ -995,8 +1086,9 @@ pub async fn launch(
     state: State<'_, AppState>,
     profile_id: String,
     force: bool,
+    origin: Option<String>,
 ) -> R<serde_json::Value> {
-    if mode_of(&state) == "local" {
+    if local_for(&state, origin.as_deref()) {
         let out: serde_json::Value =
             crate::agent::call("profile.launch", serde_json::json!({ "id": profile_id })).await?;
         return Ok(serde_json::json!({ "launched": true, "pid": out.get("pid") }));
@@ -1123,8 +1215,12 @@ async fn launch_from_spec(state: &AppState, grant: &LockGrant) -> R<serde_json::
 }
 
 #[tauri::command]
-pub async fn stop(state: State<'_, AppState>, profile_id: String) -> R<serde_json::Value> {
-    if mode_of(&state) == "local" {
+pub async fn stop(
+    state: State<'_, AppState>,
+    profile_id: String,
+    origin: Option<String>,
+) -> R<serde_json::Value> {
+    if local_for(&state, origin.as_deref()) {
         return Ok(crate::agent::call("profile.stop", serde_json::json!({ "id": profile_id })).await?);
     }
 
@@ -1814,8 +1910,9 @@ pub async fn delete_proxy(state: State<'_, AppState>, id: String) -> R<serde_jso
 pub async fn save_profile(
     state: State<'_, AppState>,
     profile: serde_json::Value,
+    origin: Option<String>,
 ) -> R<serde_json::Value> {
-    if mode_of(&state) == "local" {
+    if local_for(&state, origin.as_deref()) {
         return Ok(crate::agent::call("profiles.upsert", profile).await?);
     }
 
@@ -1886,8 +1983,12 @@ pub async fn save_profile(
 }
 
 #[tauri::command]
-pub async fn delete_profile(state: State<'_, AppState>, id: String) -> R<serde_json::Value> {
-    if mode_of(&state) == "local" {
+pub async fn delete_profile(
+    state: State<'_, AppState>,
+    id: String,
+    origin: Option<String>,
+) -> R<serde_json::Value> {
+    if local_for(&state, origin.as_deref()) {
         return Ok(crate::agent::call("profiles.delete", serde_json::json!({ "id": id })).await?);
     }
     state
@@ -1920,7 +2021,8 @@ pub async fn import_project(path: String, passphrase: String) -> R<serde_json::V
 
 #[tauri::command]
 pub async fn trash(state: State<'_, AppState>) -> R<Vec<UiProfile>> {
-    let local: Vec<crate::agent::LocalProfile> = if mode_of(&state) == "local" {
+    let is_local = mode_of(&state) == "local";
+    let local: Vec<crate::agent::LocalProfile> = if is_local {
         crate::agent::call("profiles.trash", serde_json::json!({})).await?
     } else {
         state
@@ -1952,6 +2054,10 @@ pub async fn trash(state: State<'_, AppState>) -> R<Vec<UiProfile>> {
             fp_seed: p.fp_seed,
             timezone: p.timezone,
             languages: p.languages,
+            // The trash is one world at a time, still: a deleted server profile
+            // and a deleted local one are restored through different calls, and
+            // this view asks whichever the shell is connected to.
+            origin: if is_local { "local" } else { "team" },
         })
         .collect())
 }
@@ -2123,7 +2229,11 @@ pub async fn create_profiles(
             one["persona_id"] =
                 serde_json::json!(fury_shared::catalogue::pick_weighted(rand::random()).id);
         }
-        match save_profile(state.clone(), one).await {
+        // No origin: bulk creation makes NEW profiles, and a new profile is
+        // born in whichever world the shell is connected to. Only an existing
+        // row carries an origin, because only an existing row already lives
+        // somewhere.
+        match save_profile(state.clone(), one, None).await {
             Ok(v) => created.push(v),
             Err(e) => failed.push(serde_json::json!({ "n": i, "error": e.message })),
         }
@@ -2145,13 +2255,14 @@ pub async fn clone_profile(
     id: String,
     count: u32,
     name: Option<String>,
+    origin: Option<String>,
 ) -> R<serde_json::Value> {
     if !(1..=500).contains(&count) {
         return Err(ApiErr::local("Between 1 and 500.".to_string()));
     }
     let name = name.filter(|n| !n.trim().is_empty());
 
-    if mode_of(&state) == "local" {
+    if local_for(&state, origin.as_deref()) {
         let mut params = serde_json::json!({ "id": id, "count": count });
         if let Some(name) = name {
             params["name"] = serde_json::json!(name);

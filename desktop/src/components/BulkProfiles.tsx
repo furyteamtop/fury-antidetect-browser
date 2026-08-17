@@ -213,7 +213,7 @@ export function BulkProfiles({
                   setError(null);
                   try {
                     if (cloning) {
-                      setMade(await api.cloneProfile(cloneOf.id, n, pattern));
+                      setMade(await api.cloneProfile(cloneOf.id, n, pattern, cloneOf.origin));
                     } else {
                       setMade(
                         await api.createProfiles(n, pattern, {

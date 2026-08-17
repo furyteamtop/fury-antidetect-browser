@@ -205,7 +205,12 @@ export function ProfileDialog({
         languages: languages.trim() ? splitList(languages) : null,
         start_urls: splitList(startUrls, "\n"),
         last_opened_at: null,
-      });
+      },
+      // Where to save it. An existing profile goes back where it came from --
+      // with both worlds in one list, the shell's mode no longer says which.
+      // A new one has no origin yet and is born wherever the shell is
+      // connected, which is what `undefined` means to the command.
+      editing?.origin);
       onSaved();
     } catch (e) {
       setError((e as Error).message);

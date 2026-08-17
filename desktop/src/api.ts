@@ -77,8 +77,16 @@ export interface TotpCode {
   next: string;
 }
 
+/** Which world a row came from: this machine's own store, or the server.
+ *
+ *  Connected to a server the list carries both, so the shell's mode no longer
+ *  tells an action where to send itself -- the row does. Every call that acts
+ *  on ONE existing profile passes it. */
+export type Origin = "local" | "team";
+
 export interface Profile {
   id: string;
+  origin: Origin;
   /** Null when the profile is in no project. Profiles is the master list —
    *  every profile on this machine — and a project is a grouping a profile can
    *  be put into or taken out of without ever being at risk. */
@@ -515,9 +523,9 @@ export const api = {
       ? cmd<{ moved: number }>("move_profiles", { ids, projectId })
       : Promise.reject(new ApiError(0, "Moving profiles is desktop-only for now.")),
 
-  launch: (profileId: string, force = false): Promise<LaunchResult> =>
+  launch: (profileId: string, force = false, origin?: Origin): Promise<LaunchResult> =>
     isDesktop
-      ? cmd<LaunchResult>("launch", { profileId, force })
+      ? cmd<LaunchResult>("launch", { profileId, force, origin: origin ?? null })
       : http<LaunchResult>(`/v1/profiles/${profileId}/lock`, {
           method: "POST",
           body: JSON.stringify({
@@ -527,9 +535,9 @@ export const api = {
           }),
         }).then((r) => ({ ...r, launched: false })),
 
-  stop: (profileId: string): Promise<unknown> =>
+  stop: (profileId: string, origin?: Origin): Promise<unknown> =>
     isDesktop
-      ? cmd<unknown>("stop", { profileId })
+      ? cmd<unknown>("stop", { profileId, origin: origin ?? null })
       : http(`/v1/profiles/${profileId}/unlock`, { method: "POST" }),
 
   // Local mode only: with a server, profiles and proxies are edited where the
@@ -577,9 +585,10 @@ export const api = {
   }> => cmd("check_proxy", { url, checkerUrl: checkerUrl || null, proxyId: proxyId || null }),
   rotateProxy: (id: string): Promise<{ ok: boolean; error?: string }> =>
     cmd("rotate_proxy", { id }),
-  saveProfile: (profile: unknown): Promise<{ id: string }> =>
-    cmd<{ id: string }>("save_profile", { profile }),
-  deleteProfile: (id: string): Promise<unknown> => cmd("delete_profile", { id }),
+  saveProfile: (profile: unknown, origin?: Origin): Promise<{ id: string }> =>
+    cmd<{ id: string }>("save_profile", { profile, origin: origin ?? null }),
+  deleteProfile: (id: string, origin?: Origin): Promise<unknown> =>
+    cmd("delete_profile", { id, origin: origin ?? null }),
 
   /** Many profiles from one template. Each gets its own seed and its own
    *  persona — see the agent for why that is the whole safety property. */
@@ -598,8 +607,9 @@ export const api = {
     id: string,
     count: number,
     name?: string,
+    origin?: Origin,
   ): Promise<{ created: unknown[]; failed?: { n: number; error: string }[] }> =>
-    cmd("clone_profile", { id, count, name: name || null }),
+    cmd("clone_profile", { id, count, name: name || null, origin: origin ?? null }),
 
   /** A pasted supplier block. Every line is reported back with its number. */
   importProxies: (

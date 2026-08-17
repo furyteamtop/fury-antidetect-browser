@@ -330,6 +330,24 @@ textarea {
   font-size: 11px;
 }
 
+/* "on this machine", beside the name of a profile that is not on the server.
+   Shaped like a tag rather than a warning: it is a statement about where a
+   thing lives, not a problem with it. Dim on purpose — the row it marks is the
+   ordinary one for somebody who has just connected a server to a machine that
+   already had profiles, and a bright badge on every one of them would read as
+   an error list. */
+.badge {
+  margin-left: var(--s-2);
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 400;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
 /* The cell stays a table cell. Putting `display: flex` on a <td> takes it out
    of table layout, so it no longer shares the row's height — which showed up as
    a dark rectangle hanging below the row on hover, because `tr:hover td` painted
