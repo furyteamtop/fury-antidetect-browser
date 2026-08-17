@@ -8,6 +8,7 @@
 //! permissions, and hands out presigned URLs. That is what lets it run on the
 //! cheapest VPS available and makes its compromise survivable.
 
+mod shares;
 mod api;
 mod auth;
 mod enroll;

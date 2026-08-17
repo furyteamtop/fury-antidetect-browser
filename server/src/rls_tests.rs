@@ -352,3 +352,144 @@ db_test!(audit_cannot_be_rewritten, c, {
         );
     }
 });
+
+// ---------------------------------------------------------------------------
+// Sharing one profile across organisations (migration 0008)
+// ---------------------------------------------------------------------------
+//
+// These exist because 0008 widens the one condition everything else rests on.
+// `user_in_org(org_id)` became `user_in_org(org_id) OR user_holds_share(id)`,
+// and a widened boundary is only as good as the proof that it is narrow. Each
+// test below asserts a limit rather than a capability: what the grantee still
+// cannot see.
+
+/// Two profiles in A, so "sees the shared one" can be wrong by seeing both.
+async fn make_shared_fixture(c: &mut PgConnection) {
+    // Bound before writing, not only before reading. FORCE row-level security
+    // applies to INSERT as much as to SELECT, so an unbound connection cannot
+    // seed the rows the test is about -- which is how all seven of these failed
+    // on their first run, at the insert rather than at the assertion.
+    bind(c, USER_A).await;
+    make_project(c, PROJECT_A, ORG_A, USER_A).await;
+    let sql = format!(
+        "INSERT INTO profiles (id, org_id, project_id, name, persona_id, fp_seed, created_by)
+           VALUES ('{SHARED}','{ORG_A}','{PROJECT_A}','shared','win11','\\x0101010101010101','{USER_A}'),
+                  ('{PRIVATE}','{ORG_A}','{PROJECT_A}','private','win11','\\x0202020202020202','{USER_A}');"
+    );
+    c.execute(sql.as_str()).await.expect("seed profiles");
+}
+
+async fn share_with_b(c: &mut PgConnection, expires: &str, key: &str) {
+    let sql = format!(
+        "INSERT INTO profile_grants
+           (profile_id, user_id, permissions, granted_by, expires_at, wrapped_key)
+         VALUES ('{SHARED}','{USER_B}', 1, '{USER_A}', {expires}, {key});"
+    );
+    c.execute(sql.as_str()).await.expect("share");
+}
+
+async fn profiles_visible(c: &mut PgConnection) -> Vec<String> {
+    sqlx::query_scalar("SELECT name FROM profiles ORDER BY name")
+        .fetch_all(&mut *c)
+        .await
+        .expect("list profiles")
+}
+
+const PROJECT_A: &str = "00000000-0000-0000-0000-0000000000a1";
+const SHARED: &str = "00000000-0000-0000-0000-0000000000f1";
+const PRIVATE: &str = "00000000-0000-0000-0000-0000000000f2";
+
+db_test!(without_a_share_the_other_organisation_still_sees_nothing, c, {
+    make_shared_fixture(&mut c).await;
+    bind(&mut c, USER_B).await;
+    assert!(
+        profiles_visible(&mut c).await.is_empty(),
+        "0008 must not widen anything until a grant exists"
+    );
+});
+
+db_test!(a_share_gives_exactly_one_profile_and_not_the_one_beside_it, c, {
+    make_shared_fixture(&mut c).await;
+    share_with_b(&mut c, "NULL", "'\\x01'").await;
+    bind(&mut c, USER_B).await;
+    assert_eq!(
+        profiles_visible(&mut c).await,
+        vec!["shared".to_string()],
+        "the grant is for one profile; the other one in the same project is not part of it"
+    );
+});
+
+db_test!(the_shared_profile_does_not_bring_its_project_along, c, {
+    make_shared_fixture(&mut c).await;
+    share_with_b(&mut c, "NULL", "'\\x01'").await;
+    bind(&mut c, USER_B).await;
+    // A profile is filed in a project, and a project is a list of profiles.
+    // Handing over the profile must not hand over the folder it sits in.
+    assert_eq!(count_projects(&mut c).await, 0);
+});
+
+db_test!(an_expired_share_is_no_share, c, {
+    make_shared_fixture(&mut c).await;
+    share_with_b(&mut c, "now() - interval '1 hour'", "'\\x01'").await;
+    bind(&mut c, USER_B).await;
+    assert!(
+        profiles_visible(&mut c).await.is_empty(),
+        "an expired grant is not a smaller permission, it is none"
+    );
+});
+
+db_test!(a_grant_without_a_key_does_not_open_the_boundary, c, {
+    make_shared_fixture(&mut c).await;
+    // What an in-organisation profile grant has looked like since 0001: no
+    // wrapped key, because a member derives it. Such a row must not become a
+    // cross-organisation door the day 0008 is applied.
+    share_with_b(&mut c, "NULL", "NULL").await;
+    bind(&mut c, USER_B).await;
+    assert!(profiles_visible(&mut c).await.is_empty());
+});
+
+db_test!(the_grantee_sees_their_own_grant_and_not_anybody_elses, c, {
+    make_shared_fixture(&mut c).await;
+    share_with_b(&mut c, "NULL", "'\\x01'").await;
+    // A second person also holds this profile. Who else has it is the owner's
+    // business, not a fellow grantee's.
+    let other = "00000000-0000-0000-0000-0000000000c9";
+    let sql = format!(
+        "INSERT INTO users (id, email, password_hash, public_key, wrapped_private_key, kdf_salt)
+           VALUES ('{other}','c@example.com','x','\\x00','\\x00','\\x00');
+         INSERT INTO profile_grants (profile_id, user_id, permissions, granted_by, wrapped_key)
+           VALUES ('{SHARED}','{other}', 1, '{USER_A}', '\\x02');"
+    );
+    c.execute(sql.as_str()).await.expect("second grantee");
+
+    bind(&mut c, USER_B).await;
+    let mine: i64 = sqlx::query_scalar("SELECT count(*) FROM profile_grants")
+        .fetch_one(&mut c)
+        .await
+        .expect("count grants");
+    assert_eq!(mine, 1, "a grantee sees their own row only");
+});
+
+db_test!(sharing_a_profile_does_not_share_the_organisations_proxy_list, c, {
+    make_shared_fixture(&mut c).await;
+    // Two proxies in A: one the shared profile goes out through, one it does
+    // not. The first has to travel with the profile or the account appears from
+    // the wrong country; the second must not.
+    let used = "00000000-0000-0000-0000-0000000000e1";
+    let spare = "00000000-0000-0000-0000-0000000000e2";
+    let sql = format!(
+        "INSERT INTO proxies (id, org_id, name, kind, host, port)
+           VALUES ('{used}','{ORG_A}','used','http','h1',1),
+                  ('{spare}','{ORG_A}','spare','http','h2',2);
+         UPDATE profiles SET proxy_id = '{used}' WHERE id = '{SHARED}';"
+    );
+    c.execute(sql.as_str()).await.expect("seed proxies");
+    share_with_b(&mut c, "NULL", "'\\x01'").await;
+
+    bind(&mut c, USER_B).await;
+    let names: Vec<String> = sqlx::query_scalar("SELECT name FROM proxies ORDER BY name")
+        .fetch_all(&mut c)
+        .await
+        .expect("list proxies");
+    assert_eq!(names, vec!["used".to_string()]);
+});

@@ -54,6 +54,18 @@ pub fn routes() -> Router<Arc<AppState>> {
             axum::routing::delete(revoke_access),
         )
         .route("/v1/profiles", get(list_all_profiles))
+        // Handing one profile to one person, across organisations. See
+        // shares.rs and migration 0008 for what that widens and what it costs.
+        .route("/v1/users/lookup", get(crate::shares::lookup_user))
+        .route("/v1/profiles/shared-with-me", get(crate::shares::shared_with_me))
+        .route(
+            "/v1/profiles/{profile_id}/shares",
+            get(crate::shares::list_shares).post(crate::shares::share_profile),
+        )
+        .route(
+            "/v1/profiles/{profile_id}/shares/{user_id}",
+            axum::routing::delete(crate::shares::revoke_share),
+        )
         .route("/v1/profiles/move", post(move_profiles))
         .route("/v1/profiles/{profile_id}/clone", post(clone_profile))
         .route("/v1/profiles/trash", get(list_trash))
@@ -981,7 +993,7 @@ async fn list_all_profiles(
 ///
 /// The argument is always a column reference written in this file, never
 /// anything derived from a request.
-fn rfc3339(column: &str) -> String {
+pub(crate) fn rfc3339(column: &str) -> String {
     format!(r#"to_char({column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')"#)
 }
 
@@ -3543,7 +3555,7 @@ async fn release_lock(
 /// Takes the connection rather than the pool because audit_events is under a
 /// policy now: a row written from an unbound connection is refused, and one
 /// written from somebody else's would carry the wrong org_id past the check.
-async fn audit(
+pub(crate) async fn audit(
     db: &mut sqlx::PgConnection,
     caller: &Caller,
     action: &str,
