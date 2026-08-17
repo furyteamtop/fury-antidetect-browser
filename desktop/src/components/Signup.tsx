@@ -52,11 +52,26 @@ export function Signup({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const ready =
-    email.includes("@") &&
-    org.trim() !== "" &&
-    password.length >= 12 &&
-    password === again;
+  const MIN_PASSWORD = 12;
+
+  /** Why the button is disabled, in a sentence, or null when it is not.
+   *
+   *  It used to be `disabled={!ready}` and nothing else, and the screen said
+   *  nowhere that the password has a minimum length. A filled-in form with a
+   *  nine-character password produced a dead button and no explanation --
+   *  every field looks answered, so the natural reading is that the
+   *  application is broken. Reported as exactly that.
+   *
+   *  Order matters: it reports the FIRST thing that is missing, top to bottom,
+   *  so the message follows the eye down the form rather than jumping. */
+  const blocker =
+    !email.includes("@") ? t("signup.needEmail")
+    : org.trim() === "" ? t("signup.needOrg")
+    : password.length < MIN_PASSWORD
+      ? t("signup.needPassword", { n: String(MIN_PASSWORD), have: String(password.length) })
+    : password !== again ? t("signup.needMatch")
+    : null;
+  const ready = blocker === null;
 
   const ask = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -161,6 +176,20 @@ export function Signup({
               password is the only thing that opens the organisation key, and
               nobody holds a copy. */}
           <p className="warn small center">{t("enrol.noRecovery")}</p>
+          {/* No confirmation mail is coming, and saying so here is the whole
+              point: the server has no mail library and sends nothing at all.
+              The account is live the moment this button works.
+
+              Somebody who signs up and then waits for a letter concludes the
+              registration failed, and the second attempt fails properly -- the
+              address is taken, by them. Reported exactly that way, with a
+              ten-minute mailbox open beside the application.
+
+              It also carries the consequence, which matters more than the
+              reassurance: an address nobody verifies and a password nobody can
+              reset means a typo here is a locked door with no key. */}
+          <p className="hint center">{t("signup.noEmailSent")}</p>
+          {blocker && <p className="hint center">{blocker}</p>}
           <button className="primary" type="submit" disabled={busy || !ready}>
             {busy ? t("signup.creating") : t("signup.create")}
           </button>
