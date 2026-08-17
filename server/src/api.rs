@@ -897,6 +897,10 @@ async fn profiles_in(
                 project_name,
             )| {
                 ProfileSummary {
+                    // Filled in below: the row above is already at sqlx's
+                    // sixteen-column limit for tuples, and one more would have
+                    // meant a named struct for a single integer.
+                    shared_with: 0,
                     id,
                     project_id,
                     project_name,
@@ -940,7 +944,40 @@ async fn profiles_in(
         )
         .collect();
 
-    Ok(Json(out))
+    Ok(Json(with_share_counts(&mut *db, out).await?))
+}
+
+/// Fill in how many people hold each of these profiles.
+///
+/// One query for the whole page rather than a column on the listing query: that
+/// row is already at sqlx's sixteen-element limit for tuple decoding, and one
+/// more would have meant a named struct to carry a single integer. It is also
+/// one query rather than one per row, which is the part that matters on a
+/// project with two hundred profiles.
+async fn with_share_counts(
+    db: &mut sqlx::PgConnection,
+    mut rows: Vec<ProfileSummary>,
+) -> ApiResult<Vec<ProfileSummary>> {
+    if rows.is_empty() {
+        return Ok(rows);
+    }
+    let ids: Vec<Uuid> = rows.iter().map(|r| r.id).collect();
+    let counts: Vec<(Uuid, i64)> = sqlx::query_as(
+        "SELECT profile_id, count(*) FROM profile_grants \
+         WHERE profile_id = ANY($1) AND wrapped_key IS NOT NULL \
+           AND (expires_at IS NULL OR expires_at > now()) \
+         GROUP BY profile_id",
+    )
+    .bind(&ids)
+    .fetch_all(&mut *db)
+    .await?;
+
+    for (id, n) in counts {
+        if let Some(row) = rows.iter_mut().find(|r| r.id == id) {
+            row.shared_with = n;
+        }
+    }
+    Ok(rows)
 }
 
 /// Every profile the caller may see, across every project.

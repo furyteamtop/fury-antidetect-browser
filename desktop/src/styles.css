@@ -342,6 +342,23 @@ textarea {
   font-size: 11px;
 }
 
+/* A glyph beside a name: on this machine, or held by other people.
+   Dim and small on purpose -- these are facts about a row, not warnings about
+   it, and a column of bright marks would read as a list of problems. */
+.mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: var(--s-2);
+  color: var(--text-faint);
+  vertical-align: middle;
+}
+
+.markN {
+  font-size: 11px;
+  line-height: 1;
+}
+
 /* "on this machine", beside the name of a profile that is not on the server.
    Shaped like a tag rather than a warning: it is a statement about where a
    thing lives, not a problem with it. Dim on purpose — the row it marks is the

@@ -2,7 +2,7 @@
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
 import { useI18n } from "../i18n";
-import { IconButton } from "./Icon";
+import { Icon, IconButton } from "./Icon";
 import type { Me, Profile } from "../api";
 
 /** Every row's controls follow the permissions the SERVER resolved. Hiding a
@@ -119,9 +119,23 @@ export function ProfileTable({
                       mixed. Connected to a server, every row without this badge
                       is the team's; on a machine with no server every row would
                       carry it, which is noise rather than information. */}
+                  {/* Marks rather than words. A row is read at a glance and a
+                      list of them is read as a column, so two glyphs in a fixed
+                      place carry more than two labels of different lengths
+                      pushing the name around. Both keep their sentence on
+                      hover. */}
                   {hasServer && p.origin === "local" && (
-                    <span className="badge" title={t("col.onlyHereWhy")}>
-                      {t("col.onlyHere")}
+                    <span className="mark" title={t("col.onlyHereWhy")}>
+                      <Icon name="laptop" size={13} />
+                    </span>
+                  )}
+                  {p.shared_with > 0 && (
+                    <span
+                      className="mark"
+                      title={t("col.sharedWith", { n: String(p.shared_with) })}
+                    >
+                      <Icon name="people" size={13} />
+                      <span className="markN">{p.shared_with}</span>
                     </span>
                   )}
                 </div>

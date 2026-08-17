@@ -849,6 +849,8 @@ pub struct UiProfile {
     /// In team mode a colleague's browser is visible through `lock`, not here.
     pub running: bool,
     pub last_opened_at: Option<String>,
+    /// How many people hold this profile through a share. Zero for a local one.
+    pub shared_with: i64,
     /// Which world this row came from: "local" for this machine's own store,
     /// "team" for the server.
     ///
@@ -955,6 +957,7 @@ async fn local_profiles() -> R<Vec<UiProfile>> {
             fp_seed: p.fp_seed,
             timezone: p.timezone,
             languages: p.languages,
+            shared_with: 0,
             origin: "local",
         })
         .collect())
@@ -999,6 +1002,9 @@ pub async fn profiles(
                 fp_seed: p.fp_seed,
                 timezone: p.timezone,
                 languages: p.languages,
+                // A profile on this machine is held by nobody: there is nowhere
+                // for a share to have been recorded.
+                shared_with: 0,
                 origin: "local",
             })
             .collect());
@@ -1036,6 +1042,9 @@ pub async fn profiles(
                 fp_seed: p.fp_seed,
                 timezone: p.timezone,
                 languages: p.languages,
+                // A profile on this machine is held by nobody: there is nowhere
+                // for a share to have been recorded.
+                shared_with: 0,
                 origin: "local",
             })
             .collect());
@@ -1081,6 +1090,7 @@ pub async fn profiles(
             })),
             running: false,
             last_opened_at: None,
+            shared_with: p.shared_with,
             origin: "team",
         })
         .collect();
@@ -2138,6 +2148,7 @@ pub async fn trash(state: State<'_, AppState>) -> R<Vec<UiProfile>> {
             fp_seed: p.fp_seed,
             timezone: p.timezone,
             languages: p.languages,
+            shared_with: 0,
             // The local rows were appended first, so the boundary is an index
             // rather than a flag on the row -- the agent and the server return
             // the same shape and neither says which it is.
@@ -2778,6 +2789,9 @@ pub async fn shared_with_me(state: State<'_, AppState>) -> R<Vec<UiProfile>> {
             lock: None,
             running: false,
             last_opened_at: None,
+            // A profile lent TO this account: how many others hold it is the
+            // owner's business, and the server does not say.
+            shared_with: 0,
             origin: "shared",
         })
         .collect())

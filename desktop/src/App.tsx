@@ -711,16 +711,16 @@ export function App() {
                     give somebody this profile" had no answer anywhere in the
                     window. A greyed control that explains itself teaches the
                     order of the two steps. */}
+                {/* Enabled for anything. A local profile is copied to the
+                    server on the way, by the dialog, without being asked --
+                    "why can't I just share it and have it appear for them" is
+                    the right question and the answer was four steps of our
+                    bookkeeping. */}
                 {!local && chosen.length > 0 && (
                   <IconButton
                     icon="share"
                     label={t("row.share")}
-                    disabled={busy || !chosen.every((p) => p.origin === "team")}
-                    title={
-                      chosen.every((p) => p.origin === "team")
-                        ? t("row.share")
-                        : t("row.shareNeedsServer")
-                    }
+                    disabled={busy}
                     onClick={() => setSharing(chosen)}
                   />
                 )}
@@ -737,15 +737,18 @@ export function App() {
                       // is. No picker: Ask has no list, and adding one for this
                       // would be a screen of its own -- while choosing a
                       // project is already what the sidebar is for.
-                      const target = active?.id ?? (projects.length === 1 ? projects[0].id : null);
+                      // A folder is bookkeeping, and asking somebody to choose
+                      // one before they may do the thing they asked for is
+                      // making them do ours. The one being viewed if there is
+                      // one, otherwise a server project named after the folder
+                      // these came from, made once and reused.
+                      const team = projects.filter((p) => p.origin === "team");
+                      let target = active?.origin === "team" ? active.id : null;
                       if (!target) {
-                        // Two different situations and two different answers.
-                        // A fresh account has NO project, and telling somebody
-                        // to pick one from an empty list is the kind of
-                        // instruction that makes people think the application
-                        // is broken.
-                        setError(projects.length === 0 ? t("up.noProjects") : t("up.pickProject"));
-                        return;
+                        const wanted = chosen[0].project_name?.trim() || t("share.autoProject");
+                        target =
+                          team.find((p) => p.name === wanted)?.id ??
+                          (await api.createProjectIn(wanted, "team")).id;
                       }
                       const go = await ask({
                         title: t("up.send"),
@@ -815,14 +818,21 @@ export function App() {
                     setBusy(false);
                   }}
                 />
-                {/* Only for rows that can go where these projects are.
-                    In team mode the list is the SERVER's projects, and a local
-                    profile cannot be filed in one -- offering it produced a
-                    request the server answered with "not found", which reads as
-                    the profile having been taken away rather than as the wrong
-                    machine being asked. Send it across first; then it can be
-                    filed like anything else. */}
-                {projects.length > 0 && (local || chosen.every((p) => p.origin === "team")) && (
+                {/* Filing, into folders of the SAME side as the selection.
+                    A local profile goes in a local folder and a team one in a
+                    team project; offering the other list is what produced
+                    "not found" from a server asked about a profile it had never
+                    seen. Hiding it altogether was the over-correction: it left
+                    somebody who just wants their own profiles sorted into
+                    Personal and Work with no way to do it. */}
+                {(() => {
+                  const side = chosen.every((p) => p.origin === "local")
+                    ? "local"
+                    : chosen.every((p) => p.origin === "team")
+                      ? "team"
+                      : null;
+                  const filable = side ? projects.filter((p) => p.origin === side) : [];
+                  return filable.length > 0 && (
                   <select
                     style={{ width: "auto" }}
                     value=""
@@ -851,16 +861,20 @@ export function App() {
                     }}
                   >
                     <option value="">{t("bar.moveTo")}</option>
-                    {projects.map((p) => (
+                    {filable.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name}
                       </option>
                     ))}
-                    {/* Local only: on a server a profile always belongs to a
-                        project, because the project is what carries access. */}
-                    {local && <option value={"\u0000none"}>{t("bar.moveOut")}</option>}
+                    {/* Out of every folder is a local idea: on a server a
+                        profile always belongs to a project, because the project
+                        is what carries access to it. */}
+                    {side === "local" && (
+                      <option value={"\u0000none"}>{t("bar.moveOut")}</option>
+                    )}
                   </select>
-                )}
+                  );
+                })()}
                 {/* One profile, not many. Copying acts on a single source and
                     cookies belong to a single jar, so offering either for a
                     multi-selection would mean guessing which one was meant. */}

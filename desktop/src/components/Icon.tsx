@@ -28,6 +28,12 @@ const P = {
   close: "M18 6 6 18M6 6l12 12",
   refresh: "M20 11a8 8 0 1 0-.6 4M20 5v6h-6",
   pencil: "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z",
+  /** This machine. A laptop, because "on this machine" is what it means and a
+   *  house would mean home. */
+  laptop: "M4 6a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v9H4V6ZM2 18h20M9 18h6",
+  /** Two people: somebody else holds this too. */
+  people:
+    "M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM3 20a6 6 0 0 1 12 0M16 5.5a3 3 0 0 1 0 5.8M18 20a5.5 5.5 0 0 0-2-4.2",
 } as const;
 
 export type IconName = keyof typeof P;

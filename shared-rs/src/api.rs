@@ -39,6 +39,13 @@ pub struct ProfileSummary {
     pub current_version: i32,
     pub lock: Option<LockInfo>,
     pub permissions: Vec<Perm>,
+    /// How many people currently hold this profile through a share.
+    ///
+    /// Carried in the listing rather than fetched per row: it is drawn as a
+    /// mark on every line, and two hundred profiles would otherwise be two
+    /// hundred requests to draw one icon.
+    #[serde(default)]
+    pub shared_with: i64,
 }
 
 /// Proxy as shown to a user *without* `reveal_secrets`: enough to tell profiles
