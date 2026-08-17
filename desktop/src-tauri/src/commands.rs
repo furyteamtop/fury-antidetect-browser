@@ -290,6 +290,10 @@ pub struct Shell {
 /// it is absent -- an older caller, or an action that is not about one
 /// particular profile -- the mode decides, which is exactly the previous
 /// behaviour.
+fn team_origin() -> &'static str {
+    "team"
+}
+
 fn local_for(state: &AppState, origin: Option<&str>) -> bool {
     match origin {
         Some("local") => true,
@@ -797,6 +801,13 @@ pub async fn me(state: State<'_, AppState>) -> R<Me> {
 /// that drift apart.
 #[derive(Serialize)]
 pub struct UiProject {
+    /// "local" for a folder on this machine, "team" for one on the server.
+    ///
+    /// Added for the same reason UiProfile has one: with both worlds in one
+    /// sidebar, the shell's mode no longer says which side a row belongs to,
+    /// and every action on it has to follow the row.
+    #[serde(default = "team_origin")]
+    pub origin: &'static str,
     pub id: String,
     pub name: String,
     pub profile_count: i64,
@@ -867,31 +878,47 @@ fn all_permissions() -> Vec<String> {
 }
 
 #[tauri::command]
+/// Folders, from both worlds.
+///
+/// Connected to a server this used to list the SERVER's projects and only
+/// those, so a local profile had nowhere to be filed and a folder made for one
+/// could not be made at all -- "why is a local folder not being created" is
+/// exactly right, it was not, the + made a project on the server.
 pub async fn projects(state: State<'_, AppState>) -> R<Vec<UiProject>> {
+    let local: Vec<crate::agent::LocalProject> =
+        crate::agent::call("projects.list", serde_json::json!({}))
+            .await
+            .unwrap_or_default();
+    let mine: Vec<UiProject> = local
+        .into_iter()
+        .map(|p| UiProject {
+            id: p.id,
+            name: p.name,
+            profile_count: p.profile_count,
+            origin: "local",
+        })
+        .collect();
+
     if mode_of(&state) == "local" {
-        let local: Vec<crate::agent::LocalProject> =
-            crate::agent::call("projects.list", serde_json::json!({})).await?;
-        return Ok(local
-            .into_iter()
-            .map(|p| UiProject {
-                id: p.id,
-                name: p.name,
-                profile_count: p.profile_count,
-            })
-            .collect());
+        return Ok(mine);
     }
 
     let remote: Vec<ProjectSummary> = state
         .call(reqwest::Method::GET, "/v1/projects", Body::None, true)
         .await?;
-    Ok(remote
+    let mut rows: Vec<UiProject> = remote
         .into_iter()
         .map(|p| UiProject {
             id: p.id.to_string(),
             name: p.name,
             profile_count: p.profile_count,
+            origin: "team",
         })
-        .collect())
+        .collect();
+    // The server's first, then this machine's: a team's folders are what
+    // somebody connected to a team is usually looking for.
+    rows.extend(mine);
+    Ok(rows)
 }
 
 #[tauri::command]
@@ -937,7 +964,46 @@ async fn local_profiles() -> R<Vec<UiProfile>> {
 pub async fn profiles(
     state: State<'_, AppState>,
     project_id: Option<String>,
+    // Which world the chosen project belongs to. Absent for the flat list.
+    origin: Option<String>,
 ) -> R<Vec<UiProfile>> {
+    // A LOCAL folder chosen while connected to a server: its contents come from
+    // the agent, and asking the server for them returns "not found" about a
+    // project it has never heard of.
+    if project_id.is_some() && origin.as_deref() == Some("local") {
+        let local: Vec<crate::agent::LocalProfile> = crate::agent::call(
+            "profiles.list",
+            serde_json::json!({ "project_id": project_id }),
+        )
+        .await?;
+        return Ok(local
+            .into_iter()
+            .map(|p| UiProfile {
+                proxy: p.proxy.map(|x| UiProxy {
+                    display: format!("{}:{}", x.host, x.port),
+                    country: x.last_country,
+                    id: x.id,
+                    name: x.name,
+                    kind: x.kind,
+                }),
+                permissions: all_permissions(),
+                lock: None,
+                running: p.running,
+                last_opened_at: p.last_opened_at,
+                id: p.id,
+                project_id: p.project_id,
+                project_name: p.project_name,
+                name: p.name,
+                tags: p.tags,
+                persona_id: p.persona_id,
+                fp_seed: p.fp_seed,
+                timezone: p.timezone,
+                languages: p.languages,
+                origin: "local",
+            })
+            .collect());
+    }
+
     if mode_of(&state) == "local" {
         let local: Vec<crate::agent::LocalProfile> = crate::agent::call(
             "profiles.list",
@@ -2086,8 +2152,17 @@ pub async fn move_profiles(
     state: State<'_, AppState>,
     ids: Vec<String>,
     project_id: Option<String>,
+    origin: Option<String>,
 ) -> R<serde_json::Value> {
-    if mode_of(&state) != "local" {
+    // Routed by the row, like every other action on one. Without this, moving a
+    // LOCAL profile while connected to a server sent its id to the server,
+    // which had never heard of it and said so:
+    //
+    //     Not found, or you no longer have access.
+    //
+    // — which reads as the profile having been taken away rather than as a
+    // request sent to the wrong machine.
+    if !local_for(&state, origin.as_deref()) {
         // On a server a profile always belongs to a project, because the
         // project is what carries access to it. "Out of every project" is a
         // local idea and there is nothing sensible for it to mean here.
@@ -2146,8 +2221,9 @@ pub async fn rename_project(
     state: State<'_, AppState>,
     id: String,
     name: String,
+    origin: Option<String>,
 ) -> R<serde_json::Value> {
-    if mode_of(&state) == "local" {
+    if local_for(&state, origin.as_deref()) {
         return Ok(
             crate::agent::call("projects.rename", serde_json::json!({ "id": id, "name": name }))
                 .await?,
@@ -2164,8 +2240,12 @@ pub async fn rename_project(
 }
 
 #[tauri::command]
-pub async fn delete_project(state: State<'_, AppState>, id: String) -> R<serde_json::Value> {
-    if mode_of(&state) == "local" {
+pub async fn delete_project(
+    state: State<'_, AppState>,
+    id: String,
+    origin: Option<String>,
+) -> R<serde_json::Value> {
+    if local_for(&state, origin.as_deref()) {
         return Ok(crate::agent::call("projects.delete", serde_json::json!({ "id": id })).await?);
     }
     state
@@ -2174,8 +2254,12 @@ pub async fn delete_project(state: State<'_, AppState>, id: String) -> R<serde_j
 }
 
 #[tauri::command]
-pub async fn create_project(state: State<'_, AppState>, name: String) -> R<serde_json::Value> {
-    if mode_of(&state) == "local" {
+pub async fn create_project(
+    state: State<'_, AppState>,
+    name: String,
+    origin: Option<String>,
+) -> R<serde_json::Value> {
+    if local_for(&state, origin.as_deref()) {
         return Ok(crate::agent::call("projects.create", serde_json::json!({ "name": name })).await?);
     }
     state

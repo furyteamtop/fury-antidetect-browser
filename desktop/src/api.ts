@@ -27,6 +27,8 @@ export type Perm =
   | "manage_access";
 
 export interface Project {
+  /** Which world it lives in: this machine, or the server. */
+  origin: Origin;
   id: string;
   name: string;
   profile_count: number;
@@ -432,11 +434,14 @@ export const api = {
   projects: (): Promise<Project[]> =>
     isDesktop ? cmd<Project[]>("projects") : http<Project[]>("/v1/projects"),
 
+  createProjectIn: (name: string, origin: Origin): Promise<{ id: string }> =>
+    cmd<{ id: string }>("create_project", { name, origin }),
+
   /** Every profile when `projectId` is omitted — which is the Profiles view,
    *  and the ordinary case. Passing one narrows it. */
-  profiles: (projectId?: string): Promise<Profile[]> =>
+  profiles: (projectId?: string, origin?: Origin): Promise<Profile[]> =>
     isDesktop
-      ? cmd<Profile[]>("profiles", { projectId: projectId ?? null })
+      ? cmd<Profile[]>("profiles", { projectId: projectId ?? null, origin: origin ?? null })
       : projectId
         ? http<Profile[]>(`/v1/projects/${projectId}/profiles`)
         : Promise.resolve([]),
@@ -518,9 +523,13 @@ export const api = {
         }),
 
   /** Move profiles into a project, or out of every project with `null`. */
-  moveProfiles: (ids: string[], projectId: string | null): Promise<{ moved: number }> =>
+  moveProfiles: (
+    ids: string[],
+    projectId: string | null,
+    origin?: Origin,
+  ): Promise<{ moved: number }> =>
     isDesktop
-      ? cmd<{ moved: number }>("move_profiles", { ids, projectId })
+      ? cmd<{ moved: number }>("move_profiles", { ids, projectId, origin: origin ?? null })
       : Promise.reject(new ApiError(0, "Moving profiles is desktop-only for now.")),
 
   launch: (profileId: string, force = false, origin?: Origin): Promise<LaunchResult> =>
@@ -676,9 +685,10 @@ export const api = {
     cmd("restore_profile", { id, origin: origin ?? null }),
   purgeProfile: (id: string, origin?: Origin): Promise<unknown> =>
     cmd("purge_profile", { id, origin: origin ?? null }),
-  renameProject: (id: string, name: string): Promise<unknown> =>
-    cmd("rename_project", { id, name }),
-  deleteProject: (id: string): Promise<unknown> => cmd("delete_project", { id }),
+  renameProject: (id: string, name: string, origin?: Origin): Promise<unknown> =>
+    cmd("rename_project", { id, name, origin: origin ?? null }),
+  deleteProject: (id: string, origin?: Origin): Promise<unknown> =>
+    cmd("delete_project", { id, origin: origin ?? null }),
   createProject: (name: string): Promise<{ id: string }> =>
     cmd<{ id: string }>("create_project", { name }),
 };

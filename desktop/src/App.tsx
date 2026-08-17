@@ -134,7 +134,13 @@ export function App() {
       // Profiles view: the master list an operator actually works from, with a
       // project as a filter over it rather than the only way in.
       const [rows, list, current] = await Promise.all([
-        api.profiles(scope === undefined ? active?.id : (scope ?? undefined)),
+        api.profiles(
+          scope === undefined ? active?.id : (scope ?? undefined),
+          // Which side the chosen folder is on. A local folder's contents come
+          // from the agent; asking the server about it returns "not found"
+          // about a project it has never heard of.
+          scope === undefined ? active?.origin : projects.find((p) => p.id === scope)?.origin,
+        ),
         api.projects(),
         // The shell too, on every poll rather than only at startup.
         //
@@ -432,7 +438,7 @@ export function App() {
             confirmLabel: t("ui.save"),
           });
           if (!name) return;
-          await api.renameProject(p.id, name);
+          await api.renameProject(p.id, name, p.origin);
           await load();
           await refreshProfiles();
         }}
@@ -450,7 +456,7 @@ export function App() {
           });
           if (go === null) return;
           try {
-            await api.deleteProject(p.id);
+            await api.deleteProject(p.id, p.origin);
           } catch (e) {
             // Reported rather than swallowed. Without this the delete failed
             // in silence and the project simply stayed in the sidebar, which
@@ -467,14 +473,55 @@ export function App() {
           // `null` explicitly: see refreshProfiles.
           await refreshProfiles(null);
         }}
-        onNewProject={async () => {
+        /* Which side the new folder goes on is now the caller's to say, and
+           the sidebar offers both when there is a server. Connected to one, the
+           + used to make a project ON IT and there was no way to make a local
+           folder at all -- so a local profile had nowhere to be filed, and
+           "why is a local folder not being created" was the right question with
+           the answer "it never was". */
+        /* A whole local folder onto the server, in one action: make a project
+           of the same name, then send everything in it. Per profile was the
+           only way and does not survive somebody with dozens of folders. */
+        onSendProject={async (p) => {
+          const rows = await api.profiles(p.id, "local");
+          if (rows.length === 0) return;
+          const go = await ask({
+            title: t("proj.sendAll"),
+            detail: t("proj.sendAllConfirm", { n: String(rows.length), name: p.name }),
+            confirmLabel: t("up.send"),
+          });
+          if (go === null) return;
+          setBusy(true);
+          try {
+            const made = await api.createProjectIn(p.name, "team");
+            const target = (made as { id: string }).id;
+            for (const row of rows) await api.uploadProfile(row.id, target);
+            setError(t("proj.sendAllDone", { n: String(rows.length), name: p.name }));
+          } catch (e) {
+            setError((e as Error).message);
+          } finally {
+            setBusy(false);
+            await load();
+            await refreshProfiles();
+          }
+        }}
+        /* And the other end: everything in a server project, to one person.
+           The dialog says what it cannot do -- a profile added tomorrow is not
+           covered, because each carries its own key. */
+        onShareProject={async (p) => {
+          const rows = await api.profiles(p.id, "team");
+          if (rows.length === 0) return;
+          setError(t("proj.shareAllNote", { n: String(rows.length) }));
+          setSharing(rows);
+        }}
+        onNewProject={async (origin) => {
           const name = await ask({
-            title: t("app.newProject"),
+            title: origin === "local" ? t("app.newProjectHere") : t("app.newProject"),
             placeholder: t("app.projectName"),
             confirmLabel: t("ui.create"),
           });
           if (!name) return;
-          await api.createProject(name);
+          await api.createProjectIn(name, origin);
           await load();
         }}
       />
@@ -768,7 +815,14 @@ export function App() {
                     setBusy(false);
                   }}
                 />
-                {projects.length > 0 && (
+                {/* Only for rows that can go where these projects are.
+                    In team mode the list is the SERVER's projects, and a local
+                    profile cannot be filed in one -- offering it produced a
+                    request the server answered with "not found", which reads as
+                    the profile having been taken away rather than as the wrong
+                    machine being asked. Send it across first; then it can be
+                    filed like anything else. */}
+                {projects.length > 0 && (local || chosen.every((p) => p.origin === "team")) && (
                   <select
                     style={{ width: "auto" }}
                     value=""
@@ -784,6 +838,7 @@ export function App() {
                         await api.moveProfiles(
                           chosen.map((p) => p.id),
                           to === "\u0000none" ? null : to,
+                          chosen[0].origin,
                         );
                         setSelected(new Set());
                         await load();

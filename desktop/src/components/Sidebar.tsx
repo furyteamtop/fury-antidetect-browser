@@ -14,6 +14,8 @@ export function Sidebar({
   me,
   onSelect,
   onNewProject,
+  onSendProject,
+  onShareProject,
   onRenameProject,
   onDeleteProject,
   onNewProfile,
@@ -26,7 +28,12 @@ export function Sidebar({
   shell: Shell;
   me: Me | null;
   onSelect: (p: Project | null) => void;
-  onNewProject: () => void;
+  onNewProject: (origin: "local" | "team") => void;
+  /** Copy every profile in a local folder onto the server, into a project of
+   *  the same name. */
+  onSendProject: (p: Project) => void;
+  /** Give every profile currently in a server project to somebody. */
+  onShareProject: (p: Project) => void;
   onRenameProject: (p: Project) => void;
   onDeleteProject: (p: Project) => void;
   view: View;
@@ -79,7 +86,24 @@ export function Sidebar({
             ))}
         <div className="section" style={{ marginTop: "var(--s-3)" }}>
           {t("app.projects")}
-          <button className="linky" onClick={onNewProject} title={t("app.newProject")}>
+          {/* Two of them when there is a server, because there are two places a
+              folder can be and the one + used to make only the server's. The
+              icons say which is which: an upload arrow for the shared one, a
+              laptop-shaped nothing for here -- so the hover text carries it. */}
+          {!local && (
+            <button
+              className="linky"
+              onClick={() => onNewProject("local")}
+              title={t("app.newProjectLocalTip")}
+            >
+              +{t("app.hereShort")}
+            </button>
+          )}
+          <button
+            className="linky"
+            onClick={() => onNewProject(local ? "local" : "team")}
+            title={local ? t("app.newProject") : t("app.newProjectTeamTip")}
+          >
             +
           </button>
         </div>
@@ -100,6 +124,13 @@ export function Sidebar({
               }}
             >
               <span className="ellipsis">{p.name}</span>
+              {/* Marked only when the sidebar is showing both kinds, which is
+                  only ever true with a server connected. */}
+              {!local && p.origin === "local" && (
+                <span className="badge" title={t("col.onlyHereWhy")}>
+                  {t("app.hereShort")}
+                </span>
+              )}
               <span className="count">{p.profile_count}</span>
             </button>
             {menu === p.id && (
@@ -113,6 +144,33 @@ export function Sidebar({
                 >
                   {t("proj.rename")}
                 </button>
+                {/* Whole-folder actions, because per profile does not scale.
+                    Somebody with dozens of local folders is not going to open
+                    each one, select everything and press two buttons; they are
+                    going to ask why this is per profile, which is what
+                    happened. */}
+                {!local && p.origin === "local" && (
+                  <button
+                    className="ghost"
+                    onClick={() => {
+                      setMenu(null);
+                      onSendProject(p);
+                    }}
+                  >
+                    {t("proj.sendAll")}
+                  </button>
+                )}
+                {!local && p.origin === "team" && (
+                  <button
+                    className="ghost"
+                    onClick={() => {
+                      setMenu(null);
+                      onShareProject(p);
+                    }}
+                  >
+                    {t("proj.shareAll")}
+                  </button>
+                )}
                 <button
                   className="ghost"
                   onClick={() => {
