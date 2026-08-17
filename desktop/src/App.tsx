@@ -20,6 +20,7 @@ import { Signup } from "./components/Signup";
 import { Settings } from "./components/Settings";
 import { Sidebar, type View } from "./components/Sidebar";
 import { ShareDialog } from "./components/ShareDialog";
+import { IconButton } from "./components/Icon";
 import { useTheme } from "./theme";
 
 export function App() {
@@ -633,6 +634,14 @@ export function App() {
               </span>
             </label>
             <div className="spacer" />
+            <IconButton
+              icon="refresh"
+              label={t("bar.refresh")}
+              onClick={() => void refreshProfiles()}
+            />
+            {/* Its own line, always: it appears and disappears with the
+                selection, and a block that reflows the filters above it every
+                time a checkbox is ticked is the "visual mess" this replaced. */}
             {chosen.length > 0 && (
               <div className="bulk">
                 <span className="muted small">
@@ -656,25 +665,25 @@ export function App() {
                     window. A greyed control that explains itself teaches the
                     order of the two steps. */}
                 {!local && chosen.length > 0 && (
-                  <button
-                    className="ghost"
+                  <IconButton
+                    icon="share"
+                    label={t("row.share")}
                     disabled={busy || !chosen.every((p) => p.origin === "team")}
                     title={
                       chosen.every((p) => p.origin === "team")
-                        ? undefined
+                        ? t("row.share")
                         : t("row.shareNeedsServer")
                     }
                     onClick={() => setSharing(chosen)}
-                  >
-                    {t("row.share")}
-                  </button>
+                  />
                 )}
                 {/* The other direction, and the one that makes sharing reachable
                     for a profile that started here. Offered only for local rows,
                     and only when there is a server to send them to. */}
                 {!local && chosen.length > 0 && chosen.every((p) => p.origin === "local") && (
-                  <button
-                    className="ghost"
+                  <IconButton
+                    icon="upload"
+                    label={t("up.send")}
                     disabled={busy}
                     onClick={async () => {
                       // Into the project being viewed, or the only one there
@@ -718,13 +727,12 @@ export function App() {
                         await refreshProfiles();
                       }
                     }}
-                  >
-                    {t("up.send")}
-                  </button>
+                  />
                 )}
                 {closable.length > 0 && (
-                  <button
-                    className="ghost"
+                  <IconButton
+                    icon="close"
+                    label={t("bar.closeSelected", { n: closable.length })}
                     disabled={busy}
                     onClick={async () => {
                       setBusy(true);
@@ -732,12 +740,17 @@ export function App() {
                       await refreshProfiles();
                       setBusy(false);
                     }}
-                  >
-                    {t("bar.closeSelected", { n: closable.length })}
-                  </button>
+                  />
                 )}
-                <button
-                  className="ghost"
+                <IconButton
+                  icon="trash"
+                  danger
+                  label={t("bar.deleteSelected", { n: chosen.length })}
+                  title={
+                    closable.length > 0
+                      ? t("row.closeFirst")
+                      : t("bar.deleteSelected", { n: chosen.length })
+                  }
                   disabled={busy || closable.length > 0}
                   onClick={async () => {
                     const go = await ask({
@@ -754,9 +767,7 @@ export function App() {
                     await refreshProfiles();
                     setBusy(false);
                   }}
-                >
-                  {t("bar.deleteSelected", { n: chosen.length })}
-                </button>
+                />
                 {projects.length > 0 && (
                   <select
                     style={{ width: "auto" }}
@@ -800,12 +811,12 @@ export function App() {
                     multi-selection would mean guessing which one was meant. */}
                 {chosen.length === 1 && (
                   <>
-                    <button className="ghost" onClick={() => setBulk(chosen[0])}>
-                      {t("bp.clone")}
-                    </button>
-                    <button className="ghost" onClick={() => setCookiesFor(chosen[0])}>
-                      {t("ck.cookies")}
-                    </button>
+                    <IconButton icon="copy" label={t("bp.clone")} onClick={() => setBulk(chosen[0])} />
+                    <IconButton
+                      icon="cookie"
+                      label={t("ck.cookies")}
+                      onClick={() => setCookiesFor(chosen[0])}
+                    />
                   </>
                 )}
                 <button className="ghost" onClick={() => setSelected(new Set())}>
@@ -813,9 +824,7 @@ export function App() {
                 </button>
               </div>
             )}
-            <button className="ghost" onClick={() => void refreshProfiles()}>
-              {t("bar.refresh")}
-            </button>
+
           </div>
         )}
 

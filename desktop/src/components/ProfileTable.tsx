@@ -2,6 +2,7 @@
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
 import { useI18n } from "../i18n";
+import { IconButton } from "./Icon";
 import type { Me, Profile } from "../api";
 
 /** Every row's controls follow the permissions the SERVER resolved. Hiding a
@@ -198,38 +199,17 @@ export function ProfileTable({
                     so the name is a hover away and a screen reader still gets
                     a word rather than a glyph. */}
                 {onEdit && canEdit && (
-                  <button
-                    className="icon"
-                    disabled={busy}
-                    title={t("row.edit")}
-                    aria-label={t("row.edit")}
-                    onClick={() => onEdit(p)}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-                         stroke="currentColor" strokeWidth="1.9"
-                         strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M12 20h9" />
-                      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                    </svg>
-                  </button>
+                  <IconButton icon="pencil" label={t("row.edit")} disabled={busy} onClick={() => onEdit(p)} />
                 )}
                 {onDelete && canDelete && (
-                  <button
-                    className="icon danger"
-                    disabled={busy || open}
+                  <IconButton
+                    icon="trash"
+                    danger
+                    label={t("row.delete")}
                     title={open ? t("row.closeFirst") : t("row.delete")}
-                    aria-label={t("row.delete")}
+                    disabled={busy || open}
                     onClick={() => onDelete(p)}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-                         stroke="currentColor" strokeWidth="1.9"
-                         strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M3 6h18" />
-                      <path d="M8 6V4h8v2" />
-                      <path d="M19 6l-1 14H6L5 6" />
-                      <path d="M10 11v6M14 11v6" />
-                    </svg>
-                  </button>
+                  />
                 )}
                 </div>
               </td>

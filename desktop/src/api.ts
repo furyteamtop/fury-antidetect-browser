@@ -670,8 +670,12 @@ export const api = {
     Promise<{ project_id: string; profiles: number }> =>
     cmd("import_project", { path, passphrase }),
   trash: (): Promise<Profile[]> => cmd<Profile[]>("trash"),
-  restoreProfile: (id: string): Promise<unknown> => cmd("restore_profile", { id }),
-  purgeProfile: (id: string): Promise<unknown> => cmd("purge_profile", { id }),
+  /** Both take the row's origin: the trash holds this machine's deletions and
+   *  the server's side by side, and restoring is a different call in each. */
+  restoreProfile: (id: string, origin?: Origin): Promise<unknown> =>
+    cmd("restore_profile", { id, origin: origin ?? null }),
+  purgeProfile: (id: string, origin?: Origin): Promise<unknown> =>
+    cmd("purge_profile", { id, origin: origin ?? null }),
   renameProject: (id: string, name: string): Promise<unknown> =>
     cmd("rename_project", { id, name }),
   deleteProject: (id: string): Promise<unknown> => cmd("delete_project", { id }),

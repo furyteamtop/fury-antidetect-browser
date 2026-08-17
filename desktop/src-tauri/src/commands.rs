@@ -2020,18 +2020,36 @@ pub async fn import_project(path: String, passphrase: String) -> R<serde_json::V
 }
 
 #[tauri::command]
+/// Everything deleted and not yet gone, from both worlds.
+///
+/// It used to show one, chosen by the shell's mode, and I wrote that down as a
+/// deliberate limit -- restoring is a different call in each. The limit was
+/// wrong and produced the obvious thing: delete a local profile while connected
+/// to a server and it goes into a bin you cannot open. Three profiles, deleted
+/// and reported missing, sitting in the store the whole time.
+///
+/// Both, then, tagged with where they came from, and restore and purge follow
+/// the tag.
 pub async fn trash(state: State<'_, AppState>) -> R<Vec<UiProfile>> {
     let is_local = mode_of(&state) == "local";
-    let local: Vec<crate::agent::LocalProfile> = if is_local {
-        crate::agent::call("profiles.trash", serde_json::json!({})).await?
-    } else {
-        state
+    let mut local: Vec<crate::agent::LocalProfile> =
+        crate::agent::call("profiles.trash", serde_json::json!({}))
+            .await
+            .unwrap_or_default();
+    let mut from_server: Vec<crate::agent::LocalProfile> = Vec::new();
+    if !is_local {
+        // A server that stumbles costs the server's rows, not this machine's.
+        from_server = state
             .call(reqwest::Method::GET, "/v1/profiles/trash", Body::None, true)
-            .await?
-    };
+            .await
+            .unwrap_or_default();
+    }
+    let local_count = local.len();
+    local.append(&mut from_server);
     Ok(local
         .into_iter()
-        .map(|p| UiProfile {
+        .enumerate()
+        .map(|(i, p)| UiProfile {
             proxy: p.proxy.map(|x| UiProxy {
                 display: format!("{}:{}", x.host, x.port),
                 country: x.last_country,
@@ -2054,10 +2072,10 @@ pub async fn trash(state: State<'_, AppState>) -> R<Vec<UiProfile>> {
             fp_seed: p.fp_seed,
             timezone: p.timezone,
             languages: p.languages,
-            // The trash is one world at a time, still: a deleted server profile
-            // and a deleted local one are restored through different calls, and
-            // this view asks whichever the shell is connected to.
-            origin: if is_local { "local" } else { "team" },
+            // The local rows were appended first, so the boundary is an index
+            // rather than a flag on the row -- the agent and the server return
+            // the same shape and neither says which it is.
+            origin: if i < local_count { "local" } else { "team" },
         })
         .collect())
 }
@@ -2096,8 +2114,12 @@ pub async fn move_profiles(
 }
 
 #[tauri::command]
-pub async fn restore_profile(state: State<'_, AppState>, id: String) -> R<serde_json::Value> {
-    if mode_of(&state) == "local" {
+pub async fn restore_profile(
+    state: State<'_, AppState>,
+    id: String,
+    origin: Option<String>,
+) -> R<serde_json::Value> {
+    if local_for(&state, origin.as_deref()) {
         return Ok(crate::agent::call("profiles.restore", serde_json::json!({ "id": id })).await?);
     }
     state
@@ -2106,8 +2128,12 @@ pub async fn restore_profile(state: State<'_, AppState>, id: String) -> R<serde_
 }
 
 #[tauri::command]
-pub async fn purge_profile(state: State<'_, AppState>, id: String) -> R<serde_json::Value> {
-    if mode_of(&state) == "local" {
+pub async fn purge_profile(
+    state: State<'_, AppState>,
+    id: String,
+    origin: Option<String>,
+) -> R<serde_json::Value> {
+    if local_for(&state, origin.as_deref()) {
         return Ok(crate::agent::call("profiles.purge", serde_json::json!({ "id": id })).await?);
     }
     state

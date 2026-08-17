@@ -86,7 +86,7 @@ export function Trash({ onChanged }: { onChanged: () => void }) {
                       disabled={busy}
                       onClick={async () => {
                         setBusy(true);
-                        await api.restoreProfile(p.id);
+                        await api.restoreProfile(p.id, p.origin);
                         await load();
                         onChanged();
                         setBusy(false);
@@ -106,7 +106,7 @@ export function Trash({ onChanged }: { onChanged: () => void }) {
                         });
                         if (go === null) return;
                         setBusy(true);
-                        await api.purgeProfile(p.id);
+                        await api.purgeProfile(p.id, p.origin);
                         await load();
                         onChanged();
                         setBusy(false);

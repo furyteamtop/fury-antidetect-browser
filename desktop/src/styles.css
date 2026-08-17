@@ -1155,12 +1155,26 @@ input::placeholder {
 /* The bulk bar replaces the toolbar's right side rather than appearing above
    it: a strip that pushes the table down would move every row under the
    cursor at the exact moment someone is aiming at one. */
+/* The selection row, under the filters and never beside them.
+   flex-basis: 100% makes it take a line of its own inside the wrapping toolbar,
+   so ticking a checkbox no longer pushes the search box and the tag filter
+   around. The rule above it separates two rows that mean different things:
+   what you are looking at, and what you are about to do to it. */
 .bulk {
   display: flex;
+  flex-basis: 100%;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--s-2);
   row-gap: var(--s-1);
+  padding-top: var(--s-2);
+  border-top: 1px solid var(--line);
+}
+
+/* A hair of space before the destructive one, so the hand does not arrive at
+   Delete on the way to Duplicate. */
+.bulk .icon.danger {
+  margin-left: var(--s-1);
 }
 
 /* ---- command palette --------------------------------------------------- */
