@@ -383,6 +383,13 @@ const en = {
   "set.notConnectedHint":
     "Connecting does not upload anything on its own. Profiles created here stay here until bundle sync exists.",
   "set.connect": "Connect",
+  /// The same field and the same button, for somebody whose account is on the
+  /// far side of it. "Connect" describes the plumbing; this describes the
+  /// errand.
+  "set.signInAgain": "Sign in to my account",
+  "set.signOut": "Sign out",
+  "set.signOutHint":
+    "Ends the session and keeps the server, so the next screen is the password form with the address already in it. Use it to come back as somebody else.",
   "set.serverPlaceholder": "fury.example.com",
   "set.howTo": "Standing one up takes two commands — see docs/13-self-hosting.md in the repository.",
   "set.disconnect": "Disconnect and work locally",
@@ -409,8 +416,13 @@ const en = {
   "srv.connect": "Connect",
   /// The same button, for somebody who is not setting anything up.
   "srv.signInAgain": "Sign in again",
+  /// Deliberately without a number. It said "a session lasts twelve hours" and
+  /// was wrong within the hour, when twelve became a week — and it guessed at a
+  /// cause besides: the session that started this was still alive on the
+  /// server. What is certainly true is the part that matters to the person
+  /// reading it.
   "srv.comeBack":
-    "This machine was signed in as {email} on the address above. The account is still there — a session lasts twelve hours and this one has run out, so it asks for the password again.",
+    "This machine was signed in as {email} on the address above. The account and its keys are still here — all it needs is the password.",
   "srv.checking": "Checking…",
 
   "enrol.have": "I have an invitation",
@@ -930,6 +942,10 @@ const ru: Record<Key, string> = {
   "set.notConnectedHint":
     "Подключение само по себе ничего не выгружает. Созданные здесь профили остаются здесь, пока не появится синхронизация.",
   "set.connect": "Подключить",
+  "set.signInAgain": "Войти в свой аккаунт",
+  "set.signOut": "Выйти из аккаунта",
+  "set.signOutHint":
+    "Завершает сессию, а сервер остаётся: следующий экран — форма пароля с уже вписанным адресом. Через неё же можно войти под другим аккаунтом.",
   "set.serverPlaceholder": "fury.example.com",
   "set.howTo": "Поднять его — две команды, см. docs/13-self-hosting.md в репозитории.",
   "set.disconnect": "Отключиться и работать локально",
@@ -955,7 +971,7 @@ const ru: Record<Key, string> = {
   "srv.connect": "Подключиться",
   "srv.signInAgain": "Войти снова",
   "srv.comeBack":
-    "На этой машине по адресу выше был вход как {email}. Аккаунт никуда не делся — сессия живёт 12 часов, эта истекла, поэтому пароль спросят заново.",
+    "На этой машине по адресу выше был вход как {email}. Аккаунт и ключи на месте — нужен только пароль.",
   "srv.checking": "Проверяю…",
 
   "enrol.have": "У меня есть приглашение",

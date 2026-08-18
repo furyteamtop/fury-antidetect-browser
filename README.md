@@ -29,9 +29,25 @@ team. No seats, no per-profile pricing, no telemetry.
 > process, and a `beforeBuildCommand` that cmd.exe could not execute. They are in
 > the history, one commit each, with what they cost.
 >
-> **Nothing is signed.** macOS will refuse to open the download and Windows will
-> warn; the Apple certificate is paid for and waiting on activation
-> ([docs/17](docs/17-apple-signing.md)). Until then, a release is a preview.
+> **Team mode works end to end, as of 18.08.2026.** Invite, enrol on a second
+> machine, be let in with one button, send a profile to the server, open it
+> there. Every stage of that path had a defect and one of them — sending a
+> profile — had never worked at all: the fingerprint seed crossed as a number
+> where the server wants sixteen hex characters, so every upload since the
+> endpoint existed died in the request parser. They are in the history with what
+> each looked like from the operator's side.
+>
+> **Nothing is signed yet, and that is being fixed by paperwork rather than by
+> code.** Enrolment in the Apple Developer Program is under way: the certificate
+> is paid for and the account is going through Apple's verification, which is
+> what a Developer ID and notarisation wait on. The tooling is already written
+> and unused — [tools/release/sign-core.sh](tools/release/sign-core.sh),
+> [sign-shell.sh](tools/release/sign-shell.sh), [docs/17](docs/17-apple-signing.md).
+>
+> Until it lands: a downloaded macOS build is ad-hoc signed, so Gatekeeper
+> refuses it with "is damaged" — which is about a missing signature and not a
+> corrupt file — and Windows shows a SmartScreen warning. Building from source
+> avoids both. A release is a preview until the certificate exists.
 >
 > **Linux** is not a target. See the table at the bottom.
 >

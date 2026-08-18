@@ -26,7 +26,11 @@
 # so far; it cannot be honest about a pace it has not seen.
 set -euo pipefail
 
-SERVER="${FURY_BUILD_SERVER:-user@your-windows-box}"
+# No default. This used to carry the address of my own Windows box, which is
+# fine in a private tree and an advertisement in a public one: it tells anybody
+# reading that there is a machine at that address taking root over SSH. The
+# address is somebody's own and belongs in their environment.
+SERVER="${FURY_BUILD_SERVER:?set FURY_BUILD_SERVER to user@host of your Windows build machine}"
 KEY="${FURY_BUILD_KEY:-$HOME/.ssh/fury_winbuild}"
 TARGET="${1:-windows-x64}"
 case "$TARGET" in --watch) TARGET="windows-x64" ;; esac

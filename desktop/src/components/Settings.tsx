@@ -44,7 +44,12 @@ export function Settings({
   const [theme, setTheme] = useTheme();
   const { t, language, setLanguage } = useI18n();
   const [tab, setTab] = useState<Tab>("general");
-  const [url, setUrl] = useState("");
+  // Prefilled with the server this machine used last. The first screen already
+  // does this, and somebody working locally never reaches the first screen --
+  // the window opens straight into the profile list, so THIS is where the way
+  // back has to be. Reported exactly that way: "открываю лаунчер и он сразу
+  // входит, кнопки войти в свой аккаунт нет".
+  const [url, setUrl] = useState(shell.last_server ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -137,9 +142,16 @@ export function Settings({
                         }
                       }}
                     >
-                      {busy ? t("srv.checking") : t("set.connect")}
+                      {busy
+                        ? t("srv.checking")
+                        : shell.last_server && shell.last_email
+                          ? t("set.signInAgain")
+                          : t("set.connect")}
                     </button>
                   </div>
+                  {shell.last_server && shell.last_email && (
+                    <p className="hint">{t("srv.comeBack", { email: shell.last_email })}</p>
+                  )}
                   {error && <p className="error">{error}</p>}
                   {/* Three ways in, and none of them should require leaving.
                       Signing up used to live only on the login screen, which is
@@ -176,7 +188,29 @@ export function Settings({
                     <span>{t("set.rememberKey")}</span>
                   </label>
                   <p className="hint">{t("set.rememberKeyHint")}</p>
+                  {/* Two different exits, and only the second one was here.
+                      Signing out ends the session and leaves the server
+                      configured, so the next screen is the password form with
+                      the address already in it -- which is what somebody means
+                      by "let me back to where I type my account". It lived in
+                      Users and nowhere else, which is a strange place to look
+                      for it and was reported as missing.
+
+                      Disconnecting is the bigger hammer: it forgets the server
+                      as well, and the label says so. */}
                   <button
+                    onClick={async () => {
+                      await api.logout();
+                      onChanged(await api.shell());
+                      onClose();
+                    }}
+                  >
+                    {t("set.signOut")}
+                  </button>
+                  <p className="hint">{t("set.signOutHint")}</p>
+                  <button
+                    className="ghost"
+                    style={{ marginTop: "var(--s-3)" }}
                     onClick={async () => {
                       onChanged(await api.disconnectServer());
                       onClose();
