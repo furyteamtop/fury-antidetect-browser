@@ -407,12 +407,16 @@ const en = {
   "srv.placeholder": "fury.example.com",
   "srv.httpsAssumed": "https:// is assumed unless you say otherwise.",
   "srv.connect": "Connect",
+  /// The same button, for somebody who is not setting anything up.
+  "srv.signInAgain": "Sign in again",
+  "srv.comeBack":
+    "This machine was signed in as {email} on the address above. The account is still there — a session lasts twelve hours and this one has run out, so it asks for the password again.",
   "srv.checking": "Checking…",
 
   "enrol.have": "I have an invitation",
   "signup.start": "Create an account",
   "auth.workLocally": "Work without an account",
-  "auth.workLocallyNote": "Profiles stay on this machine. No account, no server, and the browser spoofs exactly the same — the team layer adds nothing to the fingerprint.",
+  "auth.workLocallyNote": "Profiles stay on this machine. No account, no server, and the browser spoofs exactly the same — the team layer adds nothing to the fingerprint. It also forgets the connection: coming back means signing in again, and this screen will remember which server.",
   "signup.whichServer": "Which server? Fury is self-hosted, so there is no default — use your own, or one somebody runs for you.",
   "signup.check": "Continue",
   "signup.closed": "This server does not take open sign-ups. Ask whoever runs it for an invitation — or, if the server is yours, start it with FURY_OPEN_SIGNUP=1.",
@@ -949,12 +953,15 @@ const ru: Record<Key, string> = {
   "srv.placeholder": "fury.example.com",
   "srv.httpsAssumed": "Если не указать схему, подставится https://",
   "srv.connect": "Подключиться",
+  "srv.signInAgain": "Войти снова",
+  "srv.comeBack":
+    "На этой машине по адресу выше был вход как {email}. Аккаунт никуда не делся — сессия живёт 12 часов, эта истекла, поэтому пароль спросят заново.",
   "srv.checking": "Проверяю…",
 
   "enrol.have": "У меня есть приглашение",
   "signup.start": "Создать аккаунт",
   "auth.workLocally": "Работать без аккаунта",
-  "auth.workLocallyNote": "Профили останутся на этой машине. Ни аккаунта, ни сервера, и браузер подменяет ровно то же самое — командный слой ничего не добавляет к отпечатку.",
+  "auth.workLocallyNote": "Профили останутся на этой машине. Ни аккаунта, ни сервера, и браузер подменяет ровно то же самое — командный слой ничего не добавляет к отпечатку. Заодно забудется подключение: чтобы вернуться, надо будет войти заново, а адрес сервера этот экран подскажет сам.",
   "signup.whichServer": "На каком сервере? Fury разворачивается самостоятельно, поэтому адреса по умолчанию нет — укажите свой или тот, который держат для вас.",
   "signup.check": "Далее",
   "signup.closed": "Этот сервер не принимает свободную регистрацию. Попросите приглашение у того, кто им управляет, — а если сервер ваш, запустите его с FURY_OPEN_SIGNUP=1.",

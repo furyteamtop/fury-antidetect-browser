@@ -27,9 +27,24 @@ use crate::AppState;
 /// consideration at this size, so tokens carry no structure to be guessed.
 const TOKEN_BYTES: usize = 32;
 
-/// How long a session lasts without use. Deliberately short for a tool that
-/// holds live account credentials.
-pub const SESSION_TTL_HOURS: i64 = 12;
+/// How long a session lasts WITHOUT USE. Sliding: every authenticated request
+/// pushes it out again, so this is an idle timeout and not a shift limit.
+///
+/// A week. It was twelve hours, which is the length of a working day and was
+/// chosen for a tool that holds live account credentials — and twelve hours is
+/// also the length of a night, so a machine left running overnight came back
+/// signed out. That is not the threat model doing its job; it is the threat
+/// model catching the operator every single morning, and what it taught them
+/// was to press the quiet button underneath the password field.
+///
+/// What the token is worth, so the trade is on the record rather than implied:
+/// it authenticates API calls as that user, and it decrypts nothing. Bundles,
+/// proxy credentials and stored logins are sealed under the organisation key,
+/// which never reaches the server and lives in the operator's OS keychain. So a
+/// stolen token buys the shape of the team and the ability to take locks; it
+/// does not buy an account. Signing out revokes every session of that user, and
+/// removing somebody from the team rotates the key they held.
+pub const SESSION_TTL_HOURS: i64 = 24 * 7;
 
 /// Generates a new token and the hash to store beside it.
 ///

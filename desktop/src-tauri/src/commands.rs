@@ -312,6 +312,11 @@ pub struct Shell {
     pub org_key_ready: bool,
     /// Who signed in last, so unlocking asks for one field instead of two.
     pub last_email: Option<String>,
+    /// The server this installation was last pointed at, whether or not it is
+    /// pointed at one now. What makes "work without an account" a door rather
+    /// than a trapdoor: the way back is one button that already knows the
+    /// address, instead of a first-run screen asking for it.
+    pub last_server: Option<String>,
     /// Signed in, holding no key, and there is no key on the server to hold.
     ///
     /// The other half of `org_key_ready`, and the reason it is not enough on its
@@ -411,9 +416,9 @@ pub async fn shell_state(state: State<'_, AppState>) -> Result<Shell, ApiErr> {
     // expression, so the first guard was still held when the second asked for
     // the same non-reentrant mutex. The application started, drew its window,
     // and never left the splash — the first call it makes never returned.
-    let (server_url, last_email) = {
+    let (server_url, last_email, last_server) = {
         let s = state.settings.lock().unwrap();
-        (s.server_url.clone(), s.last_email.clone())
+        (s.server_url.clone(), s.last_email.clone(), s.last_server.clone())
     };
     let org_key_ready = state.org_key().is_some();
 
@@ -439,6 +444,7 @@ pub async fn shell_state(state: State<'_, AppState>) -> Result<Shell, ApiErr> {
         version: env!("CARGO_PKG_VERSION"),
         org_key_ready,
         last_email,
+        last_server,
         awaiting_key,
     })
 }
@@ -512,6 +518,7 @@ pub async fn set_server(state: State<'_, AppState>, url: String) -> R<Shell> {
     {
         let mut s = state.settings.lock().unwrap();
         s.server_url = Some(normalised.clone());
+        s.last_server = Some(normalised.clone());
         s.save(&state.config_dir)
             .map_err(|e| ApiErr::local(format!("Could not save settings: {e}")))?;
     }
@@ -719,6 +726,7 @@ pub async fn signup(
     {
         let mut s = state.settings.lock().unwrap();
         s.server_url = Some(base.clone());
+        s.last_server = Some(base.clone());
         s.last_email = Some(email);
         s.save(&state.config_dir)
             .map_err(|err| ApiErr::local(format!("Could not save settings: {err}")))?;
@@ -797,6 +805,7 @@ pub async fn enrol(
     {
         let mut s = state.settings.lock().unwrap();
         s.server_url = Some(base.clone());
+        s.last_server = Some(base.clone());
         s.save(&state.config_dir)
             .map_err(|err| ApiErr::local(format!("Could not save settings: {err}")))?;
     }

@@ -258,6 +258,7 @@ export function App() {
         onEnrol={() => setEnrolling(true)}
         onSignup={() => setSigningUp(true)}
         onLocal={() => void api.shell().then(setShell)}
+        lastEmail={shell.last_email}
       />
     ) : (
       <ServerSetup
@@ -265,6 +266,8 @@ export function App() {
         onSignup={() => setSigningUp(true)}
         onEnrol={() => setEnrolling(true)}
         onLocal={() => void api.shell().then(setShell)}
+        lastServer={shell.last_server}
+        lastEmail={shell.last_email}
       />
     );
   }

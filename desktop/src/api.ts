@@ -201,6 +201,10 @@ export interface Shell {
    *  decrypt" are different states, and both have to be visible. */
   org_key_ready: boolean;
   last_email: string | null;
+  /** The server this machine was last pointed at, kept after it stops being
+   *  pointed at one — so returning is a button that knows the address rather
+   *  than a first-run screen asking for it. */
+  last_server: string | null;
   /** Signed in, holding no key, and there is none on the server to hold — the
    *  member enrolled and nobody has handed it over yet. Distinct from
    *  `org_key_ready` being false for the ordinary reason, because a password
@@ -357,6 +361,7 @@ export const api = {
       version: "dev",
       org_key_ready: false,
       last_email: null,
+      last_server: null,
       awaiting_key: false,
       // Vite proxies /v1, so in this mode the address is fixed by the dev
       // config rather than chosen by the operator.

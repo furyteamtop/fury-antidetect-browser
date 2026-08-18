@@ -12,6 +12,7 @@ export function Login({
   onLocal,
   unlockFor,
   awaitingKey,
+  lastEmail,
 }: {
   onSuccess: () => void;
   /** There is no registration form, so the only way to a first account is an
@@ -31,8 +32,15 @@ export function Login({
   /** …except when there is no key on the server either, and then a password is
    *  not a slower way in but no way in. See below. */
   awaitingKey?: boolean;
+  /** Who signed in here last, whether or not this is an unlock.
+   *
+   *  The shell has always remembered it and only the unlock screen used it, so
+   *  an ordinary sign-in after a session ran out asked for an address the
+   *  application could have filled in — twelve hours is short enough that this
+   *  is the commonest way anyone ever sees this screen. */
+  lastEmail?: string | null;
 }) {
-  const [email, setEmail] = useState(unlockFor ?? "");
+  const [email, setEmail] = useState(unlockFor ?? lastEmail ?? "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

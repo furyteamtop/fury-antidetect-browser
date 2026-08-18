@@ -9,6 +9,11 @@ dist/
 .vite/
 *.tsbuildinfo
 
+# Where a Windows release is collected on the way through this machine: an
+# installer and the 138 MB core tarball. `dist/` was ignored and this was not,
+# so 148 MB of build output sat in `git status` waiting to be added by accident.
+dist-win/
+
 # Tauri
 desktop/src-tauri/target/
 desktop/src-tauri/gen/

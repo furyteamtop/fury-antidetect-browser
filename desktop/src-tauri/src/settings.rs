@@ -31,6 +31,22 @@ pub struct Settings {
     #[serde(default)]
     pub last_email: Option<String>,
 
+    /// The last server this installation was pointed at, kept after it stops
+    /// being pointed at one.
+    ///
+    /// `server_url` is the live connection and goes to None the moment somebody
+    /// chooses to work locally. This one does not, and that is the whole point:
+    /// a session lasts twelve hours, so a machine left overnight comes back to
+    /// a sign-in screen, and one press of "work without an account" underneath
+    /// it forgot the address as well. What was left was the first-run screen,
+    /// asking for a server, from somebody who had one — with the token and the
+    /// organisation key still sitting in the keychain, unreachable because
+    /// nothing remembered which server they belonged to.
+    ///
+    /// Not a credential: an address, beside the address that signed in.
+    #[serde(default)]
+    pub last_server: Option<String>,
+
     /// The highest organisation-key generation this machine has accepted. Only
     /// ever moves forward — see AppState::ork_generation.
     #[serde(default)]
@@ -70,6 +86,7 @@ impl Settings {
             }
             None => Settings {
                 last_email: None,
+                last_server: None,
                 ork_generation: 0,
                 remember_org_key: true,
                 server_url: None,

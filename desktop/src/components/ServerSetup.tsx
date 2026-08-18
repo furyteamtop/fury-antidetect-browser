@@ -15,6 +15,8 @@ export function ServerSetup({
   onSignup,
   onEnrol,
   onLocal,
+  lastServer,
+  lastEmail,
 }: {
   onDone: (shell: Shell) => void;
   /** Somebody arriving with a code from a colleague, which is the commonest way
@@ -47,10 +49,22 @@ export function ServerSetup({
    *  promise on the About screen. The missing thing was the button, not the
    *  server. */
   onLocal: () => void;
+  /** The server this machine was last pointed at, and who signed in on it.
+   *
+   *  Both are remembered across "work without an account", which is what turns
+   *  this screen from a wall into a door for the person who already had an
+   *  account. A session lasts twelve hours; a machine left overnight comes back
+   *  to a sign-in screen, and one press of the quiet button underneath it left
+   *  somebody looking at first-run — asked for a server address they had given
+   *  the week before, with their token and organisation key still in the
+   *  keychain and nothing left to say which server they belonged to. */
+  lastServer?: string | null;
+  lastEmail?: string | null;
 }) {
-  // Prefilled, not hidden: see defaults.ts. Somebody with their own server
-  // clears one field; somebody with none is no longer stuck.
-  const [url, setUrl] = useState(DEFAULT_SERVER);
+  // Prefilled, not hidden: see defaults.ts. The server this machine used last
+  // wins over the offered one — somebody coming back is far commoner here than
+  // somebody arriving, and the offered address is for the second.
+  const [url, setUrl] = useState(lastServer || DEFAULT_SERVER);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const { t } = useI18n();
@@ -87,7 +101,11 @@ export function ServerSetup({
   return (
     <form className="login" onSubmit={submit}>
       <h1>Fury</h1>
-      <p className="muted center">{t("srv.where")}</p>
+      {/* The first-run explanation is for a first run. Somebody coming back to
+          their own account does not need to be told that Fury is self-hosted
+          and that the address below is one offered to people with no server —
+          it is not, it is theirs, and the sentence under the field says so. */}
+      {!(lastServer && lastEmail) && <p className="muted center">{t("srv.where")}</p>}
       <input
         type="text"
         placeholder={t("srv.placeholder")}
@@ -99,9 +117,23 @@ export function ServerSetup({
       <p className="muted small center">
         {t("srv.httpsAssumed")}
       </p>
+      {/* Whose account this machine had, said out loud.
+          The address alone does not read as "your account is still there" —
+          and it is: the token and the key are in the keychain, waiting for
+          something to name the server they belong to. */}
+      {lastServer && lastEmail && (
+        <p className="hint">{t("srv.comeBack", { email: lastEmail })}</p>
+      )}
       {error && <p className="error">{error}</p>}
-      <button type="submit" disabled={busy || !url.trim()}>
-        {busy ? t("srv.checking") : t("srv.connect")}
+      {/* "Connect" is what this does and not what it means to somebody coming
+          back to their own account, who reads it as setting something up
+          again. The sign-in screen is one step behind it. */}
+      <button className="primary" type="submit" disabled={busy || !url.trim()}>
+        {busy
+          ? t("srv.checking")
+          : lastServer && lastEmail
+            ? t("srv.signInAgain")
+            : t("srv.connect")}
       </button>
       {/* Above sign-up, because the two are not equally likely here and picking
           the wrong one is expensive: an invited colleague who presses "create
