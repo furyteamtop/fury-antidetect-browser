@@ -318,6 +318,16 @@ export interface Preview {
   problems: string[];
 }
 
+/** What `parse_proxy_line` found in a pasted line. */
+export interface ParsedProxyLine {
+  kind: string;
+  host: string;
+  port: number;
+  username: string | null;
+  password: string | null;
+  shape: "Url" | "HostPort" | "HostPortUserPass" | "AtSign";
+}
+
 export interface LocalProxy {
   id: string;
   name: string;
@@ -891,6 +901,10 @@ export const api = {
     origin?: Origin,
   ): Promise<{ created: unknown[]; failed?: { n: number; error: string }[] }> =>
     cmd("clone_profile", { id, count, name: name || null, origin: origin ?? null }),
+
+  /** One line as the block importer would read it, or null if it is not one. */
+  parseProxyLine: (line: string): Promise<ParsedProxyLine | null> =>
+    cmd("parse_proxy_line", { line }),
 
   /** A pasted supplier block. Every line is reported back with its number. */
   importProxies: (

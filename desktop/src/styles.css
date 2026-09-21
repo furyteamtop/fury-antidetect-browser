@@ -1502,13 +1502,17 @@ select option {
 td.clickable { cursor: pointer; }
 td.clickable:hover .mono { text-decoration: underline; text-decoration-color: var(--text-faint); }
 
-/* The step list of a network report: a mark, the step, what happened. */
-ol.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-2); }
-ol.steps li { display: grid; grid-template-columns: 18px 200px 1fr; gap: var(--s-2); align-items: baseline; }
-ol.steps li .hint { grid-column: 3; margin-top: 0; }
-ol.steps li.ok .stepMark { color: var(--ok); }
-ol.steps li.bad .stepMark { color: var(--accent); }
-ol.steps .stepName { color: var(--text-dim); }
+/* The step list of a network report: a mark, the step, what happened.
+   Its own class, not `.steps`: that one is the numbered how-to on the Users
+   screen, and when both were `ol.steps` this three-column grid won on
+   specificity and squeezed the how-to's sentences into a 200px column, one
+   word per line (seen 21.09.2026). */
+ol.reportSteps { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-2); }
+ol.reportSteps li { display: grid; grid-template-columns: 18px 200px 1fr; gap: var(--s-2); align-items: baseline; }
+ol.reportSteps li .hint { grid-column: 3; margin-top: 0; }
+ol.reportSteps li.ok .stepMark { color: var(--ok); }
+ol.reportSteps li.bad .stepMark { color: var(--accent); }
+ol.reportSteps .stepName { color: var(--text-dim); }
 
 /* The platform badge before a profile's name: two letters on the platform's
    hue. Small and square so a column of them reads as a column. */

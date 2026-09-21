@@ -5,6 +5,7 @@ import { useState } from "react";
 import { api, type LocalProxy } from "../api";
 import { NetworkReport } from "./NetworkReport";
 import { useI18n } from "../i18n";
+import { spreadPastedProxy } from "../proxyLine";
 
 const KINDS = ["socks5", "http", "https"] as const;
 
@@ -71,7 +72,14 @@ export function ProxyForm({
             <div>
               <div className="row">
                 <input id="f-host" value={host} autoFocus placeholder="exit.provider.net"
-                  onChange={(e) => setHost(e.target.value)} />
+                  onChange={(e) => setHost(e.target.value)}
+                  onPaste={spreadPastedProxy((p) => {
+                    setHost(p.host);
+                    if (p.port) setPort(p.port);
+                    if (p.kind) setKind(p.kind as (typeof KINDS)[number]);
+                    if (p.username !== undefined) setUser(p.username);
+                    if (p.password !== undefined) setPass(p.password);
+                  })} />
                 <input style={{ width: 92 }} value={port} placeholder="1080" inputMode="numeric"
                   onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} />
                 <button style={{ whiteSpace: "nowrap" }} disabled={busy || !complete}

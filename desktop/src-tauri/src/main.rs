@@ -155,6 +155,7 @@ fn main() {
             commands::delete_template,
             commands::clone_profile,
             commands::import_proxies,
+            commands::parse_proxy_line,
             commands::export_cookies,
             commands::extensions,
             commands::install_extension,

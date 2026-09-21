@@ -3,6 +3,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useI18n } from "../i18n";
+import { spreadPastedProxy } from "../proxyLine";
 import { SUGGESTED } from "../status";
 import { api, type DomainList, type LocalProxy, type Persona, type Preview, type Profile } from "../api";
 import { Logins } from "./Logins";
@@ -66,6 +67,7 @@ function pickWeighted(list: Persona[]): string | undefined {
 export function ProfileDialog({
   projectId,
   editing,
+  local,
   onClose,
   onSaved,
 }: {
@@ -73,6 +75,10 @@ export function ProfileDialog({
    *  project, which is a place it can live. It can be filed later. */
   projectId: string | null;
   editing: Profile | null;
+  /** Whether the shell is on its own or connected to a team server. A new
+   *  profile is born wherever the shell is, and a team profile has to have a
+   *  proxy -- so the dialog has to know, to say so before the button. */
+  local: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -228,13 +234,20 @@ export function ProfileDialog({
       editing?.origin);
       onSaved();
     } catch (e) {
-      setError((e as Error).message);
+      setError(say(e));
     } finally {
       setBusy(false);
     }
   };
 
   const pxComplete = pxHost.trim() !== "" && Number(pxPort) > 0;
+  // A team profile goes out through a proxy, always: the server refuses one
+  // without, because launching it would send a colleague's traffic from their
+  // own address. Said here, under the fields, with the button off, rather than
+  // as an error after Create -- which is where it was said until 21.09.2026,
+  // in English, to somebody whose interface was in Russian.
+  const needsProxy = editing ? editing.origin === "team" : !local;
+  const hasProxy = proxyMode === "saved" ? proxyId !== "" : pxComplete;
   const pxUrl = () => {
     const auth = pxUser ? `${encodeURIComponent(pxUser)}:${encodeURIComponent(pxPass)}@` : "";
     return `${pxKind}://${auth}${pxHost.trim()}:${Number(pxPort)}`;
@@ -434,6 +447,13 @@ export function ProfileDialog({
                             value={pxHost}
                             placeholder="exit.provider.net"
                             onChange={(e) => setPxHost(e.target.value)}
+                            onPaste={spreadPastedProxy((p) => {
+                              setPxHost(p.host);
+                              if (p.port) setPxPort(p.port);
+                              if (p.kind) setPxKind(p.kind);
+                              if (p.username !== undefined) setPxUser(p.username);
+                              if (p.password !== undefined) setPxPass(p.password);
+                            })}
                           />
                           <input
                             style={{ width: 92 }}
@@ -460,6 +480,9 @@ export function ProfileDialog({
                             {busy ? t("px.checking") : t("px.checkButton")}
                           </button>
                         </div>
+                        {needsProxy && !pxComplete && (
+                          <p className="hint">{t("pd.proxyRequired")}</p>
+                        )}
                         {pxCheck && (
                           <div
                             className={pxCheck.ok ? "verdict good" : "verdict bad"}
@@ -765,7 +788,7 @@ export function ProfileDialog({
           </button>
           <button
             className="primary"
-            disabled={busy || !personaId || problems.length > 0}
+            disabled={busy || !personaId || problems.length > 0 || (needsProxy && !hasProxy)}
             onClick={save}
           >
             {busy ? t("ui.saving") : editing ? t("ui.save") : t("ui.create")}

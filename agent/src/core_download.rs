@@ -205,6 +205,19 @@ async fn run(shared: &Shared) -> Result<PathBuf> {
     file.flush()?;
     drop(file);
 
+    // A download that stopped short is not an archive, and xz's complaint
+    // about it ("Unexpected end of file") reads as a broken release. Compare
+    // with what the server promised before handing it to tar, so the message
+    // says what actually happened -- and leave the file, so it can be looked at.
+    let total = shared.lock().await.total;
+    if total != 0 && seen != total {
+        anyhow::bail!(
+            "the download stopped at {seen} of {total} bytes ({}). \
+             Check the connection and press the button again",
+            tmp.display()
+        );
+    }
+
     tracing::info!(bytes = seen, "downloaded; installing");
 
     // install() is the same path `fury-agent install-core` takes, deliberately:
@@ -212,9 +225,16 @@ async fn run(shared: &Shared) -> Result<PathBuf> {
     // attracted, and RUNS THE BROWSER ONCE to check it starts. A download that
     // arrives corrupt should fail here, with the previous core still in place,
     // rather than at the operator's next launch.
+    //
+    // The file is removed only on success. A failed install leaves it in
+    // place, because the failure message names it and the first question
+    // anyone asks is "what is in that file" -- its size, its first bytes,
+    // whether it unpacks by hand -- and that cannot be answered once it is gone.
     let installed = tokio::task::spawn_blocking(move || {
         let r = crate::install_core::install(&tmp);
-        let _ = std::fs::remove_file(&tmp);
+        if r.is_ok() {
+            let _ = std::fs::remove_file(&tmp);
+        }
         r
     })
     .await??;

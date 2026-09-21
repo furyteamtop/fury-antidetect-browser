@@ -261,17 +261,52 @@ fn unpack(archive: &Path, into: &Path) -> Result<()> {
     // shipped it since 10 build 17063 — and it reads zip as readily as tar.
     // Measured rather than assumed: a zip made here, extracted with `tar -xf`,
     // came out with its subdirectories and its executable bit intact.
-    let status = std::process::Command::new("tar")
+    //
+    // Named by full path on Windows rather than looked up on PATH. Git for
+    // Windows and MSYS both put a GNU tar on PATH, and GNU tar reads
+    // `C:\Users\...` as `host:file` -- it tries to rsh to a machine called C.
+    // Which tar answers depends on how the user's PATH is ordered, which is
+    // not something a support thread can see.
+    let out = std::process::Command::new(tar_binary())
         .arg("-xf")
         .arg(archive)
         .arg("-C")
         .arg(into)
-        .status()
+        .output()
         .context("running tar")?;
-    if !status.success() {
-        bail!("tar could not unpack {}", archive.display());
+    if !out.status.success() {
+        // tar's own words, not ours. "could not unpack" on its own sent people
+        // to re-download a file that was fine (21.09.2026: the v0.1.3 archive
+        // unpacked cleanly on the build box while a user's machine refused it,
+        // and the message gave nothing to compare). Truncated xz, a full disk,
+        // a leftover file held open -- tar names each one differently.
+        let said = String::from_utf8_lossy(&out.stderr);
+        let said = said.trim();
+        let said = if said.is_empty() { "tar said nothing".to_string() } else { said.to_string() };
+        bail!(
+            "tar could not unpack {} ({}, {} bytes): {said}",
+            archive.display(),
+            out.status,
+            std::fs::metadata(archive).map(|m| m.len()).unwrap_or(0),
+        );
     }
     Ok(())
+}
+
+/// The tar to run: Windows' own bsdtar on Windows, whatever PATH says elsewhere.
+fn tar_binary() -> PathBuf {
+    #[cfg(windows)]
+    {
+        let system32 = std::env::var_os("SystemRoot")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
+            .join("System32")
+            .join("tar.exe");
+        if system32.exists() {
+            return system32;
+        }
+    }
+    PathBuf::from("tar")
 }
 
 /// Finds the core executable anywhere in a freshly unpacked tree.

@@ -79,7 +79,7 @@ export function NetworkReport({
                   <dd>{report.exit.timezone ?? "?"}</dd>
                 </dl>
               )}
-              <ol className="steps">
+              <ol className="reportSteps">
                 {report.steps.map((s) => (
                   <li key={s.step} className={s.ok ? "ok" : "bad"}>
                     <span className="stepMark">{s.ok ? "✓" : "✕"}</span>

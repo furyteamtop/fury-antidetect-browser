@@ -2728,6 +2728,28 @@ pub async fn clone_profile(
         .await
 }
 
+/// One proxy line, read the way the block importer reads it.
+///
+/// For the host field of the proxy form: a supplier hands out
+/// `ip:port:login:pass` on one line and people paste the whole thing into the
+/// first box. Sending it to the same parser means the form and the "paste a
+/// list" screen cannot disagree about which of the four shapes a line is.
+/// Returns null rather than an error for a line that is not a proxy, because
+/// the caller's fallback is simply "then it was a hostname" -- there is nothing
+/// to say to the operator about a paste that did not match.
+#[tauri::command]
+pub fn parse_proxy_line(line: String) -> Option<serde_json::Value> {
+    let p = fury_shared::proxy_list::parse_line(&line).ok()?;
+    Some(serde_json::json!({
+        "kind": p.scheme,
+        "host": p.host,
+        "port": p.port,
+        "username": p.username,
+        "password": p.password,
+        "shape": format!("{:?}", p.shape),
+    }))
+}
+
 /// A pasted supplier block.
 #[tauri::command]
 pub async fn import_proxies(

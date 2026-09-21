@@ -1370,6 +1370,7 @@ export function App() {
           <ProfileDialog
             projectId={active?.id ?? null}
             editing={editing}
+            local={local}
             onClose={() => setEditing(undefined)}
             onSaved={async () => {
               setEditing(undefined);
