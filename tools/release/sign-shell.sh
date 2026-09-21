@@ -150,7 +150,14 @@ echo
 echo "== hardened runtime"
 # Mandatory for notarisation, and silently absent is exactly how it goes wrong:
 # a bundle signs and verifies happily without it and is refused on upload.
-if codesign -d --verbose=2 "$app" 2>&1 | grep -q "flags=.*runtime"; then
+#
+# The output is captured before it is searched, and that is not style. With
+# `set -o pipefail`, `codesign ... | grep -q` can fail on a bundle that HAS the
+# flag: grep -q exits at the first match, codesign gets SIGPIPE writing the
+# rest, and the pipeline's status is codesign's. Measured 21.09.2026 on the
+# first Developer ID build: flags=0x10000(runtime) on disk, "NOT enabled" here.
+flags="$(codesign -d --verbose=2 "$app" 2>&1 || true)"
+if printf '%s' "$flags" | grep -q "flags=.*runtime"; then
   echo "   enabled"
 else
   echo "!! hardened runtime is NOT enabled on $app" >&2

@@ -142,14 +142,45 @@ fi
 #
 # It is built by a target of its own, because `ninja chrome` does not produce
 # it — the first attempt here signed nothing for that reason.
+#
+# Always regenerated, never trusted from an earlier run. The scripts must match
+# the tree that produced the bundle: the ones from a 150 build did not know the
+# "(Aperitif …)" helpers a 153 bundle carries, signed around them, and the seal
+# then failed verification -- while the reused build_props_config.py said the
+# bundle was 150.0.7871.187. Measured 21.09.2026.
+#
+# Two ninja targets, not `chrome/installer/mac`. That target also links
+# dmg_tool and hfs_tool, and those need Chromium's pinned linker to read the
+# SDK that Xcode has NOW -- which, after an Xcode update, it cannot ("could not
+# load TAPI file ... unknown target"). The signing needs neither tool: they make
+# a disk image, and --disable-packaging is passed below. The two targets that
+# matter are copies and a template, and those still build.
 packaging="$out_dir/Fury Packaging"
-if [ ! -f "$packaging/sign_chrome.py" ]; then
-  echo "== building the packaging tools (they are not part of \`ninja chrome\`)"
-  (cd "$src" && ./third_party/ninja/ninja -C "$(basename "$out_dir" | sed "s|^|out/|")" chrome/installer/mac)
-fi
+echo "== assembling the packaging tools (they are not part of \`ninja chrome\`)"
+(cd "$src" && ./third_party/ninja/ninja -C "$(basename "$out_dir" | sed "s|^|out/|")" \
+    chrome/installer/mac:copy_signing chrome:entitlements)
+for f in sign_chrome.py rebrand_chrome.py universalizer.py pkg-dmg pkg_preinstall.in pkg_postinstall.in; do
+  cp "$src/chrome/installer/mac/$f" "$packaging/$f"
+done
+cp "$src/chrome/app/helper-gpu-entitlements.plist" \
+   "$src/chrome/app/helper-renderer-entitlements.plist" "$packaging/"
+cp "$out_dir/gen/chrome/app-entitlements.plist" "$packaging/"
+
+# Gatekeeper is asked AFTER notarisation, not before. The pipeline's default
+# runs `spctl --assess` on the freshly signed bundle before it is submitted,
+# and on current macOS that says "rejected, source=Unnotarized Developer ID"
+# for every correctly signed bundle -- which the pipeline reads as a failure
+# and stops on, before notarisation ever runs. Measured 21.09.2026. The same
+# assessment is made below, on the stapled result, where it means something.
+cat >> "$packaging/signing/build_props_config.py" <<'PY'
+
+    @property
+    def run_spctl_assess(self):
+        return False
+PY
 [ -f "$packaging/sign_chrome.py" ] || {
   echo "!! no $packaging/sign_chrome.py" >&2
-  echo "   build it: cd core/src && ./third_party/ninja/ninja -C <outdir> chrome/installer/mac" >&2
+  echo "   build it: cd core/src && ./third_party/ninja/ninja -C <outdir> chrome/installer/mac:copy_signing chrome:entitlements" >&2
   exit 1
 }
 
@@ -177,9 +208,14 @@ if [ "$adhoc" = 1 ]; then
   args+=(--development)
 fi
 
-if [ "$notarize" = 1 ]; then
-  args+=(--notarize staple --notary-arg "--keychain-profile" --notary-arg "$keychain_profile")
-fi
+# Notarisation is NOT handed to the pipeline, on purpose. With --notarize and
+# --disable-packaging together it notarises and staples the bundle in its own
+# temporary directory and then deletes that directory: the ticket is issued,
+# the log says "The staple and validate action worked!", and --output is
+# empty. Measured 21.09.2026 -- the bundle only reaches --output on the
+# not-packaging-and-not-notarising path. So the pipeline signs, and the
+# submission is made below on the bundle it hands back, the way sign-shell.sh
+# does it.
 
 "$PY" "${args[@]}"
 
@@ -214,10 +250,25 @@ fi
 
 if [ "$notarize" = 1 ]; then
   echo
+  echo "== notarising"
+  # ditto, not zip: `zip -r` mangles the symlinks a framework is made of, and
+  # the submission then fails in a way that reads as a signing fault.
+  zip="$staged/Fury.zip"
+  rm -f "$zip"
+  ditto -c -k --keepParent "$signed" "$zip"
+  xcrun notarytool submit "$zip" --keychain-profile "$keychain_profile" --wait
+  rm -f "$zip"
+
+  echo
   echo "== stapled ticket"
   # The ticket has to be stapled for the bundle to pass on a machine that is
   # offline at first launch, which is the case this catches.
+  xcrun stapler staple "$signed"
   xcrun stapler validate "$signed"
+
+  echo
+  echo "== Gatekeeper, after stapling"
+  spctl --assess --type execute --verbose=2 "$signed"
 fi
 
 echo
