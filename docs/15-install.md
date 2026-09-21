@@ -2,7 +2,7 @@
 
 > **There are releases, and they are not signed.** The
 > [Releases](https://github.com/furyteamtop/fury-antidetect-browser/releases)
-> page has had builds since 18.08.2026; the current one is 0.1.3, for macOS on
+> page has had builds since 18.08.2026; the current one is 0.1.4, for macOS on
 > Apple Silicon and for Windows x64, marked pre-release. Each ships with
 > `SHA256SUMS` and a `REPORT.md` — the measurement the core passed before it was
 > published. What is still missing is a signature: a macOS download needs one
