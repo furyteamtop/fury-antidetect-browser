@@ -186,7 +186,7 @@ def main() -> int:
     # The images travel with the page — a landing that hotlinks its own logo
     # out of a git host breaks when that host rate-limits it — and they are
     # resized on the way. The originals are 1920px and 1024px: 1.6 MB of PNG
-    # to draw a 26px wordmark and a favicon, which is most of the page's
+    # to draw a 40px wordmark and a favicon, which is most of the page's
     # weight for none of its meaning. `sips` ships with macOS; where it does
     # not, the full-size file is copied and the page still works.
     for src, dst, px in ((ROOT / "assets" / "logo-dark.png", DIST / "logo.png", 520),

@@ -4,15 +4,15 @@
   the file that owns it, so editing this template by hand to bump a version is
   always the wrong move. Double-brace placeholders are filled at build time.
 -->
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fury — свободный антидетект-браузер</title>
-<meta name="description" content="Антидетект-браузер с открытым ядром: свой форк Chromium {{CHROME_MAJOR}}, {{PATCHES}} патчей в репозитории, командная работа и свой сервер. Бесплатно, без оплаты за профиль и без телеметрии.">
+<title>Fury — a free anti-detect browser</title>
+<meta name="description" content="An anti-detect browser with an open core: its own Chromium {{CHROME_MAJOR}} fork, {{PATCHES}} patches in the repository, teamwork and a server of your own. Free, no per-profile fee and no telemetry.">
 <link rel="icon" href="icon.png">
-<meta property="og:title" content="Fury — свободный антидетект-браузер">
-<meta property="og:description" content="Свой форк Chromium {{CHROME_MAJOR}}. Команда бесплатно. Каждый вектор подмены измерен и опубликован.">
+<meta property="og:title" content="Fury — a free anti-detect browser">
+<meta property="og:description" content="Its own Chromium {{CHROME_MAJOR}} fork. A team costs nothing. Every spoofing vector measured and published.">
 <meta property="og:image" content="https://furybrowser.dev/logo.png">
 <meta property="og:type" content="website">
 <style>
@@ -43,7 +43,7 @@
   /* ---- top bar ---- */
   .top { display: flex; align-items: center; justify-content: space-between;
          padding: 18px 0; gap: 16px; }
-  .top img { height: 26px; width: auto; display: block; }
+  .top img { height: 40px; width: auto; display: block; }
   .lang { display: flex; gap: 2px; background: var(--surface); border: 1px solid var(--line);
           border-radius: 8px; padding: 2px; }
   .lang button { background: none; border: 0; color: var(--dim); font: inherit; font-size: 13px;
@@ -125,14 +125,14 @@
   <div class="top">
     <img src="logo.png" alt="Fury">
     <div class="lang" role="group" aria-label="Language">
-      <button type="button" data-lang="ru" aria-pressed="true">Рус</button>
-      <button type="button" data-lang="en" aria-pressed="false">Eng</button>
+      <button type="button" data-lang="en" aria-pressed="true">Eng</button>
+      <button type="button" data-lang="ru" aria-pressed="false">Рус</button>
     </div>
   </div>
 </div>
 
 <!-- ======================= RUSSIAN ======================= -->
-<div class="langblock" data-block="ru">
+<div class="langblock" data-block="ru" hidden>
 <div class="wrap">
 
   <div class="hero">
@@ -259,7 +259,7 @@
 </div>
 
 <!-- ======================= ENGLISH ======================= -->
-<div class="langblock" data-block="en" hidden>
+<div class="langblock" data-block="en">
 <div class="wrap">
 
   <div class="hero">
@@ -391,9 +391,12 @@
   'use strict';
 
   /* ---- language -------------------------------------------------------
-     Remembered per visitor, defaulting to what the browser asks for. A
-     Russian reader who switches to English once should not have to switch
-     again, and a first-time English reader should not land on Russian. */
+     English by default, for everyone, and remembered per visitor after a
+     click. Accept-Language is deliberately NOT consulted: this page is read
+     over the shoulder and linked on English forums, and a visitor who is in
+     a Russian browser because that is where they live is not thereby asking
+     for a Russian page. The markup ships English visible, so the no-script
+     and first-paint states are the same as the default -- nothing flips. */
   var blocks = document.querySelectorAll('.langblock');
   var buttons = document.querySelectorAll('.lang button');
   function apply(lang) {
@@ -404,10 +407,7 @@
   }
   var stored = null;
   try { stored = localStorage.getItem('fury-lang'); } catch (e) { /* ignore */ }
-  // The parentheses are the point: `||` binds tighter than `?:`, so without
-  // them a stored "en" is truthy and the whole condition picks Russian —
-  // the switch would refuse to stick for exactly the people who used it.
-  apply(stored || ((navigator.language || 'en').toLowerCase().startsWith('ru') ? 'ru' : 'en'));
+  apply(stored || 'en');
   buttons.forEach(function (b) {
     b.addEventListener('click', function () { apply(b.dataset.lang); });
   });
