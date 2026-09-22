@@ -247,6 +247,12 @@ def build():
             same = "same" if f_val == c_val else "differs"
             rows += (f"<tr><td>{e(label)}</td><td>{e(f_val)}</td><td>{e(c_val)}</td>"
                      f'<td class="{same}">{same}</td></tr>')
+        # The column says which Chrome, read from the capture rather than
+        # typed: the header said 150 for three weeks after the baseline was
+        # retaken on 153.
+        import re as _re
+        _m = _re.search(r"Chrome/(\d+)", str(dig(chrome, "navigator.userAgent") or ""))
+        chrome_label = f"Chrome {_m.group(1)}" if _m else "Chrome"
         parts.append(f"""
 <section>
   <h2>Fury and Chrome, side by side</h2>
@@ -255,7 +261,7 @@ def build():
      answer for everything the persona does not claim — the point is that each
      one is deliberate.</p>
   <table>
-    <thead><tr><th></th><th>Fury</th><th>Chrome 150</th><th></th></tr></thead>
+    <thead><tr><th></th><th>Fury</th><th>{e(chrome_label)}</th><th></th></tr></thead>
     <tbody>{rows}</tbody>
   </table>
 </section>""")
