@@ -252,9 +252,28 @@ fn unpack(archive: &Path, into: &Path) -> Result<()> {
         );
     }
 
-    // Shelling out to tar rather than linking a decompressor: tar preserves the
-    // symlinks a macOS framework is built from and the executable bits, and
-    // getting either wrong produces a bundle that unpacks and will not run.
+    // .xz is decoded HERE, not by tar, and the temporary .tar is what tar gets.
+    //
+    // Windows ships bsdtar, and whether that bsdtar can read xz depends on the
+    // build: one with liblzma compiled in does it itself, one without shells
+    // out to an `xz` program that a normal Windows machine does not have. The
+    // second kind says
+    //
+    //     Can't initialize filter; unable to run program "xz -d -qq"
+    //
+    // and the install fails on an archive that is perfectly good. Measured
+    // 22.09.2026 on two machines: the build box answers `bsdtar 3.8.1 ...
+    // liblzma/5.4.3` and unpacks the 0.1.6 core; a user's Windows 11 refused
+    // the same file with the line above. Which one a person has is not
+    // something a support thread can see, and it is not something to ask
+    // about -- so the decompression stops being their machine's problem.
+    //
+    // gzip and zip stay tar's job: zlib is in every bsdtar build there is.
+    //
+    // Shelling out to tar for the tar itself, rather than linking a reader:
+    // tar preserves the symlinks a macOS framework is built from and the
+    // executable bits, and getting either wrong produces a bundle that unpacks
+    // and will not run.
     //
     // The same command covers .zip, which is how Chromium is packaged for
     // Windows. `tar` on both platforms is bsdtar/libarchive — Windows has
@@ -267,13 +286,29 @@ fn unpack(archive: &Path, into: &Path) -> Result<()> {
     // `C:\Users\...` as `host:file` -- it tries to rsh to a machine called C.
     // Which tar answers depends on how the user's PATH is ordered, which is
     // not something a support thread can see.
+    // Beside the staging directory rather than inside it: find_core() walks
+    // what was unpacked, and a 500 MB .tar sitting in there would travel into
+    // the installed core.
+    let decoded = name.ends_with(".tar.xz").then(|| {
+        let mut file_name = into.file_name().unwrap_or_default().to_os_string();
+        file_name.push(".tar");
+        into.with_file_name(file_name)
+    });
+    if let Some(decoded) = &decoded {
+        decompress_xz(archive, decoded)?;
+    }
+    let feed = decoded.as_deref().unwrap_or(archive);
+
     let out = std::process::Command::new(tar_binary())
         .arg("-xf")
-        .arg(archive)
+        .arg(feed)
         .arg("-C")
         .arg(into)
         .output()
         .context("running tar")?;
+    if let Some(decoded) = &decoded {
+        let _ = std::fs::remove_file(decoded);
+    }
     if !out.status.success() {
         // tar's own words, not ours. "could not unpack" on its own sent people
         // to re-download a file that was fine (21.09.2026: the v0.1.3 archive
@@ -290,6 +325,39 @@ fn unpack(archive: &Path, into: &Path) -> Result<()> {
             std::fs::metadata(archive).map(|m| m.len()).unwrap_or(0),
         );
     }
+    Ok(())
+}
+
+/// Decodes an .xz file to `to`, in this process.
+///
+/// Streamed through buffers rather than read into memory: the core is 139 MB
+/// compressed and 508 MB out, and an install that needs half a gigabyte of RAM
+/// to start would fail on exactly the small machines this runs on.
+fn decompress_xz(archive: &Path, to: &Path) -> Result<()> {
+    use std::io::{BufReader, BufWriter};
+
+    let from = std::fs::File::open(archive)
+        .with_context(|| format!("opening {}", archive.display()))?;
+    let out = std::fs::File::create(to)
+        .with_context(|| format!("creating {}", to.display()))?;
+    let mut from = BufReader::with_capacity(1 << 20, from);
+    let mut out = BufWriter::with_capacity(1 << 20, out);
+
+    // A truncated download ends up here, and it is the likeliest failure of the
+    // two: the file is named, so the next question -- is it the whole thing? --
+    // has the size in front of it.
+    lzma_rs::xz_decompress(&mut from, &mut out).map_err(|e| {
+        let _ = std::fs::remove_file(to);
+        anyhow::anyhow!(
+            "{} is not readable as xz ({} bytes): {e}. A download that stopped \
+             short looks exactly like this -- check it against SHA256SUMS on \
+             the release page",
+            archive.display(),
+            std::fs::metadata(archive).map(|m| m.len()).unwrap_or(0),
+        )
+    })?;
+    use std::io::Write;
+    out.flush().with_context(|| format!("writing {}", to.display()))?;
     Ok(())
 }
 
@@ -369,6 +437,57 @@ mod tests {
         assert!(err.contains(".tar.xz"), "{err}");
         // The point of the check: tar never ran, so there is no half-unpacked
         // directory to explain afterwards.
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_tar_xz_unpacks_without_an_xz_program_on_the_machine() {
+        // The 0.1.6 Windows report: bsdtar without liblzma answers "unable to
+        // run program \"xz -d -qq\"" and the install fails on a good archive.
+        // This test would pass on the build box either way -- its tar reads xz
+        // -- so what it actually pins is that we hand tar a PLAIN .tar: PATH is
+        // emptied below, so nothing on this machine could decode xz for us.
+        let dir = std::env::temp_dir().join("fury-xz-test");
+        std::fs::remove_dir_all(&dir).ok();
+        let staging = dir.join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+
+        let mut builder = tar::Builder::new(Vec::new());
+        let body = b"#!/bin/sh\n";
+        let mut header = tar::Header::new_gnu();
+        header.set_size(body.len() as u64);
+        header.set_mode(0o755);
+        header.set_cksum();
+        builder.append_data(&mut header, "fury-core/hello", &body[..]).unwrap();
+        let plain = builder.into_inner().unwrap();
+
+        let mut xz = Vec::new();
+        lzma_rs::xz_compress(&mut plain.as_slice(), &mut xz).unwrap();
+        let archive = dir.join("fury-core-test.tar.xz");
+        std::fs::write(&archive, &xz).unwrap();
+
+        // tar itself is still needed, by full path on Windows and from the
+        // usual places elsewhere; what must NOT be needed is an xz beside it.
+        let path = std::env::var_os("PATH");
+        #[cfg(not(windows))]
+        unsafe { std::env::set_var("PATH", "/usr/bin:/bin") };
+
+        let result = unpack(&archive, &staging);
+
+        #[cfg(not(windows))]
+        unsafe {
+            match &path {
+                Some(p) => std::env::set_var("PATH", p),
+                None => std::env::remove_var("PATH"),
+            }
+        }
+        let _ = &path;
+
+        result.unwrap();
+        assert!(staging.join("fury-core").join("hello").exists());
+        // And the half-gigabyte intermediate is not left behind, nor inside
+        // the tree find_core() is about to walk.
+        assert!(!dir.join("staging.tar").exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 

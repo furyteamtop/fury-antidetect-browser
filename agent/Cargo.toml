@@ -47,6 +47,12 @@ sqlx = { version = "0.8", default-features = false, features = [
 ] }
 tar = "0.4"
 flate2 = "1"
+# The .xz half of a core archive is decoded here rather than by whatever tar
+# the machine happens to have -- see unpack() in install_core.rs. Pure Rust on
+# purpose: the C liblzma would be faster and would put a C toolchain between
+# this crate and a Windows release. Measured on the 0.1.6 Windows core,
+# 139 MB in, 508 MB out: 7.1s, against 1s for a multi-threaded system xz.
+lzma-rs = "0.3"
 chacha20poly1305 = "0.10"
 argon2 = "0.5"
 keyring = "4"
