@@ -79,7 +79,7 @@ pub struct ApiErr {
     /// interface can say them in the operator's language. The message stays as
     /// the fallback: an untranslated sentence beats a bare code.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub code: Option<&'static str>,
+    pub code: Option<String>,
 }
 
 impl From<crate::agent::AgentError> for ApiErr {
@@ -91,6 +91,12 @@ impl From<crate::agent::AgentError> for ApiErr {
                 "err.agentDown",
                 "The local agent is not running. Nothing can be launched without it.",
             ),
+            // A refusal the agent gave a name to keeps it, so the window can
+            // say it in the operator's language instead of passing on an
+            // English sentence written in Rust.
+            crate::agent::AgentError::Refused { message, code } => {
+                ApiErr { code, ..ApiErr::local(message) }
+            }
             other => ApiErr::local(other.to_string()),
         }
     }
@@ -107,7 +113,7 @@ impl ApiErr {
     }
 
     fn coded(code: &'static str, message: impl Into<String>) -> Self {
-        Self { code: Some(code), ..Self::local(message) }
+        Self { code: Some(code.to_string()), ..Self::local(message) }
     }
 }
 
@@ -253,7 +259,7 @@ impl AppState {
                 status: status.as_u16(),
                 body: parsed,
                 message: format!("Request failed ({status})."),
-                code,
+                code: code.map(str::to_string),
             });
         }
 
@@ -275,7 +281,7 @@ fn unauthenticated() -> ApiErr {
         status: 401,
         body: serde_json::json!({ "error": "unauthenticated" }),
         message: "Not signed in.".into(),
-        code: Some("err.notSignedIn"),
+        code: Some("err.notSignedIn".to_string()),
     }
 }
 

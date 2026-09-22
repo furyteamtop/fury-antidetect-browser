@@ -84,3 +84,8 @@ base64 = "0.22"
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["handshake", "connect"] }
 futures-util = { version = "0.3.33", default-features = false, features = ["sink"] }
 
+[dev-dependencies]
+# `start_paused`, for the relay's handshake timeout. The bound is eight seconds
+# and a test suite should not spend them waiting for a socket that will never
+# answer — which is the whole point of the thing being tested.
+tokio = { version = "1", features = ["full", "test-util"] }

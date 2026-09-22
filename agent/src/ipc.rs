@@ -45,6 +45,27 @@ struct Response {
     ok: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     err: Option<String>,
+    /// A stable name for this failure, when it is one the interface should say
+    /// in the operator's own language.
+    ///
+    /// The agent is written in Rust and has no idea which language the window
+    /// is in, so an English sentence from here used to land verbatim in a
+    /// Russian interface — see the refusal to launch a profile with no proxy,
+    /// which is the one an operator meets first. `err` stays as the fallback:
+    /// an untranslated sentence beats a bare code.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<&'static str>,
+}
+
+/// A failure with a name the interface can translate.
+///
+/// Carried through `anyhow` like any other error and recovered by downcast at
+/// the edge, so nothing between here and the bail site has to learn about it.
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
+pub struct Coded {
+    pub code: &'static str,
+    pub message: String,
 }
 
 /// A profile that is open right now.
@@ -322,14 +343,20 @@ impl Agent {
                 Ok(req) => {
                     let id = req.id;
                     match self.dispatch(&req.method, req.params).await {
-                        Ok(value) => Response { id, ok: Some(value), err: None },
-                        Err(e) => Response { id, ok: None, err: Some(e.to_string()) },
+                        Ok(value) => Response { id, ok: Some(value), err: None, code: None },
+                        Err(e) => Response {
+                            id,
+                            ok: None,
+                            err: Some(e.to_string()),
+                            code: e.downcast_ref::<Coded>().map(|c| c.code),
+                        },
                     }
                 }
                 Err(e) => Response {
                     id: 0,
                     ok: None,
                     err: Some(format!("malformed request: {e}")),
+                    code: None,
                 },
             };
             let mut bytes = serde_json::to_vec(&response)?;
@@ -904,6 +931,21 @@ impl Agent {
                 let body: serde_json::Value = match client.get(&endpoint).send().await {
                     Ok(res) => res.json().await.unwrap_or(serde_json::Value::Null),
                     Err(e) => {
+                        // Before reporting silence, find out whether the far
+                        // end is simply being addressed in the wrong protocol.
+                        // Measured 22.09.2026 on a mobile HTTP proxy saved as
+                        // socks5: the check sat for its full fifteen seconds
+                        // and then said "did not answer in time", which is true
+                        // and sends the operator to their provider. The proxy
+                        // was fine.
+                        let suggested = crate::diagnose::speaks_instead(
+                            &url,
+                            params.get("checker_url").and_then(|v| v.as_str()),
+                        )
+                        .await;
+                        if let Some(kind) = suggested {
+                            tracing::info!(kind, "the proxy answers on another protocol");
+                        }
                         return Ok(json!({
                             "ok": false,
                             "error": if e.is_timeout() {
@@ -913,6 +955,10 @@ impl Agent {
                             } else {
                                 format!("The check failed: {e}")
                             },
+                            // A protocol this address does answer on. The
+                            // interface offers it as a button; absent when the
+                            // other family is no better.
+                            "suggested_kind": suggested,
                         }))
                     }
                 };
@@ -2556,15 +2602,39 @@ mod tests {
     fn responses_omit_the_half_that_did_not_happen() {
         // The shell distinguishes success from failure by which key is present,
         // so serialising both would make every error look like a success.
-        let ok = Response { id: 1, ok: Some(serde_json::json!({})), err: None };
+        let ok = Response { id: 1, ok: Some(serde_json::json!({})), err: None, code: None };
         let text = serde_json::to_string(&ok).unwrap();
         assert!(text.contains("\"ok\""));
         assert!(!text.contains("\"err\""));
 
-        let bad = Response { id: 2, ok: None, err: Some("no".into()) };
+        let bad = Response { id: 2, ok: None, err: Some("no".into()), code: None };
         let text = serde_json::to_string(&bad).unwrap();
         assert!(text.contains("\"err\""));
         assert!(!text.contains("\"ok\""));
+        // An uncoded failure carries no code at all, rather than a null the
+        // shell would have to tell from an absent one.
+        assert!(!text.contains("\"code\""));
+    }
+
+    /// The shell translates on `code` and falls back to `err`. A refusal that
+    /// dropped its code on the way out would be an English sentence in a
+    /// Russian window — which is exactly what the no-proxy refusal was.
+    #[test]
+    fn a_coded_refusal_carries_its_name_to_the_shell() {
+        let e: anyhow::Error = Coded {
+            code: "err.noProxy",
+            message: "this profile has no proxy".into(),
+        }
+        .into();
+        let r = Response {
+            id: 3,
+            ok: None,
+            err: Some(e.to_string()),
+            code: e.downcast_ref::<Coded>().map(|c| c.code),
+        };
+        let text = serde_json::to_string(&r).unwrap();
+        assert!(text.contains("err.noProxy"), "{text}");
+        assert!(text.contains("this profile has no proxy"), "{text}");
     }
 }
 

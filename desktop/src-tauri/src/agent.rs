@@ -26,8 +26,11 @@ pub enum AgentError {
     #[error("the local agent is not running")]
     NotRunning,
 
-    #[error("{0}")]
-    Refused(String),
+    /// The agent understood the call and said no. `code` is present when the
+    /// refusal is one the interface has a translation for; the message is the
+    /// fallback, and is what gets shown without one.
+    #[error("{message}")]
+    Refused { message: String, code: Option<String> },
 
     #[error("agent connection failed: {0}")]
     Io(#[from] std::io::Error),
@@ -158,7 +161,13 @@ pub async fn call<T: DeserializeOwned>(method: &str, params: Value) -> Result<T,
         serde_json::from_str(&line).map_err(|e| AgentError::Protocol(e.to_string()))?;
 
     if let Some(err) = response.get("err").and_then(Value::as_str) {
-        return Err(AgentError::Refused(err.to_string()));
+        return Err(AgentError::Refused {
+            message: err.to_string(),
+            code: response
+                .get("code")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
+        });
     }
     let ok = response
         .get("ok")

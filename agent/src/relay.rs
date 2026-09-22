@@ -81,12 +81,40 @@ pub enum Upstream {
     WireGuard(std::sync::Arc<crate::wg_stack::Stack>),
 }
 
+/// How long to wait for the proxy's TCP handshake.
+///
+/// There was no limit here at all until an HTTP proxy addressed as `socks5://`
+/// made every tab in a profile hang forever instead of failing. `diagnose`
+/// had its own bound and the launch path did not, so the one place an operator
+/// actually meets a broken proxy was the one place that never gave up.
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// How long to wait for the proxy to answer its own protocol's greeting, once
+/// the socket is open.
+///
+/// Shorter than the connect, and deliberately: a SOCKS5 server replies to a
+/// three-byte greeting within one round trip, and an HTTP proxy that received
+/// that greeting is sitting there waiting for a request line that will never
+/// come. Silence here is evidence about what the far end is, which is why the
+/// timeout produces [`RelayError::WrongProtocol`] rather than "unreachable".
+const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
+
 #[derive(Debug, thiserror::Error)]
 pub enum RelayError {
     #[error("upstream unreachable: {0}")]
     UpstreamUnreachable(#[source] io::Error),
     #[error("upstream refused authentication")]
     AuthRejected,
+    /// The socket opened and then the far end did not behave like the protocol
+    /// its address claims.
+    ///
+    /// Worth its own variant because the fix is a one-click change of a
+    /// dropdown, and because the alternatives lie: reported as "unreachable" it
+    /// sends somebody to their firewall, and reported as "authentication
+    /// refused" — which is what a non-0x05 greeting byte used to produce — it
+    /// sends them to their provider to reset a password that was never wrong.
+    #[error("not a {expected} proxy: {saw}")]
+    WrongProtocol { expected: &'static str, saw: String },
     #[error("upstream refused CONNECT to {target}: {reason}")]
     ConnectRejected { target: String, reason: String },
     #[error("malformed request from browser")]
@@ -321,10 +349,12 @@ impl Relay {
                 port: pport,
                 auth,
             } => {
-                let mut s = TcpStream::connect((phost.as_str(), *pport))
-                    .await
-                    .map_err(RelayError::UpstreamUnreachable)?;
-                http_connect(&mut s, host, port, auth.as_ref()).await?;
+                let mut s = connect_upstream(phost, *pport).await?;
+                handshake(
+                    "HTTP",
+                    http_connect(&mut s, host, port, auth.as_ref()),
+                )
+                .await?;
                 Ok(Conn::Tcp(s))
             }
             Upstream::Socks5 {
@@ -360,6 +390,62 @@ impl Relay {
                 Ok(Conn::Tunnel(stream))
             }
         }
+    }
+}
+
+/// Did the far end hang up rather than answer?
+///
+/// Measured against a real SOCKS5 server sent an HTTP CONNECT: it closes
+/// without a word, and the close arrives as a reset on the write rather than as
+/// an end-of-file on the read — so both spellings have to count, or the test
+/// passes on one machine and not on another.
+fn hung_up(e: &io::Error) -> bool {
+    matches!(
+        e.kind(),
+        io::ErrorKind::ConnectionReset
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::BrokenPipe
+            | io::ErrorKind::UnexpectedEof
+    )
+}
+
+/// Open the socket to the proxy itself, within [`CONNECT_TIMEOUT`].
+///
+/// A timeout is reported as an `io::Error` of kind `TimedOut` rather than as a
+/// variant of its own, because `diagnose::classify_io` already turns that kind
+/// into the sentence an operator needs and a second spelling of the same fact
+/// would be a second place to keep in step.
+async fn connect_upstream(host: &str, port: u16) -> Result<TcpStream, RelayError> {
+    match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect((host, port))).await {
+        Ok(Ok(s)) => Ok(s),
+        Ok(Err(e)) => Err(RelayError::UpstreamUnreachable(e)),
+        Err(_) => Err(RelayError::UpstreamUnreachable(io::Error::new(
+            io::ErrorKind::TimedOut,
+            format!(
+                "{host}:{port} did not complete a connection within {} s",
+                CONNECT_TIMEOUT.as_secs()
+            ),
+        ))),
+    }
+}
+
+/// Run a proxy handshake within [`HANDSHAKE_TIMEOUT`], and read silence as an
+/// answer about what the far end is.
+async fn handshake(
+    expected: &'static str,
+    f: impl std::future::Future<Output = Result<(), RelayError>>,
+) -> Result<(), RelayError> {
+    match tokio::time::timeout(HANDSHAKE_TIMEOUT, f).await {
+        Ok(r) => r,
+        Err(_) => Err(RelayError::WrongProtocol {
+            expected,
+            saw: format!(
+                "it took the connection and then said nothing for {} s. A proxy of another \
+                 kind behaves exactly like this — it is still waiting for the protocol it \
+                 does speak",
+                HANDSHAKE_TIMEOUT.as_secs()
+            ),
+        }),
     }
 }
 
@@ -435,9 +521,31 @@ async fn socks5_connect(
     s.write_all(&greeting).await?;
 
     let mut resp = [0u8; 2];
-    s.read_exact(&mut resp).await?;
+    if let Err(e) = s.read_exact(&mut resp).await {
+        if hung_up(&e) {
+            return Err(RelayError::WrongProtocol {
+                expected: "SOCKS5",
+                saw: "it closed the connection without answering the greeting. A proxy of \
+                      another kind does this — try http://"
+                    .to_string(),
+            });
+        }
+        return Err(e.into());
+    }
     if resp[0] != 0x05 {
-        return Err(RelayError::AuthRejected);
+        // This used to be AuthRejected, which is the wrong sentence for it: a
+        // version byte that is not 5 says the far end is not a SOCKS5 server,
+        // and nothing at all about the password. `H` is the common case —
+        // an HTTP proxy replying `HTTP/1.1 400` to a greeting it could not
+        // parse — and naming it turns the fix into a dropdown.
+        return Err(RelayError::WrongProtocol {
+            expected: "SOCKS5",
+            saw: if resp[0] == b'H' {
+                "it answered in HTTP. This is an HTTP proxy — address it as http://".to_string()
+            } else {
+                format!("it answered 0x{:02x} where a SOCKS5 version byte belongs", resp[0])
+            },
+        });
     }
 
     match resp[1] {
@@ -501,6 +609,17 @@ async fn socks5_connect(
     Ok(())
 }
 
+/// The one sentence for "this is not an HTTP proxy", in the three places that
+/// reach that conclusion.
+fn wrong_http() -> RelayError {
+    RelayError::WrongProtocol {
+        expected: "HTTP",
+        saw: "it closed the connection without answering. A SOCKS proxy does this with an \
+              HTTP request — address it as socks5://"
+            .to_string(),
+    }
+}
+
 fn socks5_reply_reason(code: u8) -> &'static str {
     match code {
         0x01 => "general SOCKS server failure",
@@ -531,9 +650,28 @@ async fn http_connect(
         req.push_str(&format!("Proxy-Authorization: Basic {token}\r\n"));
     }
     req.push_str("Proxy-Connection: Keep-Alive\r\n\r\n");
-    s.write_all(req.as_bytes()).await?;
+    if let Err(e) = s.write_all(req.as_bytes()).await {
+        if hung_up(&e) {
+            return Err(wrong_http());
+        }
+        return Err(e.into());
+    }
 
-    let (head, _) = read_request_head(s).await?;
+    let (head, _) = match read_request_head(s).await {
+        Ok(v) => v,
+        Err(RelayError::Io(e)) if hung_up(&e) => return Err(wrong_http()),
+        // A SOCKS5 server reads the `C` of CONNECT as a version byte it does
+        // not know and hangs up without a word. From here that is an empty
+        // answer, and "malformed request" would blame the browser for it.
+        Err(RelayError::BadRequest) => return Err(wrong_http()),
+        Err(e) => return Err(e),
+    };
+    if !head.starts_with("HTTP/") {
+        return Err(RelayError::WrongProtocol {
+            expected: "HTTP",
+            saw: "its answer does not begin with a status line".to_string(),
+        });
+    }
     let status = head
         .split_whitespace()
         .nth(1)
@@ -860,6 +998,119 @@ v.textContent=problems.length?problems.join(" · "):"Consistent — the platform
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A listener that accepts one connection and then does what `then` says.
+    ///
+    /// Real sockets rather than a trait: the failures under test are things a
+    /// far end does on the wire — answers in another protocol, hangs up, says
+    /// nothing — and a mock that implements the happy path would not be able to
+    /// do any of them.
+    async fn fake_proxy(then: &'static [u8], hang_up: bool) -> (String, u16) {
+        let l = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            if let Ok((mut s, _)) = l.accept().await {
+                use tokio::io::AsyncWriteExt;
+                if !then.is_empty() {
+                    let _ = s.write_all(then).await;
+                }
+                if hang_up {
+                    let _ = s.shutdown().await;
+                } else {
+                    // Hold the socket open and say nothing further. Dropping it
+                    // would be an answer of its own.
+                    std::future::pending::<()>().await;
+                }
+            }
+        });
+        ("127.0.0.1".to_string(), port)
+    }
+
+    /// The failure this whole change exists for, measured 22.09.2026: a mobile
+    /// HTTP proxy saved as socks5.
+    ///
+    /// The old code read the `H` of `HTTP/1.1` as a SOCKS version byte, decided
+    /// it was not 5, and returned AuthRejected — so the interface told the
+    /// operator their password was refused, and they went to their provider to
+    /// reset a password that had never been wrong.
+    #[tokio::test]
+    async fn an_http_proxy_addressed_as_socks5_names_the_protocol_not_the_password() {
+        let (host, port) = fake_proxy(b"HTTP/1.1 400 Bad Request\r\n\r\n", false).await;
+        let relay = Relay::new(Upstream::Socks5 { host, port, auth: None });
+
+        // Mapped to () so a failure can be printed: a live socket is not Debug.
+        match relay.dial("example.com", 443).await.map(|_| ()) {
+            Err(RelayError::WrongProtocol { expected, saw }) => {
+                assert_eq!(expected, "SOCKS5");
+                assert!(saw.contains("http://"), "{saw}");
+            }
+            other => panic!("expected a protocol mismatch, got {other:?}"),
+        }
+    }
+
+    /// The other direction: a SOCKS5 server reads the `C` of CONNECT as a
+    /// version it does not know and hangs up without a word.
+    #[tokio::test]
+    async fn a_socks_proxy_addressed_as_http_names_the_protocol() {
+        let (host, port) = fake_proxy(b"", true).await;
+        let relay = Relay::new(Upstream::Http { host, port, auth: None });
+
+        // Mapped to () so a failure can be printed: a live socket is not Debug.
+        match relay.dial("example.com", 443).await.map(|_| ()) {
+            Err(RelayError::WrongProtocol { expected, saw }) => {
+                assert_eq!(expected, "HTTP");
+                assert!(saw.contains("socks5://"), "{saw}");
+            }
+            other => panic!("expected a protocol mismatch, got {other:?}"),
+        }
+    }
+
+    /// Silence has to end somewhere.
+    ///
+    /// There was no bound on the handshake at all until now, so an upstream
+    /// that took the connection and said nothing left every tab in the profile
+    /// loading forever — no error page, nothing in the log, nothing to act on.
+    /// `diagnose` had its own timeout, which is why the step-by-step check
+    /// reported a fault the launch path could not.
+    ///
+    /// Paused time: the read never completes, so the runtime goes idle and the
+    /// clock jumps to the timeout instead of the test taking eight seconds.
+    #[tokio::test(start_paused = true)]
+    async fn a_proxy_that_takes_the_connection_and_says_nothing_gives_up() {
+        let (host, port) = fake_proxy(b"", false).await;
+        // Connected here rather than through `dial`, so the only timer in this
+        // test is the handshake's. Under a paused clock a second timeout could
+        // fire first and the test would pass for the wrong reason.
+        let mut s = TcpStream::connect((host.as_str(), port)).await.unwrap();
+
+        match handshake("SOCKS5", socks5_connect(&mut s, "example.com", 443, None)).await {
+            Err(RelayError::WrongProtocol { expected, saw }) => {
+                assert_eq!(expected, "SOCKS5");
+                assert!(saw.contains("said nothing"), "{saw}");
+            }
+            other => panic!("expected the handshake to give up, got {other:?}"),
+        }
+    }
+
+    /// A real SOCKS5 refusal still reads as one. Without this the change above
+    /// could have turned every authentication failure into "wrong protocol",
+    /// which is the same mistake pointing the other way.
+    #[tokio::test]
+    async fn a_socks5_proxy_that_refuses_the_password_still_says_so() {
+        // 0x05 0xFF: version 5, "no acceptable methods".
+        let (host, port) = fake_proxy(b"\x05\xff", false).await;
+        let relay = Relay::new(Upstream::Socks5 {
+            host,
+            port,
+            auth: Some(Credentials { username: "u".into(), password: "p".into() }),
+        });
+
+        // Mapped to () so a failure can be printed: a live socket is not Debug.
+        match relay.dial("example.com", 443).await.map(|_| ()) {
+            Err(RelayError::AuthRejected) => {}
+            other => panic!("expected an auth refusal, got {other:?}"),
+        }
+    }
 
     /// The blocklist, through the relay rather than through the matcher.
     ///

@@ -832,6 +832,10 @@ export const api = {
   checkProxy: (url: string, checkerUrl?: string | null, proxyId?: string | null): Promise<{
     ok: boolean; error?: string; ip?: string; country?: string;
     city?: string; timezone?: string; org?: string; ms?: number;
+    /** A protocol this address DOES answer on, when the one it was given got
+     *  nothing. Present only on a failure, and only when the other family
+     *  actually worked — see agent/src/diagnose.rs `speaks_instead`. */
+    suggested_kind?: string | null;
   }> => cmd("check_proxy", { url, checkerUrl: checkerUrl || null, proxyId: proxyId || null }),
   /** The check step by step; the first failing step carries a `code` the
    *  interface translates. See agent/src/diagnose.rs. */

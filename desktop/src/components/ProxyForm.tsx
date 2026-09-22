@@ -36,16 +36,29 @@ export function ProxyForm({
   const [checker, setChecker] = useState(editing?.checker_url ?? "");
   const [check, setCheck] = useState<{
     ok: boolean; error?: string; ip?: string; country?: string;
-    city?: string; timezone?: string; ms?: number;
+    city?: string; timezone?: string; ms?: number; suggested_kind?: string | null;
   } | null>(null);
   const [diagnosing, setDiagnosing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const complete = host.trim() !== "" && Number(port) > 0;
-  const url = () => {
+  /** The address as typed. `k` is passed explicitly when a check follows a
+   *  change of protocol in the same click: setKind lands on the next render and
+   *  the request would otherwise go out under the kind that just failed. */
+  const url = (k = kind) => {
     const auth = user ? `${encodeURIComponent(user)}:${encodeURIComponent(pass)}@` : "";
-    return `${kind}://${auth}${host.trim()}:${Number(port)}`;
+    return `${k}://${auth}${host.trim()}:${Number(port)}`;
+  };
+
+  const runCheck = async (k = kind) => {
+    setBusy(true);
+    setCheck(null);
+    try {
+      setCheck(await api.checkProxy(url(k), checker, editing?.id ?? null));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -83,15 +96,7 @@ export function ProxyForm({
                 <input style={{ width: 92 }} value={port} placeholder="1080" inputMode="numeric"
                   onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} />
                 <button style={{ whiteSpace: "nowrap" }} disabled={busy || !complete}
-                  onClick={async () => {
-                    setBusy(true);
-                    setCheck(null);
-                    try {
-                      setCheck(await api.checkProxy(url(), checker, editing?.id ?? null));
-                    } finally {
-                      setBusy(false);
-                    }
-                  }}>
+                  onClick={() => runCheck()}>
                   {busy ? t("px.checking") : t("px.checkButton")}
                 </button>
                 <button style={{ whiteSpace: "nowrap" }} className="ghost" disabled={busy || !complete}
@@ -112,6 +117,26 @@ export function ProxyForm({
                   {check.ok
                     ? [check.ip, check.country, check.city, check.timezone].filter(Boolean).join(" · ")
                     : check.error}
+                </div>
+              )}
+              {/* A provider hands out `host:port:user:pass`, which says nothing
+                  about the protocol, so the form has to guess and is wrong
+                  about half the time. Being wrong looks identical to a dead
+                  proxy — the check waits out its timeout and reports silence —
+                  and the fix is one dropdown away. So say which one, and move
+                  it from here. */}
+              {check && !check.ok && check.suggested_kind && (
+                <div className="hint" style={{ marginTop: "var(--s-1)" }}>
+                  {t("px.wrongKind", { kind: check.suggested_kind, was: kind })}
+                  <button className="ghost" style={{ marginLeft: "var(--s-2)", whiteSpace: "nowrap" }}
+                    disabled={busy}
+                    onClick={() => {
+                      const k = check.suggested_kind as string;
+                      setKind(k);
+                      runCheck(k);
+                    }}>
+                    {t("px.switchKind", { kind: check.suggested_kind })}
+                  </button>
                 </div>
               )}
             </div>

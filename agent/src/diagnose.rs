@@ -147,7 +147,7 @@ pub async fn run(url: &str, checker_url: Option<&str>) -> Report {
     {
         let started = Instant::now();
         let relay = Relay::new(upstream);
-        match tokio::time::timeout(Duration::from_secs(10), relay.dial(&target_host, 443)).await {
+        match tokio::time::timeout(Duration::from_secs(20), relay.dial(&target_host, 443)).await {
             Ok(Ok(_)) => steps.push(step("tunnel", true, Some(started), format!("CONNECT {target_host}:443 accepted"), None)),
             Ok(Err(e)) => {
                 let (code, detail) = classify_relay(&e, &target_host);
@@ -159,7 +159,7 @@ pub async fn run(url: &str, checker_url: Option<&str>) -> Report {
                     "tunnel",
                     false,
                     Some(started),
-                    "the proxy accepted the connection and then went silent for 10 s".into(),
+                    "the proxy accepted the connection and then went silent".into(),
                     Some("timeout"),
                 ));
                 return Report { ok: false, steps, exit: Exit::default(), notes };
@@ -204,6 +204,43 @@ pub async fn run(url: &str, checker_url: Option<&str>) -> Report {
     }
 
     Report { ok: true, steps, exit, notes }
+}
+
+/// Which protocol this address actually speaks, when the one it was given does
+/// not.
+///
+/// A proxy line as providers hand it out — `host:port:user:pass` — says nothing
+/// about whether the far end is SOCKS5 or HTTP, so the form has to default to
+/// one of them and is wrong about half the time. Being wrong is cheap to
+/// recover from and expensive to diagnose: the failure is silence, and silence
+/// is what a firewall, a dead provider and an exhausted plan all look like.
+///
+/// So when a check fails, try the other family before reporting it. One dial,
+/// no request, and only on a failure that already cost the operator fifteen
+/// seconds.
+///
+/// `http` and `https` are one family here: both parse to [`Upstream::Http`],
+/// and offering to swap one for the other would be offering to change nothing.
+pub async fn speaks_instead(url: &str, checker_url: Option<&str>) -> Option<&'static str> {
+    let (scheme, rest) = url.split_once("://")?;
+    let candidate = match scheme {
+        "socks5" | "socks5h" => "http",
+        "http" | "https" => "socks5",
+        _ => return None,
+    };
+    let upstream = crate::parse_upstream(&format!("{candidate}://{rest}")).ok()?;
+    let endpoint = checker_endpoint(checker_url);
+    let target = reqwest::Url::parse(&endpoint)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_string))
+        .unwrap_or_else(|| "ipinfo.io".to_string());
+
+    match tokio::time::timeout(Duration::from_secs(20), Relay::new(upstream).dial(&target, 443)).await {
+        Ok(Ok(_)) => Some(candidate),
+        // Anything else means the guess is no better than what was tried. Say
+        // nothing rather than send somebody round a second wrong dropdown.
+        _ => None,
+    }
 }
 
 fn describe(u: &Upstream) -> String {
@@ -254,6 +291,10 @@ fn classify_relay(e: &RelayError, target: &str) -> (&'static str, String) {
             format!("the proxy accepted us but would not open {target}:443 — {reason}. Usually an exhausted plan, a blocked destination, or a proxy that only allows certain ports"),
         ),
         RelayError::UpstreamUnreachable(io) => ("unreachable", format!("the proxy stopped answering: {io}")),
+        RelayError::WrongProtocol { expected, saw } => (
+            "protocol",
+            format!("this address does not speak {expected}: {saw}"),
+        ),
         RelayError::BadRequest => ("protocol", "the proxy did not speak the protocol its address claims — http:// for a SOCKS proxy or the other way round".to_string()),
         RelayError::Io(io) => ("protocol", format!("the proxy answered something unexpected: {io}")),
     }
