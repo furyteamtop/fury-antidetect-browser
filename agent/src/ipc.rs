@@ -376,6 +376,10 @@ impl Agent {
                     // states in two shapes.
                     "core_download": &*self.core_download.lock().await,
                     "core_dir": paths::core_dir().display().to_string(),
+                    // So that "send me the log" is a path on the About screen
+                    // rather than a question about where the application keeps
+                    // its data on this operating system.
+                    "log_file": paths::log_file().display().to_string(),
                     "running": running.keys().collect::<Vec<_>>(),
                     "data_dir": paths::data_dir().display().to_string(),
                 }))

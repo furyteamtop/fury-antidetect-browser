@@ -16,6 +16,7 @@ mod capture;
 mod cookies;
 mod diagnose;
 mod core_download;
+mod logging;
 mod ext;
 mod http;
 mod import_browser;
@@ -65,12 +66,12 @@ fn api_port() -> Option<u16> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "fury_agent=info".into()),
-        )
-        .init();
+    let log = logging::start();
+    if let Some(path) = &log {
+        // Said at the top of every run, so the first line of the file answers
+        // "which file am I reading" and a terminal is told where the rest went.
+        tracing::info!(path = %path.display(), "logging here as well as to stderr");
+    }
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
@@ -643,18 +644,23 @@ pub fn parse_upstream(url: &str) -> anyhow::Result<Upstream> {
 #[allow(dead_code)]
 const LOCK_HEARTBEAT: Duration = Duration::from_secs(30);
 
+/// Held by every test in this crate that writes FURY_CORE or FURY_HOME.
+///
+/// The variables belong to the process and the test harness runs threads, so
+/// two of these at once is one test deciding another's answer. It is not
+/// hypothetical: a test added on 22.09.2026 turned an unrelated one red once
+/// and passed the next run, which is the worst shape a failure comes in.
+/// `PoisonError` is unwrapped past because a panic in one of these says nothing
+/// about whether the lock's data -- there is none -- is sound.
+#[cfg(test)]
+pub(crate) static ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
-    /// Held by every test here that writes FURY_CORE or FURY_HOME.
-    ///
-    /// The variables belong to the process and the test harness runs threads,
-    /// so two of these at once is one test deciding another's answer. It is not
-    /// hypothetical: adding the third test below turned an unrelated test red
-    /// once and passed the next run, which is the worst shape a failure comes
-    /// in. `PoisonError` is unwrapped past because a panic in one of these says
-    /// nothing about whether the lock's data -- there is none -- is sound.
-    static ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    use super::ENV;
 
+    /// Held by every test that writes FURY_CORE or FURY_HOME.
+    ///
     /// A core installed while the agent is running is found without a restart.
     ///
     /// The bug this pins, reported and reproduced on 22.09.2026: the agent read

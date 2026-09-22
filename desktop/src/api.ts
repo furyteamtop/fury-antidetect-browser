@@ -372,6 +372,9 @@ export interface Shell {
   /** Progress of a core download the user asked for, straight from the agent.
    *  Absent until the agent has been asked once. `running` false with
    *  `installed` set means it finished; with `error` set means it did not. */
+  /** Where the agent writes its own log. Shown on the About screen: a person
+   *  reporting a problem should not have to be told the path per platform. */
+  log_file?: string | null;
   core_download?: {
     running: boolean;
     downloaded: number;

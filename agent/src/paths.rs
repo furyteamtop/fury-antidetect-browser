@@ -112,6 +112,15 @@ pub fn ensure_data_dir() -> std::io::Result<PathBuf> {
     Ok(dir)
 }
 
+/// Where the agent writes its log, once [`crate::logging`] has made it.
+///
+/// Inside the data directory rather than beside the application: the agent is
+/// a separate process that outlives the window, and its log belongs with the
+/// profiles it is holding, in a directory that is already owner-only.
+pub fn log_file() -> PathBuf {
+    data_dir().join("logs").join("agent.log")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

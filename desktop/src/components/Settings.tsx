@@ -377,7 +377,14 @@ function About({ shell }: { shell: Shell }) {
         <dl className="kv">
           <dt>{t("about.version")}</dt>
           <dd className="mono">{shell.version}</dd>
+          {shell.log_file && (
+            <>
+              <dt>{t("about.log")}</dt>
+              <dd className="mono">{shell.log_file}</dd>
+            </>
+          )}
         </dl>
+        {shell.log_file && <p className="hint">{t("about.logWhy")}</p>}
 
         <div className="row">
           <button
