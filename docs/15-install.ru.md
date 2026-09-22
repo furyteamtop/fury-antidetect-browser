@@ -2,7 +2,7 @@
 
 > **Релизы есть; для macOS они подписаны, для Windows — нет.** На странице
 > [Releases](https://github.com/furyteamtop/fury-antidetect-browser/releases)
-> сборки лежат с 18.08.2026; текущая — 0.1.6, для macOS на Apple Silicon и для
+> сборки лежат с 18.08.2026; текущая — 0.1.7, для macOS на Apple Silicon и для
 > Windows x64, помечена как pre-release. К каждой приложены `SHA256SUMS` и
 > `REPORT.md` — измерение, которое ядро прошло перед публикацией. С 21.09.2026
 > приложение, ядро и образ диска для macOS подписаны Developer ID и
