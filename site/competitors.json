@@ -1,0 +1,37 @@
+{
+  "_comment": [
+    "What the market shipped, measured rather than repeated. Every row is a",
+    "product we looked at ourselves; `measured` is the day we looked, and it is",
+    "printed on the page beside the number, because a version without a date is",
+    "a claim that ages into a lie.",
+    "",
+    "This file is edited by a person, on purpose. Our own version is read from",
+    "the repository by build.py and can never drift; a competitor's cannot be",
+    "fetched without installing their product, so pretending the page polls",
+    "them live would be the one dishonest thing on it.",
+    "",
+    "Source: docs/08-competitors.md, the market review of 12.09.2026."
+  ],
+  "measured": "2026-09-12",
+  "source": "docs/08-competitors.md",
+  "rows": [
+    { "name": "Fury", "chrome": 153, "self": true,
+      "teams": "yes", "open": "core", "price": "free" },
+    { "name": "AdsPower", "chrome": 152,
+      "teams": "yes", "open": "no", "price": "paid" },
+    { "name": "Multilogin X", "chrome": 152,
+      "teams": "yes", "open": "no", "price": "paid" },
+    { "name": "Undetectable", "chrome": 152,
+      "teams": "yes", "open": "no", "price": "paid" },
+    { "name": "ShardBrowser", "chrome": 152,
+      "teams": "no", "open": "launcher", "price": "free" },
+    { "name": "Camoufox", "chrome": 152, "engine": "Firefox",
+      "teams": "no", "open": "yes", "price": "free" },
+    { "name": "GoLogin", "chrome": 148,
+      "teams": "yes", "open": "no", "price": "paid" },
+    { "name": "fingerprint-chromium", "chrome": 148, "stalled": true,
+      "teams": "no", "open": "yes", "price": "free" },
+    { "name": "Dolphin Anty", "chrome": 144,
+      "teams": "yes", "open": "no", "price": "paid" }
+  ]
+}

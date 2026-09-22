@@ -23,6 +23,18 @@
         "tools/detect-suite"
       ],
       "port": 8791
+    },
+    {
+      "name": "landing",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8795",
+        "--directory",
+        "site/dist"
+      ],
+      "port": 8795
     }
   ]
 }

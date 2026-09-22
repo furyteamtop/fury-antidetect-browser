@@ -1,0 +1,490 @@
+<!doctype html>
+<!--
+  The landing page. Built by site/build.py — every number in it is read from
+  the file that owns it, so editing this template by hand to bump a version is
+  always the wrong move. Double-brace placeholders are filled at build time.
+-->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fury — свободный антидетект-браузер</title>
+<meta name="description" content="Антидетект-браузер с открытым ядром: свой форк Chromium {{CHROME_MAJOR}}, {{PATCHES}} патчей в репозитории, командная работа и свой сервер. Бесплатно, без оплаты за профиль и без телеметрии.">
+<link rel="icon" href="icon.png">
+<meta property="og:title" content="Fury — свободный антидетект-браузер">
+<meta property="og:description" content="Свой форк Chromium {{CHROME_MAJOR}}. Команда бесплатно. Каждый вектор подмены измерен и опубликован.">
+<meta property="og:image" content="https://furybrowser.dev/logo.png">
+<meta property="og:type" content="website">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0e1013; --surface: #14171c; --raised: #1a1e24; --line: #262b33;
+    --text: #e8eaed; --dim: #9aa3b0; --faint: #6b7480;
+    --accent: #e0552f; --accent-hover: #ef6640; --accent-dim: #3a1d15;
+    --ok: #4caf7d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 0 20px; }
+  a { color: var(--accent-hover); }
+  h1, h2, h3 { line-height: 1.25; margin: 0; }
+  h1 { font-size: clamp(30px, 6vw, 46px); letter-spacing: -0.02em; }
+  h2 { font-size: clamp(22px, 4vw, 28px); letter-spacing: -0.01em; margin-bottom: 10px; }
+  h3 { font-size: 17px; margin-bottom: 6px; }
+  p { margin: 0 0 14px; }
+  .dim { color: var(--dim); }
+  .faint { color: var(--faint); font-size: 14px; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  /* ---- top bar ---- */
+  .top { display: flex; align-items: center; justify-content: space-between;
+         padding: 18px 0; gap: 16px; }
+  .top img { height: 26px; width: auto; display: block; }
+  .lang { display: flex; gap: 2px; background: var(--surface); border: 1px solid var(--line);
+          border-radius: 8px; padding: 2px; }
+  .lang button { background: none; border: 0; color: var(--dim); font: inherit; font-size: 13px;
+                 padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .lang button[aria-pressed="true"] { background: var(--raised); color: var(--text); }
+
+  /* ---- hero ---- */
+  .hero { padding: 40px 0 8px; }
+  .hero p.lead { font-size: clamp(17px, 2.4vw, 19px); color: var(--dim); max-width: 44ch; margin-top: 16px; }
+  .cta { display: flex; flex-wrap: wrap; gap: 10px; margin: 26px 0 6px; }
+  .btn { display: inline-block; text-decoration: none; border-radius: 9px; padding: 11px 20px;
+         font-weight: 550; font-size: 15px; border: 1px solid transparent; }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-hover); }
+  .btn.ghost { background: var(--surface); border-color: var(--line); color: var(--text); }
+  .btn.ghost:hover { background: var(--raised); }
+
+  /* ---- number strip ---- */
+  .strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+           gap: 1px; background: var(--line); border: 1px solid var(--line);
+           border-radius: 12px; overflow: hidden; margin: 34px 0; }
+  .strip div { background: var(--surface); padding: 16px 18px; }
+  .strip .n { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; }
+  .strip .l { color: var(--dim); font-size: 13px; margin-top: 2px; }
+
+  section { padding: 30px 0; border-top: 1px solid var(--line); }
+  section:first-of-type { border-top: 0; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 18px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  .card p:last-child { margin-bottom: 0; }
+
+  /* ---- versions table ---- */
+  table { width: 100%; border-collapse: collapse; margin-top: 18px; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+  thead th { color: var(--dim); font-weight: 500; font-size: 13px; }
+  tbody th { font-weight: 500; }
+  tr.ours { background: var(--accent-dim); }
+  tr.ours th, tr.ours .num { color: #fff; font-weight: 650; }
+  td.ver { position: relative; width: 42%; min-width: 130px; }
+  .bar { display: inline-block; height: 8px; border-radius: 4px; background: var(--raised);
+         vertical-align: middle; margin-right: 8px; max-width: calc(100% - 42px); }
+  tr.ours .bar { background: var(--accent); }
+  .num { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  /* ---- donate ---- */
+  .donate { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+  .addr { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+  .addr code { background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+               padding: 9px 12px; font-size: 13px; word-break: break-all; flex: 1 1 320px; }
+  .addr button { background: var(--raised); color: var(--text); border: 1px solid var(--line);
+                 border-radius: 8px; padding: 9px 16px; font: inherit; font-size: 14px; cursor: pointer; }
+  .addr button:hover { background: var(--line); }
+
+  /* A five-column table does not fit a phone: at 375px it wanted 505 and the
+     whole PAGE scrolled sideways, which moves the text out from under the
+     reader's thumb. The table scrolls inside its own box instead, and keeps
+     all five columns — dropping the two that say "teams" and "free" would
+     drop the comparison the section exists to make. */
+  .tablewrap { overflow-x: auto; margin-top: 18px; }
+  .tablewrap table { margin-top: 0; }
+
+  ul.plain { margin: 0; padding-left: 20px; }
+  ul.plain li { margin: 6px 0; }
+
+  footer { border-top: 1px solid var(--line); padding: 26px 0 50px; color: var(--dim); font-size: 14px; }
+  footer a { color: var(--dim); }
+  .langblock[hidden] { display: none; }
+  @media (max-width: 560px) {
+    .hero { padding-top: 26px; }
+    th, td { padding: 9px 8px; white-space: nowrap; }
+    td.ver { width: auto; min-width: 104px; }
+    tbody th { white-space: normal; min-width: 116px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="top">
+    <img src="logo.png" alt="Fury">
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="ru" aria-pressed="true">Рус</button>
+      <button type="button" data-lang="en" aria-pressed="false">Eng</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= RUSSIAN ======================= -->
+<div class="langblock" data-block="ru">
+<div class="wrap">
+
+  <div class="hero">
+    <h1>Антидетект-браузер,<br>который можно проверить</h1>
+    <p class="lead">Свой форк Chromium: подмена живёт в C++, патчи лежат в репозитории,
+       и каждый вектор замерен стендом, который идёт в комплекте. Бесплатно —
+       и для команды тоже.</p>
+    <div class="cta">
+      <a class="btn primary" id="dl-ru" href="https://github.com/{{REPO}}/releases">Скачать {{VERSION}}</a>
+      <a class="btn ghost" href="https://github.com/{{REPO}}">Исходники на GitHub</a>
+    </div>
+    <p class="faint">macOS (Apple Silicon) — подписано и нотаризовано. Windows x64 — установщик без подписи,
+       SmartScreen попросит «Подробнее → Выполнить в любом случае».</p>
+  </div>
+
+  <div class="strip">
+    <div><div class="n">Chrome <span data-major>{{CHROME_MAJOR}}</span></div><div class="l">ядро, свежее рынка</div></div>
+    <div><div class="n">{{PATCHES}}</div><div class="l">патчей, все открыты</div></div>
+    <div><div class="n">{{GATE}} из {{GATE}}</div><div class="l">проверок релизного гейта</div></div>
+    <div><div class="n">0 ₽</div><div class="l">за команду любого размера</div></div>
+  </div>
+
+  <section>
+    <h2>Три вещи вместе</h2>
+    <p class="dim">Порознь каждая где-то есть. Вместе — ни у кого.</p>
+    <div class="cards">
+      <div class="card">
+        <h3>Ядро, которое можно собрать</h3>
+        <p class="dim">{{PATCHES}} патчей к Chromium {{CHROMIUM}} лежат в репозитории текстом.
+           Подмена в C++, а не впрыснутым JavaScript: инъекцию видно со страницы,
+           патч — нет.</p>
+      </div>
+      <div class="card">
+        <h3>Команда, а не общая папка</h3>
+        <p class="dim">Проекты, роли, права на каждое действие, распределённый лок и аудит.
+           Доступ отзывается в один клик — отданный файл забрать нельзя.</p>
+      </div>
+      <div class="card">
+        <h3>Сервер, который вы держите сами</h3>
+        <p class="dim">Один бинарник и Postgres на любом VPS. Бандлы шифруются на вашей
+           машине, поэтому сервер хранит то, что сам прочитать не может.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Версия ядра — это тоже отпечаток</h2>
+    <p class="dim">Браузер, отставший от Chrome на три мажора, узнаётся по одному числу,
+       ещё до всякой подмены. Наша версия читается из репозитория при сборке страницы;
+       чужие — то, что мы видели сами <span data-measured>{{MEASURED_RU}}</span>
+       (<a href="https://github.com/{{REPO}}/blob/main/docs/08-competitors.md">разбор рынка</a>).</p>
+    <div class="tablewrap">
+    <table>
+      <thead><tr><th scope="col">Продукт</th><th scope="col">Ядро</th><th scope="col">Команды</th><th scope="col">Исходники</th><th scope="col">Цена</th></tr></thead>
+      <tbody>{{ROWS_RU}}</tbody>
+    </table>
+    </div>
+    <p class="faint" style="margin-top:14px">Camoufox — на Firefox, остальные на Chromium;
+       номер приведён к мажору Chrome. «Лончер» значит, что открыт менеджер профилей,
+       а само ядро — закрытый бинарник.</p>
+  </section>
+
+  <section>
+    <h2>Не верьте — замерьте</h2>
+    <p class="dim">Проект держится на том, что ни одно утверждение здесь не просит
+       верить на слово.</p>
+    <ul class="plain dim">
+      <li><b>Стенд в комплекте.</b> <code>tools/detect-suite</code> снимает ~460 значений
+        отпечатка в девяти контекстах исполнения — главный фрейм, воркеры, ворклет,
+        четыре вида iframe, включая кросс-доменный в своём процессе.</li>
+      <li><b>Гейт.</b> <code>fury-detect gate</code> проверяет отпечаток на внутренние
+        противоречия и возвращает ненулевой код — его можно поставить в CI.</li>
+      <li><b>Отчёт в каждом релизе.</b> <code>REPORT.md</code> называет sha256 ядра,
+        серию патчей и коммит, из которого всё собрано.</li>
+      <li><b>Сравнение рядом.</b> <a href="https://github.com/{{REPO}}/blob/main/tools/detect-suite/status.html">status.html</a>
+        — последний замер: Fury и настоящий Chrome на одной машине, поле к полю.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Почему бесплатно</h2>
+    <p>Ни мест, ни оплаты за профиль, ни припрятанного платного тарифа, ни телеметрии.
+       Это решение, а не этап: лицензия AGPL, и все замеры опубликованы именно затем,
+       чтобы никому не приходилось верить на слово.</p>
+    <p class="dim">За проектом не стоит компания, и продавать тут нечего. Расходы скучные:
+       сертификат подписи, чтобы скачанная сборка не воевала с Gatekeeper, и машина,
+       чтобы пересобирать ядро под каждый выпуск Chromium.</p>
+    <div class="donate">
+      <h3>Поддержать</h3>
+      <p class="dim" style="margin:0">USDT, сеть TRC20. За этим ничего не закрыто — ни сейчас, ни потом.</p>
+      <div class="addr">
+        <code id="wallet-ru">TBdbQDuUKHf14gvuyjSWevuL6FMS19ABzG</code>
+        <button type="button" data-copy="wallet-ru" data-done="Скопирован" data-failed="Выделен — ⌘C">Копировать</button>
+      </div>
+      <p class="faint" style="margin:12px 0 0">И персона, снятая с вашего компьютера, по-прежнему
+         ценнее денег: в каталоге {{PERSONAS}} машин, и каждая — толпа, в которой кто-то прячется.
+         <a href="https://github.com/{{REPO}}/blob/main/CONTRIBUTING.md">Как прислать</a>.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Установка — две загрузки</h2>
+    <p class="dim">Приложение и само ядро качаются отдельно: приложение меняется еженедельно,
+       ядро — когда выходит новый Chromium. Вместе они означали бы стомегабайтную
+       загрузку из-за сдвинутой кнопки.</p>
+    <div class="cta">
+      <a class="btn primary" id="dl2-ru" href="https://github.com/{{REPO}}/releases">Релизы</a>
+      <a class="btn ghost" href="https://github.com/{{REPO}}/blob/main/docs/15-install.ru.md">Инструкция по шагам</a>
+      <a class="btn ghost" href="https://github.com/{{REPO}}/blob/main/docs/13-self-hosting.md">Свой сервер</a>
+    </div>
+  </section>
+
+  <footer>
+    <p>Fury — инструмент приватности и управления несколькими аккаунтами: QA, проверка рекламы,
+       исследования рынка, ведение нескольких легальных бизнес-аккаунтов.
+       <a href="https://github.com/{{REPO}}/blob/main/ACCEPTABLE_USE.md">Допустимое использование</a>.</p>
+    <p>AGPL-3.0-or-later. Независимый проект, не связанный с Google; Chromium используется
+       по условиям его лицензии. Вопросы — <a href="https://t.me/shapovalovbogdan">@shapovalovbogdan</a>
+       или <a href="https://github.com/{{REPO}}/issues">issue tracker</a>.</p>
+    <p class="faint">Страница собрана из коммита {{COMMIT}}, {{BUILT}}.</p>
+  </footer>
+
+</div>
+</div>
+
+<!-- ======================= ENGLISH ======================= -->
+<div class="langblock" data-block="en" hidden>
+<div class="wrap">
+
+  <div class="hero">
+    <h1>An anti-detect browser<br>you can check</h1>
+    <p class="lead">Its own Chromium fork: the spoofing lives in C++, the patches are in the
+       repository, and every vector is measured by the bench that ships alongside.
+       Free — for a team as well.</p>
+    <div class="cta">
+      <a class="btn primary" id="dl-en" href="https://github.com/{{REPO}}/releases">Download {{VERSION}}</a>
+      <a class="btn ghost" href="https://github.com/{{REPO}}">Source on GitHub</a>
+    </div>
+    <p class="faint">macOS (Apple Silicon) — signed and notarised. Windows x64 — the installer is
+       unsigned, so SmartScreen asks for “More info → Run anyway”.</p>
+  </div>
+
+  <div class="strip">
+    <div><div class="n">Chrome <span data-major>{{CHROME_MAJOR}}</span></div><div class="l">core, ahead of the market</div></div>
+    <div><div class="n">{{PATCHES}}</div><div class="l">patches, all published</div></div>
+    <div><div class="n">{{GATE}} of {{GATE}}</div><div class="l">release gate checks</div></div>
+    <div><div class="n">$0</div><div class="l">for a team of any size</div></div>
+  </div>
+
+  <section>
+    <h2>Three things together</h2>
+    <p class="dim">Each exists somewhere on its own. Together, nowhere else.</p>
+    <div class="cards">
+      <div class="card">
+        <h3>A core you can build</h3>
+        <p class="dim">{{PATCHES}} patches against Chromium {{CHROMIUM}}, in the repository as
+           text. The spoofing is in C++ rather than injected JavaScript: an injection
+           is visible from the page, a patch is not.</p>
+      </div>
+      <div class="card">
+        <h3>A team, not a shared folder</h3>
+        <p class="dim">Projects, roles, a permission on every action, a distributed lock and an
+           audit trail. Access is revoked in one click — a file you handed over
+           cannot be taken back.</p>
+      </div>
+      <div class="card">
+        <h3>A server you run yourself</h3>
+        <p class="dim">One binary and Postgres on any VPS. Bundles are encrypted on your own
+           machine, so the server holds what it cannot itself read.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The core's version is a fingerprint too</h2>
+    <p class="dim">A browser three majors behind Chrome is identified by one number, before any
+       spoofing is looked at. Ours is read out of the repository when this page is
+       built; the others are what we measured ourselves on
+       <span data-measured>{{MEASURED_EN}}</span>
+       (<a href="https://github.com/{{REPO}}/blob/main/docs/08-competitors.md">the market review</a>).</p>
+    <div class="tablewrap">
+    <table>
+      <thead><tr><th scope="col">Product</th><th scope="col">Core</th><th scope="col">Teams</th><th scope="col">Source</th><th scope="col">Price</th></tr></thead>
+      <tbody>{{ROWS_EN}}</tbody>
+    </table>
+    </div>
+    <p class="faint" style="margin-top:14px">Camoufox is Firefox-based, the rest are Chromium; the number is
+       the Chrome major. “Launcher” means the profile manager is open and the engine
+       itself is a closed binary.</p>
+  </section>
+
+  <section>
+    <h2>Do not take it on trust — measure it</h2>
+    <p class="dim">Nothing claimed here asks to be believed.</p>
+    <ul class="plain dim">
+      <li><b>The bench ships with it.</b> <code>tools/detect-suite</code> dumps ~460 fingerprint
+        values across nine execution contexts — main frame, workers, a worklet and four
+        kinds of iframe, including a cross-origin one in its own process.</li>
+      <li><b>The gate.</b> <code>fury-detect gate</code> checks a fingerprint for internal
+        contradictions and exits non-zero, so it drops straight into CI.</li>
+      <li><b>A report in every release.</b> <code>REPORT.md</code> names the core's sha256, the
+        patch series and the commit it was all built from.</li>
+      <li><b>Side by side.</b> <a href="https://github.com/{{REPO}}/blob/main/tools/detect-suite/status.html">status.html</a>
+        is the last measurement: Fury and real Chrome on the same machine, field by field.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Why it is free</h2>
+    <p>No seats, no per-profile pricing, no paid tier held back, no telemetry. That is a
+       decision rather than a stage: the licence is AGPL and every measurement is published
+       precisely so nobody has to take anyone's word for it.</p>
+    <p class="dim">There is no company behind this and nothing is sold. What it costs is ordinary
+       and dull — a code-signing certificate so the download does not fight Gatekeeper,
+       and a machine to rebuild the core against every Chromium release.</p>
+    <div class="donate">
+      <h3>Support it</h3>
+      <p class="dim" style="margin:0">USDT on TRC20. Nothing is gated behind it, now or later.</p>
+      <div class="addr">
+        <code id="wallet-en">TBdbQDuUKHf14gvuyjSWevuL6FMS19ABzG</code>
+        <button type="button" data-copy="wallet-en" data-done="Copied" data-failed="Selected — ⌘C">Copy</button>
+      </div>
+      <p class="faint" style="margin:12px 0 0">And a persona measured on your own machine is still worth
+         more than money: the catalogue holds {{PERSONAS}} machines, and each one is a crowd for
+         somebody to hide in. <a href="https://github.com/{{REPO}}/blob/main/CONTRIBUTING.md">How to send one</a>.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Two downloads</h2>
+    <p class="dim">The application and the browser core are separate: the application changes weekly,
+       the core when Chromium does. Bundling them would mean a hundred-megabyte download
+       every time a button moved.</p>
+    <div class="cta">
+      <a class="btn primary" id="dl2-en" href="https://github.com/{{REPO}}/releases">Releases</a>
+      <a class="btn ghost" href="https://github.com/{{REPO}}/blob/main/docs/15-install.md">Step by step</a>
+      <a class="btn ghost" href="https://github.com/{{REPO}}/blob/main/docs/13-self-hosting.md">Your own server</a>
+    </div>
+  </section>
+
+  <footer>
+    <p>Fury is a privacy and multi-account management tool, built for QA, ad verification,
+       market research and running several legitimate business accounts.
+       <a href="https://github.com/{{REPO}}/blob/main/ACCEPTABLE_USE.md">Acceptable use</a>.</p>
+    <p>AGPL-3.0-or-later. An independent project, not affiliated with Google; Chromium is used
+       under its own licence. Questions — <a href="https://t.me/shapovalovbogdan">@shapovalovbogdan</a>
+       or the <a href="https://github.com/{{REPO}}/issues">issue tracker</a>.</p>
+    <p class="faint">Built from commit {{COMMIT}}, {{BUILT}}.</p>
+  </footer>
+
+</div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ---- language -------------------------------------------------------
+     Remembered per visitor, defaulting to what the browser asks for. A
+     Russian reader who switches to English once should not have to switch
+     again, and a first-time English reader should not land on Russian. */
+  var blocks = document.querySelectorAll('.langblock');
+  var buttons = document.querySelectorAll('.lang button');
+  function apply(lang) {
+    blocks.forEach(function (b) { b.hidden = b.dataset.block !== lang; });
+    buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.lang === lang)); });
+    document.documentElement.lang = lang;
+    try { localStorage.setItem('fury-lang', lang); } catch (e) { /* private window */ }
+  }
+  var stored = null;
+  try { stored = localStorage.getItem('fury-lang'); } catch (e) { /* ignore */ }
+  // The parentheses are the point: `||` binds tighter than `?:`, so without
+  // them a stored "en" is truthy and the whole condition picks Russian —
+  // the switch would refuse to stick for exactly the people who used it.
+  apply(stored || ((navigator.language || 'en').toLowerCase().startsWith('ru') ? 'ru' : 'en'));
+  buttons.forEach(function (b) {
+    b.addEventListener('click', function () { apply(b.dataset.lang); });
+  });
+
+  /* ---- copy the wallet ------------------------------------------------
+     Never fails silently. The first version called writeText and ignored a
+     rejection, which on a page whose one button is "copy this address" means
+     the reader presses it, nothing happens, and they cannot tell whether the
+     address reached their clipboard. Measured 22.09.2026: the clipboard
+     permission can be denied outright (NotAllowedError), and it was.
+
+     So: try the modern API; if it refuses, select the address — a real
+     fallback, because a selected address is visibly selected and one
+     keystroke from copied — try the old execCommand on that selection, and
+     say which of the two actually happened. */
+  document.querySelectorAll('[data-copy]').forEach(function (btn) {
+    var node = document.getElementById(btn.dataset.copy);
+    var idle = btn.textContent;
+    function flash(word) {
+      btn.textContent = word;
+      setTimeout(function () { btn.textContent = idle; }, 2400);
+    }
+    function selectIt() {
+      try {
+        var range = document.createRange();
+        range.selectNodeContents(node);
+        var sel = getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        return !!(document.execCommand && document.execCommand('copy'));
+      } catch (e) {
+        return false;
+      }
+    }
+    btn.addEventListener('click', function () {
+      var text = node.textContent.trim();
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(
+          function () { flash(btn.dataset.done); },
+          function () { flash(selectIt() ? btn.dataset.done : btn.dataset.failed); }
+        );
+      } else {
+        flash(selectIt() ? btn.dataset.done : btn.dataset.failed);
+      }
+    });
+  });
+
+  /* ---- the newest release --------------------------------------------
+     The version built into this page is right at deploy time and wrong the
+     moment a release goes out without one. Asked of GitHub at load, and
+     ignored on any failure: a landing page that breaks because an API is
+     slow is worse than one whose version is a day old.
+
+     The LIST, not /releases/latest. That endpoint excludes pre-releases, and
+     every release of this project is one while the version is 0.x — so it
+     answers 404, and its HTML twin redirects to the releases index rather
+     than to a release. Measured 22.09.2026, on this page. The list comes
+     back newest first and includes them, which is what a reader wants. */
+  fetch('https://api.github.com/repos/{{REPO}}/releases?per_page=1', { headers: { accept: 'application/vnd.github+json' } })
+    .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+    .then(function (list) {
+      var rel = Array.isArray(list) && list[0];
+      if (!rel) return;
+      var tag = String(rel.tag_name || '').replace(/^v/, '');
+      if (!/^\d+\.\d+\.\d+/.test(tag)) return;
+      var url = rel.html_url;
+      ['dl-ru', 'dl-en', 'dl2-ru', 'dl2-en'].forEach(function (id) {
+        var a = document.getElementById(id);
+        if (!a) return;
+        a.href = url;
+        if (id.indexOf('dl-') === 0) {
+          a.textContent = (id.endsWith('ru') ? 'Скачать ' : 'Download ') + tag;
+        }
+      });
+    })
+    .catch(function () { /* the built-in links stay */ });
+})();
+</script>
+</body>
+</html>

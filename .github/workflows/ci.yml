@@ -277,6 +277,15 @@ jobs:
       # here keeps a published page from claiming numbers the repository no
       # longer contains — the one way a status page is worse than none.
       - run: python3 tools/detect-suite/status.py --check
+      # The landing page is generated the same way, from the patch series, the
+      # Chromium pin and the persona catalogue. BUILT here rather than checked
+      # against a committed copy: its output lands in site/dist, which `dist/`
+      # ignores, and site/deploy.sh builds before every deploy — so there is no
+      # artefact to drift, and what CI has to prove is that the template still
+      # resolves against this tree. It is worth proving: the first build of it
+      # counted 23 patches where the series has 28, and that number is the page's
+      # whole argument.
+      - run: python3 site/build.py
 
   rls:
     name: row-level security actually refuses
