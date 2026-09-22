@@ -110,6 +110,15 @@
 
   footer { border-top: 1px solid var(--line); padding: 26px 0 50px; color: var(--dim); font-size: 14px; }
   footer a { color: var(--dim); }
+  /* Other things by the same author. In the footer on purpose: the page has
+     one job, and this is not it. */
+  .also { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 4px 0 20px; }
+  .also a { display: block; text-decoration: none; background: var(--surface);
+            border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .also a:hover { border-color: var(--faint); }
+  .also strong { display: block; color: var(--text); font-weight: 550; font-size: 15px; }
+  .also span { display: block; margin-top: 3px; color: var(--faint); font-size: 13px; line-height: 1.45; }
+  @media (max-width: 560px) { .also { grid-template-columns: 1fr; } }
   .langblock[hidden] { display: none; }
   @media (max-width: 560px) {
     .hero { padding-top: 26px; }
@@ -252,6 +261,13 @@
     <p>AGPL-3.0-or-later. Независимый проект, не связанный с Google; Chromium используется
        по условиям его лицензии. Вопросы — <a href="https://t.me/shapovalovbogdan">@shapovalovbogdan</a>
        или <a href="https://github.com/{{REPO}}/issues">issue tracker</a>.</p>
+    <p>Другое, тем же автором:</p>
+    <div class="also">
+      <a href="https://seo-fury.com"><strong>SEO Fury — плагин для WordPress</strong>
+        <span>Мета-теги, карты сайта, редиректы, Schema, IndexNow. Бесплатно.</span></a>
+      <a href="https://chromewebstore.google.com/detail/omkoncaffmikgcdndbnnokjggdmkfkce"><strong>SEO Fury — расширение для Chrome</strong>
+        <span>Аудит страницы в один клик: теги, заголовки, ссылки, Core Web Vitals и план правок от ИИ.</span></a>
+    </div>
     <p class="faint">Страница собрана из коммита {{COMMIT}}, {{BUILT}}.</p>
   </footer>
 
@@ -380,6 +396,13 @@
     <p>AGPL-3.0-or-later. An independent project, not affiliated with Google; Chromium is used
        under its own licence. Questions — <a href="https://t.me/shapovalovbogdan">@shapovalovbogdan</a>
        or the <a href="https://github.com/{{REPO}}/issues">issue tracker</a>.</p>
+    <p>Also by the same author:</p>
+    <div class="also">
+      <a href="https://seo-fury.com"><strong>SEO Fury — WordPress plugin</strong>
+        <span>Meta tags, sitemaps, redirects, schema, IndexNow. Free.</span></a>
+      <a href="https://chromewebstore.google.com/detail/omkoncaffmikgcdndbnnokjggdmkfkce"><strong>SEO Fury — Chrome extension</strong>
+        <span>A one-click audit of any page: tags, headings, links, Core Web Vitals and an AI fix list.</span></a>
+    </div>
     <p class="faint">Built from commit {{COMMIT}}, {{BUILT}}.</p>
   </footer>
 
