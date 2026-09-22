@@ -5,7 +5,8 @@
 > page has had builds since 18.08.2026; the current one is 0.1.4, for macOS on
 > Apple Silicon and for Windows x64, marked pre-release. Each ships with
 > `SHA256SUMS` and a `REPORT.md` — the measurement the core passed before it was
-> published. What is still missing is a signature: a macOS download needs one
+> published. What is still missing is a signature: the Developer ID certificate
+> arrived on 21.09.2026, after 0.1.4 was built, so a macOS download needs one
 > extra step and Windows shows a SmartScreen warning, both covered below. To
 > build instead, the application and the agent take minutes
 > (`cargo build --release`) and the core about three hours
@@ -25,11 +26,11 @@ because otherwise the second one looks like a mistake:
 | | what it is | size |
 |---|---|---|
 | **Fury** | the application: profiles, proxies, personas, teams | ~12 MB |
-| **Fury core** | the browser itself — a Chromium fork | ~134 MB |
+| **Fury core** | the browser itself — a Chromium fork | 103 MB on macOS, 146 MB on Windows |
 
 They are apart because they move apart. The application changes weekly; the core
 changes when Chromium does, every six weeks or so. Bundling them would mean a
-134 MB download every time a button moved. It also keeps the application's code
+100-plus MB download every time a button moved. It also keeps the application's code
 signature intact — a core written into a signed bundle breaks its seal, after
 which macOS says the application is *damaged*, which sends you looking for a
 corrupt download rather than at us.
@@ -86,8 +87,10 @@ Open Fury from Applications. There is no account, no sign-up and no server: it
 starts working immediately, and everything stays on this machine.
 
 Team features — shared profiles, a shared proxy pool, per-project access — are
-in **Settings → Team**, which is also where you create an account and where the
-instructions for running your own server are. That is a decision you can make
+in **Settings → Team server**, which is also where you create an account and
+where the instructions for running your own server are. The sign-up screen
+comes with the project's open server already filled in; a team with a server of
+its own replaces the address. That is a decision you can make
 later, or never.
 
 ### Verifying what you downloaded
@@ -103,9 +106,10 @@ Two `OK` lines mean the files are what was published.
 ### If macOS refuses to open it
 
 **It is not signed or notarised yet**, so macOS will object, and the objection
-is expected rather than a sign that anything is wrong. There is no Apple
-Developer certificate for this project; `tools/release/sign-core.sh` is written
-and waiting for one.
+is expected rather than a sign that anything is wrong. The Apple Developer ID
+certificate exists since 21.09.2026 and `tools/release/sign-core.sh` and
+`sign-shell.sh` are written; 0.1.4 was built before the certificate, and no
+release has been signed with it yet.
 
 **"Fury cannot be opened because the developer cannot be verified."** This is
 the normal result for an unsigned application, and it is what you should expect
@@ -145,7 +149,7 @@ Works, as of 16.08.2026, and in the releases since 0.1.1. An earlier version of
 this section said "not yet" for as long as that was true: the launcher was
 ported first, and the core — the Chromium build — was the part nobody had run on
 a Windows machine. It has been run now, and `tools/verify-windows.ps1` passes
-29 claims against it on a real machine. The same two downloads as on macOS.
+30 claims against it on a real machine. The same two downloads as on macOS.
 
 ### 1. The application
 

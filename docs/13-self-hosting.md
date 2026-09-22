@@ -71,6 +71,11 @@ curl -s http://127.0.0.1:8901/v1/me
 Ответ должен быть ровно `{"error":"unauthenticated"}` с кодом 401 — приложение
 использует это как признак «здесь Fury».
 
+Дальше — [первый пользователь](#первый-пользователь-если-регистрация-закрыта):
+на пустом сервере некому вас пригласить, и первый код печатает сам сервер. В
+compose это одна команда, `docker compose exec server fury-server invite …`, там
+она и описана.
+
 ## Установка без docker
 
 ```bash
@@ -225,12 +230,26 @@ sudo -u postgres psql -c "DELETE FROM users WHERE email = 'кого@убирае
 
 ## Первый пользователь, если регистрация закрыта
 
-Первый владелец в любом случае приглашается из шелла той машины, где стоит база:
+Первый владелец в любом случае приглашается из шелла той машины, где стоит база.
+Это не обход, а единственный путь: на свежем сервере нет ни одного пользователя,
+которому можно было бы нажать «Пригласить», и приложению неоткуда взять код.
+
+Если сервер поднят через `docker compose`, бинарь и `DATABASE_URL` уже внутри
+контейнера, и команда одна:
+
+```bash
+docker compose exec server fury-server invite --email you@example.com --org "Моя команда"
+```
+
+Если сервер собран и запущен руками:
 
 ```bash
 DATABASE_URL=postgres://fury:ПАРОЛЬ@127.0.0.1:5432/fury \
   ./target/release/fury-server invite --email you@example.com --org "Моя команда"
 ```
+
+Если ставили `deploy/server-install.sh`, переменная лежит в `/etc/fury/fury.env`,
+и путь описан в [14](14-team-server.md#3-завести-себя--владельца).
 
 Команда напечатает код вида `5rrk-qgfr-gtyd-mw0f-sp12-axzy-0jsz-sx19`. Он живёт
 48 часов, годен один раз и **не хранится** — сервер держит только его хеш, как и
@@ -247,7 +266,10 @@ DATABASE_URL=postgres://fury:ПАРОЛЬ@127.0.0.1:5432/fury \
 > пользуетесь нашим хостингом) не может прочитать ваши прокси и куки. Храните
 > пароль в менеджере паролей.
 
-Участники приглашаются той же командой с `--org-id` и ролью:
+Остальных зовёт уже владелец из приложения — **Пользователи → Пригласить** —
+и в консоль ходить больше не нужно. Та же операция из шелла, если удобнее, —
+той же командой с `--org-id` и ролью (в compose — через тот же
+`docker compose exec server`):
 
 ```bash
 ./target/release/fury-server invite --email colleague@example.com \
@@ -315,8 +337,8 @@ tar czf fury-bundles-$(date +%F).tar.gz -C /var/lib/fury bundles
 `~/Library/Application Support/Fury` на macOS, `%APPDATA%\Fury` на Windows,
 `$XDG_DATA_HOME/fury` на Linux, либо `FURY_HOME`, если он задан
 ([agent/src/paths.rs:17-39](../agent/src/paths.rs)). Команды `fury-agent status`
-не существует: у агента есть `serve`, `relay`, `launch` и `check-fingerprint`
-([agent/src/main.rs:55-79](../agent/src/main.rs)).
+не существует: у агента есть `serve`, `relay`, `launch`, `check-fingerprint` и
+`install-core` ([agent/src/main.rs](../agent/src/main.rs)).
 
 ## Обновление
 

@@ -1,8 +1,13 @@
 # fury-server
 
 Self-hosted coordination backend. Deliberately dumb: it stores ciphertext and
-metadata, resolves permissions, and hands out presigned URLs. It cannot decrypt
-a profile bundle, which is what makes running it on a cheap VPS acceptable.
+metadata, resolves permissions, and streams bundles to and from `FURY_BUNDLE_DIR`
+on its own disk — there is no object storage and no presigned URL. It cannot
+decrypt a profile bundle, which is what makes running it on a cheap VPS
+acceptable. Standing one up for a team is [docs/13](../docs/13-self-hosting.md);
+the first user is invited from the shell (`fury-server invite`, or
+`docker compose exec server fury-server invite …` under compose), because an
+empty server has nobody to press the button.
 
 ## Running it locally
 

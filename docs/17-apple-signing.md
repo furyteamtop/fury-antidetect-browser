@@ -466,13 +466,18 @@ xcrun stapler validate Fury.app
    зарегистрироваться и заплатить» выше. Individual подтверждают обычно за
    24-48 часов.
 4. Выпустить Developer ID Application, поставить в Keychain, проверить
-   `security find-identity`.
+   `security find-identity`. **Сделано 21.09.2026**: `Developer ID Application:
+   Bogdan Shapovalov (JKN8WHX7FS)` в Keychain, Individual. Шаги 1-3 позади.
 5. `xcrun notarytool store-credentials fury-notary …` с app-specific password.
 6. `tools/release/sign-core.sh --identity … --notarize` — ядро.
 7. `tools/release/sign-shell.sh --identity … --notarize` — оболочка.
-   Написана 15.08.2026; **первый прогон с настоящим сертификатом будет
-   первым**, и начать стоит без `--notarize`, чтобы отделить дефект подписи от
-   дефекта нотаризации.
+   Написана 15.08.2026; первый прогон с настоящим сертификатом состоялся
+   21.09.2026 и нашёл дефект в самом скрипте, а не в подписи: под
+   `set -o pipefail` конструкция `codesign … | grep -q` получала статус
+   `codesign`, убитого SIGPIPE, и объявляла hardened runtime отсутствующим у
+   бандла с `flags=0x10000(runtime)`. Вывод теперь снимается в переменную, а
+   потом ищется. Совет начать без `--notarize` остаётся в силе: он и отделил
+   дефект скрипта от дефекта подписи.
 8. Проверить на **чужом** Mac, который этой сборки никогда не видел. Критерий
    0.2 сформулирован именно так, и он правильный: `spctl --assess` на своей
    машине — не то же самое, что первый запуск скачанного файла на чужой.

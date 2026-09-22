@@ -15,7 +15,7 @@ team. No seats, no per-profile pricing, no telemetry.
 > page, marked pre-release and **not signed yet** — see below.
 >
 > **Windows works, as of 16.08.2026.** The Chromium core built (57 528 targets),
-> the agent runs on it, and `tools/verify-windows.ps1` passes 29 claims on a real
+> the agent runs on it, and `tools/verify-windows.ps1` passes 30 claims on a real
 > machine: the config reaches the browser as an inherited HANDLE, argv carries a
 > slot number and nothing else, no process in the tree has a persona string in
 > its command line, and the browser reports the persona's platform rather than
@@ -37,14 +37,19 @@ team. No seats, no per-profile pricing, no telemetry.
 > endpoint existed died in the request parser. They are in the history with what
 > each looked like from the operator's side.
 >
-> **Nothing is signed yet, and that is being fixed by paperwork rather than by
-> code.** Enrolment in the Apple Developer Program is under way: the certificate
-> is paid for and the account is going through Apple's verification, which is
-> what a Developer ID and notarisation wait on. The tooling is already written
-> and unused — [tools/release/sign-core.sh](tools/release/sign-core.sh),
-> [sign-shell.sh](tools/release/sign-shell.sh), [docs/17](docs/17-apple-signing.md).
+> **No signed release yet, and the paperwork half of that is over.** The Apple
+> Developer enrolment paid for on 15.08.2026 came through on 21.09.2026: a
+> Developer ID Application certificate now exists, and
+> [sign-shell.sh](tools/release/sign-shell.sh) ran against a real one the same
+> day — its first run found a defect in the script itself, a `pipefail` that
+> reported the hardened runtime missing on a bundle that had it. Release 0.1.4
+> went out that morning, before the certificate, so it is ad-hoc signed like
+> the ones before it. The remaining work is a release, not a wait:
+> [sign-core.sh](tools/release/sign-core.sh), sign-shell.sh, notarisation,
+> [docs/17](docs/17-apple-signing.md). Windows is a separate certificate and
+> is not started.
 >
-> Until it lands the downloads still run; they need one extra step. A macOS
+> Until that release exists the downloads still run; they need one extra step. A macOS
 > build is ad-hoc signed, so Gatekeeper refuses it with "is damaged" — which is
 > about the missing Developer ID and not a corrupt file. Drag Fury to
 > Applications and run once:
@@ -56,7 +61,7 @@ team. No seats, no per-profile pricing, no telemetry.
 > or, without a terminal: try to open it, then System Settings → Privacy &
 > Security → **Open Anyway**. Windows shows a SmartScreen warning: **More info →
 > Run anyway**. Building from source avoids both. Either way a release is a
-> preview until the certificate exists; [docs/15](docs/15-install.md) walks
+> preview until a signed one exists; [docs/15](docs/15-install.md) walks
 > through it.
 >
 > **Linux** is not a target. See the table at the bottom.
@@ -98,9 +103,14 @@ works here in full — the team layer adds nothing to the fingerprint.
 access grants, a distributed lock. One binary and Postgres on any VPS —
 [docs/13](docs/13-self-hosting.md).
 
-**Hosted** is planned, but gated behind client-side bundle encryption. The
-condition is not negotiable: the server must hold data it cannot itself read. It
-does not open before that works.
+**Hosted** exists, and it opened only once the condition it was gated behind
+was met: bundles are encrypted on the operator's machine, so the server holds
+data it cannot itself read. The address is prefilled on the sign-up screen
+(`204-168-178-23.sslip.io`, [desktop/src/defaults.ts](desktop/src/defaults.ts))
+and is editable — a team with its own server clears it and types theirs. It
+runs with open sign-up, every registration is its own organisation, and it is
+still somebody else's machine: [docs/13](docs/13-self-hosting.md) is one
+command if you would rather that not be true.
 
 ## What works today
 
@@ -272,7 +282,7 @@ about it is worth more than not.
 | ~~Windows core build~~ | done 16.08.2026: the core builds on the build server, release `v0.1.2` ships `fury-core-0.1.2-windows-x64.tar.xz` on Chromium 153, `verify-windows.ps1` passes 30 claims, Widevine answers |
 | ~~Windows launcher~~ | done: agent and shell run, NSIS installer in the releases. The config reaches the browser as an inherited HANDLE and no persona value appears in any argv — checked on a live machine |
 | Linux | not a target, and this is a decision rather than a gap. The Rust still compiles there so CI and contributors can run the suite; there is no Linux release, no Linux core config and no plan for one. Shipping a third platform nobody tests would be a claim, not a port |
-| Code signing and notarisation | the tooling is written ([sign-core.sh](tools/release/sign-core.sh), [sign-shell.sh](tools/release/sign-shell.sh)); the Apple Developer enrolment was paid on 15.08.2026 and is waiting on Apple. Until then macOS says "is damaged" (strip the quarantine flag, or Privacy & Security → Open Anyway — [docs/15](docs/15-install.md)) and Windows shows SmartScreen |
+| Code signing and notarisation | the Developer ID certificate arrived 21.09.2026 and the tooling is written ([sign-core.sh](tools/release/sign-core.sh), [sign-shell.sh](tools/release/sign-shell.sh)); no release has been built with it yet — 0.1.4 predates it. Until one is, macOS says "is damaged" (strip the quarantine flag, or Privacy & Security → Open Anyway — [docs/15](docs/15-install.md)). Windows needs its own certificate, not started, and shows SmartScreen |
 | ~~Client-side bundle encryption~~ | done, and verified end to end against a running server: what it writes to disk holds neither the cookie, nor a tar header, nor a gzip header, and a foreign organisation key does not open it |
 | ~~Bundle sync with the server~~ | done. Packed and sealed on stop, fetched and unpacked on launch, versioned so a second uploader is refused rather than silently winning. Uploads stream to disk: they used to buffer, under axum's 2 MB default, which meant sync had never once worked for a real profile |
 | WebRTC through the proxy | no. The relay is TCP; patch 0070 puts the browser in the state a real Chrome reaches under the enterprise `WebRTCIPHandlingPolicy` — no ICE candidates at all — rather than let a peer connection go around the proxy and hand the page the real address |
@@ -289,7 +299,7 @@ about it is worth more than not.
 ## Contributing
 
 The most useful thing you can send is a persona from your own computer —
-`fury-detect persona` turns a probe capture into one, and the catalogue is 26
+`fury-detect persona` turns a probe capture into one, and the catalogue is 27
 machines, each of which is a crowd for somebody to hide in. The second most
 useful is a site that caught a profile. [CONTRIBUTING.md](CONTRIBUTING.md) has
 both, and the rule that governs everything else: measurements are welcome,
