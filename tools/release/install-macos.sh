@@ -60,16 +60,34 @@ sleep 1
 
 echo "== installing"
 rm -rf "$dest"
-cp -R "$built" "$dest"
+# ditto, not cp -R: it is what Apple documents for copying a bundle, and it
+# carries extended attributes and symlinks across rather than flattening them.
+ditto "$built" "$dest"
 
-# Ad-hoc, and this is a stopgap rather than the answer. `tauri build` without an
-# identity leaves the bundle unsigned -- Sealed Resources=none -- which is fine
-# locally and refused by Gatekeeper the moment the file is downloaded, with "is
-# damaged" and no mention of a signature. Signing here at least makes the
-# locally installed copy valid; a distributable build needs a Developer ID and
-# tools/release/sign-shell.sh.
-codesign --force --deep --sign - "$dest" >/dev/null 2>&1
-codesign -v --deep --strict "$dest" 2>&1 && echo "   signature valid"
+# NOT re-signed when there is a signature worth keeping. This used to run
+# `codesign --force --deep --sign -` unconditionally, which was harmless while
+# every build was ad-hoc and became destructive on 21.09.2026, when builds
+# started carrying a Developer ID: it replaces that signature with an anonymous
+# one and throws away the stapled notarisation ticket, so the copy in
+# /Applications is treated as an unidentified developer's while the very same
+# build downloaded from the release page is not.
+#
+# The ad-hoc fallback stays for the ordinary case it was written for: `tauri
+# build` with no identity leaves the bundle unsigned, which is fine locally and
+# refused by Gatekeeper the moment the file is downloaded. A distributable
+# build needs tools/release/sign-shell.sh.
+if codesign -v --deep --strict "$dest" 2>/dev/null; then
+  team="$(codesign -dv --verbose=2 "$dest" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
+  if xcrun stapler validate "$dest" >/dev/null 2>&1; then
+    echo "   signature kept: valid, notarised, team ${team:-none}"
+  else
+    echo "   signature kept: valid, not notarised, team ${team:-none}"
+  fi
+else
+  echo "   no valid signature to keep — signing ad-hoc so it opens here"
+  codesign --force --deep --sign - "$dest" >/dev/null 2>&1
+  codesign -v --deep --strict "$dest" 2>&1 && echo "   ad-hoc signature valid"
+fi
 
 echo "== leaving one Fury"
 rm -rf "$built"
