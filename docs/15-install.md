@@ -1,14 +1,14 @@
 # Installing Fury
 
-> **There are releases, and they are not signed.** The
+> **There are releases; macOS ones are signed, Windows ones are not.** The
 > [Releases](https://github.com/furyteamtop/fury-antidetect-browser/releases)
-> page has had builds since 18.08.2026; the current one is 0.1.4, for macOS on
+> page has had builds since 18.08.2026; the current one is 0.1.5, for macOS on
 > Apple Silicon and for Windows x64, marked pre-release. Each ships with
 > `SHA256SUMS` and a `REPORT.md` — the measurement the core passed before it was
-> published. What is still missing is a signature: the Developer ID certificate
-> arrived on 21.09.2026, after 0.1.4 was built, so a macOS download needs one
-> extra step and Windows shows a SmartScreen warning, both covered below. To
-> build instead, the application and the agent take minutes
+> published. Since 21.09.2026 the macOS application, core and disk image are
+> signed with a Developer ID and notarised, so they open like any other
+> download. The Windows installer is not signed and shows a SmartScreen
+> warning, covered below. To build instead, the application and the agent take minutes
 > (`cargo build --release`) and the core about three hours
 > ([docs/03](03-chromium-fork.md)).
 >
@@ -105,11 +105,15 @@ Two `OK` lines mean the files are what was published.
 
 ### If macOS refuses to open it
 
-**It is not signed or notarised yet**, so macOS will object, and the objection
-is expected rather than a sign that anything is wrong. The Apple Developer ID
-certificate exists since 21.09.2026 and `tools/release/sign-core.sh` and
-`sign-shell.sh` are written; 0.1.4 was built before the certificate, and no
-release has been signed with it yet.
+**It should not, from 0.1.4's re-upload of 21.09.2026 on.** The application,
+the core and the disk image are signed with a Developer ID and carry a stapled
+notarisation ticket; `spctl --assess` on a machine that has never seen them
+answers `accepted, source=Notarized Developer ID`. If a current download is
+refused, the file is not what was published — check it against `SHA256SUMS`
+before anything else.
+
+What follows is for **0.1.3 and earlier**, which were ad-hoc signed, and for
+a bundle you built yourself.
 
 **"Fury cannot be opened because the developer cannot be verified."** This is
 the normal result for an unsigned application, and it is what you should expect

@@ -12,7 +12,8 @@ team. No seats, no per-profile pricing, no telemetry.
 > **Status: in development, and now on both macOS and Windows.** The core builds
 > and spoofs; the agent launches profiles; the server and desktop shell work.
 > Builds are on the [Releases](https://github.com/furyteamtop/fury-antidetect-browser/releases)
-> page, marked pre-release and **not signed yet** — see below.
+> page, marked pre-release. **macOS builds are signed and notarised since
+> 21.09.2026; Windows is not** — see below.
 >
 > **Windows works, as of 16.08.2026.** The Chromium core built (57 528 targets),
 > the agent runs on it, and `tools/verify-windows.ps1` passes 30 claims on a real
@@ -37,32 +38,23 @@ team. No seats, no per-profile pricing, no telemetry.
 > endpoint existed died in the request parser. They are in the history with what
 > each looked like from the operator's side.
 >
-> **No signed release yet, and the paperwork half of that is over.** The Apple
-> Developer enrolment paid for on 15.08.2026 came through on 21.09.2026: a
-> Developer ID Application certificate now exists, and
-> [sign-shell.sh](tools/release/sign-shell.sh) ran against a real one the same
-> day — its first run found a defect in the script itself, a `pipefail` that
-> reported the hardened runtime missing on a bundle that had it. Release 0.1.4
-> went out that morning, before the certificate, so it is ad-hoc signed like
-> the ones before it. The remaining work is a release, not a wait:
-> [sign-core.sh](tools/release/sign-core.sh), sign-shell.sh, notarisation,
-> [docs/17](docs/17-apple-signing.md). Windows is a separate certificate and
-> is not started.
+> **macOS is signed and notarised, as of 21.09.2026.** The Apple Developer
+> enrolment paid for on 15.08.2026 came through that day, and the same evening
+> the 0.1.4 macOS files were rebuilt with the Developer ID and re-uploaded:
+> the application, the core and the disk image each carry a stapled ticket,
+> and Gatekeeper's verdict on a machine that has never seen them is
+> `accepted, source=Notarized Developer ID`. Open the DMG, drag, open — no
+> right-click, no `xattr`. The first real run of
+> [sign-core.sh](tools/release/sign-core.sh) and
+> [sign-shell.sh](tools/release/sign-shell.sh) found five defects in the
+> scripts themselves, which is in the history; [docs/17](docs/17-apple-signing.md)
+> is the paperwork.
 >
-> Until that release exists the downloads still run; they need one extra step. A macOS
-> build is ad-hoc signed, so Gatekeeper refuses it with "is damaged" — which is
-> about the missing Developer ID and not a corrupt file. Drag Fury to
-> Applications and run once:
->
-> ```bash
-> xattr -dr com.apple.quarantine /Applications/Fury.app
-> ```
->
-> or, without a terminal: try to open it, then System Settings → Privacy &
-> Security → **Open Anyway**. Windows shows a SmartScreen warning: **More info →
-> Run anyway**. Building from source avoids both. Either way a release is a
-> preview until a signed one exists; [docs/15](docs/15-install.md) walks
-> through it.
+> **Windows is not signed.** That is a separate certificate, not started, so
+> the installer shows SmartScreen: **More info → Run anyway**. A macOS download
+> of 0.1.3 or earlier is ad-hoc signed and needs `xattr -dr
+> com.apple.quarantine /Applications/Fury.app` once; [docs/15](docs/15-install.md)
+> walks through both.
 >
 > **Linux** is not a target. See the table at the bottom.
 >
@@ -282,7 +274,8 @@ about it is worth more than not.
 | ~~Windows core build~~ | done 16.08.2026: the core builds on the build server, release `v0.1.2` ships `fury-core-0.1.2-windows-x64.tar.xz` on Chromium 153, `verify-windows.ps1` passes 30 claims, Widevine answers |
 | ~~Windows launcher~~ | done: agent and shell run, NSIS installer in the releases. The config reaches the browser as an inherited HANDLE and no persona value appears in any argv — checked on a live machine |
 | Linux | not a target, and this is a decision rather than a gap. The Rust still compiles there so CI and contributors can run the suite; there is no Linux release, no Linux core config and no plan for one. Shipping a third platform nobody tests would be a claim, not a port |
-| Code signing and notarisation | the Developer ID certificate arrived 21.09.2026 and the tooling is written ([sign-core.sh](tools/release/sign-core.sh), [sign-shell.sh](tools/release/sign-shell.sh)); no release has been built with it yet — 0.1.4 predates it. Until one is, macOS says "is damaged" (strip the quarantine flag, or Privacy & Security → Open Anyway — [docs/15](docs/15-install.md)). Windows needs its own certificate, not started, and shows SmartScreen |
+| ~~Code signing and notarisation, macOS~~ | done 21.09.2026: Developer ID, notarised, stapled — application, core and disk image, [sign-core.sh](tools/release/sign-core.sh) and [sign-shell.sh](tools/release/sign-shell.sh). Verified on the files downloaded back from the release page with the quarantine flag set |
+| Code signing, Windows | not started. A separate certificate (EV or OV) and a separate process; until then the installer shows SmartScreen and the way through is **More info → Run anyway** |
 | ~~Client-side bundle encryption~~ | done, and verified end to end against a running server: what it writes to disk holds neither the cookie, nor a tar header, nor a gzip header, and a foreign organisation key does not open it |
 | ~~Bundle sync with the server~~ | done. Packed and sealed on stop, fetched and unpacked on launch, versioned so a second uploader is refused rather than silently winning. Uploads stream to disk: they used to buffer, under axum's 2 MB default, which meant sync had never once worked for a real profile |
 | WebRTC through the proxy | no. The relay is TCP; patch 0070 puts the browser in the state a real Chrome reaches under the enterprise `WebRTCIPHandlingPolicy` — no ICE candidates at all — rather than let a peer connection go around the proxy and hand the page the real address |
