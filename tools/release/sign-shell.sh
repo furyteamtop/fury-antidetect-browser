@@ -39,11 +39,12 @@ app="$here/target/release/bundle/macos/Fury.app"
 identity="${APPLE_SIGNING_IDENTITY:-}"
 notarize=0
 build=1
+dmg=0
 keychain_profile="${FURY_NOTARY_PROFILE:-fury-notary}"
 
 usage() {
   cat <<'EOF'
-usage: sign-shell.sh [--identity NAME] [--notarize] [--skip-build]
+usage: sign-shell.sh [--identity NAME] [--notarize] [--dmg] [--skip-build]
 
   --identity NAME  Developer ID Application certificate, e.g.
                    "Developer ID Application: Your Name (TEAMID)".
@@ -51,6 +52,10 @@ usage: sign-shell.sh [--identity NAME] [--notarize] [--skip-build]
                    `security find-identity -v -p codesigning` lists them.
   --notarize       Submit to Apple and staple the ticket. Needs a stored
                    notarytool profile (see sign-core.sh --help for how).
+  --dmg            After the bundle: make the disk image from it, sign the
+                   image, and (with --notarize) notarise and staple that too.
+                   Lands in target/release/bundle/dmg/Fury_<version>_aarch64.dmg,
+                   which is what package.sh --shell takes.
   --skip-build     Verify and notarise the bundle that is already there.
                    Use it to re-check, never to produce a release: the
                    signature is applied BY the build, so a skipped build
@@ -66,6 +71,7 @@ while [ $# -gt 0 ]; do
     --identity)   identity="${2:?--identity needs a value}"; shift 2 ;;
     --notarize)   notarize=1; shift ;;
     --skip-build) build=0; shift ;;
+    --dmg)        dmg=1; shift ;;
     -h|--help)    usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -108,7 +114,11 @@ if [ "$build" = 1 ]; then
   # beforeBuildCommand — for the agent binary. Signing must go inside-out, and
   # this is what makes that happen in one build.
   export APPLE_SIGNING_IDENTITY="$identity"
-  (cd "$here/desktop" && npm run app:build)
+  # The application only. `tauri build` with both bundles fails at the disk
+  # image (build-macos.sh has the measurement), and the image is made below
+  # from the STAPLED bundle anyway: an image made by the bundler holds the
+  # application as it was before notarisation, without its ticket.
+  (cd "$here/desktop" && npx tauri build --bundles app)
 fi
 
 [ -d "$app" ] || { echo "!! no $app — build the shell first" >&2; exit 1; }
@@ -198,6 +208,47 @@ if [ "$notarize" = 1 ]; then
   spctl --assess --type execute --verbose=2 "$app"
 fi
 
+if [ "$dmg" = 1 ]; then
+  echo
+  echo "== disk image"
+  # By hand rather than through the bundler, for three reasons that were each
+  # measured on 21.09.2026, the first signed release. The bundler's image
+  # holds the application as it stood before notarisation, so the copy a
+  # person drags out carries no stapled ticket and a first launch offline is
+  # refused. The bundler does not sign the image itself, and an unsigned image
+  # is what Gatekeeper complains about first. And `tauri build --bundles dmg`
+  # re-runs the build, which re-signs the bundle and throws the ticket away.
+  #
+  # So: the stapled bundle and an Applications link go into a compressed
+  # image, the image is signed, and with --notarize it is notarised and
+  # stapled as its own artefact. The name matches what the bundler would
+  # have produced, so package.sh finds it where it always looked.
+  version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
+  case "$(uname -m)" in arm64) dmg_arch="aarch64" ;; *) dmg_arch="$(uname -m)" ;; esac
+  dmg_path="$here/target/release/bundle/dmg/Fury_${version}_${dmg_arch}.dmg"
+  stage="$(mktemp -d)"
+  ditto "$app" "$stage/Fury.app"
+  ln -s /Applications "$stage/Applications"
+  mkdir -p "$(dirname "$dmg_path")"
+  rm -f "$dmg_path"
+  hdiutil create -volname Fury -srcfolder "$stage" -ov -format UDZO "$dmg_path" >/dev/null
+  rm -rf "$stage"
+  codesign --force --sign "$identity" --timestamp "$dmg_path"
+  if [ "$notarize" = 1 ]; then
+    xcrun notarytool submit "$dmg_path" --keychain-profile "$keychain_profile" --wait
+    xcrun stapler staple "$dmg_path"
+    xcrun stapler validate "$dmg_path"
+    echo
+    echo "== Gatekeeper, on the image"
+    spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg_path"
+  fi
+  ls -la "$dmg_path"
+fi
+
 echo
 echo "signed shell: $app"
-echo "package it with: tools/release/package.sh --shell \"$app\""
+if [ "$dmg" = 1 ]; then
+  echo "package it with: tools/release/package.sh --shell \"$dmg_path\""
+else
+  echo "package it with: tools/release/package.sh --shell \"$app\""
+fi
