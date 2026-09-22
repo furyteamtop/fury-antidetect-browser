@@ -7,6 +7,9 @@
 #
 #   ./deploy/push.sh root@203.0.113.7 203-0-113-7.sslip.io [~/.ssh/id_ed25519]
 #
+# ALIASES in the environment travels through to the installer (see there): the
+# old names a server should go on answering to after it gets a domain.
+#
 # Only what the server is built from travels. `shared/` is not a crate and is
 # easy to forget — shared-rs `include_str!`s the persona files out of it at
 # compile time, so leaving it behind fails the build a long way in, with an
@@ -37,4 +40,4 @@ echo "==> installing"
 # -t so apt and rustup have a terminal; without it rustup writes progress bars
 # into a pipe and some apt prompts hang forever rather than defaulting.
 "${SSH[@]}" -t "$TARGET" \
-    "chmod +x /opt/fury/src/deploy/server-install.sh && HOSTNAME='$HOSTNAME' /opt/fury/src/deploy/server-install.sh"
+    "chmod +x /opt/fury/src/deploy/server-install.sh && HOSTNAME='$HOSTNAME' ALIASES='${ALIASES:-}' /opt/fury/src/deploy/server-install.sh"

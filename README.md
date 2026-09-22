@@ -98,7 +98,7 @@ access grants, a distributed lock. One binary and Postgres on any VPS —
 **Hosted** exists, and it opened only once the condition it was gated behind
 was met: bundles are encrypted on the operator's machine, so the server holds
 data it cannot itself read. The address is prefilled on the sign-up screen
-(`204-168-178-23.sslip.io`, [desktop/src/defaults.ts](desktop/src/defaults.ts))
+(`srv.furybrowser.dev`, [desktop/src/defaults.ts](desktop/src/defaults.ts))
 and is editable — a team with its own server clears it and types theirs. It
 runs with open sign-up, every registration is its own organisation, and it is
 still somebody else's machine: [docs/13](docs/13-self-hosting.md) is one

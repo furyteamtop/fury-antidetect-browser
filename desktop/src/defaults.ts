@@ -28,11 +28,10 @@
  *  PREFILLED VALUE and not a hidden default -- the address is visible, editable,
  *  and deleting it costs one keystroke.
  *
- *  The name is what it is because the machine has no domain. sslip.io resolves a
- *  hostname to the address written inside it, which is what makes a certificate
- *  possible at all -- Let's Encrypt will not issue for a bare IP, and without a
- *  certificate every password and vault key would cross the network in the
- *  clear. Replace it here when a real domain exists; nothing else needs to
- *  change.
+ *  Until 0.1.5 this was `204-168-178-23.sslip.io` -- the machine had no domain,
+ *  and sslip.io resolving a hostname to the address written inside it was what
+ *  made a certificate possible at all. The server still answers on that name so
+ *  installs that saved it keep working; new installs get the domain. If the
+ *  server ever moves, this is the only line in the desktop to change.
  */
-export const DEFAULT_SERVER = "204-168-178-23.sslip.io";
+export const DEFAULT_SERVER = "srv.furybrowser.dev";

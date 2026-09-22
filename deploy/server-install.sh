@@ -21,9 +21,17 @@
 # to the address itself and Let's Encrypt will issue for it:
 #
 #   HOSTNAME=203-0-113-7.sslip.io ./server-install.sh
+#
+# ALIASES is optional: further names, comma-separated, that the same box keeps
+# answering on. It is for the day a server gets a domain after people already
+# saved its old address -- Caddy issues a certificate for each, and nobody has
+# to retype anything:
+#
+#   HOSTNAME=fury.example.com ALIASES=203-0-113-7.sslip.io ./server-install.sh
 set -euo pipefail
 
 HOSTNAME="${HOSTNAME:?set HOSTNAME to the name this server answers to}"
+ALIASES="${ALIASES:-}"
 SRC="${SRC:-/opt/fury/src}"
 say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 
@@ -256,7 +264,7 @@ WantedBy=multi-user.target
 UNIT
 
 cat > /etc/caddy/Caddyfile <<CADDY
-${HOSTNAME} {
+${HOSTNAME}${ALIASES:+, ${ALIASES//,/, }} {
     reverse_proxy 127.0.0.1:8901
 
     # A bundle is a whole browser profile. The default would refuse the upload
