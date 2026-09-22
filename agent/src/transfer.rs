@@ -337,6 +337,7 @@ mod tests {
             id: String::new(),
             project_id: Some(project.into()),
             project_name: None,
+            allow_no_proxy: false,
             name: name.into(),
             notes: String::new(),
             status: String::new(),

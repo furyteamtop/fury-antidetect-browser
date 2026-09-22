@@ -121,6 +121,9 @@ export function ProfileDialog({
   const [tags, setTags] = useState((editing?.tags ?? []).join(", "));
   const [personaId, setPersonaId] = useState(editing?.persona_id ?? "");
   const [proxyId, setProxyId] = useState(editing?.proxy?.id ?? "");
+  /** Permission for THIS profile to open with none. Off unless it was already
+   *  on: the refusal is the default and stays the default. */
+  const [allowNoProxy, setAllowNoProxy] = useState(editing?.allow_no_proxy ?? false);
   // Empty means "follow the proxy's exit", which is what the agent resolves at
   // launch. Pre-filling Europe/Berlin made every profile ever created claim
   // Berlin — including the ones going out through São Paulo — and made the
@@ -224,6 +227,10 @@ export function ProfileDialog({
         timezone: timezone.trim() || null,
         languages: languages.trim() ? splitList(languages) : null,
         start_urls: splitList(startUrls, "\n"),
+        // Only ever true for a profile that has no proxy. Leaving a stale
+        // permission on a profile that was later given one would be a switch
+        // nobody can see, waiting for the day the proxy is removed again.
+        allow_no_proxy: !useProxyId && allowNoProxy,
         blocklists,
         last_opened_at: null,
       },
@@ -422,7 +429,30 @@ export function ProfileDialog({
                           </option>
                         ))}
                       </select>
-                      {!proxyId && <p className="hint">{t("pd.proxyRequired")}</p>}
+                      {!proxyId && !needsProxy && (
+                        <div style={{ marginTop: "var(--s-1)" }}>
+                          {/* The refusal used to be absolute, which made the
+                              application useless for the cases with no account
+                              to protect: reading documentation, testing a
+                              fingerprint, filling a profile in before its proxy
+                              has been bought. It is a per-profile permission
+                              rather than a setting because a throwaway profile
+                              and a warmed account must not share a switch. */}
+                          <label className="row" style={{ alignItems: "flex-start" }}>
+                            <input
+                              type="checkbox"
+                              style={{ width: 14, height: 14, accentColor: "var(--accent)", marginTop: 3 }}
+                              checked={allowNoProxy}
+                              onChange={(e) => setAllowNoProxy(e.target.checked)}
+                            />
+                            <span>{t("pd.allowNoProxy")}</span>
+                          </label>
+                          <p className={allowNoProxy ? "hint warn" : "hint"}>
+                            {allowNoProxy ? t("pd.allowNoProxyOn") : t("pd.proxyRequired")}
+                          </p>
+                        </div>
+                      )}
+                      {!proxyId && needsProxy && <p className="hint">{t("pd.proxyRequired")}</p>}
                     </div>
                   </div>
                 ) : (

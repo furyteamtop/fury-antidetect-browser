@@ -1923,8 +1923,12 @@ impl Agent {
     ///
     /// The same request the operator's "where does it come out?" button makes,
     /// so a launch and a check can never disagree about an exit.
+    ///
+    /// `url` is absent for a profile opening with no proxy. The question is the
+    /// same one and the answer is this machine — asked directly, because there
+    /// is nothing in between.
     async fn resolve_exit(
-        url: &str,
+        url: Option<&str>,
         checker_url: Option<&str>,
     ) -> anyhow::Result<ExitFacts> {
         let endpoint = checker_url
@@ -1933,10 +1937,15 @@ impl Agent {
             .or_else(|| std::env::var("FURY_IP_CHECK").ok())
             .unwrap_or_else(|| "https://ipinfo.io/json".to_string());
 
-        let client = reqwest::Client::builder()
-            .proxy(reqwest::Proxy::all(url)?)
-            .timeout(std::time::Duration::from_secs(15))
-            .build()?;
+        let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(15));
+        builder = match url {
+            Some(u) => builder.proxy(reqwest::Proxy::all(u)?),
+            // Explicit rather than merely absent: reqwest reads the system
+            // proxy environment by default, and a profile told to go out
+            // without a proxy must not pick one up from a shell variable.
+            None => builder.no_proxy(),
+        };
+        let client = builder.build()?;
 
         let body: serde_json::Value = client.get(&endpoint).send().await?.json().await?;
         let s = |k: &str| body.get(k).and_then(|v| v.as_str()).map(str::to_string);
@@ -1997,12 +2006,31 @@ impl Agent {
                 .ok_or_else(|| anyhow::anyhow!("no such profile"))?,
         };
 
-        let proxy = profile.proxy.as_ref().ok_or_else(|| {
-            anyhow::anyhow!(
-                "this profile has no proxy. Everything the core does goes through one, so \
-                 launching without it would send traffic from this machine's own address"
-            )
-        })?;
+        // A profile with no proxy is refused, unless its owner has said in as
+        // many words that this one may open without.
+        //
+        // The refusal is the default and stays the default — everything the
+        // core does goes through the proxy, and without one it goes out through
+        // this machine — but it was absolute, and that made the application
+        // useless for the ordinary cases that have no account to protect:
+        // reading documentation, testing a fingerprint, filling the profile in
+        // before its proxy has been bought.
+        //
+        // `from_server` is checked as well as the flag. A team profile's row
+        // lives on the server, which refuses to hand out a launch spec with no
+        // proxy at all, and a flag arriving inline could otherwise be set by
+        // anything that could reach this socket.
+        let proxy = profile.proxy.as_ref();
+        if proxy.is_none() && (from_server || !profile.allow_no_proxy) {
+            return Err(Coded {
+                code: "err.noProxy",
+                message: "this profile has no proxy. Everything the core does goes through one, \
+                          so launching without it would send traffic from this machine's own \
+                          address"
+                    .into(),
+            }
+            .into());
+        }
 
         let core = self.core().ok_or_else(|| {
             // The reason matters more than the fact. "No core" with a stale
@@ -2017,7 +2045,20 @@ impl Agent {
             }
         })?;
 
-        let upstream = crate::parse_upstream(&proxy.url())?;
+        let upstream = match proxy {
+            Some(p) => crate::parse_upstream(&p.url())?,
+            // Still through the relay: the blocklist, the start page and the
+            // refusal to reach this machine's own services all live there, and
+            // a browser pointed straight at the network would have none of them.
+            None => {
+                tracing::warn!(
+                    profile = %profile.name,
+                    "opening with no proxy: this profile is allowed to, and every site it \
+                     visits sees this machine's own address"
+                );
+                crate::relay::Upstream::Direct
+            }
+        };
         // The profile's lists, unioned. Read at launch rather than held in
         // memory: a list edited between launches should take effect on the
         // next one without anything having to notice it changed.
@@ -2072,9 +2113,9 @@ impl Agent {
         // for two questions with one answer is waste.
         let want_timezone = profile.timezone.is_none();
         let want_languages = profile.languages.is_none();
-        let mut exit_country = proxy.last_country.clone();
-        let mut exit_timezone = proxy.last_timezone.clone();
-        let mut exit_location = proxy.last_location.clone();
+        let mut exit_country = proxy.and_then(|p| p.last_country.clone());
+        let mut exit_timezone = proxy.and_then(|p| p.last_timezone.clone());
+        let mut exit_location = proxy.and_then(|p| p.last_location.clone());
 
         // The position joins the same lookup: one round trip answers where the
         // exit is, what time it is there and what language it speaks, and asking
@@ -2083,18 +2124,35 @@ impl Agent {
             || (want_languages && exit_country.is_none())
             || exit_location.is_none()
         {
-            match Self::resolve_exit(&proxy.url(), proxy.checker_url.as_deref()).await {
+            // With no proxy the question is still worth asking, and the answer
+            // is this machine. A profile that follows its exit and then claims
+            // UTC from a Warsaw address is the contradiction all of this exists
+            // to avoid, and it does not stop being one because the address is
+            // the operator's own. The request goes out directly — which is
+            // where every request from this profile is about to go anyway.
+            match Self::resolve_exit(
+                proxy.map(|p| p.url()).as_deref(),
+                proxy.and_then(|p| p.checker_url.as_deref()),
+            )
+            .await
+            {
                 Ok(facts) => {
-                    let _ = self
-                        .store
-                        .record_exit(
-                            &proxy.id,
-                            facts.ip.as_deref(),
-                            facts.country.as_deref(),
-                            facts.timezone.as_deref(),
-                            facts.location.as_deref(),
-                        )
-                        .await;
+                    // Remembered against the proxy row, when there is one.
+                    // Nothing to remember it against otherwise, and this
+                    // machine's address is not a thing to cache: it changes
+                    // with the network the laptop is on.
+                    if let Some(px) = proxy {
+                        let _ = self
+                            .store
+                            .record_exit(
+                                &px.id,
+                                facts.ip.as_deref(),
+                                facts.country.as_deref(),
+                                facts.timezone.as_deref(),
+                                facts.location.as_deref(),
+                            )
+                            .await;
+                    }
                     // Only overwrite with an answer. A checker that returns a
                     // timezone and no country must not blank a country we
                     // already had.
@@ -2682,7 +2740,7 @@ mod exit_check_tests {
     #[tokio::test]
     async fn a_dead_proxy_means_no_answer_rather_than_a_direct_one() {
         // Port 9 discards. Nothing is listening for SOCKS5 there.
-        let err = super::Agent::resolve_exit("socks5://127.0.0.1:9", None)
+        let err = super::Agent::resolve_exit(Some("socks5://127.0.0.1:9"), None)
             .await
             .expect_err("the exit check answered through a proxy that does not exist");
         let msg = err.to_string();

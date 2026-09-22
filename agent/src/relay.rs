@@ -70,6 +70,23 @@ pub enum Upstream {
         port: u16,
         auth: Option<Credentials>,
     },
+    /// No proxy at all: the relay dials out from this machine, and the profile
+    /// shows every site the address this machine already has.
+    ///
+    /// Off unless a profile says otherwise in as many words, and never for a
+    /// team profile — one of those opens on a colleague's machine, where
+    /// "this machine" is somebody who did not choose it. See `allow_no_proxy`
+    /// on the profile.
+    ///
+    /// The relay still stands in the middle, and it is not ceremony: the
+    /// blocklist, the start page and the refusal to reach this machine's own
+    /// services all live here, and a browser pointed straight at the network
+    /// would have none of them.
+    ///
+    /// There is nothing to fail closed about — the exit is the machine — so
+    /// the kill-switch simply has no work in this mode.
+    Direct,
+
     /// A WireGuard peer, with the tunnel and its TCP stack already running.
     ///
     /// Unlike the other two this is not an address to connect to — it is a
@@ -189,6 +206,11 @@ impl Relay {
             // naming the exit is a courtesy, not a contract, so "wireguard" is
             // the honest answer rather than an address dug out for display.
             Upstream::WireGuard(_) => return "wireguard".to_string(),
+            // Named on the start page in the plainest words available, because
+            // this is the one mode where the answer to "where does this come
+            // out" is "here", and an operator who forgot they ticked it should
+            // learn so from the first tab rather than from a ban.
+            Upstream::Direct => return "no proxy — this machine's own address".to_string(),
         };
         format!("{scheme}://{host}:{port}")
     }
@@ -362,12 +384,16 @@ impl Relay {
                 port: pport,
                 auth,
             } => {
-                let mut s = TcpStream::connect((phost.as_str(), *pport))
-                    .await
-                    .map_err(RelayError::UpstreamUnreachable)?;
-                socks5_connect(&mut s, host, port, auth.as_ref()).await?;
+                let mut s = connect_upstream(phost, *pport).await?;
+                handshake(
+                    "SOCKS5",
+                    socks5_connect(&mut s, host, port, auth.as_ref()),
+                )
+                .await?;
                 Ok(Conn::Tcp(s))
             }
+            // No handshake: there is no proxy to greet.
+            Upstream::Direct => Ok(Conn::Tcp(connect_upstream(host, port).await?)),
             Upstream::WireGuard(stack) => {
                 // Resolved INSIDE the tunnel. Doing it out here would hand this
                 // machine's resolver the name of every site the profile is
@@ -1090,6 +1116,22 @@ mod tests {
             }
             other => panic!("expected the handshake to give up, got {other:?}"),
         }
+    }
+
+    /// With no proxy there is no handshake to get wrong: the relay opens the
+    /// socket itself. The listener here answers nothing — reaching it is the
+    /// whole assertion.
+    #[tokio::test]
+    async fn with_no_proxy_the_relay_dials_out_itself() {
+        let l = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let _ = l.accept().await;
+            std::future::pending::<()>().await;
+        });
+
+        let relay = Relay::new(Upstream::Direct);
+        assert!(relay.dial("127.0.0.1", port).await.map(|_| ()).is_ok());
     }
 
     /// A real SOCKS5 refusal still reads as one. Without this the change above

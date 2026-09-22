@@ -295,8 +295,13 @@ export function ProfileTable({
                   </>
                 ) : (
                   // Not cosmetic: the agent refuses to launch without one,
-                  // because everything the core does goes through the relay.
-                  <span className="warn">{t("row.noProxy")}</span>
+                  // unless this profile has been given permission — and then
+                  // the row says so, because a profile that goes out from this
+                  // machine is the one thing in the list somebody must not
+                  // discover by accident.
+                  <span className="warn">
+                    {p.allow_no_proxy ? t("row.noProxyAllowed") : t("row.noProxy")}
+                  </span>
                 )}
               </td>
               <td>

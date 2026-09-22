@@ -261,6 +261,7 @@ const en = {
   "row.idle": "Idle",
   "row.never": "never",
   "row.noProxy": "No proxy",
+  "row.noProxyAllowed": "No proxy · this machine",
   "row.sharedExit": "{n} profiles on this exit",
   "row.fixFirst": "Fix before opening",
   "cons.personaUnknown": "persona {id} is not in the catalogue any more — pick another in the editor",
@@ -427,6 +428,9 @@ const en = {
   "pd.proxyNone": "— none —",
   "pd.proxyRequired":
     "A profile without a proxy cannot be opened — everything the browser does goes through one.",
+  "pd.allowNoProxy": "Let this profile open without a proxy",
+  "pd.allowNoProxyOn":
+    "Every site this profile visits will see this machine's own address, and so will anything else it talks to. Fine for reading documentation or testing a fingerprint; not for an account you care about. It applies to this profile alone.",
   "pd.exit": "Exit",
   "pd.machine": "Machine",
   "pd.machineHint":
@@ -1129,6 +1133,7 @@ const ru: Record<Key, string> = {
   "row.idle": "Свободен",
   "row.never": "ни разу",
   "row.noProxy": "Без прокси",
+  "row.noProxyAllowed": "Без прокси · с этой машины",
   "row.sharedExit": "{n} профилей на этом выходе",
   "row.fixFirst": "Сначала исправьте",
   "cons.personaUnknown": "персоны {id} больше нет в каталоге — выберите другую в редакторе",
@@ -1285,6 +1290,9 @@ const ru: Record<Key, string> = {
   "pd.proxyNone": "— нет —",
   "pd.proxyRequired":
     "Профиль без прокси открыть нельзя — весь трафик браузера идёт через него.",
+  "pd.allowNoProxy": "Разрешить этому профилю открываться без прокси",
+  "pd.allowNoProxyOn":
+    "Каждый сайт, куда зайдёт этот профиль, увидит адрес этой машины — и не только сайт. Годится, чтобы почитать документацию или проверить отпечаток; не годится для аккаунта, который жалко. Разрешение действует только на этот профиль.",
   "pd.exit": "Выход",
   "pd.machine": "Машина",
   "pd.machineHint":

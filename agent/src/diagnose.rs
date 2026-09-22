@@ -252,13 +252,14 @@ fn describe(u: &Upstream) -> String {
             format!("socks5 proxy {host}:{port}{}", if auth.is_some() { ", with credentials" } else { ", no credentials" })
         }
         Upstream::WireGuard(_) => "WireGuard tunnel".to_string(),
+        Upstream::Direct => "no proxy: this machine's own address".to_string(),
     }
 }
 
 fn host_port(u: &Upstream) -> Option<(&str, u16)> {
     match u {
         Upstream::Http { host, port, .. } | Upstream::Socks5 { host, port, .. } => Some((host.as_str(), *port)),
-        Upstream::WireGuard(_) => None,
+        Upstream::WireGuard(_) | Upstream::Direct => None,
     }
 }
 

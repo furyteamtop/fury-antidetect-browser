@@ -95,6 +95,10 @@ pub struct LocalProfile {
     pub persona_id: String,
     pub fp_seed: i64,
     pub proxy: Option<LocalProxy>,
+    /// May this one open with no proxy? Never set on a team row, and absent
+    /// from every response written before the flag existed.
+    #[serde(default)]
+    pub allow_no_proxy: bool,
     #[serde(default)]
     pub start_urls: Vec<String>,
     /// Absent from the trash listing, where nothing is running by definition.

@@ -1064,6 +1064,11 @@ pub struct UiProfile {
     /// interface may invent one.
     pub fp_seed: i64,
     pub proxy: Option<UiProxy>,
+    /// May this one open with no proxy at all? The row says so, because a
+    /// profile that goes out from this machine is the one thing in the list
+    /// nobody should discover by accident. False for every team row.
+    #[serde(default)]
+    pub allow_no_proxy: bool,
     /// `None` means "follow the proxy's exit", resolved by the agent at launch.
     /// Carried here because the edit dialog round-trips it — without these two
     /// fields, opening a profile and pressing save silently reset both.
@@ -1175,6 +1180,7 @@ async fn local_profiles() -> R<Vec<UiProfile>> {
                 kind: x.kind,
             }),
             permissions: all_permissions(),
+            allow_no_proxy: p.allow_no_proxy,
             blocklists: p.blocklists,
             notes: p.notes,
             status: p.status,
@@ -1225,7 +1231,8 @@ pub async fn profiles(
                     kind: x.kind,
                 }),
                 permissions: all_permissions(),
-                blocklists: p.blocklists,
+                allow_no_proxy: p.allow_no_proxy,
+            blocklists: p.blocklists,
                 notes: p.notes,
                 status: p.status,
                 start_urls: p.start_urls,
@@ -1270,7 +1277,8 @@ pub async fn profiles(
                     kind: x.kind,
                 }),
                 permissions: all_permissions(),
-                blocklists: p.blocklists,
+                allow_no_proxy: p.allow_no_proxy,
+            blocklists: p.blocklists,
                 notes: p.notes,
                 status: p.status,
                 start_urls: p.start_urls,
@@ -1306,6 +1314,10 @@ pub async fn profiles(
     let mut rows: Vec<UiProfile> = remote
         .into_iter()
         .map(|p| UiProfile {
+            // A team profile cannot have it: the server refuses to hand out a
+            // launch spec without a proxy, because that one opens on a
+            // colleague's machine.
+            allow_no_proxy: false,
             id: p.id.to_string(),
             project_id: Some(p.project_id.to_string()),
             project_name: Some(p.project_name),
@@ -2473,6 +2485,7 @@ pub async fn trash(state: State<'_, AppState>) -> R<Vec<UiProfile>> {
         .into_iter()
         .enumerate()
         .map(|(i, p)| UiProfile {
+            allow_no_proxy: p.allow_no_proxy,
             proxy: p.proxy.map(|x| UiProxy {
                 display: format!("{}:{}", x.host, x.port),
                 country: x.last_country,
@@ -3339,6 +3352,9 @@ pub async fn shared_with_me(state: State<'_, AppState>) -> R<Vec<UiProfile>> {
     Ok(rows
         .into_iter()
         .map(|r| UiProfile {
+            // Somebody else's profile, held on the server. Same reason as the
+            // listing above.
+            allow_no_proxy: false,
             id: r.id,
             // Not in any project of this account's: it is in the OWNER's
             // project, which this account cannot see and has no business
@@ -3713,6 +3729,7 @@ mod upload_tests {
             id: "019fc39d-e44e-7b60-ad56-3297061f04bd".into(),
             project_id: None,
             project_name: None,
+            allow_no_proxy: false,
             name: "RU".into(),
             notes: String::new(),
             status: String::new(),

@@ -606,6 +606,14 @@ fn cmd_check_fingerprint(args: &[String]) -> anyhow::Result<()> {
 /// in the wild contain characters real URL parsers reject, and silently
 /// mis-parsing one means connecting somewhere unintended.
 pub fn parse_upstream(url: &str) -> anyhow::Result<Upstream> {
+    // "No proxy", spelled. A profile that is allowed to open without one still
+    // goes through the relay — for the blocklist, the start page and the
+    // refusal to reach this machine's own services — so it needs an upstream
+    // to name, and this is it.
+    if url == "direct" || url == "direct://" {
+        return Ok(Upstream::Direct);
+    }
+
     let (scheme, rest) = url
         .split_once("://")
         .ok_or_else(|| anyhow::anyhow!("expected scheme://, got {url:?}"))?;
@@ -756,6 +764,17 @@ mod tests {
             }
             _ => panic!("wrong variant"),
         }
+    }
+
+    /// "No proxy" has to be sayable, because the relay still runs in that mode
+    /// — it carries the blocklist and the start page — and it needs an upstream
+    /// to name.
+    #[test]
+    fn no_proxy_at_all_is_an_upstream_like_any_other() {
+        assert!(matches!(parse_upstream("direct").unwrap(), Upstream::Direct));
+        assert!(matches!(parse_upstream("direct://").unwrap(), Upstream::Direct));
+        // And nothing else becomes it by accident.
+        assert!(parse_upstream("direct://host:1080").is_err());
     }
 
     #[test]

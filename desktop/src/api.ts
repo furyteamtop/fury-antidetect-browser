@@ -113,6 +113,10 @@ export interface Profile {
   proxy: ProxySummary | null;
   /** Which proxy, on the way IN. `proxy` above is what comes back OUT. */
   proxy_id?: string | null;
+  /** May this one open with no proxy at all? Off everywhere it was not asked
+   *  for, and never true for a team profile — that one opens on somebody
+   *  else's machine, where "this machine" would be theirs. */
+  allow_no_proxy?: boolean;
   /** Null means "follow the proxy's exit", resolved at launch. */
   timezone: string | null;
   languages: string[] | null;

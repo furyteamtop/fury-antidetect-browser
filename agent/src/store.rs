@@ -166,6 +166,21 @@ pub struct Profile {
     /// profile with a proxy from it had never once worked. The error named a
     /// field the caller had never heard of, on a form where the visible name
     /// box was filled in.
+    /// May this profile open with no proxy at all?
+    ///
+    /// Off for every profile that does not say otherwise, and the refusal it
+    /// lifts is the oldest rule here: everything a profile does goes out
+    /// through its proxy, and without one it goes out through this machine.
+    /// That is the right default and it stays the default.
+    ///
+    /// A per-profile flag rather than a setting, because it is a property of
+    /// the work: a throwaway profile for reading documentation and a warmed
+    /// account are not the same thing and must not share a switch. A team
+    /// profile cannot set it at all — the server refuses a profile with no
+    /// proxy outright, because that one opens on somebody else's machine and
+    /// "this machine" would be theirs.
+    #[serde(default)]
+    pub allow_no_proxy: bool,
     #[serde(default)]
     pub proxy: Option<Proxy>,
     /// What a caller WRITING a profile supplies: which proxy, and nothing else.
@@ -352,6 +367,11 @@ impl Store {
             "ALTER TABLE profiles ADD COLUMN blocklists TEXT NOT NULL DEFAULT '[]'",
             // The account's stage, beside the lock's state. See Profile.status.
             "ALTER TABLE profiles ADD COLUMN status TEXT NOT NULL DEFAULT ''",
+            // Permission to open with no proxy, per profile. Defaulting to 0
+            // is the whole point: every profile that existed before this
+            // column keeps the old refusal, and nothing changes for anybody
+            // who does not go and tick it.
+            "ALTER TABLE profiles ADD COLUMN allow_no_proxy INTEGER NOT NULL DEFAULT 0",
         ] {
             let _ = sqlx::query(stmt).execute(&self.pool).await;
         }
@@ -725,7 +745,7 @@ impl Store {
     pub async fn profiles(&self, project_id: Option<&str>) -> anyhow::Result<Vec<Profile>> {
         let rows = sqlx::query(
             "SELECT f.id, f.project_id, f.name, f.notes, f.tags, f.blocklists, f.status, f.persona_id, f.fp_seed,
-                    f.timezone, f.languages, f.start_urls, f.last_opened_at,
+                    f.timezone, f.languages, f.start_urls, f.allow_no_proxy, f.last_opened_at,
                     p.name AS project_name,
                     x.id AS px_id, x.name AS px_name, x.kind AS px_kind, x.host AS px_host,
                     x.port AS px_port, x.username AS px_user, x.password AS px_pass,
@@ -783,7 +803,7 @@ impl Store {
     pub async fn profile(&self, id: &str) -> anyhow::Result<Option<Profile>> {
         let row = sqlx::query(
             "SELECT f.id, f.project_id, f.name, f.notes, f.tags, f.blocklists, f.status, f.persona_id, f.fp_seed,
-                    f.timezone, f.languages, f.start_urls, f.last_opened_at,
+                    f.timezone, f.languages, f.start_urls, f.allow_no_proxy, f.last_opened_at,
                     p.name AS project_name,
                     x.id AS px_id, x.name AS px_name, x.kind AS px_kind, x.host AS px_host,
                     x.port AS px_port, x.username AS px_user, x.password AS px_pass,
@@ -818,15 +838,16 @@ impl Store {
         sqlx::query(
             "INSERT INTO profiles
                 (id, project_id, name, notes, tags, blocklists, persona_id, fp_seed, proxy_id,
-                 timezone, languages, start_urls, created_at, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 timezone, languages, start_urls, created_at, status, allow_no_proxy)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
                 project_id = excluded.project_id, name = excluded.name,
                 notes = excluded.notes, tags = excluded.tags,
                 blocklists = excluded.blocklists, status = excluded.status,
                 persona_id = excluded.persona_id, proxy_id = excluded.proxy_id,
                 timezone = excluded.timezone, languages = excluded.languages,
-                start_urls = excluded.start_urls, deleted_at = NULL",
+                start_urls = excluded.start_urls, allow_no_proxy = excluded.allow_no_proxy,
+                deleted_at = NULL",
         )
         .bind(&id)
         .bind(&p.project_id)
@@ -847,6 +868,7 @@ impl Store {
         .bind(to_json_array(&p.start_urls))
         .bind(now())
         .bind(p.status.trim())
+        .bind(p.allow_no_proxy)
         .execute(&self.pool)
         .await?;
         Ok(id)
@@ -897,7 +919,7 @@ impl Store {
     pub async fn deleted_profiles(&self) -> anyhow::Result<Vec<Profile>> {
         let rows = sqlx::query(
             "SELECT f.id, f.project_id, f.name, f.notes, f.tags, f.blocklists, f.status, f.persona_id, f.fp_seed,
-                    f.timezone, f.languages, f.start_urls, f.deleted_at AS last_opened_at,
+                    f.timezone, f.languages, f.start_urls, f.allow_no_proxy, f.deleted_at AS last_opened_at,
                     x.id AS px_id, x.name AS px_name, x.kind AS px_kind, x.host AS px_host,
                     x.port AS px_port, x.username AS px_user, x.password AS px_pass,
                     x.last_country AS px_country, x.last_ip AS px_ip,
@@ -986,6 +1008,9 @@ fn row_to_profile(r: sqlx::sqlite::SqliteRow) -> Profile {
             .map(|s| from_json_array(s))
             .unwrap_or_default(),
         status: r.try_get::<String, _>("status").unwrap_or_default(),
+        // try_get, like the columns above it: a database written before this
+        // one existed answers "no", which is the safe answer and the old one.
+        allow_no_proxy: r.try_get::<bool, _>("allow_no_proxy").unwrap_or(false),
         persona_id: r.get("persona_id"),
         fp_seed: r.get("fp_seed"),
         timezone: r.get("timezone"),
@@ -1076,6 +1101,7 @@ mod credential_tests {
                 id: String::new(),
                 project_id: None,
                 project_name: None,
+                allow_no_proxy: false,
                 name: "acct".into(),
                 notes: String::new(),
                 status: String::new(),
@@ -1094,6 +1120,27 @@ mod credential_tests {
             .await
             .unwrap();
         (dir, store, id)
+    }
+
+    /// The permission to open without a proxy has to survive being written and
+    /// read back, and a profile that never asked for it has to come back
+    /// without it. The column is added by ALTER on databases that predate it,
+    /// so "off" is what every existing profile keeps.
+    #[tokio::test]
+    async fn permission_to_open_without_a_proxy_round_trips_and_defaults_to_off() {
+        let (_d, store, id) = store_with_a_profile("no-proxy-flag").await;
+
+        let before = store.profiles(None).await.unwrap();
+        let before = before.iter().find(|p| p.id == id).expect("the profile");
+        assert!(!before.allow_no_proxy, "a profile nobody asked about keeps the refusal");
+
+        let mut changed = before.clone();
+        changed.allow_no_proxy = true;
+        store.upsert_profile(&changed).await.unwrap();
+
+        let after = store.profiles(None).await.unwrap();
+        let after = after.iter().find(|p| p.id == id).expect("the profile");
+        assert!(after.allow_no_proxy, "the permission was not kept");
     }
 
     #[tokio::test]
@@ -1217,6 +1264,7 @@ mod tests {
             id: String::new(),
             project_id: Some(project.into()),
             project_name: None,
+            allow_no_proxy: false,
             name: name.into(),
             notes: String::new(),
             status: String::new(),
