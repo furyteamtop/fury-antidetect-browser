@@ -7,7 +7,7 @@ A free, open-source anti-detect browser with real team collaboration. Own
 Chromium fork, works standalone with no server, self-hostable when you need a
 team. No seats, no per-profile pricing, no telemetry.
 
-*[Русская версия](README.ru.md)*
+**[furybrowser.dev](https://furybrowser.dev)** · *[Русская версия](README.ru.md)*
 
 > **Status: in development, and now on both macOS and Windows.** The core builds
 > and spoofs; the agent launches profiles; the server and desktop shell work.

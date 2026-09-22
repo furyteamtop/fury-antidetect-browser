@@ -4,7 +4,8 @@
 """Build the landing page from what the repository actually says.
 
     ./build.py            write dist/
-    ./build.py --check    fail if dist/ is out of date (for CI)
+    ./build.py --check    render without writing, and fail if the page cannot
+                          be built from the repository as it stands (for CI)
 
 WHY A BUILD STEP FOR ONE PAGE. The page makes numbers its argument — the
 Chromium major we are on, how many patches carry the spoofing, how many
@@ -175,10 +176,29 @@ def main() -> int:
 
     out = DIST / "index.html"
     if check:
-        if not out.exists() or out.read_text() != page:
-            print("!! site/dist is out of date — run site/build.py", file=sys.stderr)
+        # NOT a comparison against a committed dist/, which is what this used
+        # to be and could never have passed: two of the values are COMMIT and
+        # today's date, so a built page is stale the moment it is committed and
+        # again every midnight. The status page learned this the expensive way
+        # (679245d) — its footer named the commit that had not happened yet.
+        #
+        # What CI can honestly check is that the page still builds out of the
+        # repository: every placeholder answered, and every number that is read
+        # rather than typed actually read. A regex here matching nothing is the
+        # real failure — PATCHES silently said 23 for a 28-patch series once —
+        # and it shows up as a zero, so zero is refused.
+        bad = [k for k in ("CHROMIUM", "VERSION", "PATCHES", "PERSONAS", "GATE")
+               if not values[k] or values[k] == "0"]
+        if bad:
+            print(f"!! read nothing for: {', '.join(bad)} — a source file moved "
+                  f"or a regex in this script stopped matching", file=sys.stderr)
             return 1
-        print("site/dist is up to date")
+        if not values["ROWS_RU"].strip() or not values["ROWS_EN"].strip():
+            print("!! the comparison table came out empty", file=sys.stderr)
+            return 1
+        print(f"the page builds: Chromium {values['CHROMIUM']}, "
+              f"{values['PATCHES']} patches, {values['PERSONAS']} personas, "
+              f"gate of {values['GATE']}, {len(page):,} bytes")
         return 0
 
     DIST.mkdir(exist_ok=True)
