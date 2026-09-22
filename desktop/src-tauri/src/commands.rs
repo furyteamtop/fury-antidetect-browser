@@ -2287,6 +2287,37 @@ pub async fn delete_proxy(state: State<'_, AppState>, id: String) -> R<serde_jso
         .await
 }
 
+/// The proxy a profile form names, in either shape the form has ever sent.
+fn proxy_id_of(profile: &serde_json::Value) -> Option<&str> {
+    let flat = profile.get("proxy_id").and_then(|v| v.as_str());
+    let nested = profile.get("proxy").and_then(|p| p.get("id")).and_then(|v| v.as_str());
+    flat.filter(|v| !v.is_empty()).or_else(|| nested.filter(|v| !v.is_empty()))
+}
+
+#[cfg(test)]
+mod save_profile_tests {
+    use super::proxy_id_of;
+    use serde_json::json;
+
+    #[test]
+    fn the_dialog_shape_names_a_proxy() {
+        // What ProfileDialog.tsx sends since 02.08.2026.
+        assert_eq!(proxy_id_of(&json!({ "proxy_id": "px-1" })), Some("px-1"));
+    }
+
+    #[test]
+    fn the_old_nested_shape_still_does() {
+        assert_eq!(proxy_id_of(&json!({ "proxy": { "id": "px-2" } })), Some("px-2"));
+    }
+
+    #[test]
+    fn nothing_and_empty_are_none() {
+        assert_eq!(proxy_id_of(&json!({})), None);
+        assert_eq!(proxy_id_of(&json!({ "proxy_id": "" })), None);
+        assert_eq!(proxy_id_of(&json!({ "proxy_id": null, "proxy": null })), None);
+    }
+}
+
 #[tauri::command]
 pub async fn save_profile(
     state: State<'_, AppState>,
@@ -2305,12 +2336,16 @@ pub async fn save_profile(
             .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
             .unwrap_or_default()
     };
-    let proxy_id = profile
-        .get("proxy")
-        .and_then(|p| p.get("id"))
-        .and_then(|v| v.as_str())
-        .filter(|v| !v.is_empty())
-        .ok_or_else(|| {
+    // `proxy_id` first, `proxy.id` second. The dialog has sent the id alone
+    // since 02.08.2026 -- the agent's upsert refused `{proxy: {id}}` with
+    // `missing field name` -- and this branch kept reading the nested shape
+    // from 31.07, so every team profile created or edited from the dialog was
+    // refused as having no proxy while a proxy sat selected on the Proxy tab.
+    // Bulk creation takes another path and worked, which is why the report
+    // (21.09.2026, a self-hosted server) said "the batch made them, editing
+    // one dies". The gate the dialog grew that day sat in front of the button;
+    // the refusal was behind it.
+    let proxy_id = proxy_id_of(&profile).ok_or_else(|| {
             ApiErr::coded("err.teamProfileNeedsProxy", 
                 "A team profile needs a proxy. Everything the browser does goes through one.",
             )
