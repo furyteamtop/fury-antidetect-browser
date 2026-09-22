@@ -84,7 +84,7 @@ struct Running {
 pub struct Agent {
     store: Store,
     running: Mutex<HashMap<String, Running>>,
-    core: Option<std::path::PathBuf>,
+    /// Deliberately NOT a field holding the path. See [`Self::core`].
     /// Progress of a core download, if one was asked for. Shared rather than
     /// owned because the download outlives the IPC call that started it: 134 MB
     /// is minutes, and a call that blocks for minutes is a shell that looks
@@ -199,7 +199,6 @@ impl Agent {
         let agent = Arc::new(Self {
             store,
             running: Mutex::new(HashMap::new()),
-            core: crate::core_binary(),
             core_download: Default::default(),
             mirror: crate::mirror::Hub::new(),
             warmer: crate::warm::Warmer::new(),
@@ -207,6 +206,29 @@ impl Agent {
         });
         let _ = agent.me.set(Arc::downgrade(&agent));
         Ok(agent)
+    }
+
+    /// Where the browser is, looked up now rather than remembered.
+    ///
+    /// It used to be a field, filled once when the agent started, and that is
+    /// exactly as wrong as it sounds the moment the agent installs a core
+    /// itself. Reported 22.09.2026 and reproduced on the build box: the
+    /// download finished, the install succeeded, `chrome.exe` was on disk --
+    /// and the same agent went on answering `"core": null`, so the shell kept
+    /// showing "the browser is not installed yet" over a browser that was, with
+    /// no error anywhere, because nothing had failed.
+    ///
+    /// The bar was the visible half. The other two readers are worse: a profile
+    /// would refuse to launch with "no core binary found", and `core.download`
+    /// guards on this -- so the next press downloaded 146 MB again, installed it
+    /// again, and changed nothing again. Only restarting the agent broke the
+    /// loop, and the application never restarts it.
+    ///
+    /// Cheap enough to do per call: a few `exists()` on paths, and a legacy
+    /// directory check that returns on its first condition once there is
+    /// nothing to move.
+    fn core(&self) -> Option<std::path::PathBuf> {
+        crate::core_binary()
     }
 
     /// Notice browsers the operator closed from their own window.
@@ -342,7 +364,7 @@ impl Agent {
                 let running = self.running.lock().await;
                 Ok(json!({
                     "version": env!("CARGO_PKG_VERSION"),
-                    "core": self.core.as_ref().map(|p| p.display().to_string()),
+                    "core": self.core().map(|p| p.display().to_string()),
                     // Why there is no core, when the reason is not "you have
                     // not installed one". The shell shows this verbatim: a
                     // stale FURY_CORE and a missing download need opposite
@@ -386,7 +408,7 @@ impl Agent {
             // Nothing schedules this. See core_download.rs for why that
             // sentence is the whole design.
             "core.download" => {
-                if self.core.is_some() {
+                if self.core().is_some() {
                     // Refused rather than allowed-and-ignored: replacing a
                     // working core is a different operation from installing a
                     // missing one, and the button that means the second should
@@ -1932,7 +1954,7 @@ impl Agent {
             )
         })?;
 
-        let core = self.core.clone().ok_or_else(|| {
+        let core = self.core().ok_or_else(|| {
             // The reason matters more than the fact. "No core" with a stale
             // FURY_CORE set reads as "you never installed one", and the person
             // goes and installs a second copy that is also not used.

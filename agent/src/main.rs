@@ -645,8 +645,53 @@ const LOCK_HEARTBEAT: Duration = Duration::from_secs(30);
 
 #[cfg(test)]
 mod tests {
+    /// Held by every test here that writes FURY_CORE or FURY_HOME.
+    ///
+    /// The variables belong to the process and the test harness runs threads,
+    /// so two of these at once is one test deciding another's answer. It is not
+    /// hypothetical: adding the third test below turned an unrelated test red
+    /// once and passed the next run, which is the worst shape a failure comes
+    /// in. `PoisonError` is unwrapped past because a panic in one of these says
+    /// nothing about whether the lock's data -- there is none -- is sound.
+    static ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// A core installed while the agent is running is found without a restart.
+    ///
+    /// The bug this pins, reported and reproduced on 22.09.2026: the agent read
+    /// this once at startup and kept the answer in a field, so the core it had
+    /// just downloaded and installed itself did not exist as far as it was
+    /// concerned -- the bar said "not installed yet", a launch said "no core
+    /// binary found", and the download button downloaded the same 146 MB again.
+    #[test]
+    fn a_core_that_appears_after_the_first_look_is_found() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let home = std::env::temp_dir().join("fury-core-appears-test");
+        std::fs::remove_dir_all(&home).ok();
+        std::fs::create_dir_all(&home).unwrap();
+        // SAFETY: single-threaded test; both variables are read back at once.
+        // FURY_CORE is cleared because a developer's own export would decide
+        // the answer before the directory is ever looked at.
+        unsafe {
+            std::env::set_var("FURY_HOME", &home);
+            std::env::remove_var("FURY_CORE");
+        }
+
+        assert_eq!(super::core_binary(), None, "nothing is installed yet");
+
+        let dir = crate::paths::core_dir();
+        let leaf = dir.join(super::core_leaf());
+        std::fs::create_dir_all(leaf.parent().unwrap()).unwrap();
+        std::fs::write(&leaf, b"#!/bin/sh\n").unwrap();
+
+        assert_eq!(super::core_binary(), Some(leaf));
+
+        unsafe { std::env::remove_var("FURY_HOME") };
+        std::fs::remove_dir_all(&home).ok();
+    }
+
     #[test]
     fn a_core_path_that_exists_is_not_a_problem() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
         // The guard that keeps this off the ordinary path: a FURY_CORE pointing
         // at a real binary is a normal development setup, not a fault.
         let real = std::env::current_exe().unwrap();
@@ -658,6 +703,7 @@ mod tests {
 
     #[test]
     fn a_core_path_that_does_not_exist_names_itself_and_a_way_out() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
         unsafe { std::env::set_var("FURY_CORE", "/nowhere/Chromium.app/Contents/MacOS/Chromium") };
         let said = super::core_lookup_problem().expect("a missing path is a problem");
         // The path, because "no core found" sends people to look in the wrong
