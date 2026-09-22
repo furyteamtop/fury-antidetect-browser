@@ -1,5 +1,5 @@
 {
-  "__collectedInMs": 608,
+  "__collectedInMs": 544,
   "__probeVersion": "0.2.0",
   "__redacted": true,
   "__schema": 1,
@@ -365,7 +365,7 @@
       "webdriver": false
     },
     "errorMessage": "Cannot read properties of null (reading 'f')",
-    "errorStackShape": "TypeError: Cannot read properties of null (reading 'f') |     at http://127.0.0.1:57340/8fe798b62b6cb378aeb64c9dd3a684c5/probe/probe.js:L:C",
+    "errorStackShape": "TypeError: Cannot read properties of null (reading 'f') |     at http://127.0.0.1:58797/2ea39faffa557437aa40189f94ac5781/probe/probe.js:L:C",
     "hasCaptureStackTrace": true,
     "jsHeapSizeLimit": 4294705152,
     "mathSinh": "1.1752011936438014",
@@ -377,7 +377,7 @@
         "dischargingTime": "Infinity",
         "level": 1
       },
-      "connectionDownlink": 1.65,
+      "connectionDownlink": 1.5,
       "connectionRtt": 0,
       "connectionSaveData": false,
       "connectionType": "4g",
@@ -392,9 +392,9 @@
       }
     },
     "nativeToString": "hardwareConcurrency:native,userAgent:native,width:native",
-    "performanceNowPrecision": 0,
+    "performanceNowPrecision": 0.09999999403953552,
     "toStringTag": "[object Navigator]",
-    "totalJSHeapSize": 8508359
+    "totalJSHeapSize": 7754695
   },
   "fonts": {
     "baselineWidths": {
