@@ -1,0 +1,41 @@
+diff --git a/chrome/browser/ui/startup/infobar_utils.cc b/chrome/browser/ui/startup/infobar_utils.cc
+index d7ebcfb01b..70df9117c0 100644
+--- a/chrome/browser/ui/startup/infobar_utils.cc
++++ b/chrome/browser/ui/startup/infobar_utils.cc
+@@ -194,19 +194,23 @@ void AddInfoBarsIfNecessary(BrowserWindowInterface* browser,
+   infobars::ContentInfoBarManager* infobar_manager =
+       infobars::ContentInfoBarManager::FromWebContents(web_contents);
+ 
+-  if (!google_apis::HasAPIKeyConfigured()) {
+-    if (infobars::IsInfoBarMigrated(
+-            infobars::InfoBarDelegate::GOOGLE_API_KEYS_INFOBAR_DELEGATE)) {
+-      if (auto* manager =
+-              infobars::BrowserInfoBarManager::From(g_browser_process)) {
+-        manager->Show(
+-            tabs::TabInterface::GetFromContents(web_contents),
+-            infobars::InfoBarDelegate::GOOGLE_API_KEYS_INFOBAR_DELEGATE);
+-      }
+-    } else {
+-      GoogleApiKeysInfoBarDelegate::Create(infobar_manager);
+-    }
+-  }
++  // Patch 0902. The "Google API keys are missing" bar is never shown.
++  //
++  // It is Chromium telling a developer that this build has no keys, and it is
++  // right: core/args sets google_api_key = "" on purpose (0901 and the de-Google
++  // block in the .gn files say why). But the bar is shown in the first window
++  // of every launch, to an operator, in the profile's UI language, and it says
++  // "Chromium" -- which is the one word this browser must not say about itself.
++  // Real Chrome has keys and never shows it, so a window with the bar is 56 px
++  // of chrome a real Chrome window does not have; 0020 already hides that
++  // number from the page, and this removes the thing the number described.
++  //
++  // Only this bar. The obsolete-OS warning and the bad-flags prompt below are
++  // shown by real Chrome under the same conditions and stay.
++  //
++  // Reported 21.09.2026 by a Windows tester as "Google API-Schluessel fehlen"
++  // above a German profile; it had been in every window since the first build,
++  // and it took somebody with a camera to say so.
+ 
+   if (ObsoleteSystem::IsObsoleteNowOrSoon()) {
+     PrefService* local_state = g_browser_process->local_state();

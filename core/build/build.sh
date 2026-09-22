@@ -153,6 +153,37 @@ fi
 mkdir -p "$SRC/$OUT"
 cp "$ARGS_FILE" "$SRC/$OUT/args.gn"
 
+# The SDK, pinned by hand when Xcode has moved on.
+#
+# Chromium links with its own lld, pinned per milestone, and it reads the
+# SDK's .tbd stubs. An Xcode update can ship an SDK whose stubs name a target
+# the pinned lld has never heard of: Xcode 27.0's MacOSX27.0.sdk lists
+# `arm64e.x1-macos`, and a tree that had built on 26.5 the day before failed
+# every link with "could not load TAPI file ... unknown target". Measured
+# 22.09.2026, on an incremental rebuild that changed one .cc file.
+#
+# The SDK the tree was built with usually survives the update under
+# /Library/Developer/CommandLineTools/SDKs, and `mac_sdk_path` is the gn arg
+# that points at it. It is not written into core/args/ because it is a path
+# on one machine; it comes from the environment:
+#
+#     FURY_MAC_SDK=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk \
+#         core/build/build.sh macos-arm64-16gb
+#
+# Through a link inside the output directory, not by its own path: gn refuses
+# an SDK path outside root_build_dir ("File is not inside output directory",
+# at build/config/mac/BUILD.gn's exc.defs), which is the reason Chromium's
+# own SDK lookup leaves links under sdk/xcode_links/ in the first place. The
+# link a build leaves there says which SDK it used last.
+if [ -n "${FURY_MAC_SDK:-}" ]; then
+  [ -d "$FURY_MAC_SDK" ] || { echo "!! FURY_MAC_SDK is not a directory: $FURY_MAC_SDK" >&2; exit 1; }
+  sdk_name="$(basename "$FURY_MAC_SDK")"
+  mkdir -p "$SRC/$OUT/sdk/xcode_links"
+  ln -sfn "$FURY_MAC_SDK" "$SRC/$OUT/sdk/xcode_links/$sdk_name"
+  echo "==> pinning the macOS SDK to $FURY_MAC_SDK"
+  printf '\nmac_sdk_path = "//%s/sdk/xcode_links/%s"\n' "$OUT" "$sdk_name" >> "$SRC/$OUT/args.gn"
+fi
+
 # Ask Spotlight to skip the build directory.
 #
 # ninja writes the five helper applications as standalone bundles beside

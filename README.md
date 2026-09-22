@@ -136,7 +136,7 @@ desktop (Tauri)  ──socket──▶  agent (Rust)  ──spawn──▶  core
      └──HTTPS──▶ server (optional: teams)
 ```
 
-- **core** — Chromium 153 fork, [27 patches](core/patches/); spoofing is in C++,
+- **core** — Chromium 153 fork, [28 patches](core/patches/); spoofing is in C++,
   never injected JavaScript
 - **agent** — the only component holding decrypted secrets: proxy relays,
   launching, the local automation API
@@ -266,28 +266,46 @@ translation of the rest is planned.
 
 ## Not done yet
 
-Anything here is a way to be caught or a way to be inconvenienced, and knowing
-about it is worth more than not.
+Three lists, kept apart on purpose: what is still open, what was decided
+against and why, and what has been closed. A closed item stays on the page
+with the measurement that closed it, because the next person to ask "does it
+handle X" deserves the answer and not the archaeology.
+
+### Open
+
+| | |
+|---|---|
+| Code signing, Windows | not started. A separate certificate (EV or OV) and a separate process; until then the installer shows SmartScreen and the way through is **More info → Run anyway** |
+| Widevine on a machine with no Chrome | the agent stages the CDM out of the Chrome already installed on that machine, so nothing proprietary is redistributed and `com.widevine.alpha` is answered the way real Chrome answers it. A machine with no Chrome at all gets a working browser with no DRM, which is detectable |
+| Persona catalogue | 27 machines — the 27th arrived through the issue form on 13.09.2026, a Windows 10 desktop with a GTX 950. More personas means better crowds to hide in, and it is the most useful thing an outside contributor can add — `fury-detect persona <capture.json>` turns a probe capture from your own computer into one |
+
+### Decided against, with the reason
+
+Each of these is a way to be caught or a way to be inconvenienced, and the
+row says why the alternative is worse.
+
+| | |
+|---|---|
+| Linux | not a target, and this is a decision rather than a gap. The Rust still compiles there so CI and contributors can run the suite; there is no Linux release, no Linux core config and no plan for one. Shipping a third platform nobody tests would be a claim, not a port |
+| WebRTC through the proxy | no. The relay is TCP; patch 0070 puts the browser in the state a real Chrome reaches under the enterprise `WebRTCIPHandlingPolicy` — no ICE candidates at all — rather than let a peer connection go around the proxy and hand the page the real address |
+| Hiding CDP from a timing check | no, and now known to be unclosable rather than merely undone. Split into its two parts ([cdp-timing.py](tools/detect-suite/cdp-timing.py)): attaching costs nothing, `Runtime.enable` costs a fixed 2.7x plus more as the logged object grows. A patch can remove the size half — preview generation — and not the fixed half, which is the message reaching the frontend at all. Real Chrome measures the same. The control that works is `cdp: false`, which is the default |
+| Automatic updates | none, and deliberately so: an updater is a scheduled channel into an anti-detect browser from an address that is not the profile's proxy. [docs/15](docs/15-install.md) says what updating looks like meanwhile |
+| Offline GeoIP | no, and it is a dependency rather than a leak. The exit check asks ipinfo.io **through the proxy**, so what the third party sees is the exit's address and never the operator's — asserted by a test that points the check at a dead proxy and requires it to fail rather than answer. `checker_url` per proxy and `FURY_IP_CHECK` let you point it at your own. An embedded database would remove the dependency and costs 60+ MB and a licence to redistribute |
+| ~~QUIC / HTTP-3~~ | not a gap, and the entry that said it was is retired. Measured on three sites: real Chrome with no proxy uses h3; real Chrome behind a SOCKS5 proxy uses h2 and never h3. Chromium does not carry QUIC through a proxy, so a profile — which is always behind one — matches Chrome exactly. Carrying UDP through the relay would make Fury *differ* |
+
+### Closed
 
 | | |
 |---|---|
 | ~~Windows core build~~ | done 16.08.2026: the core builds on the build server, release `v0.1.2` ships `fury-core-0.1.2-windows-x64.tar.xz` on Chromium 153, `verify-windows.ps1` passes 30 claims, Widevine answers |
 | ~~Windows launcher~~ | done: agent and shell run, NSIS installer in the releases. The config reaches the browser as an inherited HANDLE and no persona value appears in any argv — checked on a live machine |
-| Linux | not a target, and this is a decision rather than a gap. The Rust still compiles there so CI and contributors can run the suite; there is no Linux release, no Linux core config and no plan for one. Shipping a third platform nobody tests would be a claim, not a port |
 | ~~Code signing and notarisation, macOS~~ | done 21.09.2026: Developer ID, notarised, stapled — application, core and disk image, [sign-core.sh](tools/release/sign-core.sh) and [sign-shell.sh](tools/release/sign-shell.sh). Verified on the files downloaded back from the release page with the quarantine flag set |
-| Code signing, Windows | not started. A separate certificate (EV or OV) and a separate process; until then the installer shows SmartScreen and the way through is **More info → Run anyway** |
 | ~~Client-side bundle encryption~~ | done, and verified end to end against a running server: what it writes to disk holds neither the cookie, nor a tar header, nor a gzip header, and a foreign organisation key does not open it |
 | ~~Bundle sync with the server~~ | done. Packed and sealed on stop, fetched and unpacked on launch, versioned so a second uploader is refused rather than silently winning. Uploads stream to disk: they used to buffer, under axum's 2 MB default, which meant sync had never once worked for a real profile |
-| WebRTC through the proxy | no. The relay is TCP; patch 0070 puts the browser in the state a real Chrome reaches under the enterprise `WebRTCIPHandlingPolicy` — no ICE candidates at all — rather than let a peer connection go around the proxy and hand the page the real address |
-| ~~QUIC / HTTP-3~~ | not a gap, and the entry that said it was is retired. Measured on three sites: real Chrome with no proxy uses h3; real Chrome behind a SOCKS5 proxy uses h2 and never h3. Chromium does not carry QUIC through a proxy, so a profile — which is always behind one — matches Chrome exactly. Carrying UDP through the relay would make Fury *differ* |
-| Hiding CDP from a timing check | no, and now known to be unclosable rather than merely undone. Split into its two parts ([cdp-timing.py](tools/detect-suite/cdp-timing.py)): attaching costs nothing, `Runtime.enable` costs a fixed 2.7x plus more as the logged object grows. A patch can remove the size half — preview generation — and not the fixed half, which is the message reaching the frontend at all. Real Chrome measures the same. The control that works is `cdp: false`, which is the default |
-| Widevine on a machine with no Chrome | the agent stages the CDM out of the Chrome already installed on that machine, so nothing proprietary is redistributed and `com.widevine.alpha` is answered the way real Chrome answers it. A machine with no Chrome at all gets a working browser with no DRM, which is detectable |
-| Automatic updates | none, and deliberately so: an updater is a scheduled channel into an anti-detect browser from an address that is not the profile's proxy. [docs/15](docs/15-install.md) says what updating looks like meanwhile |
-| ~~Row-level security on the server~~ | done. Migration 0006 adds FORCE (the app owns its tables, and an owner is exempt without it) and `auth::Db` binds the caller to the connection. Verified against a real PostgreSQL — remove either half and four tests fail |
-| Offline GeoIP | no, and it is a dependency rather than a leak. The exit check asks ipinfo.io **through the proxy**, so what the third party sees is the exit's address and never the operator's — asserted by a test that points the check at a dead proxy and requires it to fail rather than answer. `checker_url` per proxy and `FURY_IP_CHECK` let you point it at your own. An embedded database would remove the dependency and costs 60+ MB and a licence to redistribute |
 | ~~Shared TOTP secrets~~ | done, both modes. A profile carries logins — username, password, two-factor seed — sealed with the machine key alone, or with a per-login data key wrapped under the organisation key when there is a server. The server holds a blob it cannot read; a foreign organisation asking for it gets 404 from the handler and zero rows from the database. All of RFC 6238's vectors pass, for SHA-1, SHA-256 and SHA-512, and the code is computed outside the webview in both modes |
-| Per-organisation quotas | done, and off unless set. `FURY_MAX_ORGS`, `FURY_MAX_PROFILES_PER_ORG`, `FURY_MAX_STORAGE_PER_ORG` — for a server that takes open sign-ups, where isolation between organisations is total and fairness is not |
-| Persona catalogue | 27 machines — the 27th arrived through the issue form on 13.09.2026, a Windows 10 desktop with a GTX 950. More personas means better crowds to hide in, and it is the most useful thing an outside contributor can add — `fury-detect persona <capture.json>` turns a probe capture from your own computer into one |
+| ~~Per-organisation quotas~~ | done, and off unless set. `FURY_MAX_ORGS`, `FURY_MAX_PROFILES_PER_ORG`, `FURY_MAX_STORAGE_PER_ORG` — for a server that takes open sign-ups, where isolation between organisations is total and fairness is not |
+| ~~Row-level security on the server~~ | done. Migration 0006 adds FORCE (the app owns its tables, and an owner is exempt without it) and `auth::Db` binds the caller to the connection. Verified against a real PostgreSQL — remove either half and four tests fail |
+| ~~The "Google API keys are missing" bar~~ | done 22.09.2026, patch 0902, in the 0.1.6 core. Chromium showed it in the first window of every profile, in the UI language, saying "Chromium"; writing the check found it also left `innerHeight` 56 px larger than the viewport the page laid out in — a first-window mismatch real Chrome does not have. `core/verify/verify-0902.py` measures both |
 
 ## Contributing
 

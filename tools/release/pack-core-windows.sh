@@ -25,6 +25,14 @@
 #     that does not exist, which is the opposite of what this project is for.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# The output directory build.sh writes to for the `windows-x64` target, or
+# the one from the first-ever Windows build when that is all there is. The
+# default used to be the -first directory alone, from the day it was the only
+# one; after the 153 rebase the build went to windows-x64.noindex and a pack
+# run without OUT_DIR looked in a directory with no manifest at all.
+if [ -z "${OUT_DIR:-}" ] && [ -d "$here/core/src/out/windows-x64.noindex" ]; then
+  OUT_DIR="$here/core/src/out/windows-x64.noindex"
+fi
 out="${OUT_DIR:-$here/core/src/out/windows-x64-first.noindex}"
 dist="${DIST:-$here/dist}"
 cd "$out"
@@ -91,7 +99,11 @@ dirs=(locales resources MEIPreload angledata PrivacySandboxAttestationsPreloaded
 #
 # which names no file. Measured 09.09.2026 by verify-windows.ps1, on the first
 # core packed out of a rebased tree.
-want="$(cat "$here/core/CHROMIUM_VERSION" 2>/dev/null)"
+# `tr -d '\r'`, because this runs from Git Bash on a checkout that git made
+# with CRLF line endings: `cat` alone yields "153.0.8010.37\r", the manifest
+# "153.0.8010.37\r.manifest" does not exist, and the refusal below names the
+# right file while listing it as found. Measured 22.09.2026.
+want="$(tr -d '\r' < "$here/core/CHROMIUM_VERSION" 2>/dev/null)"
 [ -n "$want" ] || { echo "!! core/CHROMIUM_VERSION is empty -- cannot tell which manifest belongs to this build" >&2; exit 1; }
 manifest="$want.manifest"
 if [ ! -f "$manifest" ]; then

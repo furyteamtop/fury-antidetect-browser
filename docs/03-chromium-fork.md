@@ -10,7 +10,7 @@ diff-файлов поверх чужого дерева. Каждый рели�
 1. **Ломает наложение патчей.** Google правит те же файлы (`navigator.cc`, `webgl_rendering_context_base.cc`,
    `ssl_client_socket_impl.cc` — это активно развивающийся код). Патч перестаёт применяться,
    конфликты чиним руками. Реалистично: полдня-два дня на релиз — столько же закладывает
-   `core/build/rebase.sh`. В серии сейчас 27 патчей, из них пять помечены суффиксом `!`
+   `core/build/rebase.sh`. В серии сейчас 28 патчей, из них пять помечены суффиксом `!`
    как трогающие быстро меняющийся upstream: 0001, 0011, 0031, 0032, 0070. `rebase.sh`
    печатает этот список до того, как что-то трогать.
 2. **Двигает User-Agent и Client Hints.** Если мы отстали на 2 мажора — наши профили заявляют
@@ -47,7 +47,7 @@ N-2 и старше — уже нет.
 
 ```
 core/
-├── patches/                            # 27 патчей на 05.08.2026
+├── patches/                            # 28 патчей на 22.09.2026
 │   ├── series                          # порядок наложения И почему каждый есть
 │   ├── 0001-fp-config-plumbing.patch
 │   ├── 0010-navigator-basic.patch
@@ -75,6 +75,7 @@ core/
 │   ├── 0302-devtools-lock.patch
 │   ├── 0303-data-export-lock.patch
 │   ├── 0901-disable-google-services.patch
+│   ├── 0902-no-api-keys-infobar.patch
 │   └── LICENSE                         # BSD-3 на строки, производные от Chromium
 └── build/
     ├── fetch.sh          # depot_tools + gclient sync на пин версии
@@ -308,6 +309,26 @@ python3 -m pip install --user Pillow
 ```bash
 /bin/bash -n core/build/*.sh
 ```
+
+### 4. Обновление Xcode может отобрать SDK у линковщика
+
+Chromium линкует своим lld, закреплённым на milestone, а тот читает `.tbd`-заглушки
+из SDK. Xcode 27.0 принёс `MacOSX27.0.sdk`, в чьих заглушках появилась цель
+`arm64e.x1-macos`, и lld от 153 её не знает: дерево, собравшееся на 26.5 накануне,
+падало на каждой линковке с `could not load TAPI file … unknown target`. Замерено
+22.09.2026 на инкрементальной пересборке в один файл.
+
+Прежний SDK обычно переживает обновление в
+`/Library/Developer/CommandLineTools/SDKs`; `build.sh` умеет закрепить его:
+
+```bash
+FURY_MAC_SDK=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk core/build/build.sh macos-arm64-16gb
+```
+
+Путь не пишется в `core/args/`, потому что он про одну машину. Смена SDK
+инвалидирует всё дерево: первая сборка после закрепления — полная, 2 ч 42 мин, а не
+минуты. Какой SDK использовала последняя сборка, видно по ссылкам в
+`out/<target>/sdk/xcode_links/`.
 
 ## Железо и время сборки
 

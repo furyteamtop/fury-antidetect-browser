@@ -679,3 +679,14 @@
 # safebrowsing.enabled keeps its own value — Fury creates profiles fresh, so the
 # default is what every new one gets.
 0901-disable-google-services.patch
+#
+# The "Google API keys are missing" bar, never shown. It is Chromium's note to
+# a developer that the build has no keys — true here, on purpose — but it sat
+# in the first window of every launch, in the profile's UI language, saying
+# "Chromium" to an operator whose browser is supposed to say Chrome. Real
+# Chrome has keys and never shows it: a window with the bar carries 56 px of
+# chrome a real one does not, which 0020 hides from the page and this removes.
+# Only this bar; the obsolete-OS warning and the bad-flags prompt are shown by
+# real Chrome under the same conditions and stay. Reported 21.09.2026 by a
+# Windows tester as "Google API-Schlüssel fehlen" above a German profile.
+0902-no-api-keys-infobar.patch
