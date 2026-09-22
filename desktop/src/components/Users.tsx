@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { api, type Perm, type Project } from "../api";
-import { useI18n } from "../i18n";
+import { useI18n, type Key } from "../i18n";
 import { withStepUp } from "../stepUp";
 import { Audit } from "./Audit";
 import { Security } from "./Security";
@@ -22,6 +22,23 @@ const ROLES = ["admin", "manager", "member"] as const;
  *  permission set existing. The server caps this by the recipient's role
  *  anyway (`role_ceiling`), so a generous list here cannot promote anyone. */
 const MEMBER_PERMS = ["view", "launch", "edit_profile"] as Perm[];
+
+/** Every flag the server knows, in the order `Perm::ALL` lists them
+ *  (shared-rs/src/rbac.rs). The row's editor shows all ten; for a long time
+ *  the seven past MEMBER_PERMS could only be set with a request to the API,
+ *  which docs/14 said out loud and nobody was going to do. */
+const ALL_PERMS: Perm[] = [
+  "view",
+  "launch",
+  "edit_profile",
+  "edit_fingerprint",
+  "edit_proxy",
+  "reveal_secrets",
+  "export_cookies",
+  "create_profile",
+  "delete_profile",
+  "manage_access",
+];
 
 /** The team, and who can reach what.
  *
@@ -76,6 +93,9 @@ export function Users({
   const teamProjects = projects.filter((p) => p.origin === "team");
   const [project, setProject] = useState<string>(teamProjects[0]?.id ?? "");
   const [grants, setGrants] = useState<Grants | null>(null);
+  // Whose grant is open for editing flag by flag, if anybody's. One at a time:
+  // ten checkboxes under every row would turn the table into a form.
+  const [editing, setEditing] = useState<string | null>(null);
   // The organisation's domain lists, for attaching to a grant in the row.
   const [orgLists, setOrgLists] = useState<OrgDomainList[]>([]);
   useEffect(() => {
@@ -195,7 +215,8 @@ export function Users({
         </thead>
         <tbody>
           {team.members.map((m) => (
-            <tr key={m.user_id}>
+            <Fragment key={m.user_id}>
+            <tr>
               <td>
                 <div className="name">{m.email}</div>
                 {m.is_you && <div className="muted small">{t("team.you")}</div>}
@@ -290,6 +311,15 @@ export function Users({
                       {t("team.revoke")}
                     </button>
                   )}
+                  {project && granted.has(m.user_id) && (
+                    <button
+                      className="ghost"
+                      aria-expanded={editing === m.user_id}
+                      onClick={() => setEditing(editing === m.user_id ? null : m.user_id)}
+                    >
+                      {t("team.perms")}
+                    </button>
+                  )}
                   {/* Which of the organisation's domain lists this grant
                       applies. Shown only where there is a grant to attach
                       them to: owners and admins have none and are not
@@ -323,6 +353,59 @@ export function Users({
                 </div>
               </td>
             </tr>
+            {/* The grant, flag by flag. A second row rather than more in the
+                actions cell: that cell is right-aligned and may not wrap its
+                text, and ten labelled boxes are a form, not an action.
+
+                Each box saves on change, the way the domain-list boxes above
+                do — there is no draft to lose and no second button to find.
+                `view` is sent whether or not it is shown ticked: a grant
+                without it is a row that lets somebody do things to profiles
+                they cannot see, and the server would not know what to make of
+                it either. `manage_access` is greyed for a member because the
+                server would silently drop it (`role_ceiling`), and a box that
+                ticks and then unticks itself on reload is a lie with a delay. */}
+            {project && editing === m.user_id && granted.has(m.user_id) && (() => {
+              const g = grants?.granted.find((x) => x.user_id === m.user_id);
+              const have = new Set<Perm>(g?.permissions ?? []);
+              const name = teamProjects.find((p) => p.id === project)?.name ?? "";
+              return (
+                <tr className="permsRow">
+                  <td colSpan={5}>
+                    <p className="hint small" style={{ maxWidth: 620, margin: "0 0 var(--s-2)" }}>
+                      {t("team.permsHint", { project: name })}
+                    </p>
+                    <div className="permsGrid">
+                      {ALL_PERMS.map((p) => {
+                        const locked = p === "view" || (p === "manage_access" && m.role === "member");
+                        const checked = p === "view" || have.has(p);
+                        return (
+                          <label key={p} className="row" style={{ gap: 6, alignItems: "flex-start" }}>
+                            <input
+                              type="checkbox"
+                              style={{ width: 13, height: 13, marginTop: 2, accentColor: "var(--accent)" }}
+                              checked={checked}
+                              disabled={busy || locked}
+                              onChange={(e) => {
+                                const next = new Set(have);
+                                next.add("view");
+                                if (e.target.checked) next.add(p);
+                                else next.delete(p);
+                                // In catalogue order, so the summary in the
+                                // access column reads the same for everyone.
+                                void run(() => api.grantAccess(project, m.user_id, ALL_PERMS.filter((x) => next.has(x))));
+                              }}
+                            />
+                            <span className="small">{t(("perm." + p) as Key)}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })()}
+            </Fragment>
           ))}
         </tbody>
       </table>

@@ -1328,6 +1328,91 @@
     );
   }
 
+  /* A frame on a DIFFERENT origin, which is the one kind of iframe the three
+   * above are not.
+   *
+   * Same-origin, about:blank and srcdoc frames all inherit the parent's
+   * origin, so with site isolation they render in the parent's process and
+   * `readFromWindow(f.contentWindow)` reads them from here. A cross-site frame
+   * gets a process of its own (an OOPIF), and that is the case worth measuring:
+   * a config that reaches renderers through the browser process reaches it,
+   * one that reaches them by inheritance from the opener does not — and a
+   * checker embeds itself in somebody else's page precisely to ask from there.
+   *
+   * The second origin costs no second server. `localhost` and `127.0.0.1` are
+   * different origins and different sites, both are potentially trustworthy
+   * so the frame is still a secure context, and both name this machine: the
+   * python http.server answers on either, and the relay accepts either as its
+   * own name (`is_ours` in agent/src/relay.rs). Anywhere else — the hosted
+   * copy on GitHub Pages — there is no second name, and the context is
+   * reported absent rather than faked from a same-origin frame.
+   *
+   * The frame runs this same file and posts `readFromWindow(window)` up: a
+   * cross-origin contentWindow cannot be read, so the child has to do the
+   * reading. A nonce in the URL ties the answer to this request, and the
+   * answer is accepted only from the origin it was asked of. */
+  const FRAME_PARAM = 'fury-frame';
+
+  function crossOriginTwin() {
+    const h = location.hostname;
+    if (h === '127.0.0.1') return 'localhost';
+    if (h === 'localhost') return '127.0.0.1';
+    return null;
+  }
+
+  async function collectFromCrossOriginFrame() {
+    const twin = crossOriginTwin();
+    if (!twin) return { __absent: true, why: 'no second origin for ' + location.hostname };
+    if (location.protocol === 'file:') return { __absent: true, why: 'file:' };
+    const origin = location.protocol + '//' + twin + (location.port ? ':' + location.port : '');
+    const nonce = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    return await withTimeout(
+      safeAsync(
+        () =>
+          new Promise((resolve) => {
+            const f = document.createElement('iframe');
+            f.style.cssText = 'position:absolute;left:-9999px;width:100px;height:100px';
+            const onMessage = (e) => {
+              if (e.origin !== origin) return;
+              if (!e.data || e.data.__furyFrame !== nonce) return;
+              window.removeEventListener('message', onMessage);
+              f.remove();
+              resolve(e.data.data);
+            };
+            window.addEventListener('message', onMessage);
+            f.onerror = () => {
+              window.removeEventListener('message', onMessage);
+              f.remove();
+              resolve({ __error: 'cross-origin frame failed to load' });
+            };
+            const u = new URL(location.href);
+            u.searchParams.set(FRAME_PARAM, nonce);
+            u.hash = '';
+            f.src = origin + u.pathname + u.search;
+            document.body.appendChild(f);
+          })
+      ),
+      6000,
+      'iframe:cross-origin'
+    );
+  }
+
+  /* The child's half: loaded with ?fury-frame=<nonce> inside somebody's
+   * frame, read and answer, nothing else. The page's own UI still renders in
+   * the hidden frame; it is 100px off-screen and nobody presses its button. */
+  function answerAsFrame() {
+    if (typeof window === 'undefined' || window.parent === window) return false;
+    let nonce = null;
+    try {
+      nonce = new URLSearchParams(location.search).get(FRAME_PARAM);
+    } catch (e) {
+      return false;
+    }
+    if (!nonce) return false;
+    window.parent.postMessage({ __furyFrame: nonce, data: readFromWindow(window) }, '*');
+    return true;
+  }
+
   /* Compare the same field across contexts. This is the headline result.
    *
    * A value of `null` means the API does not exist in that realm — a Worker has
@@ -1386,7 +1471,13 @@
     }
 
     return {
-      contextsProbed: names,
+      // Only the contexts that answered. One that reported itself absent —
+      // the cross-origin frame on a host with no second name — was asked and
+      // is not in this list, so "probed" keeps meaning "read".
+      contextsProbed: names.filter((n) => {
+        const v = contexts[n];
+        return v && !v.__absent && !v.__timeout && !v.__error;
+      }),
       disagreementCount: disagreements.length,
       disagreements,
       // Expected: a Worker has no screen or webdriver. Compare this list against
@@ -1410,7 +1501,7 @@
       clientHints, webgpu, audio, mediaDevices, drm, webrtc,
       permissions, speech, keyboard, battery, storage,
       worker, sharedWorker, serviceWorker, audioWorklet,
-      iframeSameOrigin, iframeBlank, iframeSrcdoc,
+      iframeSameOrigin, iframeBlank, iframeSrcdoc, iframeCrossOrigin,
     ] = await Promise.all([
       collectClientHints(),
       collectWebgpu(),
@@ -1430,6 +1521,7 @@
       collectFromIframe('same-origin'),
       collectFromIframe('blank'),
       collectFromIframe('srcdoc'),
+      collectFromCrossOriginFrame(),
     ]);
 
     const engine = collectEngine();
@@ -1445,6 +1537,7 @@
       'iframe:same-origin': iframeSameOrigin,
       'iframe:about:blank': iframeBlank,
       'iframe:srcdoc': iframeSrcdoc,
+      'iframe:cross-origin': iframeCrossOrigin,
     };
 
     return {
@@ -1479,6 +1572,7 @@
 
   if (typeof window !== 'undefined') {
     window.furyProbe = furyProbe;
+    answerAsFrame();
   }
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = { furyProbe };

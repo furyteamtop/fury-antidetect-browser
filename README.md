@@ -238,7 +238,7 @@ cd tools/detect-suite && python3 -m http.server 8791
 ```
 
 [`tools/detect-suite/status.html`](tools/detect-suite/status.html) is the last
-measurement rendered as a page — the gate's thirteen checks, the eight contexts,
+measurement rendered as a page — the gate's thirteen checks, the nine contexts,
 and Fury beside real Chrome on the same machine. It is generated from the
 captures in the repository, so it cannot say anything they do not.
 

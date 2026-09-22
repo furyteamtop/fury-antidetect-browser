@@ -195,13 +195,15 @@ async fn cmd_launch(args: &[String]) -> anyhow::Result<()> {
         Some(url) => {
             let upstream = parse_upstream(&url)?;
             tracing::info!(?upstream, "starting relay");
-            let (port, handle) = Relay::new(upstream).serve(0).await?;
-            Some((port, handle))
+            let relay = Relay::new(upstream);
+            let start_page = relay.start_url();
+            let (port, handle) = relay.serve(0).await?;
+            Some((port, handle, start_page))
         }
         None => None,
     };
     let relay_port = match &relay {
-        Some((port, _)) => *port,
+        Some((port, _, _)) => *port,
         None => {
             // Without a proxy the core would still be pointed at a relay that is
             // not there, and every request would fail. Refuse rather than
@@ -312,7 +314,14 @@ async fn cmd_launch(args: &[String]) -> anyhow::Result<()> {
     });
     std::fs::create_dir_all(&profile_dir)?;
 
-    let urls: Vec<String> = opt("--url").into_iter().collect();
+    // The first tab is the start page, as it is from the application, unless
+    // --url says otherwise. Without this the CLI opened chrome://newtab, and
+    // the page that shows what the profile reports -- and links the probe --
+    // was reachable only by knowing a 128-bit token nobody had printed.
+    let urls: Vec<String> = match opt("--url") {
+        Some(u) => vec![u],
+        None => relay.iter().map(|(_, _, start)| start.clone()).collect(),
+    };
 
     let spec = launcher::LaunchSpec {
         core_binary: &core,
@@ -346,6 +355,7 @@ async fn cmd_launch(args: &[String]) -> anyhow::Result<()> {
         relay_port,
         timezone = %ctx.timezone,
         dir = %profile_dir.display(),
+        first_tab = %urls.first().cloned().unwrap_or_default(),
         "core running"
     );
 

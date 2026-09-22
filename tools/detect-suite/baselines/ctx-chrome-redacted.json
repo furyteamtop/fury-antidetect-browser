@@ -1,5 +1,5 @@
 {
-  "__collectedInMs": 1115,
+  "__collectedInMs": 623,
   "__probeVersion": "0.2.0",
   "__redacted": true,
   "__schema": 1,
@@ -16,31 +16,31 @@
       "sampleRate": 48000
     },
     "offline": {
-      "hash": "7e7dbb5b",
-      "sum": 124.04347624466754
+      "hash": "4ca1bd8a",
+      "sum": 124.0434748024636
     },
     "stableAcrossCalls": true
   },
   "canvas2d": {
-    "getImageData": "2df4ebb1",
+    "getImageData": "33c8a707",
     "getImageDataBytes": 67200,
     "isPointInPath": true,
     "stableAcrossCalls": true,
     "textMetrics": "213.076171875|10.021484375|2.9462890625|-1.1484375|212.1259765625|13|3",
-    "toDataURL": "06a6f2c0",
+    "toDataURL": "99d31d50",
     "winding": false
   },
   "clientHints": {
     "architecture": "arm",
     "bitness": "64",
-    "brands": "Not;A=Brand/8,Chromium/150,Google Chrome/150",
+    "brands": "Google Chrome/153,Not_A Brand/8,Chromium/153",
     "formFactors": "Desktop",
-    "fullVersionList": "Not;A=Brand/8.0.0.0,Chromium/150.0.7871.187,Google Chrome/150.0.7871.187",
+    "fullVersionList": "Google Chrome/153.0.8010.53,Not_A Brand/8.0.0.0,Chromium/153.0.8010.53",
     "mobile": false,
     "model": "",
     "platform": "macOS",
-    "platformVersion": "26.5.2",
-    "uaFullVersion": "150.0.7871.187",
+    "platformVersion": "27.0.0",
+    "uaFullVersion": "153.0.8010.53",
     "wow64": false
   },
   "clientRects": {
@@ -118,7 +118,7 @@
     "iframe:about:blank": {
       "availHeight": 833,
       "calendar": "gregory",
-      "canvasHash": "662a7e6d",
+      "canvasHash": "3a951905",
       "deviceMemory": 16,
       "devicePixelRatio": 2,
       "hardwareConcurrency": 10,
@@ -133,14 +133,36 @@
       "screenWidth": 1470,
       "timezone": "Asia/Tbilisi",
       "timezoneOffset": -240,
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+      "webdriver": false,
+      "webglUnmasked": "Google Inc. (Apple) :: ANGLE (Apple, ANGLE Metal Renderer: Apple M5, Unspecified Version)"
+    },
+    "iframe:cross-origin": {
+      "availHeight": 833,
+      "calendar": "gregory",
+      "canvasHash": "3a951905",
+      "deviceMemory": 16,
+      "devicePixelRatio": 2,
+      "hardwareConcurrency": 10,
+      "language": "ru-RU",
+      "languages": "ru-RU,ru,en-US,en",
+      "locale": "ru",
+      "maxTouchPoints": 0,
+      "nativeToString": "native",
+      "numberFormat": "123 456,789",
+      "platform": "MacIntel",
+      "screenHeight": 956,
+      "screenWidth": 1470,
+      "timezone": "Asia/Tbilisi",
+      "timezoneOffset": -240,
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
       "webdriver": false,
       "webglUnmasked": "Google Inc. (Apple) :: ANGLE (Apple, ANGLE Metal Renderer: Apple M5, Unspecified Version)"
     },
     "iframe:same-origin": {
       "availHeight": 833,
       "calendar": "gregory",
-      "canvasHash": "662a7e6d",
+      "canvasHash": "3a951905",
       "deviceMemory": 16,
       "devicePixelRatio": 2,
       "hardwareConcurrency": 10,
@@ -155,14 +177,14 @@
       "screenWidth": 1470,
       "timezone": "Asia/Tbilisi",
       "timezoneOffset": -240,
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
       "webdriver": false,
       "webglUnmasked": "Google Inc. (Apple) :: ANGLE (Apple, ANGLE Metal Renderer: Apple M5, Unspecified Version)"
     },
     "iframe:srcdoc": {
       "availHeight": 833,
       "calendar": "gregory",
-      "canvasHash": "662a7e6d",
+      "canvasHash": "3a951905",
       "deviceMemory": 16,
       "devicePixelRatio": 2,
       "hardwareConcurrency": 10,
@@ -177,14 +199,14 @@
       "screenWidth": 1470,
       "timezone": "Asia/Tbilisi",
       "timezoneOffset": -240,
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
       "webdriver": false,
       "webglUnmasked": "Google Inc. (Apple) :: ANGLE (Apple, ANGLE Metal Renderer: Apple M5, Unspecified Version)"
     },
     "main": {
       "availHeight": 833,
       "calendar": "gregory",
-      "canvasHash": "662a7e6d",
+      "canvasHash": "3a951905",
       "deviceMemory": 16,
       "devicePixelRatio": 2,
       "hardwareConcurrency": 10,
@@ -199,13 +221,13 @@
       "screenWidth": 1470,
       "timezone": "Asia/Tbilisi",
       "timezoneOffset": -240,
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
       "webdriver": false,
       "webglUnmasked": "Google Inc. (Apple) :: ANGLE (Apple, ANGLE Metal Renderer: Apple M5, Unspecified Version)"
     },
     "serviceWorker": {
       "calendar": "gregory",
-      "canvasHash": "94dc364c",
+      "canvasHash": "03ef20a6",
       "deviceMemory": 16,
       "hardwareConcurrency": 10,
       "language": "ru-RU",
@@ -215,7 +237,7 @@
       "platform": "MacIntel",
       "timezone": "Asia/Tbilisi",
       "timezoneOffset": -240,
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
       "userAgentDataMobile": false,
       "userAgentDataPlatform": "macOS",
       "webdriver": null,
@@ -224,7 +246,7 @@
     },
     "sharedWorker": {
       "calendar": "gregory",
-      "canvasHash": "662a7e6d",
+      "canvasHash": "3a951905",
       "deviceMemory": 16,
       "hardwareConcurrency": 10,
       "language": "ru-RU",
@@ -234,7 +256,7 @@
       "platform": "MacIntel",
       "timezone": "Asia/Tbilisi",
       "timezoneOffset": -240,
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
       "userAgentDataMobile": false,
       "userAgentDataPlatform": "macOS",
       "webdriver": null,
@@ -243,7 +265,7 @@
     },
     "worker": {
       "calendar": "gregory",
-      "canvasHash": "662a7e6d",
+      "canvasHash": "3a951905",
       "deviceMemory": 16,
       "hardwareConcurrency": 10,
       "language": "ru-RU",
@@ -253,7 +275,7 @@
       "platform": "MacIntel",
       "timezone": "Asia/Tbilisi",
       "timezoneOffset": -240,
-      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
       "userAgentDataMobile": false,
       "userAgentDataPlatform": "macOS",
       "webdriver": null,
@@ -287,7 +309,8 @@
       "audioWorklet",
       "iframe:same-origin",
       "iframe:about:blank",
-      "iframe:srcdoc"
+      "iframe:srcdoc",
+      "iframe:cross-origin"
     ],
     "disagreementCount": 0,
     "disagreements": []
@@ -349,13 +372,13 @@
     "mathTan": "-1.4214488238747245",
     "misc": {
       "battery": {
-        "charging": false,
-        "chargingTime": "Infinity",
-        "dischargingTime": 51000,
+        "charging": true,
+        "chargingTime": 0,
+        "dischargingTime": "Infinity",
         "level": 1
       },
-      "connectionDownlink": 1.6,
-      "connectionRtt": 100,
+      "connectionDownlink": 1.75,
+      "connectionRtt": 150,
       "connectionSaveData": false,
       "connectionType": "4g",
       "hasBattery": true,
@@ -369,9 +392,9 @@
       }
     },
     "nativeToString": "hardwareConcurrency:native,userAgent:native,width:native",
-    "performanceNowPrecision": 0,
+    "performanceNowPrecision": 0.09999999403953552,
     "toStringTag": "[object Navigator]",
-    "totalJSHeapSize": 8811982
+    "totalJSHeapSize": 8509257
   },
   "fonts": {
     "baselineWidths": {
@@ -458,7 +481,7 @@
   },
   "navigator": {
     "appName": "Netscape",
-    "appVersion": "5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+    "appVersion": "5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
     "cookieEnabled": true,
     "deviceMemory": 16,
     "doNotTrack": null,
@@ -482,7 +505,7 @@
     "plugins": "PDF Viewer|internal-pdf-viewer|Portable Document Format~Chrome PDF Viewer|internal-pdf-viewer|Portable Document Format~Chromium PDF Viewer|internal-pdf-viewer|Portable Document Format~Microsoft Edge PDF Viewer|internal-pdf-viewer|Portable Document Format~WebKit built-in PDF|internal-pdf-viewer|Portable Document Format",
     "product": "Gecko",
     "productSub": "20030107",
-    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
     "vendor": "Google Inc.",
     "webdriver": false
   },
@@ -530,7 +553,7 @@
   },
   "speech": {
     "count": 199,
-    "defaultVoice": "Милена",
+    "defaultVoice": "Daria",
     "hash": "e04b85d5",
     "names": "Daria|bg-BG|true~Eddy (английский (Великобритания))|en-GB|true~Eddy (английский (Соединенные Штаты Америки))|en-US|true~Eddy (испанский (Испания))|es-ES|true~Eddy (испанский (Мексика))|es-MX|true~Eddy (итальянский (Италия))|it-IT|true~Eddy (китайский (Китай континентальный))|zh-CN|true~Eddy (китайский (Тайвань))|zh-TW|true~Eddy (корейский (Республика Корея))|ko-KR|true~Eddy (немецкий (Германия))|de-DE|true~Eddy (португальский (Бразилия))|pt-BR|true~Eddy (финский (Финляндия))|fi-FI|true~Eddy (французский (Канада))|fr-CA|true~Eddy (французский (Франция))|fr-FR|true~Eddy (японский (Япония))|ja-JP|true~Flo (английский (Великобритания))|en-GB|true~Flo (английский (Соединенные Штаты Америки))|en-US|true~Flo (испанский (Испания))|es-ES|true~Flo (испанский (Мексика))|es-MX|true~Flo (итальянский (Италия))|it-IT|true~Flo (китайский (Китай континентальный))|zh-CN|true~Flo (китайский (Тайвань))|zh-TW|true~Flo (корейский (Республика Корея))|ko-KR|true~Flo (немецкий (Германия))|de-DE|true~Flo (португальский (Бразилия))|pt-BR|true~Flo (финский (Финляндия))|fi-FI|true~Flo (французский (Канада))|fr-CA|true~Flo (французский (Франция))|fr-FR|true~Flo (японский (Япония))|ja-JP|true~Google Bahasa Indonesia|id-ID|false~Google Deutsch|de-DE|false~Google Nederlands|nl-NL|false~Google UK English Female|en-GB|false~Google UK English Male|en-GB|false~Google US English|en-US|false~Google español de Estados Unidos|es-US|false~Google español|es-ES|false~Google français|fr-FR|false~Google italiano|it-IT|false~Google polski|pl-PL|false~Google português do Brasil|pt-BR|false~Google русский|ru-RU|false~Google हिन्दी|hi-IN|false~Google 國語（臺灣）|zh-TW|false~Google 日本語|ja-JP|false~Google 한국의|ko-KR|false~Google 普通话（中国大陆）|zh-CN|false~Google 粤語（香港）|zh-HK|false~Grandma (английский (Великобритания))|en-GB|true~Grandma (английский (Соединенные Штаты Америки))|en-US|true~Grandma (испанский (Испания))|es-ES|true~Grandma (испанский (Мексика))|es-MX|true~Grandma (итальянский (Италия))|it-IT|true~Grandma (китайский (Китай континентальный))|zh-CN|true~Grandma (китайский (Тайвань))|zh-TW|true~Grandma (корейский (Республика Корея))|ko-KR|true~Grandma (немецкий (Германия))|de-DE|true~Grandma (португальский (Бразилия))|pt-BR|true~Grandma (финский (Финляндия))|fi-FI|true~Grandma (французский (Канада))|fr-CA|true~Grandma (французский (Франция))|fr-FR|true~Grandma (японский (Япония))|ja-JP|true~Grandpa (английский (Великобритания))|en-GB|true~Grandpa (английский (Соединенные Штаты Америки))|en-US|true~Grandpa (испанский (Испания))|es-ES|true~Grandpa (испанский (Мексика))|es-MX|true~Grandpa (итальянский (Италия))|it-IT|true~Grandpa (китайский (Китай континентальный))|zh-CN|true~Grandpa (китайский (Тайвань))|zh-TW|true~Grandpa (корейский (Республика Корея))|ko-KR|true~Grandpa (немецкий (Германия))|de-DE|true~Grandpa (португальский (Бразилия))|pt-BR|true~Grandpa (финский (Финляндия))|fi-FI|true~Grandpa (французский (Канада))|fr-CA|true~Grandpa (французский (Франция))|fr-FR|true~Grandpa (японский (Япония))|ja-JP|true~Jacques|fr-FR|true~Reed (английский (Великобритания))|en-GB|true~Reed (английский (Соединенные Штаты Америки))|en-US|true~Reed (испанский (Испания))|es-ES|true~Reed (испанский (Мексика))|es-MX|true~Reed (итальянский (Италия))|it-IT|true~Reed (китайский (Китай континентальный))|zh-CN|true~Reed (китайский (Тайвань))|zh-TW|true~Reed (корейский (Республика Корея))|ko-KR|true~Reed (немецкий (Германия))|de-DE|true~Reed (португальский (Бразилия))|pt-BR|true~Reed (финский (Финляндия))|fi-FI|true~Reed (французский (Канада))|fr-CA|true~Reed (японский (Япония))|ja-JP|true~Rocko (английский (Великобритания))|en-GB|true~Rocko (английский (Соединенные Штаты Америки))|en-US|true~Rocko (испанский (Испания))|es-ES|true~Rocko (испанский (Мексика))|es-MX|true~Rocko (итальянский (Италия))|it-IT|true~Rocko (китайский (Китай континентальный))|zh-CN|true~Rocko (китайский (Тайвань))|zh-TW|true~Rocko (корейский (Республика Корея))|ko-KR|true~Rocko (немецкий (Германия))|de-DE|true~Rocko (португальский (Бразилия))|pt-BR|true~Rocko (финский (Финляндия))|fi-FI|true~Rocko (французский (Канада))|fr-CA|true~Rocko (французский (Франция))|fr-FR|true~Rocko (японский (Япония))|ja-JP|true~Sandy (английский (Великобритания))|en-GB|true~Sandy (английский (Соединенные Штаты Америки))|en-US|true~Sandy (испанский (Испания))|es-ES|true~Sandy (испанский (Мексика))|es-MX|true~Sandy (итальянский (Италия))|it-IT|true~Sandy (китайский (Китай континентальный))|zh-CN|true~Sandy (китайский (Тайвань))|zh-TW|true~Sandy (корейский (Республика Корея))|ko-KR|true~Sandy (немецкий (Германия))|de-DE|true~Sandy (португальский (Бразилия))|pt-BR|true~Sandy (финский (Финляндия))|fi-FI|true~Sandy (французский (Канада))|fr-CA|true~Sandy (французский (Франция))|fr-FR|true~Sandy (японский (Япония))|ja-JP|true~Shelley (английский (Великобритания))|en-GB|true~Shelley (английский (Соединенные Штаты Америки))|en-US|true~Shelley (испанский (Испания))|es-ES|true~Shelley (испанский (Мексика))|es-MX|true~Shelley (итальянский (Италия))|it-IT|true~Shelley (китайский (Китай континентальный))|zh-CN|true~Shelley (китайский (Тайвань))|zh-TW|true~Shelley (корейский (Республика Корея))|ko-KR|true~Shelley (немецкий (Германия))|de-DE|true~Shelley (португальский (Бразилия))|pt-BR|true~Shelley (финский (Финляндия))|fi-FI|true~Shelley (французский (Канада))|fr-CA|true~Shelley (французский (Франция))|fr-FR|true~Shelley (японский (Япония))|ja-JP|true~Zosia|pl-PL|true~Алва|sv-SE|true~Альберт|en-US|true~Амели|fr-CA|true~Амира|ms-MY|true~Анна|de-DE|true~Бах|en-US|true~Вани|ta-IN|true~Виолончель|en-US|true~Воббл|en-US|true~Гита|te-IN|true~Дамаянти|id-ID|true~Джуниор|en-US|true~Дэниэл|en-GB|true~Жуана|pt-PT|true~Зарвокс|en-US|true~Зузана|cs-CZ|true~Иоана|ro-RO|true~Канья|th-TH|true~Карен|en-AU|true~Кармит|he-IL|true~Колокольчик|en-US|true~Ксандер|nl-NL|true~Кэти|en-US|true~Кёко|ja-JP|true~Лана|hr-HR|true~Лаура|sk-SK|true~Леся|uk-UA|true~Леха|hi-IN|true~Линь|vi-VN|true~Лучана|pt-BR|true~Маджед|ar-001|true~Мелина|el-GR|true~Милена|ru-RU|true~Мойра|en-IE|true~Моника|es-ES|true~Монсе|ca-ES|true~Мэй-Цзя|zh-TW|true~Нора|nb-NO|true~Орган|en-US|true~Паулина|es-MX|true~Пия|bn-IN|true~Плохие новости|en-US|true~Прыг-скок|en-US|true~Пузырьки|en-US|true~Ральф|en-US|true~Риши|en-IN|true~Саманта|en-US|true~Сара|da-DK|true~Сату|fi-FI|true~Син-Чжи|yue-HK|true~Соумья|kn-IN|true~Суперзвезда|en-US|true~Тесса|en-ZA|true~Тин-Тин|zh-CN|true~Тина|sl-SI|true~Томас|fr-FR|true~Триноид|en-US|true~Тюнде|hu-HU|true~Фред|en-US|true~Хорошие новости|en-US|true~Шепот|en-US|true~Шутник|en-US|true~Элис|it-IT|true~Эллен|nl-BE|true~Юна|ko-KR|true~Ялда|tr-TR|true"
   },
@@ -755,7 +778,7 @@
     "architecture": "metal-3",
     "description": "",
     "device": "",
-    "features": "bgra8unorm-storage,clip-distances,core-features-and-limits,depth-clip-control,depth32float-stencil8,dual-source-blending,float32-blendable,float32-filterable,indirect-first-instance,primitive-index,rg11b10ufloat-renderable,shader-f16,subgroups,texture-component-swizzle,texture-compression-astc,texture-compression-astc-sliced-3d,texture-compression-bc,texture-compression-bc-sliced-3d,texture-compression-etc2,texture-formats-tier1,texture-formats-tier2,timestamp-query",
+    "features": "bgra8unorm-storage,clip-distances,core-features-and-limits,depth-clip-control,depth32float-stencil8,dual-source-blending,float32-blendable,float32-filterable,indirect-first-instance,primitive-index,rg11b10ufloat-renderable,shader-f16,subgroup-size-control,subgroups,texture-component-swizzle,texture-compression-astc,texture-compression-astc-sliced-3d,texture-compression-bc,texture-compression-bc-sliced-3d,texture-compression-etc2,texture-formats-tier1,texture-formats-tier2,timestamp-query",
     "limits": {
       "maxBindGroups": 4,
       "maxBindGroupsPlusVertexBuffers": 24,
@@ -803,7 +826,7 @@
   "webrtc": {
     "__redacted": true,
     "addresses": [
-      "b2303ce9-9583-418d-970d-228642022359.local",
+      "4cb3063c-a966-4436-9bdd-2552f11ada65.local",
       "203.0.113.7"
     ],
     "candidateCount": 2,

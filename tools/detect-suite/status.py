@@ -30,9 +30,11 @@ HERE = pathlib.Path(__file__).resolve().parent
 BASELINES = HERE / "baselines"
 OUT = HERE / "status.html"
 
-# The eight contexts a serious checker compares. A value that differs between
+# The nine contexts a serious checker compares. A value that differs between
 # any two of them is a spoof that reached one place and not another, which is
-# caught in one line of JS.
+# caught in one line of JS. The ninth, since 22.09.2026, is the one with a
+# process of its own: a frame on another origin, which CDP lists as a target
+# in its own right and the three other frames are not.
 CONTEXTS = [
     ("main", "main frame"),
     ("worker", "dedicated Worker"),
@@ -42,6 +44,7 @@ CONTEXTS = [
     ("iframe:same-origin", "iframe, same origin"),
     ("iframe:about:blank", "iframe, about:blank"),
     ("iframe:srcdoc", "iframe, srcdoc"),
+    ("iframe:cross-origin", "iframe, cross-origin (its own process)"),
 ]
 
 # What the comparison is actually about. Not every field in a capture — the
@@ -200,7 +203,7 @@ def build():
                     f'<ul class="note">{lines}</ul><p class="note">{verdict}</p>')
         parts.append(f"""
 <section>
-  <h2>The eight contexts</h2>
+  <h2>The nine contexts</h2>
   <table><tbody>{rows}</tbody></table>
   {note}
 </section>""")

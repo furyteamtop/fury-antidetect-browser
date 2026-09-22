@@ -4,8 +4,25 @@
     {
       "name": "desktop-ui",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "desktop"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "desktop"
+      ],
       "port": 5273
+    },
+    {
+      "name": "detect-suite",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8791",
+        "--directory",
+        "tools/detect-suite"
+      ],
+      "port": 8791
     }
   ]
 }

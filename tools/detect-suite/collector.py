@@ -21,8 +21,10 @@ import json
 import os
 import pathlib
 import re
+import socket
 import socketserver
 import sys
+import threading
 
 PORT = int(os.environ.get("PORT", "8731"))
 HERE = pathlib.Path(__file__).resolve().parent
@@ -161,12 +163,30 @@ class Server(socketserver.ThreadingTCPServer):
     daemon_threads = True
 
 
+class Server6(Server):
+    address_family = socket.AF_INET6
+
+
 if __name__ == "__main__":
     BASELINES.mkdir(exist_ok=True)
-    with Server(("127.0.0.1", PORT), Handler) as httpd:
-        print(f"probe   http://localhost:{PORT}/probe.html")
+    # Both loopbacks, not one. The probe's cross-origin frame is the same page
+    # on the OTHER loopback name — 127.0.0.1 asks localhost and vice versa —
+    # and on macOS `localhost` resolves to ::1 first. A collector listening on
+    # v4 alone answered the page and never saw the frame, which recorded the
+    # ninth context as a load failure of the harness rather than the browser.
+    # Loopback only, still: a listener on `::` would take the LAN too.
+    v4 = Server(("127.0.0.1", PORT), Handler)
+    try:
+        v6 = Server6(("::1", PORT), Handler)
+    except OSError as e:
+        print(f"no IPv6 loopback ({e}); localhost may not reach the collector")
+        v6 = None
+    with v4:
+        print(f"probe   http://127.0.0.1:{PORT}/probe.html")
         print(f"saves   {BASELINES}")
+        if v6 is not None:
+            threading.Thread(target=v6.serve_forever, daemon=True).start()
         try:
-            httpd.serve_forever()
+            v4.serve_forever()
         except KeyboardInterrupt:
             sys.exit(0)

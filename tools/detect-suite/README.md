@@ -133,12 +133,32 @@ It now logs every request. Relatedly, the capture URL uses `127.0.0.1` and not
 `localhost`: on macOS `localhost` may resolve to `::1` first, and a v4-only
 collector then never sees the request at all.
 
-## Not built yet
+## The ninth context: a frame in another process
 
-Probing `SharedWorker`, `ServiceWorker`, `AudioWorklet` and a genuinely
-cross-origin OOPIF. The current cross-context comparison covers the main frame, a
-Worker and three kinds of iframe — enough to catch the common leak, not yet the
-full surface from [docs/02](../../docs/02-fingerprint-surface.md) layer 3.
+The cross-context comparison covers nine contexts: the main frame, a dedicated
+Worker, a SharedWorker, a ServiceWorker, an AudioWorklet, and four iframes —
+same-origin, `about:blank`, `srcdoc`, and one on a **different origin**. The
+last is the one with a renderer process of its own (an OOPIF), and it is the
+case a checker embedded in somebody else's page is asking from.
+
+The second origin costs no second server: the frame loads the same page from
+the *other* loopback name — `127.0.0.1` asks `localhost` and vice versa. They
+are different sites, both are potentially trustworthy (so the frame is still a
+secure context), and both name this machine. The collector listens on both
+loopbacks for that reason: on macOS `localhost` resolves to `::1` first, and a
+v4-only listener answered the page and never saw the frame. The relay accepts
+either name as its own, so the same works inside a profile. On the hosted copy
+(GitHub Pages) there is no second name, and the context is reported absent
+rather than faked from a same-origin frame.
+
+The frame cannot be read from the parent, so it reads itself:
+`probe.html?fury-frame=<nonce>` posts `readFromWindow(window)` up, and the
+parent accepts the answer only with that nonce and only from that origin. That
+it is a separate process is not assumed: over CDP, `Target.getTargets` lists
+the frame as a target of type `iframe`, which it never does for the three
+same-process frames.
+
+## Not built yet
 
 CDP-driven capture. `capture-chrome.sh` covers everything launchable with flags,
 which is all that CI needs; CDP would additionally reach browsers that only

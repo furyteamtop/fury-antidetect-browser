@@ -1,5 +1,5 @@
 {
-  "__collectedInMs": 1023,
+  "__collectedInMs": 608,
   "__probeVersion": "0.2.0",
   "__redacted": true,
   "__schema": 1,
@@ -16,36 +16,36 @@
       "sampleRate": 48000
     },
     "offline": {
-      "hash": "546f1cdb",
-      "sum": 124.04353550735686
+      "hash": "e4fb95e5",
+      "sum": 124.0434973264928
     },
     "stableAcrossCalls": true
   },
   "canvas2d": {
-    "getImageData": "67db43be",
+    "getImageData": "5a2c34c0",
     "getImageDataBytes": 67200,
     "isPointInPath": true,
     "stableAcrossCalls": true,
     "textMetrics": "213.076171875|10.021484375|2.9462890625|-1.1484375|212.1259765625|13|3",
-    "toDataURL": "0db3be16",
+    "toDataURL": "bb7ec26b",
     "winding": false
   },
   "clientHints": {
     "architecture": "x86",
     "bitness": "64",
-    "brands": "Not;A=Brand/8,Chromium/150,Google Chrome/150",
+    "brands": "Not;A=Brand/8,Chromium/153,Google Chrome/153",
     "formFactors": "",
-    "fullVersionList": "Not;A=Brand/8.0.0.0,Chromium/150.0.7871.187,Google Chrome/150.0.7871.187",
+    "fullVersionList": "Not;A=Brand/8.0.0.0,Chromium/153.0.8010.37,Google Chrome/153.0.8010.37",
     "mobile": false,
     "model": "",
     "platform": "Windows",
     "platformVersion": "15.0.0",
-    "uaFullVersion": "150.0.7871.187",
+    "uaFullVersion": "153.0.8010.37",
     "wow64": false
   },
   "clientRects": {
-    "hash": "e83e9067",
-    "rect": "12.267263412475586|7.568954944610596|289.43060302734375|-9999.2705078125|-9987.003244400024|296.99955797195435|-9999.2705078125|289.43060302734375"
+    "hash": "b5e2dc58",
+    "rect": "12.267337799072266|7.568454265594482|222.9308319091797|-9999.2705078125|-9987.003170013428|230.49928617477417|-9999.2705078125|222.9308319091797"
   },
   "codecs": {
     "hasProprietaryCodecs": true,
@@ -118,10 +118,10 @@
     "iframe:about:blank": {
       "availHeight": 1032,
       "calendar": "gregory",
-      "canvasHash": "6b98fd11",
+      "canvasHash": "2a81d71f",
       "deviceMemory": 16,
       "devicePixelRatio": 1,
-      "hardwareConcurrency": 8,
+      "hardwareConcurrency": 12,
       "language": "en-US",
       "languages": "en-US,en",
       "locale": "en-US",
@@ -133,17 +133,39 @@
       "screenWidth": 1920,
       "timezone": "Europe/Berlin",
       "timezoneOffset": -120,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
       "webdriver": false,
-      "webglUnmasked": "Google Inc. (Intel) :: ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)"
+      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+    },
+    "iframe:cross-origin": {
+      "availHeight": 1032,
+      "calendar": "gregory",
+      "canvasHash": "2a81d71f",
+      "deviceMemory": 16,
+      "devicePixelRatio": 1,
+      "hardwareConcurrency": 12,
+      "language": "en-US",
+      "languages": "en-US,en",
+      "locale": "en-US",
+      "maxTouchPoints": 0,
+      "nativeToString": "native",
+      "numberFormat": "123,456.789",
+      "platform": "Win32",
+      "screenHeight": 1080,
+      "screenWidth": 1920,
+      "timezone": "Europe/Berlin",
+      "timezoneOffset": -120,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+      "webdriver": false,
+      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)"
     },
     "iframe:same-origin": {
       "availHeight": 1032,
       "calendar": "gregory",
-      "canvasHash": "6b98fd11",
+      "canvasHash": "2a81d71f",
       "deviceMemory": 16,
       "devicePixelRatio": 1,
-      "hardwareConcurrency": 8,
+      "hardwareConcurrency": 12,
       "language": "en-US",
       "languages": "en-US,en",
       "locale": "en-US",
@@ -155,17 +177,17 @@
       "screenWidth": 1920,
       "timezone": "Europe/Berlin",
       "timezoneOffset": -120,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
       "webdriver": false,
-      "webglUnmasked": "Google Inc. (Intel) :: ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)"
+      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)"
     },
     "iframe:srcdoc": {
       "availHeight": 1032,
       "calendar": "gregory",
-      "canvasHash": "6b98fd11",
+      "canvasHash": "2a81d71f",
       "deviceMemory": 16,
       "devicePixelRatio": 1,
-      "hardwareConcurrency": 8,
+      "hardwareConcurrency": 12,
       "language": "en-US",
       "languages": "en-US,en",
       "locale": "en-US",
@@ -177,17 +199,17 @@
       "screenWidth": 1920,
       "timezone": "Europe/Berlin",
       "timezoneOffset": -120,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
       "webdriver": false,
-      "webglUnmasked": "Google Inc. (Intel) :: ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)"
+      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)"
     },
     "main": {
       "availHeight": 1032,
       "calendar": "gregory",
-      "canvasHash": "6b98fd11",
+      "canvasHash": "2a81d71f",
       "deviceMemory": 16,
       "devicePixelRatio": 1,
-      "hardwareConcurrency": 8,
+      "hardwareConcurrency": 12,
       "language": "en-US",
       "languages": "en-US,en",
       "locale": "en-US",
@@ -199,15 +221,15 @@
       "screenWidth": 1920,
       "timezone": "Europe/Berlin",
       "timezoneOffset": -120,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
       "webdriver": false,
-      "webglUnmasked": "Google Inc. (Intel) :: ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)"
+      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)"
     },
     "serviceWorker": {
       "calendar": "gregory",
-      "canvasHash": "61057236",
+      "canvasHash": "c4a38db6",
       "deviceMemory": 16,
-      "hardwareConcurrency": 8,
+      "hardwareConcurrency": 12,
       "language": "en-US",
       "languages": "en-US,en",
       "locale": "en-US",
@@ -215,18 +237,18 @@
       "platform": "Win32",
       "timezone": "Europe/Berlin",
       "timezoneOffset": -120,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
       "userAgentDataMobile": false,
       "userAgentDataPlatform": "Windows",
       "webdriver": null,
       "webglMaxTextureSize": 16384,
-      "webglUnmasked": "Google Inc. (Intel) :: ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)"
+      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)"
     },
     "sharedWorker": {
       "calendar": "gregory",
-      "canvasHash": "6b98fd11",
+      "canvasHash": "2a81d71f",
       "deviceMemory": 16,
-      "hardwareConcurrency": 8,
+      "hardwareConcurrency": 12,
       "language": "en-US",
       "languages": "en-US,en",
       "locale": "en-US",
@@ -234,18 +256,18 @@
       "platform": "Win32",
       "timezone": "Europe/Berlin",
       "timezoneOffset": -120,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
       "userAgentDataMobile": false,
       "userAgentDataPlatform": "Windows",
       "webdriver": null,
       "webglMaxTextureSize": 16384,
-      "webglUnmasked": "Google Inc. (Intel) :: ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)"
+      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)"
     },
     "worker": {
       "calendar": "gregory",
-      "canvasHash": "6b98fd11",
+      "canvasHash": "2a81d71f",
       "deviceMemory": 16,
-      "hardwareConcurrency": 8,
+      "hardwareConcurrency": 12,
       "language": "en-US",
       "languages": "en-US,en",
       "locale": "en-US",
@@ -253,12 +275,12 @@
       "platform": "Win32",
       "timezone": "Europe/Berlin",
       "timezoneOffset": -120,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
       "userAgentDataMobile": false,
       "userAgentDataPlatform": "Windows",
       "webdriver": null,
       "webglMaxTextureSize": 16384,
-      "webglUnmasked": "Google Inc. (Intel) :: ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)"
+      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)"
     }
   },
   "crossContext": {
@@ -287,7 +309,8 @@
       "audioWorklet",
       "iframe:same-origin",
       "iframe:about:blank",
-      "iframe:srcdoc"
+      "iframe:srcdoc",
+      "iframe:cross-origin"
     ],
     "disagreementCount": 0,
     "disagreements": []
@@ -342,7 +365,7 @@
       "webdriver": false
     },
     "errorMessage": "Cannot read properties of null (reading 'f')",
-    "errorStackShape": "TypeError: Cannot read properties of null (reading 'f') |     at <anonymous>:L:C",
+    "errorStackShape": "TypeError: Cannot read properties of null (reading 'f') |     at http://127.0.0.1:57340/8fe798b62b6cb378aeb64c9dd3a684c5/probe/probe.js:L:C",
     "hasCaptureStackTrace": true,
     "jsHeapSizeLimit": 4294705152,
     "mathSinh": "1.1752011936438014",
@@ -354,8 +377,8 @@
         "dischargingTime": "Infinity",
         "level": 1
       },
-      "connectionDownlink": 1.75,
-      "connectionRtt": 150,
+      "connectionDownlink": 1.65,
+      "connectionRtt": 0,
       "connectionSaveData": false,
       "connectionType": "4g",
       "hasBattery": true,
@@ -369,17 +392,17 @@
       }
     },
     "nativeToString": "hardwareConcurrency:native,userAgent:native,width:native",
-    "performanceNowPrecision": 0.19999998807907104,
+    "performanceNowPrecision": 0,
     "toStringTag": "[object Navigator]",
-    "totalJSHeapSize": 10056207
+    "totalJSHeapSize": 8508359
   },
   "fonts": {
     "baselineWidths": {
-      "monospace": 1146.19921875,
-      "sans-serif": 1146.19921875,
+      "monospace": 953.6484375,
+      "sans-serif": 1188.80859375,
       "serif": 1146.19921875
     },
-    "countByMeasurement": 11,
+    "countByMeasurement": 12,
     "detectedByMeasurement": [
       "Arial",
       "Arial Black",
@@ -388,6 +411,7 @@
       "Georgia",
       "Impact",
       "Tahoma",
+      "Times New Roman",
       "Trebuchet MS",
       "Verdana",
       "Webdings",
@@ -396,7 +420,7 @@
     "fontsCheckDiscriminates": false,
     "hasQueryLocalFonts": true,
     "localFontsPermission": null,
-    "widthsHash": "9c45fe86"
+    "widthsHash": "a033f673"
   },
   "locale": {
     "availableCalendars": 18,
@@ -426,11 +450,11 @@
   },
   "navigator": {
     "appName": "Netscape",
-    "appVersion": "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+    "appVersion": "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
     "cookieEnabled": true,
     "deviceMemory": 16,
     "doNotTrack": null,
-    "hardwareConcurrency": 8,
+    "hardwareConcurrency": 12,
     "hasBluetooth": true,
     "hasCredentials": true,
     "hasGpu": true,
@@ -450,7 +474,7 @@
     "plugins": "PDF Viewer|internal-pdf-viewer|Portable Document Format~Chrome PDF Viewer|internal-pdf-viewer|Portable Document Format~Chromium PDF Viewer|internal-pdf-viewer|Portable Document Format~Microsoft Edge PDF Viewer|internal-pdf-viewer|Portable Document Format~WebKit built-in PDF|internal-pdf-viewer|Portable Document Format",
     "product": "Gecko",
     "productSub": "20030107",
-    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
     "vendor": "Google Inc.",
     "webdriver": false
   },
@@ -482,23 +506,23 @@
     "colorDepth": 24,
     "devicePixelRatio": 1,
     "height": 1080,
-    "innerHeight": 613,
-    "innerWidth": 900,
+    "innerHeight": 702,
+    "innerWidth": 1200,
     "orientationAngle": 0,
     "orientationType": "landscape-primary",
-    "outerHeight": 752,
-    "outerWidth": 900,
+    "outerHeight": 841,
+    "outerWidth": 1200,
     "pixelDepth": 24,
-    "screenX": 0,
-    "screenY": 33,
+    "screenX": 22,
+    "screenY": 55,
     "scrollbarWidth": 15,
     "visualViewportScale": 1,
-    "visualViewportWidth": 900,
+    "visualViewportWidth": 1200,
     "width": 1920
   },
   "speech": {
     "count": 180,
-    "defaultVoice": "Милена",
+    "defaultVoice": "Daria",
     "hash": "5079c53b",
     "names": "Daria|bg-BG|true~Eddy (английский (Великобритания))|en-GB|true~Eddy (английский (Соединенные Штаты Америки))|en-US|true~Eddy (испанский (Испания))|es-ES|true~Eddy (испанский (Мексика))|es-MX|true~Eddy (итальянский (Италия))|it-IT|true~Eddy (китайский (Китай континентальный))|zh-CN|true~Eddy (китайский (Тайвань))|zh-TW|true~Eddy (корейский (Республика Корея))|ko-KR|true~Eddy (немецкий (Германия))|de-DE|true~Eddy (португальский (Бразилия))|pt-BR|true~Eddy (финский (Финляндия))|fi-FI|true~Eddy (французский (Канада))|fr-CA|true~Eddy (французский (Франция))|fr-FR|true~Eddy (японский (Япония))|ja-JP|true~Flo (английский (Великобритания))|en-GB|true~Flo (английский (Соединенные Штаты Америки))|en-US|true~Flo (испанский (Испания))|es-ES|true~Flo (испанский (Мексика))|es-MX|true~Flo (итальянский (Италия))|it-IT|true~Flo (китайский (Китай континентальный))|zh-CN|true~Flo (китайский (Тайвань))|zh-TW|true~Flo (корейский (Республика Корея))|ko-KR|true~Flo (немецкий (Германия))|de-DE|true~Flo (португальский (Бразилия))|pt-BR|true~Flo (финский (Финляндия))|fi-FI|true~Flo (французский (Канада))|fr-CA|true~Flo (французский (Франция))|fr-FR|true~Flo (японский (Япония))|ja-JP|true~Grandma (английский (Великобритания))|en-GB|true~Grandma (английский (Соединенные Штаты Америки))|en-US|true~Grandma (испанский (Испания))|es-ES|true~Grandma (испанский (Мексика))|es-MX|true~Grandma (итальянский (Италия))|it-IT|true~Grandma (китайский (Китай континентальный))|zh-CN|true~Grandma (китайский (Тайвань))|zh-TW|true~Grandma (корейский (Республика Корея))|ko-KR|true~Grandma (немецкий (Германия))|de-DE|true~Grandma (португальский (Бразилия))|pt-BR|true~Grandma (финский (Финляндия))|fi-FI|true~Grandma (французский (Канада))|fr-CA|true~Grandma (французский (Франция))|fr-FR|true~Grandma (японский (Япония))|ja-JP|true~Grandpa (английский (Великобритания))|en-GB|true~Grandpa (английский (Соединенные Штаты Америки))|en-US|true~Grandpa (испанский (Испания))|es-ES|true~Grandpa (испанский (Мексика))|es-MX|true~Grandpa (итальянский (Италия))|it-IT|true~Grandpa (китайский (Китай континентальный))|zh-CN|true~Grandpa (китайский (Тайвань))|zh-TW|true~Grandpa (корейский (Республика Корея))|ko-KR|true~Grandpa (немецкий (Германия))|de-DE|true~Grandpa (португальский (Бразилия))|pt-BR|true~Grandpa (финский (Финляндия))|fi-FI|true~Grandpa (французский (Канада))|fr-CA|true~Grandpa (французский (Франция))|fr-FR|true~Grandpa (японский (Япония))|ja-JP|true~Jacques|fr-FR|true~Reed (английский (Великобритания))|en-GB|true~Reed (английский (Соединенные Штаты Америки))|en-US|true~Reed (испанский (Испания))|es-ES|true~Reed (испанский (Мексика))|es-MX|true~Reed (итальянский (Италия))|it-IT|true~Reed (китайский (Китай континентальный))|zh-CN|true~Reed (китайский (Тайвань))|zh-TW|true~Reed (корейский (Республика Корея))|ko-KR|true~Reed (немецкий (Германия))|de-DE|true~Reed (португальский (Бразилия))|pt-BR|true~Reed (финский (Финляндия))|fi-FI|true~Reed (французский (Канада))|fr-CA|true~Reed (японский (Япония))|ja-JP|true~Rocko (английский (Великобритания))|en-GB|true~Rocko (английский (Соединенные Штаты Америки))|en-US|true~Rocko (испанский (Испания))|es-ES|true~Rocko (испанский (Мексика))|es-MX|true~Rocko (итальянский (Италия))|it-IT|true~Rocko (китайский (Китай континентальный))|zh-CN|true~Rocko (китайский (Тайвань))|zh-TW|true~Rocko (корейский (Республика Корея))|ko-KR|true~Rocko (немецкий (Германия))|de-DE|true~Rocko (португальский (Бразилия))|pt-BR|true~Rocko (финский (Финляндия))|fi-FI|true~Rocko (французский (Канада))|fr-CA|true~Rocko (французский (Франция))|fr-FR|true~Rocko (японский (Япония))|ja-JP|true~Sandy (английский (Великобритания))|en-GB|true~Sandy (английский (Соединенные Штаты Америки))|en-US|true~Sandy (испанский (Испания))|es-ES|true~Sandy (испанский (Мексика))|es-MX|true~Sandy (итальянский (Италия))|it-IT|true~Sandy (китайский (Китай континентальный))|zh-CN|true~Sandy (китайский (Тайвань))|zh-TW|true~Sandy (корейский (Республика Корея))|ko-KR|true~Sandy (немецкий (Германия))|de-DE|true~Sandy (португальский (Бразилия))|pt-BR|true~Sandy (финский (Финляндия))|fi-FI|true~Sandy (французский (Канада))|fr-CA|true~Sandy (французский (Франция))|fr-FR|true~Sandy (японский (Япония))|ja-JP|true~Shelley (английский (Великобритания))|en-GB|true~Shelley (английский (Соединенные Штаты Америки))|en-US|true~Shelley (испанский (Испания))|es-ES|true~Shelley (испанский (Мексика))|es-MX|true~Shelley (итальянский (Италия))|it-IT|true~Shelley (китайский (Китай континентальный))|zh-CN|true~Shelley (китайский (Тайвань))|zh-TW|true~Shelley (корейский (Республика Корея))|ko-KR|true~Shelley (немецкий (Германия))|de-DE|true~Shelley (португальский (Бразилия))|pt-BR|true~Shelley (финский (Финляндия))|fi-FI|true~Shelley (французский (Канада))|fr-CA|true~Shelley (французский (Франция))|fr-FR|true~Shelley (японский (Япония))|ja-JP|true~Zosia|pl-PL|true~Алва|sv-SE|true~Альберт|en-US|true~Амели|fr-CA|true~Амира|ms-MY|true~Анна|de-DE|true~Бах|en-US|true~Вани|ta-IN|true~Виолончель|en-US|true~Воббл|en-US|true~Гита|te-IN|true~Дамаянти|id-ID|true~Джуниор|en-US|true~Дэниэл|en-GB|true~Жуана|pt-PT|true~Зарвокс|en-US|true~Зузана|cs-CZ|true~Иоана|ro-RO|true~Канья|th-TH|true~Карен|en-AU|true~Кармит|he-IL|true~Колокольчик|en-US|true~Ксандер|nl-NL|true~Кэти|en-US|true~Кёко|ja-JP|true~Лана|hr-HR|true~Лаура|sk-SK|true~Леся|uk-UA|true~Леха|hi-IN|true~Линь|vi-VN|true~Лучана|pt-BR|true~Маджед|ar-001|true~Мелина|el-GR|true~Милена|ru-RU|true~Мойра|en-IE|true~Моника|es-ES|true~Монсе|ca-ES|true~Мэй-Цзя|zh-TW|true~Нора|nb-NO|true~Орган|en-US|true~Паулина|es-MX|true~Пия|bn-IN|true~Плохие новости|en-US|true~Прыг-скок|en-US|true~Пузырьки|en-US|true~Ральф|en-US|true~Риши|en-IN|true~Саманта|en-US|true~Сара|da-DK|true~Сату|fi-FI|true~Син-Чжи|yue-HK|true~Соумья|kn-IN|true~Суперзвезда|en-US|true~Тесса|en-ZA|true~Тин-Тин|zh-CN|true~Тина|sl-SI|true~Томас|fr-FR|true~Триноид|en-US|true~Тюнде|hu-HU|true~Фред|en-US|true~Хорошие новости|en-US|true~Шепот|en-US|true~Шутник|en-US|true~Элис|it-IT|true~Эллен|nl-BE|true~Юна|ko-KR|true~Ялда|tr-TR|true"
   },
@@ -584,12 +608,12 @@
         "VERTEX_SHADER.MEDIUM_FLOAT": "127,127,23"
       },
       "render": {
-        "readPixels": "5649996e",
+        "readPixels": "eb0657a5",
         "stableAcrossCalls": true
       },
       "unmasked": {
-        "renderer": "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)",
-        "vendor": "Google Inc. (Intel)"
+        "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "vendor": "Google Inc. (NVIDIA)"
       }
     },
     "webgl2": {
@@ -710,17 +734,17 @@
         "VERTEX_SHADER.MEDIUM_FLOAT": "127,127,23"
       },
       "render": {
-        "readPixels": "5649996e",
+        "readPixels": "eb0657a5",
         "stableAcrossCalls": true
       },
       "unmasked": {
-        "renderer": "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)",
-        "vendor": "Google Inc. (Intel)"
+        "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "vendor": "Google Inc. (NVIDIA)"
       }
     }
   },
   "webgpu": {
-    "architecture": "gen-12lp",
+    "architecture": "ada",
     "description": "",
     "device": "",
     "features": "depth-clip-control,depth32float-stencil8,float32-filterable,indirect-first-instance,rg11b10ufloat-renderable,shader-f16,texture-compression-bc,timestamp-query",
@@ -766,7 +790,7 @@
     "preferredCanvasFormat": "bgra8unorm",
     "subgroupMaxSize": 32,
     "subgroupMinSize": 32,
-    "vendor": "intel"
+    "vendor": "nvidia"
   },
   "webrtc": {
     "__redacted": true,

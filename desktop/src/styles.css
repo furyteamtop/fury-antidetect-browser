@@ -1193,6 +1193,19 @@ input::placeholder {
   white-space: normal;
 }
 
+/* The grant editor under a member's row: ten labelled boxes in as many
+   columns as fit, two on a laptop, one on a narrow window. The row keeps the
+   table's hover background off — it is an editor, not a member. */
+.permsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--s-1) var(--s-4);
+}
+
+.grid tbody tr.permsRow:hover td {
+  background: transparent;
+}
+
 /* ---- settings tabs ------------------------------------------------------ */
 
 .tabs {
