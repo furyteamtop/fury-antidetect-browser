@@ -897,6 +897,22 @@ impl Agent {
                 Ok(json!({ "saved": saved, "rejected": rejected }))
             }
 
+            // Which protocol a pasted `host:port:user:pass` speaks. Talks only
+            // to the address the operator just pasted, and without the
+            // credentials — see `relay::sniff_kind`.
+            "proxies.sniff" => {
+                let host = str_param(&params, "host")?;
+                let port = params
+                    .get("port")
+                    .and_then(|v| v.as_u64())
+                    .and_then(|p| u16::try_from(p).ok())
+                    .filter(|p| *p > 0)
+                    .ok_or_else(|| anyhow::anyhow!("missing parameter \"port\""))?;
+                let kind = crate::relay::sniff_kind(host.trim(), port).await;
+                tracing::info!(kind, "sniffed a pasted proxy's protocol");
+                Ok(json!({ "kind": kind }))
+            }
+
             // Does this exit actually work, and where does it come out?
             //
             // The one place the agent talks to a third party, and only when

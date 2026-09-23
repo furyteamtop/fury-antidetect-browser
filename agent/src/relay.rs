@@ -531,6 +531,96 @@ impl tokio::io::AsyncWrite for Conn {
 }
 
 // ---------------------------------------------------------------------------
+// Which protocol an address speaks
+// ---------------------------------------------------------------------------
+
+/// How long each probe in [`sniff_kind`] may take, connect included.
+const SNIFF_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// How long to keep waiting for the second probe once the first has said yes.
+///
+/// Not the full timeout: the common case is an HTTP proxy that answered its
+/// CONNECT at once and is sitting on the SOCKS5 greeting waiting for a request
+/// line, and that silence is already the answer. Long enough for a port that
+/// speaks both to say so from the far side of the world.
+const SNIFF_GRACE: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// `http` or `socks5`, when exactly one of them answers at this address.
+///
+/// For a pasted `host:port:user:pass`, which names no protocol. The form used
+/// to keep whichever type button was pressed, SOCKS5 by default, and an HTTP
+/// proxy saved as SOCKS5 looks exactly like a dead one — measured 23.09.2026 on
+/// an operator's proxy that curl reached in a second as HTTP and not at all as
+/// SOCKS5, and which he had been told was "off".
+///
+/// Two greetings, side by side, each on its own socket, and neither carries the
+/// credentials: whether the far end is SOCKS5 or HTTP is decided by the first
+/// bytes it sends back, before any login. The CONNECT names a reserved `.invalid`
+/// host, so an open proxy is not asked to reach anybody real.
+///
+/// `None` when neither answers (dead, filtered, or something else) and when
+/// both do (a port that speaks both, which several providers run): in both
+/// cases the button the operator pressed is better information than a guess.
+pub async fn sniff_kind(host: &str, port: u16) -> Option<&'static str> {
+    sniff_kind_within(host, port, SNIFF_TIMEOUT, SNIFF_GRACE).await
+}
+
+async fn sniff_kind_within(
+    host: &str,
+    port: u16,
+    limit: std::time::Duration,
+    grace: std::time::Duration,
+) -> Option<&'static str> {
+    // A probe that runs out of time said no.
+    let http = tokio::time::timeout(limit, answers_http(host, port));
+    let socks = tokio::time::timeout(limit, answers_socks5(host, port));
+    tokio::pin!(http, socks);
+
+    let (first_http, first) = tokio::select! {
+        h = &mut http => (true, h.unwrap_or(false)),
+        s = &mut socks => (false, s.unwrap_or(false)),
+    };
+    // A yes from the first shortens the wait for the second; a no does not,
+    // because then the second is the only evidence there is.
+    let wait = if first { grace } else { limit };
+    let second = if first_http {
+        tokio::time::timeout(wait, &mut socks).await
+    } else {
+        tokio::time::timeout(wait, &mut http).await
+    };
+    let second = matches!(second, Ok(Ok(true)));
+    let (h, s) = if first_http { (first, second) } else { (second, first) };
+    match (h, s) {
+        (true, false) => Some("http"),
+        (false, true) => Some("socks5"),
+        _ => None,
+    }
+}
+
+/// Does the far end answer a CONNECT with an HTTP status line? Any status: a
+/// 407 asking for the password is as much an HTTP proxy as a 200.
+async fn answers_http(host: &str, port: u16) -> bool {
+    let Ok(mut s) = TcpStream::connect((host, port)).await else { return false };
+    let req = b"CONNECT example.invalid:443 HTTP/1.1\r\nHost: example.invalid:443\r\n\r\n";
+    if s.write_all(req).await.is_err() {
+        return false;
+    }
+    let mut head = [0u8; 5];
+    s.read_exact(&mut head).await.is_ok() && &head == b"HTTP/"
+}
+
+/// Does the far end answer a SOCKS5 greeting with a SOCKS5 method choice?
+/// Offers no-auth and username/password, as the relay does, and stops there.
+async fn answers_socks5(host: &str, port: u16) -> bool {
+    let Ok(mut s) = TcpStream::connect((host, port)).await else { return false };
+    if s.write_all(&[0x05, 0x02, 0x00, 0x02]).await.is_err() {
+        return false;
+    }
+    let mut resp = [0u8; 2];
+    s.read_exact(&mut resp).await.is_ok() && resp[0] == 0x05 && matches!(resp[1], 0x00 | 0x02 | 0xff)
+}
+
+// ---------------------------------------------------------------------------
 // SOCKS5 (RFC 1928 + RFC 1929)
 // ---------------------------------------------------------------------------
 
@@ -1024,6 +1114,76 @@ v.textContent=problems.length?problems.join(" · "):"Consistent — the platform
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A port that answers whichever of the two greetings it is told to and
+    /// behaves like the real thing to the other: an HTTP proxy sits on a SOCKS5
+    /// greeting waiting for the rest of a request line, a SOCKS5 server hangs
+    /// up on a byte that is not 5.
+    async fn speaking(http: bool, socks: bool) -> u16 {
+        let l = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut s, _)) = l.accept().await {
+                tokio::spawn(async move {
+                    let mut first = [0u8; 1];
+                    if s.read_exact(&mut first).await.is_err() {
+                        return;
+                    }
+                    let mut rest = [0u8; 256];
+                    match (first[0], http, socks) {
+                        (0x05, _, true) => {
+                            let _ = s.read_exact(&mut rest[..3]).await;
+                            let _ = s.write_all(&[0x05, 0x02]).await;
+                        }
+                        (b'C', true, _) => {
+                            let _ = s.read(&mut rest).await;
+                            let _ = s.write_all(b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n").await;
+                        }
+                        (0x05, true, false) => {
+                            // Still waiting for "\r\n\r\n".
+                            let _ = s.read(&mut rest).await;
+                            std::future::pending::<()>().await;
+                        }
+                        _ => {}
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                });
+            }
+        });
+        port
+    }
+
+    async fn sniff(port: u16) -> Option<&'static str> {
+        use std::time::Duration;
+        sniff_kind_within("127.0.0.1", port, Duration::from_secs(2), Duration::from_millis(200)).await
+    }
+
+    #[tokio::test]
+    async fn an_http_proxy_is_named_http() {
+        assert_eq!(sniff(speaking(true, false).await).await, Some("http"));
+    }
+
+    #[tokio::test]
+    async fn a_socks5_server_is_named_socks5() {
+        assert_eq!(sniff(speaking(false, true).await).await, Some("socks5"));
+    }
+
+    /// Several providers run both on one port. Either would work, so the
+    /// operator's own choice stands.
+    #[tokio::test]
+    async fn a_port_that_speaks_both_is_left_to_the_operator() {
+        assert_eq!(sniff(speaking(true, true).await).await, None);
+    }
+
+    #[tokio::test]
+    async fn a_port_that_speaks_neither_is_left_to_the_operator() {
+        assert_eq!(sniff(speaking(false, false).await).await, None);
+        let closed = {
+            let l = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            l.local_addr().unwrap().port()
+        };
+        assert_eq!(sniff(closed).await, None);
+    }
 
     /// A listener that accepts one connection and then does what `then` says.
     ///

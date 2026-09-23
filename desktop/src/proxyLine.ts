@@ -30,8 +30,21 @@ export interface Spread {
  *
  *  Returns a handler for the input's `onPaste`. Everything that is not a line
  *  the parser recognises -- a bare hostname, an IP, anything else -- is pasted
- *  as it always was, so the fallback is a paste, not a refusal. */
-export function spreadPastedProxy(apply: (found: Spread) => void) {
+ *  as it always was, so the fallback is a paste, not a refusal.
+ *
+ *  `onKind`, when given, hears which protocol the address itself answered on,
+ *  for a line that did not say. `host:port:user:pass` names none, and keeping
+ *  the pressed type button -- SOCKS5 in a fresh form -- saved HTTP proxies as
+ *  SOCKS5, where they look exactly like dead ones (23.09.2026, an operator told
+ *  his working proxy was "off"). It arrives after the fields, one round trip
+ *  later, and only when exactly one protocol answered. */
+export function spreadPastedProxy(
+  apply: (found: Spread) => void,
+  onKind?: (kind: "http" | "socks5") => void,
+) {
+  // Only the latest paste may set the type: a slow answer about the line
+  // before must not overwrite the one pasted since.
+  let seq = 0;
   return (e: ClipboardEvent<HTMLInputElement>) => {
     const text = e.clipboardData.getData("text").trim();
     // A line with no separator is a hostname and nothing else. Let the
@@ -49,14 +62,24 @@ export function spreadPastedProxy(apply: (found: Spread) => void) {
       }
       apply({
         // The scheme only when the line carried one: `host:port:user:pass`
-        // says nothing about the type, and the type button the operator
-        // already pressed is better information than a default.
+        // says nothing about the type, and the parser's default is a guess.
+        // What the address answers on is found out below.
         kind: p.shape === "Url" ? p.kind : undefined,
         host: p.host,
         port: String(p.port),
         username: p.username ?? undefined,
         password: p.password ?? undefined,
       });
+      if (p.shape === "Url" || !onKind) return;
+      const mine = ++seq;
+      api
+        .sniffProxyKind(p.host, p.port)
+        .then((r) => {
+          if (mine === seq && r.kind) onKind(r.kind);
+        })
+        // No agent, or it could not tell: the button stays as it was, which
+        // is what happened before there was a guess at all.
+        .catch(() => {});
     });
   };
 }

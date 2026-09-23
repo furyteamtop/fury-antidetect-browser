@@ -168,6 +168,10 @@ export function ProfileDialog({
     editing?.proxy ? "saved" : "configure",
   );
   const [pxKind, setPxKind] = useState("socks5");
+  // What a pasted address answered on, and whether a type button was pressed
+  // since — see ProxyForm, which does the same.
+  const [pxSniffed, setPxSniffed] = useState<string | null>(null);
+  const pxKindTouched = useRef(false);
   const [pxHost, setPxHost] = useState("");
   const [pxPort, setPxPort] = useState("");
   const [pxUser, setPxUser] = useState("");
@@ -549,11 +553,13 @@ export function ProfileDialog({
                       <label>{t("px.type")}</label>
                       <div className="segmented">
                         {["socks5", "http", "https"].map((k) => (
-                          <button key={k} aria-pressed={pxKind === k} onClick={() => setPxKind(k)}>
+                          <button key={k} aria-pressed={pxKind === k}
+                            onClick={() => { setPxKind(k); pxKindTouched.current = true; setPxSniffed(null); }}>
                             {k}
                           </button>
                         ))}
                       </div>
+                      {pxSniffed && <div className="hint">{t("px.kindSniffed", { kind: pxSniffed })}</div>}
                     </div>
 
                     <div className="field">
@@ -566,11 +572,17 @@ export function ProfileDialog({
                             placeholder="exit.provider.net"
                             onChange={(e) => setPxHost(e.target.value)}
                             onPaste={spreadPastedProxy((p) => {
+                              pxKindTouched.current = false;
+                              setPxSniffed(null);
                               setPxHost(p.host);
                               if (p.port) setPxPort(p.port);
                               if (p.kind) setPxKind(p.kind);
                               if (p.username !== undefined) setPxUser(p.username);
                               if (p.password !== undefined) setPxPass(p.password);
+                            }, (k) => {
+                              if (pxKindTouched.current) return;
+                              setPxKind(k);
+                              setPxSniffed(k);
                             })}
                           />
                           <input

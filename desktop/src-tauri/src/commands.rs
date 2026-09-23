@@ -2818,6 +2818,23 @@ pub fn parse_proxy_line(line: String) -> Option<serde_json::Value> {
     }))
 }
 
+/// Which protocol a pasted proxy speaks, when its line did not say.
+///
+/// `host:port:user:pass` names no protocol, and the form used to keep whatever
+/// type button was pressed, SOCKS5 by default, so an HTTP proxy pasted into a
+/// fresh form was saved as SOCKS5 and looked dead. The agent asks the address
+/// itself (agent/src/relay.rs `sniff_kind`) and answers `http`, `socks5`, or
+/// null when it cannot tell. Always on this machine, in both modes: it is the
+/// machine the profile will dial from.
+#[tauri::command]
+pub async fn sniff_proxy_kind(host: String, port: u16) -> R<serde_json::Value> {
+    Ok(crate::agent::call(
+        "proxies.sniff",
+        serde_json::json!({ "host": host, "port": port }),
+    )
+    .await?)
+}
+
 /// A pasted supplier block.
 #[tauri::command]
 pub async fn import_proxies(

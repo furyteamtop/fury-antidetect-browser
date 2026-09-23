@@ -156,6 +156,7 @@ fn main() {
             commands::clone_profile,
             commands::import_proxies,
             commands::parse_proxy_line,
+            commands::sniff_proxy_kind,
             commands::export_cookies,
             commands::extensions,
             commands::install_extension,

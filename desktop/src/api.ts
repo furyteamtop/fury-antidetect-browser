@@ -953,6 +953,11 @@ export const api = {
   parseProxyLine: (line: string): Promise<ParsedProxyLine | null> =>
     cmd("parse_proxy_line", { line }),
 
+  /** `http` or `socks5` when exactly one answers at this address, null when
+   *  neither or both do. No credentials are sent. See relay.rs `sniff_kind`. */
+  sniffProxyKind: (host: string, port: number): Promise<{ kind: "http" | "socks5" | null }> =>
+    cmd("sniff_proxy_kind", { host, port }),
+
   /** A pasted supplier block. Every line is reported back with its number. */
   importProxies: (
     text: string,
