@@ -1118,6 +1118,14 @@ impl Agent {
                         errs.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("\n  ")
                     );
                 }
+                // Same reasoning for the hand-set fields: a combination that
+                // cannot exist is said now, not at the first launch.
+                if let Err(errs) = profile.overrides.apply(&persona, &crate::personas::all()) {
+                    anyhow::bail!(
+                        "these machine settings describe a machine that does not exist:\n  {}",
+                        errs.join("\n  ")
+                    );
+                }
 
                 Ok(json!({ "id": self.store.upsert_profile(&profile).await? }))
             }
@@ -1433,7 +1441,24 @@ impl Agent {
             // measured persona and showing the result before saving is the
             // difference between choosing a device and inventing one.
             "profile.preview" => {
-                let persona = crate::personas::load(&str_param(&params, "persona_id")?)?;
+                let base = crate::personas::load(&str_param(&params, "persona_id")?)?;
+                let catalogue = crate::personas::all();
+                let overrides: fury_shared::overrides::MachineOverrides = params
+                    .get("overrides")
+                    .filter(|v| !v.is_null())
+                    .map(|v| serde_json::from_value(v.clone()))
+                    .transpose()?
+                    .unwrap_or_default();
+                // What the pickers may offer for this machine, answered with the
+                // preview so the dialog never lists a value for the wrong OS.
+                let options = fury_shared::overrides::options_for(&base, &catalogue);
+                // An override that makes an impossible machine is shown, not
+                // hidden: the preview falls back to the persona as it is and
+                // lists the problems, and Save stays disabled on them.
+                let (persona, override_problems) = match overrides.apply(&base, &catalogue) {
+                    Ok(p) => (p, Vec::new()),
+                    Err(errs) => (base.clone(), errs),
+                };
                 let seed = params.get("fp_seed").and_then(|v| v.as_i64()).unwrap_or(1);
                 let languages: Vec<String> = params
                     .get("languages")
@@ -1444,7 +1469,7 @@ impl Agent {
                             .collect()
                     })
                     .unwrap_or_else(|| vec!["en-US".into(), "en".into()]);
-                let ctx = fury_shared::persona::ProfileContext {
+                let mut ctx = fury_shared::persona::ProfileContext {
                     timezone: params
                         .get("timezone")
                         .and_then(|v| v.as_str())
@@ -1466,11 +1491,14 @@ impl Agent {
                     chrome_full_version: crate::CHROME_FULL_VERSION.to_string(),
                 };
 
-                let problems: Vec<String> = persona
+                overrides.apply_context(&mut ctx);
+
+                let mut problems: Vec<String> = persona
                     .validate()
                     .err()
                     .map(|errs| errs.iter().map(|e| e.to_string()).collect())
                     .unwrap_or_default();
+                problems.extend(override_problems);
 
                 let cfg = persona.derive_core_config(seed.max(1) as u64, &ctx);
                 let get = |path: &str| -> serde_json::Value {
@@ -1547,6 +1575,17 @@ impl Agent {
                         "client_rects": !get("noise.clientRectsSeed").is_null(),
                     },
                     "problems": problems,
+                    "options": options,
+                    "geolocation": get("geolocation"),
+                    // The persona's own values, so a picker can say what
+                    // "as the machine has it" means.
+                    "base": {
+                        "screen": [base.screen.width, base.screen.height],
+                        "device_pixel_ratio": base.screen.device_pixel_ratio,
+                        "cores": base.cpu.cores,
+                        "memory_gb": base.memory_gb,
+                        "gpu": base.gpu.webgl_renderer,
+                    },
                 }))
             }
 
@@ -2089,7 +2128,20 @@ impl Agent {
             start_page.trim_end_matches('/').rsplit('/').next().unwrap_or_default()
         );
 
+        // The persona as this profile presents it, with anything the operator
+        // pinned by hand applied and the whole re-validated: an override that
+        // makes an impossible machine is refused here exactly like a bad
+        // catalogue entry, not launched.
         let persona = crate::personas::load(&profile.persona_id)?;
+        let persona = profile
+            .overrides
+            .apply(&persona, &crate::personas::all())
+            .map_err(|errs| {
+                anyhow::anyhow!(
+                    "the machine settings of this profile describe a machine that does not exist:\n  {}",
+                    errs.join("\n  ")
+                )
+            })?;
         if let Err(errs) = persona.validate() {
             anyhow::bail!(
                 "persona {} is inconsistent and would stand out:\n  {}",
@@ -2211,15 +2263,20 @@ impl Agent {
             None => locale.ui.to_string(),
         };
 
-        let ctx = fury_shared::persona::ProfileContext {
+        let mut ctx = fury_shared::persona::ProfileContext {
             timezone,
             languages,
-            ui_locale: ui_locale.clone(),
+            ui_locale,
             // Same lookup as the timezone, so the two cannot disagree.
             geolocation: exit_location.as_deref().and_then(parse_location),
             chrome_major: crate::CHROME_MAJOR,
             chrome_full_version: crate::CHROME_FULL_VERSION.to_string(),
         };
+        // A pinned UI locale or position wins over the exit. The UI locale is
+        // read back out of the context for `--lang` below, so the command line
+        // and the config cannot disagree about it.
+        profile.overrides.apply_context(&mut ctx);
+        let ui_locale = ctx.ui_locale.clone();
         let config = persona.derive_core_config(profile.fp_seed as u64, &ctx);
 
         // Local mode has no roles to enforce: whoever can reach this socket

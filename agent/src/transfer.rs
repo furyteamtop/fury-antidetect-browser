@@ -350,6 +350,7 @@ mod tests {
             proxy_id: None,
             timezone: Some("Europe/Berlin".into()),
             languages: Some(vec!["de-DE".into()]),
+            overrides: Default::default(),
             start_urls: vec![],
             last_opened_at: None,
         }

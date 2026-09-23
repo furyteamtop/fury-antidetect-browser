@@ -1074,6 +1074,10 @@ pub struct UiProfile {
     /// fields, opening a profile and pressing save silently reset both.
     pub timezone: Option<String>,
     pub languages: Option<Vec<String>>,
+    /// Machine fields pinned by hand over the persona. Round-tripped by the
+    /// editor like the two above.
+    #[serde(default)]
+    pub overrides: fury_shared::overrides::MachineOverrides,
     /// Local profiles only; a server row carries none.
     #[serde(default)]
     pub blocklists: Vec<String>,
@@ -1197,6 +1201,7 @@ async fn local_profiles() -> R<Vec<UiProfile>> {
             fp_seed: p.fp_seed,
             timezone: p.timezone,
             languages: p.languages,
+            overrides: p.overrides,
             shared_with: 0,
             origin: "local",
         })
@@ -1248,6 +1253,7 @@ pub async fn profiles(
                 fp_seed: p.fp_seed,
                 timezone: p.timezone,
                 languages: p.languages,
+                overrides: p.overrides,
                 // A profile on this machine is held by nobody: there is nowhere
                 // for a share to have been recorded.
                 shared_with: 0,
@@ -1294,6 +1300,7 @@ pub async fn profiles(
                 fp_seed: p.fp_seed,
                 timezone: p.timezone,
                 languages: p.languages,
+                overrides: p.overrides,
                 // A profile on this machine is held by nobody: there is nowhere
                 // for a share to have been recorded.
                 shared_with: 0,
@@ -1321,10 +1328,14 @@ pub async fn profiles(
             id: p.id.to_string(),
             project_id: Some(p.project_id.to_string()),
             project_name: Some(p.project_name),
-            // The listing does not carry them; the edit dialog fetches what it
-            // needs when it opens.
-            timezone: None,
-            languages: None,
+            // Carried by the listing since 0.2.0. Before, these were `None`
+            // here with a note that the dialog would fetch them, which it never
+            // did — so saving a team profile reset a pinned language and
+            // timezone to "follow the exit". Empty languages is the server's
+            // own spelling of "follow the exit".
+            timezone: p.timezone,
+            languages: (!p.languages.is_empty()).then_some(p.languages),
+            overrides: p.overrides,
             name: p.name,
             tags: p.tags,
             persona_id: p.persona_id,
@@ -1525,6 +1536,7 @@ async fn launch_from_spec(state: &AppState, grant: &LockGrant) -> R<serde_json::
         },
         "timezone": spec.timezone,
         "languages": spec.languages,
+        "overrides": spec.overrides,
         "start_urls": spec.start_urls,
         // The organisation's domain lists this grant applies. Text, not
         // names: the agent has no copy of a team list and must not need one.
@@ -2376,6 +2388,7 @@ pub async fn save_profile(
         "tags": list("tags"),
         "timezone": s("timezone"),
         "languages": list("languages"),
+        "overrides": profile.get("overrides").cloned().unwrap_or_else(|| serde_json::json!({})),
         "proxy_id": proxy_id,
         "start_urls": list("start_urls"),
     });
@@ -2513,6 +2526,7 @@ pub async fn trash(state: State<'_, AppState>) -> R<Vec<UiProfile>> {
             fp_seed: p.fp_seed,
             timezone: p.timezone,
             languages: p.languages,
+            overrides: p.overrides,
             shared_with: 0,
             // The local rows were appended first, so the boundary is an index
             // rather than a flag on the row -- the agent and the server return
@@ -3376,6 +3390,7 @@ pub async fn shared_with_me(state: State<'_, AppState>) -> R<Vec<UiProfile>> {
             }),
             timezone: None,
             languages: None,
+            overrides: Default::default(),
             // PermSet is a bitmask with no iterator, so the names are filtered
             // out of the canonical list rather than invented here -- one
             // spelling of a permission in this repository, not two.
@@ -3468,6 +3483,7 @@ fn upload_body(me: &crate::agent::LocalProfile, proxy_id: Option<String>) -> ser
         ),
         "timezone": me.timezone.clone().unwrap_or_default(),
         "languages": me.languages.clone().unwrap_or_default(),
+        "overrides": me.overrides,
         "proxy_id": proxy_id,
     })
 }
@@ -3741,6 +3757,7 @@ mod upload_tests {
             start_urls: vec![],
             timezone: None,
             languages: None,
+            overrides: Default::default(),
             running: false,
             last_opened_at: None,
         }

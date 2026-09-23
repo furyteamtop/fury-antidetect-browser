@@ -5,18 +5,19 @@ import { useEffect, useState, useRef } from "react";
 import { useI18n } from "../i18n";
 import { spreadPastedProxy } from "../proxyLine";
 import { SUGGESTED } from "../status";
-import { api, type DomainList, type LocalProxy, type Persona, type Preview, type Profile } from "../api";
+import { api, type DomainList, type LocalProxy, type MachineOverrides, type Persona, type Preview, type Profile } from "../api";
 import { Logins } from "./Logins";
 
 // "Logins" only exists for a profile that has been saved: a login belongs to a
 // profile id, and there is no id until the first save. Showing an empty tab on
 // a new profile would invite somebody to type a password into something that
 // cannot store it yet.
-const TABS = ["General", "Proxy", "Device", "Logins", "Advanced"] as const;
+const TABS = ["General", "Proxy", "Device", "Machine", "Logins", "Advanced"] as const;
 const TAB_KEYS = {
   General: "pd.tabGeneral",
   Proxy: "pd.tabProxy",
   Device: "pd.tabDevice",
+  Machine: "pd.tabMachine",
   Logins: "pd.tabLogins",
   Advanced: "pd.tabAdvanced",
 } as const;
@@ -52,6 +53,65 @@ type Tab = (typeof TABS)[number];
  * sum to well under one, so an un-normalised draw would fall past the end most
  * of the time and always land on the last entry.
  */
+/** What Chrome sends for a country's install, most common first. Offered as a
+ *  starting point for the languages box — the same strings the exit table in
+ *  shared-rs/src/locale.rs produces, so picking one here claims exactly what a
+ *  profile following that exit would have claimed. */
+const LANGUAGE_SETS = [
+  "en-US, en",
+  "en-GB, en-US, en",
+  "de-DE, de, en-US, en",
+  "fr-FR, fr, en-US, en",
+  "es-ES, es, en-US, en",
+  "es-419, es, en-US, en",
+  "it-IT, it, en-US, en",
+  "pt-BR, pt, en-US, en",
+  "pt-PT, pt, en-US, en",
+  "nl-NL, nl, en-US, en",
+  "pl-PL, pl, en-US, en",
+  "ru-RU, ru, en-US, en",
+  "uk-UA, uk, ru, en-US, en",
+  "tr-TR, tr, en-US, en",
+  "cs-CZ, cs, en-US, en",
+  "ro-RO, ro, en-US, en",
+  "sv-SE, sv, en-US, en",
+  "ja-JP, ja, en-US, en",
+  "ko-KR, ko, en-US, en",
+  "zh-CN, zh, en-US, en",
+];
+
+/** "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+ *  is what the page sees; the card's name is what a person picks by. */
+function gpuName(renderer: string): string {
+  const metal = /Metal Renderer: ([^,]+)/.exec(renderer);
+  if (metal) return metal[1];
+  const d3d = /^ANGLE \([^,]+, (.+?) (?:Direct3D|\(0x)/.exec(renderer);
+  return d3d ? d3d[1] : renderer;
+}
+
+function languageName(tag: string, uiLang: string): string {
+  try {
+    const name = new Intl.DisplayNames([uiLang], { type: "language" }).of(tag);
+    return name && name !== tag ? `${tag} — ${name}` : tag;
+  } catch {
+    return tag;
+  }
+}
+
+/** Every IANA zone the WebView knows, for the timezone box's suggestions. */
+const TIME_ZONES: string[] = (() => {
+  try {
+    return (Intl as unknown as { supportedValuesOf(k: string): string[] }).supportedValuesOf("timeZone");
+  } catch {
+    return [];
+  }
+})();
+
+/** Drops the keys left undefined, so an untouched profile stores `{}`. */
+function compact(o: MachineOverrides): MachineOverrides {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as MachineOverrides;
+}
+
 function pickWeighted(list: Persona[]): string | undefined {
   if (list.length === 0) return undefined;
   const total = list.reduce((sum, p) => sum + (p.weight || 0), 0);
@@ -83,6 +143,8 @@ export function ProfileDialog({
   onSaved: () => void;
 }) {
   const { t, say } = useI18n();
+  // The interface language, for naming languages in it.
+  const lang = document.documentElement.lang || "en";
   const [tab, setTab] = useState<Tab>("General");
   const [personas, setPersonas] = useState<Persona[]>([]);
   // The picked machine is chosen at random from twenty-six, so it is usually
@@ -130,6 +192,30 @@ export function ProfileDialog({
   // follow-the-exit path unreachable, because the field was never empty.
   const [timezone, setTimezone] = useState(editing?.timezone ?? "");
   const [languages, setLanguages] = useState((editing?.languages ?? []).join(", "));
+  // Machine fields pinned by hand. Each key absent means "as the persona has
+  // it"; the whole is validated with the persona by the preview, the save and
+  // the launch alike.
+  const [overrides, setOverrides] = useState<MachineOverrides>(editing?.overrides ?? {});
+  const setOv = (patch: Partial<MachineOverrides>) => setOverrides((o) => compact({ ...o, ...patch }));
+  // Typed as text and parsed, so a half-typed "52.5" is not thrown away while
+  // it is being written. Only a whole pair reaches the overrides.
+  const [geoText, setGeoText] = useState(
+    editing?.overrides?.geolocation
+      ? `${editing.overrides.geolocation.latitude}, ${editing.overrides.geolocation.longitude}`
+      : "",
+  );
+  const geoParsed = (() => {
+    const m = /^\s*(-?\d+(?:\.\d+)?)\s*[,; ]\s*(-?\d+(?:\.\d+)?)\s*$/.exec(geoText);
+    return m ? { latitude: Number(m[1]), longitude: Number(m[2]) } : null;
+  })();
+  const geoBad = geoText.trim() !== "" && geoParsed === null;
+  useEffect(() => {
+    setOv({ geolocation: geoParsed ?? undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geoText]);
+  // A team profile's machine is fixed on the server; the picker is shown but
+  // not live, rather than live and silently not saved.
+  const machineLocked = editing?.origin === "team" || editing?.origin === "shared";
   // From the row. Both used to start empty and be saved empty: an edit that
   // touched only the name erased the notes and the start URLs.
   const [startUrls, setStartUrls] = useState((editing?.start_urls ?? []).join("\n"));
@@ -163,13 +249,14 @@ export function ProfileDialog({
         // has been checked, that is its zone.
         timezone: timezone.trim() || pxCheck?.timezone || null,
         languages: languages.trim() ? splitList(languages) : null,
+        overrides,
       })
       .then((p) => !cancelled && setPreview(p))
       .catch(() => !cancelled && setPreview(null));
     return () => {
       cancelled = true;
     };
-  }, [personaId, timezone, languages, pxCheck?.timezone, editing?.fp_seed]);
+  }, [personaId, timezone, languages, overrides, pxCheck?.timezone, editing?.fp_seed]);
 
   useEffect(() => {
     // `nearest` rather than `center`: it scrolls the list only when the card is
@@ -226,6 +313,7 @@ export function ProfileDialog({
         proxy_id: useProxyId || null,
         timezone: timezone.trim() || null,
         languages: languages.trim() ? splitList(languages) : null,
+        overrides,
         start_urls: splitList(startUrls, "\n"),
         // Only ever true for a profile that has no proxy. Leaving a stale
         // permission on a profile that was later given one would be a switch
@@ -606,7 +694,15 @@ export function ProfileDialog({
                         ref={p.id === personaId ? selectedCard : undefined}
                         className="personaCard"
                         aria-pressed={p.id === personaId}
-                        onClick={() => setPersonaId(p.id)}
+                        disabled={machineLocked && p.id !== personaId}
+                        onClick={() => {
+                          // Another OS takes a different list of screens and
+                          // GPUs; a pinned one from the old list would only be
+                          // refused, so it goes with the machine it came from.
+                          const was = personas.find((x) => x.id === personaId)?.os.split(" ")[0];
+                          if (was && was !== p.os.split(" ")[0]) setOv({ gpu: undefined, screen: undefined });
+                          setPersonaId(p.id);
+                        }}
                       >
                         <div className="name">
                           {p.os} · {p.screen}
@@ -621,7 +717,7 @@ export function ProfileDialog({
                       </button>
                     ))}
                     <p className="hint">
-                      {t("pd.machineHint")}
+                      {machineLocked ? t("pd.machineLockedTeam") : t("pd.machineHint")}
                     </p>
                   </div>
                 </div>
@@ -669,34 +765,183 @@ export function ProfileDialog({
               </>
             )}
 
-            {tab === "Advanced" && (
+            {tab === "Machine" && (
               <>
-                <div className="field">
-                  <label htmlFor="p-tz">{t("pd.timezone")}</label>
-                  <div>
-                    <input
-                      id="p-tz"
-                      value={timezone}
-                      onChange={(e) => setTimezone(e.target.value)}
-                    />
-                    <p className="hint">
-                      {t("pd.timezoneHint")}
-                    </p>
-                  </div>
-                </div>
+                <p className="hint" style={{ marginTop: 0 }}>{t("pd.msIntro")}</p>
                 <div className="field">
                   <label htmlFor="p-lang">{t("pd.languages")}</label>
                   <div>
                     <input
                       id="p-lang"
                       value={languages}
+                      placeholder={t("pd.followExit")}
                       onChange={(e) => setLanguages(e.target.value)}
                     />
-                    <p className="hint">
-                      {t("pd.languagesHint")}
-                    </p>
+                    <select
+                      value=""
+                      style={{ marginTop: "var(--s-2)" }}
+                      onChange={(e) => e.target.value && setLanguages(e.target.value)}
+                    >
+                      <option value="">{t("pd.langPresets")}</option>
+                      {LANGUAGE_SETS.map((l) => (
+                        <option key={l} value={l}>{languageName(l.split(",")[0], lang)} · {l}</option>
+                      ))}
+                    </select>
+                    <p className="hint">{t("pd.languagesHint")}</p>
                   </div>
                 </div>
+                <div className="field">
+                  <label htmlFor="p-ui">{t("pd.uiLocale")}</label>
+                  <div>
+                    <select
+                      id="p-ui"
+                      value={overrides.ui_locale ?? ""}
+                      onChange={(e) => setOv({ ui_locale: e.target.value || undefined })}
+                    >
+                      <option value="">
+                        {t("pd.asMachine", { v: preview && !overrides.ui_locale ? preview.ui_locale : "…" })}
+                      </option>
+                      {(preview?.options?.ui_locales ?? []).map((l) => (
+                        <option key={l} value={l}>{languageName(l, lang)}</option>
+                      ))}
+                    </select>
+                    <p className="hint">{t("pd.uiLocaleHint")}</p>
+                  </div>
+                </div>
+                <div className="field">
+                  <label htmlFor="p-tz">{t("pd.timezone")}</label>
+                  <div>
+                    <input
+                      id="p-tz"
+                      list="p-tz-list"
+                      value={timezone}
+                      placeholder={t("pd.followExit")}
+                      onChange={(e) => setTimezone(e.target.value)}
+                    />
+                    <datalist id="p-tz-list">
+                      {TIME_ZONES.map((z) => <option key={z} value={z} />)}
+                    </datalist>
+                    <p className="hint">{t("pd.timezoneHint")}</p>
+                  </div>
+                </div>
+                <div className="field">
+                  <label htmlFor="p-geo">{t("pd.geo")}</label>
+                  <div>
+                    <input
+                      id="p-geo"
+                      value={geoText}
+                      placeholder={t("pd.followExit")}
+                      aria-invalid={geoBad}
+                      onChange={(e) => setGeoText(e.target.value)}
+                    />
+                    <p className={geoBad ? "hint error" : "hint"}>{geoBad ? t("pd.geoBad") : t("pd.geoHint")}</p>
+                  </div>
+                </div>
+                <div className="field">
+                  <label htmlFor="p-screen">{t("pd.screen")}</label>
+                  <div>
+                    <div className="row">
+                      <select
+                        id="p-screen"
+                        value={overrides.screen ? `${overrides.screen.width}x${overrides.screen.height}` : ""}
+                        onChange={(e) => {
+                          if (!e.target.value) return setOv({ screen: undefined });
+                          const [w, h] = e.target.value.split("x").map(Number);
+                          setOv({
+                            screen: {
+                              width: w,
+                              height: h,
+                              device_pixel_ratio:
+                                overrides.screen?.device_pixel_ratio ?? preview?.base?.device_pixel_ratio ?? 1,
+                            },
+                          });
+                        }}
+                      >
+                        <option value="">
+                          {t("pd.asMachine", { v: preview?.base ? preview.base.screen.join("×") : "…" })}
+                        </option>
+                        {(preview?.options?.screens ?? []).map(([w, h]) => (
+                          <option key={`${w}x${h}`} value={`${w}x${h}`}>{w}×{h}</option>
+                        ))}
+                      </select>
+                      <select
+                        aria-label={t("pd.dpr")}
+                        title={t("pd.dpr")}
+                        value={overrides.screen?.device_pixel_ratio ?? preview?.base?.device_pixel_ratio ?? 1}
+                        onChange={(e) => {
+                          const dpr = Number(e.target.value);
+                          const [w, h] = overrides.screen
+                            ? [overrides.screen.width, overrides.screen.height]
+                            : preview?.base?.screen ?? [0, 0];
+                          setOv({ screen: { width: w, height: h, device_pixel_ratio: dpr } });
+                        }}
+                      >
+                        {(preview?.options?.device_pixel_ratios ?? [1]).map((d) => (
+                          <option key={d} value={d}>{Math.round(d * 100)}%</option>
+                        ))}
+                      </select>
+                    </div>
+                    <p className="hint">{t("pd.screenHint")}</p>
+                  </div>
+                </div>
+                <div className="field">
+                  <label htmlFor="p-cores">{t("pd.cores")}</label>
+                  <div>
+                    <select
+                      id="p-cores"
+                      value={overrides.cores ?? ""}
+                      onChange={(e) => setOv({ cores: e.target.value ? Number(e.target.value) : undefined })}
+                    >
+                      <option value="">{t("pd.asMachine", { v: preview?.base?.cores ?? "…" })}</option>
+                      {(preview?.options?.cores ?? []).map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="field">
+                  <label htmlFor="p-mem">{t("pd.memory")}</label>
+                  <div>
+                    <select
+                      id="p-mem"
+                      value={overrides.memory_gb ?? ""}
+                      onChange={(e) => setOv({ memory_gb: e.target.value ? Number(e.target.value) : undefined })}
+                    >
+                      <option value="">{t("pd.asMachine", { v: preview?.base?.memory_gb ?? "…" })}</option>
+                      {(preview?.options?.memory_gb ?? []).map((m) => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                    <p className="hint">{t("pd.memoryHint")}</p>
+                  </div>
+                </div>
+                <div className="field">
+                  <label htmlFor="p-gpu">{t("pd.gpu")}</label>
+                  <div>
+                    <select
+                      id="p-gpu"
+                      value={overrides.gpu ?? ""}
+                      onChange={(e) => setOv({ gpu: e.target.value || undefined })}
+                    >
+                      <option value="">{t("pd.asMachine", { v: preview?.base ? gpuName(preview.base.gpu) : "…" })}</option>
+                      {(preview?.options?.gpus ?? []).map((g) => (
+                        <option key={g.id} value={g.id}>{gpuName(g.renderer)}</option>
+                      ))}
+                    </select>
+                    <p className="hint">{t("pd.gpuHint")}</p>
+                  </div>
+                </div>
+                {Object.keys(overrides).length > 0 && (
+                  <div className="field">
+                    <label />
+                    <div>
+                      <button className="ghost" onClick={() => { setOverrides({}); setGeoText(""); }}>
+                        {t("pd.resetOverrides")}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {tab === "Advanced" && (
+              <>
                 <div className="field">
                   <label>{t("pd.noise")}</label>
                   <div>
@@ -772,7 +1017,11 @@ export function ProfileDialog({
                   <dt>{t("pd.ovWebrtc")}</dt>
                   <dd className="small">{preview.webrtc}</dd>
                   <dt>{t("pd.ovGeo")}</dt>
-                  <dd className="small">{t("pd.ovGeoFollows")}</dd>
+                  <dd className="small">
+                    {preview.geolocation
+                      ? t("pd.ovGeoPinned", { lat: preview.geolocation.latitude, lng: preview.geolocation.longitude })
+                      : t("pd.ovGeoFollows")}
+                  </dd>
                   <dt>{t("pd.ovSource")}</dt>
                   <dd className="small">
                     {preview.persona_source === "measured" ? t("pd.measured") : t("pd.derived")}
@@ -818,7 +1067,7 @@ export function ProfileDialog({
           </button>
           <button
             className="primary"
-            disabled={busy || !personaId || problems.length > 0 || (needsProxy && !hasProxy)}
+            disabled={busy || !personaId || problems.length > 0 || geoBad || (needsProxy && !hasProxy)}
             onClick={save}
           >
             {busy ? t("ui.saving") : editing ? t("ui.save") : t("ui.create")}

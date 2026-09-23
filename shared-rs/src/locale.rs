@@ -382,6 +382,24 @@ static SHIPPED: &[&str] = &[
     "zh-TW",
 ];
 
+/// Every UI locale `--lang` can be set to, for a picker.
+///
+/// Filtered rather than returned whole: the generated list carries a few
+/// whitespace-only entries from the generator's parse of the .gni, which sort
+/// ahead of "af" and are harmless to `binary_search` but are not locales.
+pub fn shipped_ui_locales() -> Vec<&'static str> {
+    SHIPPED
+        .iter()
+        .copied()
+        .filter(|l| !l.is_empty() && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+        .collect()
+}
+
+/// Whether `--lang` can be this exactly, with no resolution in between.
+pub fn is_shipped_ui_locale(tag: &str) -> bool {
+    shipped_ui_locales().contains(&tag)
+}
+
 /// The shipped UI locale for a language tag — `CheckAndResolveLocale`,
 /// ui/base/l10n/l10n_util.cc:408, transcribed.
 ///

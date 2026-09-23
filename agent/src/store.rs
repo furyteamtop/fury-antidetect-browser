@@ -196,6 +196,11 @@ pub struct Profile {
     /// written back here, so a proxy that moves moves the profile with it.
     pub timezone: Option<String>,
     pub languages: Option<Vec<String>>,
+    /// Machine fields pinned by hand over the persona. Empty for almost every
+    /// profile, and applied — and re-validated — at every launch, never baked
+    /// into the persona id.
+    #[serde(default)]
+    pub overrides: fury_shared::overrides::MachineOverrides,
     pub start_urls: Vec<String>,
     pub last_opened_at: Option<String>,
 }
@@ -372,6 +377,9 @@ impl Store {
             // column keeps the old refusal, and nothing changes for anybody
             // who does not go and tick it.
             "ALTER TABLE profiles ADD COLUMN allow_no_proxy INTEGER NOT NULL DEFAULT 0",
+            // Machine fields set by hand, as one JSON object. '{}' is "as the
+            // persona has it", which is every profile made before this.
+            "ALTER TABLE profiles ADD COLUMN overrides TEXT NOT NULL DEFAULT '{}'",
         ] {
             let _ = sqlx::query(stmt).execute(&self.pool).await;
         }
@@ -745,7 +753,7 @@ impl Store {
     pub async fn profiles(&self, project_id: Option<&str>) -> anyhow::Result<Vec<Profile>> {
         let rows = sqlx::query(
             "SELECT f.id, f.project_id, f.name, f.notes, f.tags, f.blocklists, f.status, f.persona_id, f.fp_seed,
-                    f.timezone, f.languages, f.start_urls, f.allow_no_proxy, f.last_opened_at,
+                    f.timezone, f.languages, f.overrides, f.start_urls, f.allow_no_proxy, f.last_opened_at,
                     p.name AS project_name,
                     x.id AS px_id, x.name AS px_name, x.kind AS px_kind, x.host AS px_host,
                     x.port AS px_port, x.username AS px_user, x.password AS px_pass,
@@ -803,7 +811,7 @@ impl Store {
     pub async fn profile(&self, id: &str) -> anyhow::Result<Option<Profile>> {
         let row = sqlx::query(
             "SELECT f.id, f.project_id, f.name, f.notes, f.tags, f.blocklists, f.status, f.persona_id, f.fp_seed,
-                    f.timezone, f.languages, f.start_urls, f.allow_no_proxy, f.last_opened_at,
+                    f.timezone, f.languages, f.overrides, f.start_urls, f.allow_no_proxy, f.last_opened_at,
                     p.name AS project_name,
                     x.id AS px_id, x.name AS px_name, x.kind AS px_kind, x.host AS px_host,
                     x.port AS px_port, x.username AS px_user, x.password AS px_pass,
@@ -838,8 +846,8 @@ impl Store {
         sqlx::query(
             "INSERT INTO profiles
                 (id, project_id, name, notes, tags, blocklists, persona_id, fp_seed, proxy_id,
-                 timezone, languages, start_urls, created_at, status, allow_no_proxy)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 timezone, languages, start_urls, created_at, status, allow_no_proxy, overrides)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
                 project_id = excluded.project_id, name = excluded.name,
                 notes = excluded.notes, tags = excluded.tags,
@@ -847,6 +855,7 @@ impl Store {
                 persona_id = excluded.persona_id, proxy_id = excluded.proxy_id,
                 timezone = excluded.timezone, languages = excluded.languages,
                 start_urls = excluded.start_urls, allow_no_proxy = excluded.allow_no_proxy,
+                overrides = excluded.overrides,
                 deleted_at = NULL",
         )
         .bind(&id)
@@ -869,6 +878,7 @@ impl Store {
         .bind(now())
         .bind(p.status.trim())
         .bind(p.allow_no_proxy)
+        .bind(serde_json::to_string(&p.overrides)?)
         .execute(&self.pool)
         .await?;
         Ok(id)
@@ -919,7 +929,7 @@ impl Store {
     pub async fn deleted_profiles(&self) -> anyhow::Result<Vec<Profile>> {
         let rows = sqlx::query(
             "SELECT f.id, f.project_id, f.name, f.notes, f.tags, f.blocklists, f.status, f.persona_id, f.fp_seed,
-                    f.timezone, f.languages, f.start_urls, f.allow_no_proxy, f.deleted_at AS last_opened_at,
+                    f.timezone, f.languages, f.overrides, f.start_urls, f.allow_no_proxy, f.deleted_at AS last_opened_at,
                     x.id AS px_id, x.name AS px_name, x.kind AS px_kind, x.host AS px_host,
                     x.port AS px_port, x.username AS px_user, x.password AS px_pass,
                     x.last_country AS px_country, x.last_ip AS px_ip,
@@ -1015,6 +1025,14 @@ fn row_to_profile(r: sqlx::sqlite::SqliteRow) -> Profile {
         fp_seed: r.get("fp_seed"),
         timezone: r.get("timezone"),
         languages: r.get::<Option<String>, _>("languages").map(from_json_array),
+        // A value that no longer parses (a field renamed in a later version,
+        // read by an older one) falls back to "as the persona has it" rather
+        // than hiding the profile: the machine it opens as is still a real one.
+        overrides: r
+            .try_get::<String, _>("overrides")
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default(),
         start_urls: from_json_array(r.get("start_urls")),
         last_opened_at: r.get("last_opened_at"),
         // Reading: the id on its own as well as the whole proxy, so a caller
@@ -1114,6 +1132,7 @@ mod credential_tests {
                 proxy_id: None,
                 timezone: None,
                 languages: None,
+                overrides: Default::default(),
                 start_urls: vec![],
                 last_opened_at: None,
             })
@@ -1277,6 +1296,7 @@ mod tests {
             proxy_id: None,
             timezone: None,
             languages: None,
+            overrides: Default::default(),
             start_urls: vec![],
             last_opened_at: None,
         }

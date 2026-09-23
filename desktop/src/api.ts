@@ -120,6 +120,9 @@ export interface Profile {
   /** Null means "follow the proxy's exit", resolved at launch. */
   timezone: string | null;
   languages: string[] | null;
+  /** Machine fields pinned by hand over the persona. Absent or empty is "as
+   *  the machine has it". Validated with the persona on save and at launch. */
+  overrides?: MachineOverrides;
   /** Names of domain lists the relay applies. Local profiles only; absent
    *  from what a server returns. */
   blocklists?: string[];
@@ -277,6 +280,27 @@ export interface Usage {
   files: number;
 }
 
+/** Mirrors fury_shared::overrides::MachineOverrides. Every key optional. */
+export interface MachineOverrides {
+  ui_locale?: string;
+  screen?: { width: number; height: number; device_pixel_ratio: number };
+  cores?: number;
+  memory_gb?: number;
+  /** Id of a persona of the same OS whose GPU this one takes. */
+  gpu?: string;
+  geolocation?: { latitude: number; longitude: number };
+}
+
+/** What the pickers may offer for one machine, filtered by its OS. */
+export interface OverrideOptions {
+  screens: [number, number][];
+  device_pixel_ratios: number[];
+  cores: number[];
+  memory_gb: number[];
+  gpus: { id: string; renderer: string }[];
+  ui_locales: string[];
+}
+
 export interface Persona {
   id: string;
   os: string;
@@ -320,6 +344,17 @@ export interface Preview {
   /** Contradictions that make this device impossible. Non-empty blocks saving:
    *  an inconsistent profile stands out more than an un-spoofed one. */
   problems: string[];
+  options: OverrideOptions;
+  /** The persona's own values, for "as the machine has it". */
+  base: {
+    screen: [number, number];
+    device_pixel_ratio: number;
+    cores: number;
+    memory_gb: number;
+    gpu: string;
+  };
+  /** Only when the profile pins a position; otherwise it follows the exit. */
+  geolocation: { latitude: number; longitude: number } | null;
 }
 
 /** What `parse_proxy_line` found in a pasted line. */
@@ -807,6 +842,7 @@ export const api = {
      *  panel shows what the launch will claim, not what the field contains. */
     timezone: string | null;
     languages: string[] | null;
+    overrides?: MachineOverrides;
   }): Promise<Preview> => cmd<Preview>("preview", { spec }),
   proxies: (): Promise<LocalProxy[]> => cmd<LocalProxy[]>("proxies"),
 

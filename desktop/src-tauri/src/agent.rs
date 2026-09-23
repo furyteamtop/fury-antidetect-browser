@@ -109,6 +109,8 @@ pub struct LocalProfile {
     pub timezone: Option<String>,
     #[serde(default)]
     pub languages: Option<Vec<String>>,
+    #[serde(default)]
+    pub overrides: fury_shared::overrides::MachineOverrides,
     /// Domain lists the relay applies. The first UI for them (12.09.2026)
     /// showed every box unchecked because this field was not carried here.
     #[serde(default)]

@@ -443,6 +443,32 @@ const en = {
   "pd.languages": "Languages",
   "pd.languagesHint":
     "Leave empty to follow the proxy's exit — the languages a Chrome installed in that country sends. This is what a site reads as navigator.languages and sends as Accept-Language, and it also sets the browser's own language, so dates and numbers format to match.",
+  "pd.tabMachine": "Machine settings",
+  "pd.msIntro":
+    "Each field is optional: empty keeps what the machine has. Only values this machine's OS actually reports are offered, and the result is checked as a whole — the panel on the right shows what it adds up to, and Save stays off while it describes a machine that cannot exist.",
+  "pd.asMachine": "As the machine has it ({v})",
+  "pd.followExit": "Follow the proxy exit",
+  "pd.uiLocale": "Browser language",
+  "pd.uiLocaleHint":
+    "The language of the browser itself: its menus, and how Intl formats dates and numbers. Empty takes it from the first of the languages below.",
+  "pd.langPresets": "Ready-made set…",
+  "pd.screen": "Screen",
+  "pd.dpr": "Scale",
+  "pd.screenHint":
+    "In logical pixels. The taskbar or menu bar this machine was measured with is kept. Some sizes have no whole number of physical pixels at some scales (1366 at 125%), and those are refused because no panel has them.",
+  "pd.cores": "CPU cores",
+  "pd.memory": "Memory, GB",
+  "pd.memoryHint": "What navigator.deviceMemory reports. The JS heap limit follows it.",
+  "pd.gpu": "Graphics card",
+  "pd.gpuHint":
+    "Cards of this OS only, each with the WebGL and WebGPU values it was measured or documented with — never a renderer name beside another card's limits.",
+  "pd.geo": "Geolocation",
+  "pd.geoHint": "Latitude, longitude — for example 52.52, 13.405. Empty follows the proxy exit.",
+  "pd.geoBad": "Two numbers separated by a comma: latitude, longitude.",
+  "pd.resetOverrides": "Reset all to the machine",
+  "pd.ovGeoPinned": "{lat}, {lng}, set by hand",
+  "pd.machineLockedTeam":
+    "A team profile keeps the machine it was created with: the server never changes it, so the choice here would not be saved. To change individual fields, use Machine settings.",
   "pd.noise": "Noise",
   "pd.noiseHint":
     "Canvas, audio and element geometry are perturbed with a seed of this profile's own. There is no switch to turn it off: an un-noised canvas is byte-identical to the host machine, which is what makes several commercial browsers trivially linkable.",
@@ -1305,6 +1331,32 @@ const ru: Record<Key, string> = {
   "pd.languages": "Языки",
   "pd.languagesHint":
     "Оставьте пустым, чтобы следовать за выходом прокси — возьмутся языки, которые отправляет Chrome, установленный в этой стране. Это то, что сайт читает как navigator.languages и отправляет в Accept-Language; заодно задаётся язык самого браузера, поэтому даты и числа форматируются в тон.",
+  "pd.tabMachine": "Настройки машины",
+  "pd.msIntro":
+    "Каждое поле необязательно: пустое оставляет то, что у машины. В списках только значения, которые эта ОС реально отдаёт, а результат проверяется целиком. Справа видно, что получилось, и «Сохранить» не нажмётся, пока такая машина не может существовать.",
+  "pd.asMachine": "Как у машины ({v})",
+  "pd.followExit": "По выходу прокси",
+  "pd.uiLocale": "Язык браузера",
+  "pd.uiLocaleHint":
+    "Язык самого браузера: его меню и то, как Intl форматирует даты и числа. Если пусто, берётся из первого языка в списке ниже.",
+  "pd.langPresets": "Готовый набор…",
+  "pd.screen": "Экран",
+  "pd.dpr": "Масштаб",
+  "pd.screenHint":
+    "В логических пикселях. Панель задач или строка меню остаются такими, какими их замерили на этой машине. Некоторые размеры при некотором масштабе не дают целого числа физических пикселей (1366 при 125%), и такие отклоняются: у мониторов таких нет.",
+  "pd.cores": "Ядра процессора",
+  "pd.memory": "Память, ГБ",
+  "pd.memoryHint": "То, что отдаёт navigator.deviceMemory. Лимит памяти JS подстраивается сам.",
+  "pd.gpu": "Видеокарта",
+  "pd.gpuHint":
+    "Только карты этой ОС, каждая со своими параметрами WebGL и WebGPU, с которыми её замерили или описали. Имени одной карты с лимитами другой не будет.",
+  "pd.geo": "Геолокация",
+  "pd.geoHint": "Широта, долгота, например 52.52, 13.405. Если пусто, берётся по выходу прокси.",
+  "pd.geoBad": "Два числа через запятую: широта, долгота.",
+  "pd.resetOverrides": "Сбросить всё к машине",
+  "pd.ovGeoPinned": "{lat}, {lng}, задано вручную",
+  "pd.machineLockedTeam":
+    "Командный профиль остаётся на той машине, с которой его создали: сервер её не меняет, поэтому выбор здесь не сохранится. Отдельные поля меняются на вкладке «Настройки машины».",
   "pd.noise": "Шум",
   "pd.noiseHint":
     "Canvas, звук и геометрия элементов зашумляются сидом самого профиля. Выключателя нет: незашумлённый canvas байт-в-байт совпадает с хостом, и именно поэтому профили нескольких коммерческих браузеров связываются между собой в одну строку.",

@@ -58,6 +58,17 @@ pub struct ProfileSummary {
     /// calls it. Empty when none. Not the lock, which is `lock` above.
     #[serde(default)]
     pub status: String,
+    /// Carried for the same reason as `notes`: the editor opens from this row.
+    /// Until 0.2.0 it did not, and every edit of a team profile sent back an
+    /// empty timezone and an empty language list, which the server reads as
+    /// "follow the exit" -- a language pinned by hand was undone by the next
+    /// save of anything.
+    #[serde(default)]
+    pub timezone: Option<String>,
+    #[serde(default)]
+    pub languages: Vec<String>,
+    #[serde(default)]
+    pub overrides: crate::overrides::MachineOverrides,
 }
 
 /// Proxy as shown to a user *without* `reveal_secrets`: enough to tell profiles
@@ -144,6 +155,11 @@ pub struct LaunchSpec {
     /// Accept-Language at all, which is a value no browser produces, and the
     /// two must not collapse into the same wire form.
     pub languages: Option<Vec<String>>,
+    /// Machine fields pinned by hand; applied over the persona by the agent.
+    /// Defaulted so an agent talking to a server from before 0.2.0 reads a
+    /// spec with none.
+    #[serde(default)]
+    pub overrides: crate::overrides::MachineOverrides,
     pub start_urls: Vec<String>,
     pub proxy: SealedProxy,
     /// The organisation's domain lists this caller's grant applies to the

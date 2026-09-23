@@ -22,6 +22,7 @@ use axum::{Json, Router};
 use fury_shared::api::{
     AcquireLockResponse, GrantRequest, LockInfo, ProfileSummary, ProjectSummary, ProxySummary,
 };
+use fury_shared::overrides::MachineOverrides;
 use fury_shared::rbac::{effective, LaunchRestrictions, Perm, PermSet};
 use serde::Deserialize;
 use serde_json::json;
@@ -1050,6 +1051,9 @@ async fn profiles_in(
                     notes: String::new(),
                     start_urls: Vec::new(),
                     status: String::new(),
+                    timezone: None,
+                    languages: Vec::new(),
+                    overrides: MachineOverrides::default(),
                     id,
                     project_id,
                     project_name,
@@ -1116,16 +1120,23 @@ async fn with_share_counts(
         return Ok(rows);
     }
     let ids: Vec<Uuid> = rows.iter().map(|r| r.id).collect();
-    let details: Vec<(Uuid, String, Vec<String>, String)> =
-        sqlx::query_as("SELECT id, notes, start_urls, status FROM profiles WHERE id = ANY($1)")
-            .bind(&ids)
-            .fetch_all(&mut *db)
-            .await?;
-    for (id, notes, start_urls, status) in details {
+    #[allow(clippy::type_complexity)]
+    let details: Vec<(Uuid, String, Vec<String>, String, Option<String>, Vec<String>, sqlx::types::Json<MachineOverrides>)> =
+        sqlx::query_as(
+            "SELECT id, notes, start_urls, status, timezone, languages, overrides \
+             FROM profiles WHERE id = ANY($1)",
+        )
+        .bind(&ids)
+        .fetch_all(&mut *db)
+        .await?;
+    for (id, notes, start_urls, status, timezone, languages, overrides) in details {
         if let Some(row) = rows.iter_mut().find(|r| r.id == id) {
             row.notes = notes;
             row.start_urls = start_urls;
             row.status = status;
+            row.timezone = timezone;
+            row.languages = languages;
+            row.overrides = overrides.0;
         }
     }
     let counts: Vec<(Uuid, i64)> = sqlx::query_as(
@@ -1781,6 +1792,22 @@ async fn list_proxies(
     ))
 }
 
+/// Refuses machine settings that describe a machine that does not exist, in
+/// the words the shared validator uses, so the dialog can show them as they
+/// are. The agent checks again at launch; this is so nobody stores one.
+fn check_overrides(
+    overrides: &MachineOverrides,
+    persona: &fury_shared::Persona,
+    catalogue: &[fury_shared::Persona],
+) -> ApiResult<()> {
+    overrides.apply(persona, catalogue).map(|_| ()).map_err(|errs| {
+        ApiError::BadRequest(format!(
+            "these machine settings describe a machine that does not exist: {}",
+            errs.join("; ")
+        ))
+    })
+}
+
 #[derive(Deserialize)]
 pub struct NewProfileRequest {
     name: String,
@@ -1810,6 +1837,8 @@ pub struct NewProfileRequest {
     notes: String,
     #[serde(default)]
     status: String,
+    #[serde(default)]
+    overrides: MachineOverrides,
 }
 
 /// Create a profile in a project.
@@ -1845,12 +1874,14 @@ async fn create_profile(
     // was set to avoid.
     //
     // Stored as NULL and '{}' respectively, which is what launch_spec reads.
-    if !fury_shared::catalogue::all().iter().any(|p| p.id == req.persona_id) {
+    let catalogue = fury_shared::catalogue::all();
+    let Some(persona) = catalogue.iter().find(|p| p.id == req.persona_id) else {
         return Err(ApiError::BadRequest(format!(
             "no persona called {:?} — the client and the server ship different catalogues",
             req.persona_id
         )));
-    }
+    };
+    check_overrides(&req.overrides, persona, &catalogue)?;
 
     // The proxy has to be one of ours, and it has to be usable: a profile
     // pointing at a proxy whose credentials were never sealed is exactly the
@@ -1874,7 +1905,7 @@ async fn create_profile(
 
     let id = Uuid::now_v7();
     sqlx::query(
-        "INSERT INTO profiles (id, org_id, project_id, name, notes, tags, persona_id, fp_seed,                                timezone, languages, proxy_id, start_urls, created_by, status)          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
+        "INSERT INTO profiles (id, org_id, project_id, name, notes, tags, persona_id, fp_seed,                                timezone, languages, proxy_id, start_urls, created_by, status, overrides)          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
     )
     .bind(id)
     .bind(caller.org_id)
@@ -1890,6 +1921,7 @@ async fn create_profile(
     .bind(&req.start_urls)
     .bind(caller.user_id)
     .bind(req.status.trim())
+    .bind(sqlx::types::Json(&req.overrides))
     .execute(db.as_mut())
     .await?;
 
@@ -2005,11 +2037,12 @@ async fn clone_profile(
         languages: Vec<String>,
         proxy_id: Option<Uuid>,
         start_urls: Vec<String>,
+        overrides: sqlx::types::Json<MachineOverrides>,
     }
 
     let source: Row = sqlx::query_as(
         "SELECT project_id, name, notes, tags, persona_id, timezone, languages, proxy_id, \
-                start_urls \
+                start_urls, overrides \
          FROM profiles WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL",
     )
     .bind(profile_id)
@@ -2037,8 +2070,9 @@ async fn clone_profile(
         };
         sqlx::query(
             "INSERT INTO profiles (id, org_id, project_id, name, notes, tags, persona_id, \
-                                   fp_seed, timezone, languages, proxy_id, start_urls, created_by) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+                                   fp_seed, timezone, languages, proxy_id, start_urls, created_by, \
+                                   overrides) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
         )
         .bind(id)
         .bind(caller.org_id)
@@ -2053,6 +2087,7 @@ async fn clone_profile(
         .bind(source.proxy_id)
         .bind(&source.start_urls)
         .bind(caller.user_id)
+        .bind(&source.overrides)
         .execute(db.as_mut())
         .await?;
         created.push(id);
@@ -2275,6 +2310,10 @@ pub struct EditProfileRequest {
     start_urls: Vec<String>,
     #[serde(default)]
     status: String,
+    /// `None` leaves them as they are, so a client from before 0.2.0 that has
+    /// never heard of them cannot wipe them by saving a name.
+    #[serde(default)]
+    overrides: Option<MachineOverrides>,
 }
 
 /// Change a profile. Never its persona or its seed.
@@ -2308,12 +2347,31 @@ async fn edit_profile(
 
     // Changing which exit a profile uses is its own permission: it is the one
     // edit that changes where the account appears to be.
-    let current: Option<Uuid> = sqlx::query_scalar("SELECT proxy_id FROM profiles WHERE id = $1")
-        .bind(profile_id)
-        .fetch_one(db.as_mut())
-        .await?;
+    let (current, persona_id, current_overrides): (Option<Uuid>, String, sqlx::types::Json<MachineOverrides>) =
+        sqlx::query_as("SELECT proxy_id, persona_id, overrides FROM profiles WHERE id = $1")
+            .bind(profile_id)
+            .fetch_one(db.as_mut())
+            .await?;
     if current != Some(req.proxy_id) && !perms.has(Perm::EditProxy) {
         return Err(ApiError::Denied(Perm::EditProxy));
+    }
+
+    // The machine's fields are the fingerprint, and changing them is the
+    // permission for that rather than for renaming a profile. Only asked when
+    // they actually change, so somebody without it can still edit the notes of
+    // a profile that has overrides.
+    let overrides = req.overrides.clone().unwrap_or_else(|| current_overrides.0.clone());
+    if overrides != current_overrides.0 {
+        if !perms.has(Perm::EditFingerprint) {
+            return Err(ApiError::Denied(Perm::EditFingerprint));
+        }
+        let catalogue = fury_shared::catalogue::all();
+        let persona = catalogue.iter().find(|p| p.id == persona_id).ok_or_else(|| {
+            ApiError::BadRequest(format!(
+                "this profile's machine {persona_id:?} is not in this server's catalogue"
+            ))
+        })?;
+        check_overrides(&overrides, persona, &catalogue)?;
     }
 
     let usable: Option<(bool,)> = sqlx::query_as(
@@ -2336,7 +2394,8 @@ async fn edit_profile(
 
     sqlx::query(
         "UPDATE profiles SET name = $1, notes = $2, tags = $3, timezone = $4, \
-                             languages = $5, proxy_id = $6, start_urls = $7, status = $9 \
+                             languages = $5, proxy_id = $6, start_urls = $7, status = $9, \
+                             overrides = $10 \
          WHERE id = $8 AND deleted_at IS NULL",
     )
     .bind(req.name.trim())
@@ -2348,6 +2407,7 @@ async fn edit_profile(
     .bind(&req.start_urls)
     .bind(profile_id)
     .bind(req.status.trim())
+    .bind(sqlx::types::Json(&overrides))
     .execute(db.as_mut())
     .await?;
 
@@ -3223,6 +3283,7 @@ async fn launch_spec(db: &mut sqlx::PgConnection, profile_id: Uuid) -> ApiResult
         timezone: Option<String>,
         languages: Vec<String>,
         start_urls: Vec<String>,
+        overrides: sqlx::types::Json<MachineOverrides>,
         px_id: Option<Uuid>,
         px_kind: Option<String>,
         px_host: Option<String>,
@@ -3232,7 +3293,7 @@ async fn launch_spec(db: &mut sqlx::PgConnection, profile_id: Uuid) -> ApiResult
     }
 
     let row: Row = sqlx::query_as(
-        "SELECT f.name, f.persona_id, f.fp_seed, f.timezone, f.languages, f.start_urls,                 x.id AS px_id, x.kind::text AS px_kind, x.host AS px_host, x.port AS px_port,                 x.credentials_enc, x.wrapped_dek          FROM profiles f          LEFT JOIN proxies x ON x.id = f.proxy_id AND x.deleted_at IS NULL          WHERE f.id = $1 AND f.deleted_at IS NULL",
+        "SELECT f.name, f.persona_id, f.fp_seed, f.timezone, f.languages, f.start_urls, f.overrides,                 x.id AS px_id, x.kind::text AS px_kind, x.host AS px_host, x.port AS px_port,                 x.credentials_enc, x.wrapped_dek          FROM profiles f          LEFT JOIN proxies x ON x.id = f.proxy_id AND x.deleted_at IS NULL          WHERE f.id = $1 AND f.deleted_at IS NULL",
     )
     .bind(profile_id)
     .fetch_optional(&mut *db)
@@ -3287,6 +3348,7 @@ async fn launch_spec(db: &mut sqlx::PgConnection, profile_id: Uuid) -> ApiResult
         fp_seed,
         timezone,
         languages,
+        overrides: row.overrides.0,
         start_urls: row.start_urls,
         // Filled in by the caller that knows who is launching; the spec
         // itself is about the profile.
