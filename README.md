@@ -123,6 +123,10 @@ Consistently — in the main frame, in a Worker, and in three kinds of iframe. A
 disagreement between execution contexts is three lines of JavaScript to find and
 gives away a spoof more reliably than not spoofing at all.
 
+One exception: speech synthesis voices. On a Mac this profile reports the macOS
+voices, because the system has no Windows voices and they cannot be invented.
+For real work, use a persona of the same OS as the computer; see "Open" below.
+
 The noise is deterministic: the same profile produces the **same** canvas hash
 on every read, forever. A fingerprint that changes between calls describes a
 machine whose hardware moves while you watch it, which is worse than an honest
