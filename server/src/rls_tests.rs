@@ -721,3 +721,31 @@ db_test!(a_members_grant_carries_the_lists_into_the_launch_and_an_owners_does_no
     let n: i64 = sqlx::query_scalar("SELECT count(*) FROM org_domain_lists").fetch_one(&mut c).await.unwrap();
     assert_eq!(n, 0);
 });
+
+// ---------------------------------------------------------------------------
+// The last launch, read from the audit by the listing
+// ---------------------------------------------------------------------------
+
+db_test!(the_listing_carries_the_last_launch_from_the_audit, c, {
+    make_shared_fixture(&mut c).await;
+    let caller = crate::auth::Caller {
+        user_id: uuid::Uuid::parse_str(USER_A).unwrap(),
+        org_id: uuid::Uuid::parse_str(ORG_A).unwrap(),
+        role: fury_shared::rbac::OrgRole::Owner,
+    };
+    let project = uuid::Uuid::parse_str(PROJECT_A).unwrap();
+    // Two launches of one profile, the later one wins; a different action on
+    // the other profile is not a launch.
+    let sql = format!(
+        "INSERT INTO audit_events (org_id, actor_user_id, action, target_id, at) VALUES
+           ('{ORG_A}','{USER_A}','profile.launch','{SHARED}','2026-09-20 10:00:00+00'),
+           ('{ORG_A}','{USER_A}','profile.launch','{SHARED}','2026-09-24 08:30:00+00'),
+           ('{ORG_A}','{USER_A}','profile.edit','{PRIVATE}','2026-09-24 09:00:00+00');"
+    );
+    c.execute(sql.as_str()).await.expect("seed the audit");
+
+    let axum::Json(rows) = crate::api::profiles_in(&mut c, &caller, project).await.expect("list");
+    let at = |name: &str| rows.iter().find(|r| r.name == name).unwrap().last_opened_at.clone();
+    assert_eq!(at("shared").as_deref(), Some("2026-09-24T08:30:00Z"));
+    assert_eq!(at("private"), None, "an edit is not a launch");
+});

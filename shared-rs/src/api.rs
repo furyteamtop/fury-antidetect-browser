@@ -69,6 +69,11 @@ pub struct ProfileSummary {
     pub languages: Vec<String>,
     #[serde(default)]
     pub overrides: crate::overrides::MachineOverrides,
+    /// When the profile was last launched by anyone, RFC 3339 UTC. `None` when
+    /// it never was. Until 0.2.2 the listing did not carry it and the desktop
+    /// said "never" on every team profile, however often it had been opened.
+    #[serde(default)]
+    pub last_opened_at: Option<String>,
 }
 
 /// Proxy as shown to a user *without* `reveal_secrets`: enough to tell profiles

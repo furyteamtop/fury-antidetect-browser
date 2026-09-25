@@ -1361,7 +1361,8 @@ pub async fn profiles(
                 "expires_at": l.expires_at,
             })),
             running: false,
-            last_opened_at: None,
+            // Absent from a server older than 0.2.2, which is "never" again.
+            last_opened_at: p.last_opened_at,
             shared_with: p.shared_with,
             origin: "team",
         })

@@ -991,7 +991,7 @@ async fn list_profiles(
     profiles_in(db.as_mut(), &caller.clone(), project_id).await
 }
 
-async fn profiles_in(
+pub(crate) async fn profiles_in(
     db: &mut sqlx::PgConnection,
     caller: &Caller,
     project_id: Uuid,
@@ -1054,6 +1054,7 @@ async fn profiles_in(
                     timezone: None,
                     languages: Vec::new(),
                     overrides: MachineOverrides::default(),
+                    last_opened_at: None,
                     id,
                     project_id,
                     project_name,
@@ -1101,7 +1102,7 @@ async fn profiles_in(
 }
 
 /// Fill in what the listing query could not carry: how many people hold each
-/// profile, its notes and its start URLs.
+/// profile, its notes and its start URLs, and when it was last launched.
 ///
 /// Separate queries for the whole page rather than columns on the listing
 /// query: that row is already at sqlx's sixteen-element limit for tuple
@@ -1137,6 +1138,24 @@ async fn with_share_counts(
             row.timezone = timezone;
             row.languages = languages;
             row.overrides = overrides.0;
+        }
+    }
+    // The last launch, from the audit rather than a column: every lock taken
+    // has been recorded there as `profile.launch` since the first release, so
+    // the answer is right at once for every launch already made, and there is
+    // no second copy of the fact to fall out of step with the first.
+    let launched: Vec<(Uuid, String)> = sqlx::query_as(&format!(
+        "SELECT target_id, {} FROM audit_events \
+         WHERE target_id = ANY($1) AND action = 'profile.launch' \
+         GROUP BY target_id",
+        rfc3339("max(at)")
+    ))
+    .bind(&ids)
+    .fetch_all(&mut *db)
+    .await?;
+    for (id, at) in launched {
+        if let Some(row) = rows.iter_mut().find(|r| r.id == id) {
+            row.last_opened_at = Some(at);
         }
     }
     let counts: Vec<(Uuid, i64)> = sqlx::query_as(
