@@ -81,6 +81,9 @@ smoltcp = { version = "0.12", default-features = false, features = [
     "socket-dns",
 ] }
 base64 = "0.22"
+# Issue #4: the checker field also takes a local MMDB path, consulted for
+# country/timezone once the exit IP is known. The file is never bundled.
+maxminddb = "0.28"
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["handshake", "connect"] }
 futures-util = { version = "0.3.33", default-features = false, features = ["sink"] }
 

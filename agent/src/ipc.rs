@@ -958,6 +958,9 @@ impl Agent {
                     .map(str::to_string)
                     .or_else(|| std::env::var("FURY_IP_CHECK").ok())
                     .unwrap_or_else(|| "https://ipinfo.io/json".to_string());
+                // A local MMDB path in the checker field (issue #4): the
+                // exit IP still comes from the far end, geo from the file.
+                let (endpoint, geo_db) = crate::geoip::split_checker(&endpoint);
 
                 let client = reqwest::Client::builder()
                     .proxy(reqwest::Proxy::all(&url)?)
@@ -1003,21 +1006,53 @@ impl Agent {
                 };
 
                 // Remembered, so a profile that follows its exit does not pay
-                // for this round trip again at launch.
+                // for this round trip again at launch. With a local database
+                // the file wins per field and the checker is the fallback.
+                let s = |k: &str| body.get(k).and_then(|v| v.as_str());
+                let (country, city, timezone, location) = match (&geo_db, s("ip")) {
+                    (Some(db), Some(ip)) => match crate::geoip::lookup(db, ip) {
+                        Ok(geo) => (
+                            geo.country.or_else(|| s("country").map(str::to_string)),
+                            geo.city.or_else(|| s("city").map(str::to_string)),
+                            geo.timezone.or_else(|| s("timezone").map(str::to_string)),
+                            geo.location
+                                .filter(|v| parse_location(v).is_some())
+                                .or_else(|| s("loc").map(str::to_string)),
+                        ),
+                        Err(e) => {
+                            return Ok(json!({
+                                "ok": false,
+                                "error": e.to_string(),
+                                "suggested_kind": serde_json::Value::Null,
+                            }))
+                        }
+                    },
+                    _ => (
+                        s("country").map(str::to_string),
+                        s("city").map(str::to_string),
+                        s("timezone").map(str::to_string),
+                        s("loc").map(str::to_string),
+                    ),
+                };
                 if let Some(id) = params.get("id").and_then(|v| v.as_str()) {
-                    let s = |k: &str| body.get(k).and_then(|v| v.as_str());
                     let _ = self
                         .store
-                        .record_exit(id, s("ip"), s("country"), s("timezone"), s("loc"))
+                        .record_exit(
+                            id,
+                            s("ip"),
+                            country.as_deref(),
+                            timezone.as_deref(),
+                            location.as_deref(),
+                        )
                         .await;
                 }
 
                 Ok(json!({
                     "ok": true,
                     "ip": body.get("ip"),
-                    "country": body.get("country"),
-                    "city": body.get("city"),
-                    "timezone": body.get("timezone"),
+                    "country": country,
+                    "city": city,
+                    "timezone": timezone,
                     "org": body.get("org"),
                     "ms": started.elapsed().as_millis() as u64,
                 }))
@@ -2015,6 +2050,7 @@ impl Agent {
             .filter(|s| !s.trim().is_empty())
             .or_else(|| std::env::var("FURY_IP_CHECK").ok())
             .unwrap_or_else(|| "https://ipinfo.io/json".to_string());
+        let (endpoint, geo_db) = crate::geoip::split_checker(&endpoint);
 
         let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(15));
         builder = match url {
@@ -2033,11 +2069,27 @@ impl Agent {
         // the property geolocation needs: a profile whose clock follows Berlin
         // while its position follows the host machine is the contradiction the
         // timezone work existed to remove, one field over.
+        //
+        // Same overlay as `proxies.check` so a launch and a check can never
+        // disagree about an exit.
+        let (country, timezone, location) = match (&geo_db, s("ip")) {
+            (Some(db), Some(ref ip)) => {
+                let geo = crate::geoip::lookup(db, ip)?;
+                (
+                    geo.country.or_else(|| s("country")),
+                    geo.timezone.or_else(|| s("timezone")),
+                    geo.location
+                        .filter(|v| parse_location(v).is_some())
+                        .or_else(|| s("loc")),
+                )
+            }
+            _ => (s("country"), s("timezone"), s("loc")),
+        };
         Ok(ExitFacts {
             ip: s("ip"),
-            country: s("country"),
-            timezone: s("timezone"),
-            location: s("loc").filter(|v| parse_location(v).is_some()),
+            country,
+            timezone,
+            location: location.filter(|v| parse_location(v).is_some()),
         })
     }
 
