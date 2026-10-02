@@ -115,14 +115,17 @@ def competitors():
 def table_rows(rows, ours_major, lang):
     """One <tr> per product. Ours is marked, and the bar is drawn from the
     major itself so that "ahead" is visible without reading the number."""
-    lo = min(r["chrome"] for r in rows)
-    hi = max(r["chrome"] + 1 for r in rows)
     words = {
         "ru": {"yes": "есть", "no": "нет", "launcher": "лончер", "core": "ядро",
                "free": "бесплатно", "paid": "подписка", "stalled": "остановился"},
         "en": {"yes": "yes", "no": "no", "launcher": "launcher", "core": "core",
                "free": "free", "paid": "subscription", "stalled": "stalled"},
     }[lang]
+    # Ours comes from core/CHROMIUM_VERSION, never from the file a person
+    # edits: the 22.09 page said 153 for a week after the core moved to 155.
+    rows = [dict(r, chrome=ours_major) if r.get("self") else r for r in rows]
+    lo = min(r["chrome"] for r in rows)
+    hi = max(r["chrome"] + 1 for r in rows)
     out = []
     for r in rows:
         width = round(100 * (r["chrome"] - lo + 1) / (hi - lo), 1)

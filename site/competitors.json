@@ -10,28 +10,87 @@
     "fetched without installing their product, so pretending the page polls",
     "them live would be the one dishonest thing on it.",
     "",
-    "Source: docs/08-competitors.md, the market review of 12.09.2026."
+    "Source: docs/08-competitors.md, the table of cores on 27.09.2026;",
+    "AdsPower, Multilogin and Undetectable re-read on 02.10.2026, unchanged.",
+    "",
+    "Fury's own `chrome` here is not used: build.py puts the major from",
+    "core/CHROMIUM_VERSION in its place, so this file cannot make it stale."
   ],
-  "measured": "2026-09-12",
+  "measured": "2026-09-27",
   "source": "docs/08-competitors.md",
   "rows": [
-    { "name": "Fury", "chrome": 153, "self": true,
-      "teams": "yes", "open": "core", "price": "free" },
-    { "name": "AdsPower", "chrome": 152,
-      "teams": "yes", "open": "no", "price": "paid" },
-    { "name": "Multilogin X", "chrome": 152,
-      "teams": "yes", "open": "no", "price": "paid" },
-    { "name": "Undetectable", "chrome": 152,
-      "teams": "yes", "open": "no", "price": "paid" },
-    { "name": "ShardBrowser", "chrome": 152,
-      "teams": "no", "open": "launcher", "price": "free" },
-    { "name": "Camoufox", "chrome": 152, "engine": "Firefox",
-      "teams": "no", "open": "yes", "price": "free" },
-    { "name": "GoLogin", "chrome": 148,
-      "teams": "yes", "open": "no", "price": "paid" },
-    { "name": "fingerprint-chromium", "chrome": 148, "stalled": true,
-      "teams": "no", "open": "yes", "price": "free" },
-    { "name": "Dolphin Anty", "chrome": 144,
-      "teams": "yes", "open": "no", "price": "paid" }
+    {
+      "name": "Fury",
+      "chrome": 155,
+      "self": true,
+      "teams": "yes",
+      "open": "core",
+      "price": "free"
+    },
+    {
+      "name": "Octo Browser",
+      "chrome": 154,
+      "teams": "yes",
+      "open": "no",
+      "price": "paid"
+    },
+    {
+      "name": "AdsPower",
+      "chrome": 153,
+      "teams": "yes",
+      "open": "no",
+      "price": "paid"
+    },
+    {
+      "name": "Multilogin X",
+      "chrome": 153,
+      "teams": "yes",
+      "open": "no",
+      "price": "paid"
+    },
+    {
+      "name": "Undetectable",
+      "chrome": 153,
+      "teams": "yes",
+      "open": "no",
+      "price": "paid"
+    },
+    {
+      "name": "GoLogin",
+      "chrome": 152,
+      "teams": "yes",
+      "open": "no",
+      "price": "paid"
+    },
+    {
+      "name": "ShardBrowser",
+      "chrome": 152,
+      "teams": "no",
+      "open": "launcher",
+      "price": "free"
+    },
+    {
+      "name": "Camoufox",
+      "chrome": 152,
+      "engine": "Firefox",
+      "teams": "no",
+      "open": "yes",
+      "price": "free"
+    },
+    {
+      "name": "fingerprint-chromium",
+      "chrome": 148,
+      "stalled": true,
+      "teams": "no",
+      "open": "yes",
+      "price": "free"
+    },
+    {
+      "name": "Dolphin Anty",
+      "chrome": 144,
+      "teams": "yes",
+      "open": "no",
+      "price": "paid"
+    }
   ]
 }
