@@ -263,6 +263,7 @@ ReadWritePaths=/var/lib/fury
 WantedBy=multi-user.target
 UNIT
 
+mkdir -p /etc/caddy/conf.d
 cat > /etc/caddy/Caddyfile <<CADDY
 ${HOSTNAME}${ALIASES:+, ${ALIASES//,/, }} {
     reverse_proxy 127.0.0.1:8901
@@ -279,6 +280,11 @@ ${HOSTNAME}${ALIASES:+, ${ALIASES//,/, }} {
         -Server
     }
 }
+
+# Other sites on the same box (the landing page, site/deploy.sh) live in
+# conf.d, because this file is rewritten on every run and would take them
+# with it.
+import /etc/caddy/conf.d/*.caddy
 CADDY
 
 say "Firewall"

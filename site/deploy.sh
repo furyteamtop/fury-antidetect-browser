@@ -11,10 +11,11 @@
 # and the page prints the commit it was built from — so it would say so, in
 # public, at the bottom of the page.
 #
-# WHERE IT LANDS. /var/www/fury on the host, served by Caddy. The Caddyfile
-# block is installed by this script when it is missing, and left alone when
-# it is there: the API block above it is the live server and is not this
-# script's to rewrite.
+# WHERE IT LANDS. /var/www/fury on the host, served by Caddy from its own
+# file, /etc/caddy/conf.d/landing.caddy, which this script rewrites every
+# time. Not the Caddyfile: that one belongs to deploy/server-install.sh, which
+# rewrites it on every server update, and on 01.10.2026 took a block this
+# script had appended there with it.
 #
 # The page is static, so there is nothing to restart and no state to migrate.
 # rsync --delete keeps the directory equal to dist/ rather than accumulating
@@ -33,26 +34,22 @@ echo "==> copying to $target:$root"
 ssh -i "$key" "$target" "mkdir -p $root"
 rsync -az --delete -e "ssh -i $key" "$here/dist/" "$target:$root/"
 
-# The site block, added once. `caddy validate` before the reload, because a
-# Caddyfile that does not parse takes the API down with it, and the API is
-# what somebody's browser profiles sync through.
+# `caddy validate` before the reload, because a Caddyfile that does not parse
+# takes the API down with it, and the API is what somebody's browser profiles
+# sync through.
 echo "==> Caddy"
 ssh -i "$key" "$target" "bash -s" <<'REMOTE'
 set -euo pipefail
 conf=/etc/caddy/Caddyfile
-if grep -q "root \* /var/www/fury" "$conf"; then
-  echo "   the site block is already there"
-else
-  cp "$conf" "$conf.before-landing"
-  cat >> "$conf" <<'BLOCK'
-
-# The landing page. Static files, no proxy: it must not be able to reach the
-# API by accident, and the API block above answers on its own name.
-#
-# sslip.io name first because it resolves to this machine today — the page is
-# verifiable before the domain's A record moves. The apex and www are listed
-# too; until they point here Caddy simply keeps failing to get a certificate
-# for them, and serves the rest.
+if ! grep -q '^import /etc/caddy/conf.d/' "$conf"; then
+  echo "   $conf does not import conf.d: re-run deploy/server-install.sh first" >&2
+  exit 1
+fi
+mkdir -p /etc/caddy/conf.d
+cat > /etc/caddy/conf.d/landing.caddy <<'BLOCK'
+# The landing page, written by site/deploy.sh. Static files, no proxy: it must
+# not be able to reach the API by accident, and the API block answers on its
+# own name.
 furybrowser.dev, www.furybrowser.dev, site.204-168-178-23.sslip.io {
     root * /var/www/fury
     file_server
@@ -69,8 +66,6 @@ furybrowser.dev, www.furybrowser.dev, site.204-168-178-23.sslip.io {
     header /index.html Cache-Control "no-cache"
 }
 BLOCK
-  echo "   added"
-fi
 caddy validate --config "$conf" --adapter caddyfile >/dev/null
 systemctl reload caddy
 echo "   validated and reloaded"
@@ -78,4 +73,4 @@ REMOTE
 
 echo
 echo "live:  https://site.204-168-178-23.sslip.io/"
-echo "       https://furybrowser.dev/   (once the A record points at this host)"
+echo "       https://furybrowser.dev/"
