@@ -54,6 +54,37 @@ pub struct Manifest {
     pub with_data: bool,
 }
 
+/// Create `path` as a new file only this user can read, never touching
+/// whatever might already be at that name: `create_new` fails if it exists,
+/// so every error here means "nothing was written".
+///
+/// The privacy holds from the first byte — 0600 at creation where the OS has
+/// mode bits, on Windows the ACL restricted before the caller writes
+/// anything. The file is the accounts; a version that sits readable until a
+/// later chmod fixes it is the failure, not the cure.
+fn open_private_new(path: &Path) -> std::io::Result<std::fs::File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(path)
+    }
+    #[cfg(windows)]
+    {
+        let f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?;
+        // A fresh file inherits its parent's ACL, and a Downloads folder on
+        // Windows is exactly where an inherited ACL is least predictable.
+        fury_platform::perms::owner_only_file(path)?;
+        Ok(f)
+    }
+}
+
 /// Write a project to `dest`.
 pub async fn export_project(
     store: &Store,
@@ -132,11 +163,80 @@ pub async fn export_project(
     out.extend_from_slice(&nonce_bytes);
     out.extend_from_slice(&sealed);
 
-    std::fs::write(dest, &out)?;
-    // The file is the accounts. Not readable by anyone else, even for the
-    // moment it sits in a Downloads folder — which on Windows is exactly where
-    // an inherited ACL is least predictable.
-    let _ = fury_platform::perms::owner_only_file(dest);
+    // Never an in-place write: `fs::write` would truncate a file that is
+    // already there, and an export that eats someone's existing file is worse
+    // than a failed export. The bytes go to a private temp beside the target,
+    // then get published with a no-clobber hard link — or, where hard links
+    // do not exist, by creating the destination itself. Either way an
+    // existing file is never replaced.
+    let parent = dest.parent().unwrap_or_else(|| Path::new("."));
+    let tmp = parent.join(format!(
+        ".fury-export-{}-{}.tmp",
+        std::process::id(),
+        // The nonce is fresh random bytes; borrowing some of them for the
+        // name keeps two exports in one directory from racing on a temp.
+        nonce_bytes[..8]
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    ));
+    // The temp is born private (0600 on Unix; on Windows the ACL is
+    // restricted before the first byte). If creation itself fails, nothing
+    // was created and nothing of ours exists — the error goes straight back,
+    // with no cleanup that could touch a file this attempt never made.
+    let mut f = open_private_new(&tmp)?;
+    let written = f.write_all(&out);
+    drop(f);
+    if let Err(e) = written {
+        // The temp exists and is ours now; a failed write takes it with us.
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.into());
+    }
+
+    // `hard_link` refuses to publish over an existing name, atomically — a
+    // plain `rename` would quietly replace whatever `dest` already held.
+    // Permissions live on the inode, so the published file is born 0600.
+    match std::fs::hard_link(&tmp, dest) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            let _ = std::fs::remove_file(&tmp);
+            anyhow::bail!(
+                "could not write the export to {} — a file already exists there, and it was left untouched",
+                dest.display()
+            );
+        }
+        Err(link_err) => {
+            // This filesystem has no hard links — FAT/exFAT media, some
+            // network shares. Publish by creating the destination itself:
+            // `create_new` still never replaces a name that is there, but
+            // the publication is no longer atomic — the name exists while
+            // the bytes are still arriving, so a reader at the wrong moment
+            // could see a partial file. What was already on disk is never
+            // touched either way.
+            let mut f = open_private_new(dest).map_err(|e| {
+                let _ = std::fs::remove_file(&tmp);
+                anyhow::Error::from(e).context(format!(
+                    "could not write the export to {} (hard-link publish failed: {link_err})",
+                    dest.display()
+                ))
+            })?;
+            let written = f.write_all(&out);
+            drop(f);
+            if let Err(e) = written {
+                // `create_new` guarantees this file was not there a moment
+                // ago, so removing our half-written copy loses nothing of
+                // the owner's.
+                let _ = std::fs::remove_file(dest);
+                let _ = std::fs::remove_file(&tmp);
+                return Err(anyhow::Error::from(e).context(format!(
+                    "could not write the export to {} — the half-written file was removed",
+                    dest.display()
+                )));
+            }
+        }
+    }
+    std::fs::remove_file(&tmp)?;
+
     Ok(out.len() as u64)
 }
 
@@ -493,6 +593,57 @@ mod tests {
         let nowhere = |_: &str| dir.join("nope");
         assert!(export_project(&s, &project, &out, "abc", false, nowhere).await.is_err());
         assert!(!out.exists(), "a refused export still wrote a file");
+    }
+
+    #[tokio::test]
+    async fn an_export_never_replaces_a_file_that_is_already_there() {
+        let (s, dir) = store().await;
+        let project = s.default_project().await.unwrap();
+        s.upsert_profile(&profile(&project, "a")).await.unwrap();
+        let out = dir.join("x.fury");
+        // A file the owner already had. Whatever the export does, these
+        // bytes must survive it — an export that eats an existing file is
+        // data loss disguised as a backup.
+        std::fs::write(&out, b"not mine").unwrap();
+        let nowhere = |_: &str| dir.join("nope");
+
+        let err = export_project(&s, &project, &out, "a good passphrase", false, nowhere)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("already exists"), "{err}");
+        assert_eq!(
+            std::fs::read(&out).unwrap(),
+            b"not mine",
+            "the export replaced an existing file"
+        );
+        // And the failed attempt left nothing of itself behind.
+        let names: Vec<String> = dir
+            .read_dir()
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(
+            names.iter().all(|n| !n.starts_with(".fury-export")),
+            "a failed export left a temp file behind: {names:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_published_export_is_readable_by_its_owner_only() {
+        let (s, dir) = store().await;
+        let project = s.default_project().await.unwrap();
+        let out = dir.join("private.fury");
+        let nowhere = |_: &str| dir.join("nope");
+
+        export_project(&s, &project, &out, "a good passphrase", false, nowhere)
+            .await
+            .unwrap();
+        // The whole point of the private temp: the file that lands at the
+        // destination is never readable by anyone else, not even briefly.
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&out).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "the export is readable by others");
     }
 
     #[tokio::test]

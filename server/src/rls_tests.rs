@@ -494,6 +494,75 @@ db_test!(sharing_a_profile_does_not_share_the_organisations_proxy_list, c, {
     assert_eq!(names, vec!["used".to_string()]);
 });
 
+// The permissions the handler reports come from `rbac_guard::permissions_for_profile`,
+// and its latest change is exactly the part a pure test cannot settle: the direct
+// profile grant is unioned with the project-level set and then passed through the
+// grantee's org-role ceiling, while a cross-org grantee — no org row, migration 0008 —
+// keeps the grant as given. Both tests drive the production resolver on a bound
+// connection, the way every handler calls it, with the real role and grant rows
+// underneath the row-level security.
+
+db_test!(a_profile_grant_cannot_buy_a_member_manage_access, c, {
+    make_shared_fixture(&mut c).await;
+    // B sits in A's organisation as a plain member. The ceiling that role
+    // carries is the one hard rule of the RBAC: no grant may hand a Member
+    // ManageAccess, because whoever can grant access can hand it onwards.
+    let sql = format!(
+        "INSERT INTO org_members (org_id, user_id, role, wrapped_ork, ork_generation)
+           VALUES ('{ORG_A}','{USER_B}','member','\\x00',1);
+         INSERT INTO profile_grants
+           (profile_id, user_id, permissions, granted_by, wrapped_key)
+         VALUES ('{SHARED}','{USER_B}', {view} | {launch} | {manage}, '{USER_A}', NULL);",
+        view = 1,   // Perm::View — shared-rs/src/rbac.rs
+        launch = 2, // Perm::Launch
+        manage = 512, // Perm::ManageAccess
+    );
+    c.execute(sql.as_str()).await.expect("seed a member with a profile grant");
+
+    bind(&mut c, USER_B).await;
+    let perms = crate::rbac_guard::permissions_for_profile(
+        &mut c,
+        uuid::Uuid::parse_str(USER_B).unwrap(),
+        uuid::Uuid::parse_str(SHARED).unwrap(),
+    )
+    .await
+    .expect("resolve a member's profile permissions");
+    assert!(
+        perms.has(fury_shared::rbac::Perm::View) && perms.has(fury_shared::rbac::Perm::Launch),
+        "the grant's ordinary permissions must survive the ceiling"
+    );
+    assert!(
+        !perms.has(fury_shared::rbac::Perm::ManageAccess),
+        "a profile grant must not hand a Member ManageAccess past the role ceiling"
+    );
+});
+
+db_test!(a_cross_org_grantee_keeps_their_profile_grant_as_given, c, {
+    make_shared_fixture(&mut c).await;
+    // B's only membership is the seeded owner of organisation B: no row in
+    // A's org_members, so no ceiling exists to apply. Migration 0008's grantee
+    // has exactly one access path — the live grant — and it is taken as given.
+    c.execute(format!(
+        "INSERT INTO profile_grants
+           (profile_id, user_id, permissions, granted_by, expires_at, wrapped_key)
+         VALUES ('{SHARED}', '{USER_B}', 513, '{USER_A}', NULL, '\\x01');"
+    ).as_str()).await.expect("seed a cross-org profile grant");
+
+    bind(&mut c, USER_B).await;
+    let perms = crate::rbac_guard::permissions_for_profile(
+        &mut c,
+        uuid::Uuid::parse_str(USER_B).unwrap(),
+        uuid::Uuid::parse_str(SHARED).unwrap(),
+    )
+    .await
+    .expect("resolve a cross-org grantee's profile permissions");
+    assert_eq!(
+        perms,
+        fury_shared::rbac::PermSet(1 | 512),
+        "a grantee with no org role keeps the grant exactly as given — nothing added, nothing capped"
+    );
+});
+
 // ---------------------------------------------------------------------------
 // Queries that name columns
 // ---------------------------------------------------------------------------
@@ -748,4 +817,137 @@ db_test!(the_listing_carries_the_last_launch_from_the_audit, c, {
     let at = |name: &str| rows.iter().find(|r| r.name == name).unwrap().last_opened_at.clone();
     assert_eq!(at("shared").as_deref(), Some("2026-09-24T08:30:00Z"));
     assert_eq!(at("private"), None, "an edit is not a launch");
+});
+
+// ---------------------------------------------------------------------------
+// Bundle publication: two uploads on one base version, through the handler's
+// own publication
+// ---------------------------------------------------------------------------
+
+db_test!(two_publications_on_one_base_version_publish_one_and_keep_the_winner_bytes, c, {
+    // The race that could clobber a winner's bytes: two uploads based on the
+    // same version both read `current`, both derive the same filename, and
+    // both rename onto it. The repair serialises publication on the profile's
+    // row lock (SELECT ... FOR UPDATE inside the publishing transaction,
+    // before the version is re-read).
+    //
+    // This drives the production publication — `crate::api::publish_bundle`,
+    // the transaction `upload_bundle` runs — and not a re-statement of its
+    // SQL: a test that executed its own SELECT FOR UPDATE would stay green if
+    // the lock were reverted in the handler, proving only that PostgreSQL
+    // locks work. What must hold here is the user-visible contract: of two
+    // same-base publications, exactly one commits, the loser is refused with
+    // the stale-version conflict and leaves with its own staging file, and
+    // the bytes published under the winner's name are the winner's bytes.
+    bind(&mut c, USER_A).await;
+    make_project(&mut c, "cccccccc-0000-0000-0000-000000000001", ORG_A, USER_A).await;
+    let profile = uuid::Uuid::parse_str("eeeeeeee-0000-0000-0000-000000000001").unwrap();
+    let seed = format!(
+        "INSERT INTO profiles (id, org_id, project_id, name, persona_id, fp_seed, created_by,
+                               current_version)
+           VALUES ('{profile}','{ORG_A}','cccccccc-0000-0000-0000-000000000001','p','test','\\x0000000000000000','{USER_A}',7);
+         INSERT INTO bundles (id, profile_id, version, kind, s3_key, size_bytes, sha256,
+                              wrapped_dek, uploaded_by)
+           VALUES (gen_random_uuid(),'{profile}',7,'snapshot','{profile}/7.bundle',1,'\\x00','\\x00','{USER_A}');"
+    );
+    c.execute(seed.as_str()).await.expect("seed a profile at version 7");
+
+    // Publication renames the staged file under FURY_BUNDLE_DIR. This run
+    // points it at its own empty directory: the db_tests are serialised by
+    // DB_LOCK and no other test reads the variable, so nothing real is
+    // touched and nothing real can reach this scratch space.
+    let bundles_dir = std::env::temp_dir().join(format!("fury-publish-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&bundles_dir).expect("create a scratch bundle directory");
+    // The upload endpoint stages into the profile's own directory under the
+    // bundle root — `bundle_root().join(profile_id)`, created when the upload
+    // starts — and publish_bundle renames into that directory without creating
+    // it. The test stands in for the uploader, so it must leave the same state
+    // behind: without the profile directory the winner's rename fails ENOENT
+    // with its transaction still open, and the other publisher waits on the
+    // row lock forever.
+    let profile_dir = bundles_dir.join(profile.to_string());
+    std::fs::create_dir_all(&profile_dir).expect("create the profile's bundle directory");
+    std::env::set_var("FURY_BUNDLE_DIR", &bundles_dir);
+
+    // Two isolated staging files — the state two clients arrive in, bytes on
+    // disk with their digests already verified, both claiming base version 7.
+    let staging_a = profile_dir.join(".incoming-a");
+    let staging_b = profile_dir.join(".incoming-b");
+    let bytes_a: Vec<u8> = (0..8192u32).map(|i| (i % 251) as u8).collect();
+    let bytes_b: Vec<u8> = (0..8192u32).map(|i| (i % 241 + 5) as u8).collect();
+    std::fs::write(&staging_a, &bytes_a).expect("stage publisher A's bundle");
+    std::fs::write(&staging_b, &bytes_b).expect("stage publisher B's bundle");
+
+    // Two publishers on their own bound connections, started together. join!
+    // interleaves them at every await, so whichever reaches the row lock
+    // first holds it while the other waits — the concurrency the handler is
+    // written for, with no threads and nothing to time.
+    let mut a = PgConnection::connect(&url().unwrap()).await.expect("publisher A connects");
+    bind(&mut a, USER_A).await;
+    let mut b = PgConnection::connect(&url().unwrap()).await.expect("publisher B connects");
+    bind(&mut b, USER_A).await;
+    let uploaded_by = uuid::Uuid::parse_str(USER_A).unwrap();
+    let (res_a, res_b) = tokio::join!(
+        crate::api::publish_bundle(
+            &mut a, profile, 7, &staging_a, bytes_a.len(), "digest-a", b"wrapped", uploaded_by,
+        ),
+        crate::api::publish_bundle(
+            &mut b, profile, 7, &staging_b, bytes_b.len(), "digest-b", b"wrapped", uploaded_by,
+        ),
+    );
+
+    // Either order is legitimate: whichever publisher committed first is the
+    // winner. The loser must come back with the stale-version conflict;
+    // without the row lock it would instead die on the unique constraint as a
+    // bare database error, which is exactly the behaviour this pins.
+    let (winner_is_a, loser) = match (res_a, res_b) {
+        (Ok(_), Err(e)) => (true, e),
+        (Err(e), Ok(_)) => (false, e),
+        (Ok(_), Ok(_)) => panic!("two publications on one base version both succeeded"),
+        (Err(x), Err(y)) => panic!("both publications failed: {x:?}; {y:?}"),
+    };
+    assert!(
+        matches!(loser, crate::error::ApiError::Conflict(_)),
+        "the loser must be refused as a stale base version, got {loser:?}"
+    );
+
+    // The database recorded exactly one publication: the seeded version and
+    // the winner's, and current_version moved once.
+    let rows: Vec<(i32, String)> = sqlx::query_as(
+        "SELECT version, s3_key FROM bundles WHERE profile_id = $1 ORDER BY version",
+    )
+    .bind(profile)
+    .fetch_all(&mut c)
+    .await
+    .expect("read the published rows");
+    assert_eq!(
+        rows,
+        vec![
+            (7, format!("{profile}/7.bundle")),
+            (8, format!("{profile}/8.bundle")),
+        ],
+        "two same-base publications must leave exactly one new version"
+    );
+    let current: i32 = sqlx::query_scalar("SELECT current_version FROM profiles WHERE id = $1")
+        .bind(profile)
+        .fetch_one(&mut c)
+        .await
+        .expect("read the profile");
+    assert_eq!(current, 8, "the profile moved to the winner's version, once");
+
+    // And the bytes on disk under the winner's name are the winner's bytes —
+    // the old order's failure was a row pointing at a file its digest did not
+    // describe. Both staging files are gone: the winner's renamed into place,
+    // the loser's removed with its refusal.
+    let winner_bytes = if winner_is_a { &bytes_a } else { &bytes_b };
+    let published = std::fs::read(bundles_dir.join(format!("{profile}/8.bundle")))
+        .expect("read the published bundle");
+    assert_eq!(published, *winner_bytes, "the published file is not the winner's bytes");
+    assert!(
+        !staging_a.exists() && !staging_b.exists(),
+        "a staging file was left behind"
+    );
+
+    std::env::remove_var("FURY_BUNDLE_DIR");
+    let _ = std::fs::remove_dir_all(&bundles_dir);
 });

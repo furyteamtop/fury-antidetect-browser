@@ -241,3 +241,16 @@ async fn run(shared: &Shared) -> Result<PathBuf> {
 
     Ok(installed)
 }
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_tests {
+    /// The asset name is a contract between two places that compile apart:
+    /// this producer (`asset_infix`) and tools/release/package-linux.sh, which
+    /// names the archive `fury-core-<version>-linux-x64.tar.xz`. tools/ci/
+    /// check-linux-release.sh pins the shell side from CI; this pins the
+    /// consumer, on the runner that compiles the Linux branch.
+    #[test]
+    fn the_linux_asset_infix_names_the_linux_release_layout() {
+        assert_eq!(super::asset_infix(), "linux-x64");
+    }
+}

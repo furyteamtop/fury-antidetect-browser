@@ -194,13 +194,16 @@ working browser without DRM, and a site that checks for it will notice.
 
 ## Linux
 
-Not a target. This is a decision rather than a gap, and it is worth stating
-plainly because an earlier version of this page promised a Linux release.
+A supported target as of the 0.2.16 Linux port, x86_64: an AppImage, a `.deb`
+package, and the browser core packaged separately, the same split as macOS and
+Windows. Full instructions, display-server notes (Wayland and X11) and build
+instructions live in [docs/linux.md](linux.md).
 
-The Rust still compiles on Linux — CI runs there and contributors can run the
-test suite — but there is no packaged release, no build configuration for the
-core, and no plan for one. Two platforms that get tested are worth more than
-three where one is a guess.
+    sudo apt install ./fury-<version>-linux-x64.deb
+
+Data lives under `${XDG_DATA_HOME:-~/.local/share}/fury`. The core ships
+without Widevine for the same licence reason as the other platforms, and
+installs through the same button in the shell.
 
 ## Where things are kept
 

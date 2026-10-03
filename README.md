@@ -56,7 +56,10 @@ team. No seats, no per-profile pricing, no telemetry.
 > com.apple.quarantine /Applications/Fury.app` once; [docs/15](docs/15-install.md)
 > walks through both.
 >
-> **Linux** is not a target. See the table at the bottom.
+> **Linux x86_64** is an experimental port, not a release: the core builds and
+> reports the pinned version, but no Linux assets are published anywhere and
+> desktop acceptance is still open. See [docs/linux](docs/linux.md) and the
+> tables at the bottom.
 >
 > Everything that is *not* done is listed at the bottom, honestly.
 
@@ -140,8 +143,9 @@ desktop (Tauri)  ──socket──▶  agent (Rust)  ──spawn──▶  core
      └──HTTPS──▶ server (optional: teams)
 ```
 
-- **core** — Chromium 153 fork, [28 patches](core/patches/); spoofing is in C++,
-  never injected JavaScript
+- **core** — Chromium 155 fork (155.0.8059.12, pinned in
+  [core/CHROMIUM_VERSION](core/CHROMIUM_VERSION)), [28 patches](core/patches/);
+  spoofing is in C++, never injected JavaScript
 - **agent** — the only component holding decrypted secrets: proxy relays,
   launching, the local automation API
 - **server** — organizations, projects, permissions, locking. Deliberately dumb:
@@ -264,6 +268,7 @@ the release criteria and exits non-zero on failure, so it drops into CI
 | [14 — Team server](docs/14-team-server.md) | Accounts, enrolment, the RBAC model in practice |
 | [15 — Installing](docs/15-install.md) | For somebody with no toolchain ([ru](docs/15-install.ru.md)) |
 | [17 — Apple signing](docs/17-apple-signing.md) | Getting the Developer ID certificate that task 0.2 waits on, and what still has to be written once it exists |
+| [Linux](docs/linux.md) | The Linux x86_64 port: install, display servers, building, what is verified |
 
 Documents are in Russian except 15, which is the one a downloader reads;
 translation of the rest is planned.
@@ -280,6 +285,7 @@ handle X" deserves the answer and not the archaeology.
 | | |
 |---|---|
 | Code signing, Windows | not started. A separate certificate (EV or OV) and a separate process; until then the installer shows SmartScreen and the way through is **More info → Run anyway** |
+| Linux, packaging and desktop acceptance | experimental x86_64 port: the core builds — the first one came off Ubuntu 22.04 (WSL on a Windows machine) and answers `Chromium 155.0.8059.12` — `pack-core-linux.sh` produced its archive, and a sandboxed smoke run on an owned page passed. Still open: AppImage/deb install acceptance and a profile under a real compositor. Native Wayland is the default wherever `WAYLAND_DISPLAY` exists; `FURY_OZONE_PLATFORM=x11` is the explicit XWayland path. No Linux release assets are published ([docs/linux](docs/linux.md)) |
 | Widevine on a machine with no Chrome | the agent stages the CDM out of the Chrome already installed on that machine, so nothing proprietary is redistributed and `com.widevine.alpha` is answered the way real Chrome answers it. A machine with no Chrome at all gets a working browser with no DRM, which is detectable |
 | Persona catalogue | 27 machines — the 27th arrived through the issue form on 13.09.2026, a Windows 10 desktop with a GTX 950. More personas means better crowds to hide in, and it is the most useful thing an outside contributor can add — `fury-detect persona <capture.json>` turns a probe capture from your own computer into one |
 | Speech synthesis voices | a leak, found 24.09.2026. A persona of another OS reports the host's voices: a Windows persona on a Mac answers `speechSynthesis.getVoices()` with 180 macOS voices ("Milena", "Eddy (…)"), which no Windows machine has. The built-in personas carry `voices: []`, so the filter never engages; the contributed Windows 10 one lists only Google voices, which Fury does not have, and patch 0041 discards a filter that matches nothing, because an empty list gives the spoofing away even more surely. The patch can only narrow the list. A voice the system does not have cannot be added: `speak()` on it would fail in a way no real machine fails. So on a Mac a Windows persona cannot get Windows voices at all; until this changes, the rule is a persona of the host's OS. CreepJS and the Castle checks do not catch it, they only look for an empty list |
@@ -291,7 +297,6 @@ row says why the alternative is worse.
 
 | | |
 |---|---|
-| Linux | not a target, and this is a decision rather than a gap. The Rust still compiles there so CI and contributors can run the suite; there is no Linux release, no Linux core config and no plan for one. Shipping a third platform nobody tests would be a claim, not a port |
 | WebRTC through the proxy | no. The relay is TCP; patch 0070 puts the browser in the state a real Chrome reaches under the enterprise `WebRTCIPHandlingPolicy` — no ICE candidates at all — rather than let a peer connection go around the proxy and hand the page the real address |
 | Hiding CDP from a timing check | no, and now known to be unclosable rather than merely undone. Split into its two parts ([cdp-timing.py](tools/detect-suite/cdp-timing.py)): attaching costs nothing, `Runtime.enable` costs a fixed 2.7x plus more as the logged object grows. A patch can remove the size half — preview generation — and not the fixed half, which is the message reaching the frontend at all. Real Chrome measures the same. The control that works is `cdp: false`, which is the default |
 | Automatic updates | none, and deliberately so: an updater is a scheduled channel into an anti-detect browser from an address that is not the profile's proxy. [docs/15](docs/15-install.md) says what updating looks like meanwhile |

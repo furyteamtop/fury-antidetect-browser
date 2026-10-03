@@ -219,13 +219,17 @@ pub async fn run(url: &str, checker_url: Option<&str>) -> Report {
 /// no request, and only on a failure that already cost the operator fifteen
 /// seconds.
 ///
-/// `http` and `https` are one family here: both parse to [`Upstream::Http`],
-/// and offering to swap one for the other would be offering to change nothing.
+/// `https` proposes nothing here. It used to share the `http` family, but the
+/// two are different hops now, and a failed TLS connection to a proxy is a
+/// question about its certificate, not about the protocol: swapping it for
+/// plain `http` would be offering a plaintext downgrade, and `socks5` would be
+/// a guess about a service that has already said it speaks TLS. Say nothing
+/// rather than send somebody round a second wrong dropdown.
 pub async fn speaks_instead(url: &str, checker_url: Option<&str>) -> Option<&'static str> {
     let (scheme, rest) = url.split_once("://")?;
     let candidate = match scheme {
         "socks5" | "socks5h" => "http",
-        "http" | "https" => "socks5",
+        "http" => "socks5",
         _ => return None,
     };
     let upstream = crate::parse_upstream(&format!("{candidate}://{rest}")).ok()?;
@@ -248,6 +252,9 @@ fn describe(u: &Upstream) -> String {
         Upstream::Http { host, port, auth } => {
             format!("http proxy {host}:{port}{}", if auth.is_some() { ", with credentials" } else { ", no credentials" })
         }
+        Upstream::Https { host, port, auth } => {
+            format!("https proxy {host}:{port}{}, the hop to it in TLS", if auth.is_some() { ", with credentials" } else { ", no credentials" })
+        }
         Upstream::Socks5 { host, port, auth } => {
             format!("socks5 proxy {host}:{port}{}", if auth.is_some() { ", with credentials" } else { ", no credentials" })
         }
@@ -258,7 +265,9 @@ fn describe(u: &Upstream) -> String {
 
 fn host_port(u: &Upstream) -> Option<(&str, u16)> {
     match u {
-        Upstream::Http { host, port, .. } | Upstream::Socks5 { host, port, .. } => Some((host.as_str(), *port)),
+        Upstream::Http { host, port, .. }
+        | Upstream::Https { host, port, .. }
+        | Upstream::Socks5 { host, port, .. } => Some((host.as_str(), *port)),
         Upstream::WireGuard(_) | Upstream::Direct => None,
     }
 }
@@ -295,6 +304,14 @@ fn classify_relay(e: &RelayError, target: &str) -> (&'static str, String) {
         RelayError::WrongProtocol { expected, saw } => (
             "protocol",
             format!("this address does not speak {expected}: {saw}"),
+        ),
+        RelayError::Tls(detail) => (
+            "tls",
+            format!(
+                "the TLS connection to the proxy failed: {detail}. An https:// proxy must \
+                 present a certificate this machine trusts for its own hostname — checking \
+                 the address is spelled https:// as the provider issued it"
+            ),
         ),
         RelayError::BadRequest => ("protocol", "the proxy did not speak the protocol its address claims — http:// for a SOCKS proxy or the other way round".to_string()),
         RelayError::Io(io) => ("protocol", format!("the proxy answered something unexpected: {io}")),

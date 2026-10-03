@@ -5,7 +5,7 @@
 # Build the patched Chromium.
 #
 # Usage: core/build/build.sh <target>
-#   targets: macos-arm64 | macos-x64 | windows-x64
+#   targets: macos-arm64 | macos-x64 | windows-x64 | linux-x64
 #
 # Full build: 1.5-3 h on 32+ cores, 4-8 h on a laptop. Incremental after one
 # patch: 5-30 min. Do not delete out/ between runs — that is your ccache.
@@ -125,6 +125,19 @@ case "$TARGET" in
     # system-wide on the build server already; exported here so a fresh machine
     # or a stripped environment does not fail differently.
     export DEPOT_TOOLS_WIN_TOOLCHAIN=0
+    ;;
+  linux-x64*)
+    # Built on the machine it targets, like the other two: there is no
+    # Chromium cross-compile wired up for Linux either, and the builder that
+    # runs this target is an Ubuntu box (see .github/workflows/linux-core.yml).
+    [ "$(uname -s)" = "Linux" ] || {
+      echo "!! linux-x64 requires a Linux host. There is no cross-compile." >&2
+      exit 1
+    }
+    [ "$(uname -m)" = "x86_64" ] || {
+      echo "!! linux-x64 is the x86_64 target; this host is $(uname -m)." >&2
+      exit 1
+    }
     ;;
   *) echo "!! Unknown target: $TARGET" >&2; exit 1 ;;
 esac

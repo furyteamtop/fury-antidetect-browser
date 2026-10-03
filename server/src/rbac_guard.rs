@@ -11,7 +11,7 @@
 //!    the UI can hide what is unavailable — but the UI hiding a button is
 //!    presentation, never enforcement.
 
-use fury_shared::rbac::{effective, OrgRole, Perm, PermSet};
+use fury_shared::rbac::{effective, effective_profile, OrgRole, Perm, PermSet};
 use uuid::Uuid;
 
 #[derive(Debug, thiserror::Error)]
@@ -82,8 +82,23 @@ pub async fn permissions_for_profile(
 
     let from_project = permissions_for(db, user_id, project_id).await?;
 
-    // A direct profile grant can only add to what the project already allows,
-    // and is still capped by the org role ceiling inside `effective`.
+    // The caller's org role on this profile's organisation, when they hold
+    // one. A cross-org grantee (migration 0008) has no row here and no
+    // ceiling; their live direct grant is the only access path they have.
+    let role: Option<(String,)> = sqlx::query_as(
+        r#"
+        SELECT m.role::text
+        FROM profiles p
+        JOIN org_members m
+          ON m.org_id = p.org_id AND m.user_id = $2
+        WHERE p.id = $1
+        "#,
+    )
+    .bind(profile_id)
+    .bind(user_id)
+    .fetch_optional(&mut *db)
+    .await?;
+
     let direct: Option<(i64,)> = sqlx::query_as(
         r#"
         SELECT permissions FROM profile_grants
@@ -96,10 +111,15 @@ pub async fn permissions_for_profile(
     .fetch_optional(&mut *db)
     .await?;
 
-    Ok(match direct {
-        Some((bits,)) => PermSet(from_project.0 | bits),
-        None => from_project,
-    })
+    // The union of project-level and direct profile permissions passes the
+    // role ceiling: a profile grant must not hand a Member ManageAccess any
+    // more than a project grant may. Cross-org grantees, with no role, keep
+    // their grant as given.
+    Ok(effective_profile(
+        from_project,
+        direct.map(|(p,)| PermSet(p)),
+        role.and_then(|(r,)| parse_role(&r)),
+    ))
 }
 
 pub async fn require(

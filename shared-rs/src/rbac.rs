@@ -148,6 +148,26 @@ pub fn effective(role: OrgRole, grant: Option<PermSet>) -> PermSet {
     }
 }
 
+/// Effective permissions for a user on a profile.
+///
+/// The project-level set is unioned with a direct profile grant (`None` when
+/// no live grant row exists), and the union passes the role ceiling again: a
+/// grant on the profile must not exceed what the user's org role allows,
+/// exactly as a grant on the project cannot. `role` is `None` for a
+/// cross-org grantee, who holds no org role and so no ceiling; their direct
+/// grant is the only access path they have and is taken as given.
+pub fn effective_profile(
+    from_project: PermSet,
+    direct: Option<PermSet>,
+    role: Option<OrgRole>,
+) -> PermSet {
+    let union = PermSet(from_project.0 | direct.unwrap_or(PermSet::NONE).0);
+    match role {
+        Some(role) => union.intersect(role_ceiling(role)),
+        None => union,
+    }
+}
+
 /// Hardening the agent must apply when launching for this permission set.
 ///
 /// This is the technical half of the "operator without secrets" model: the UI
@@ -213,5 +233,31 @@ mod tests {
     fn grant_cannot_exceed_role_ceiling() {
         let p = effective(OrgRole::Member, Some(PermSet::all()));
         assert_eq!(p, PermSet::all().intersect(role_ceiling(OrgRole::Member)));
+    }
+
+    #[test]
+    fn direct_profile_grant_cannot_exceed_role_ceiling() {
+        // The profile path must hold to the same rule as the project path: a
+        // Member handed a direct profile grant that bundles a normal
+        // permission with ManageAccess keeps the normal one and loses
+        // ManageAccess.
+        let direct = Some(PermSet::from_iter([Perm::View, Perm::ManageAccess]));
+        let p = effective_profile(PermSet::operator(), direct, Some(OrgRole::Member));
+        assert!(p.has(Perm::View), "the permitted half of the grant survives");
+        assert!(
+            !p.has(Perm::ManageAccess),
+            "a Member can never hold ManageAccess, not even via a profile grant"
+        );
+    }
+
+    #[test]
+    fn direct_profile_grant_survives_without_an_org_role() {
+        // A cross-org grantee has no role and so no ceiling; an ordinary
+        // share arrives with exactly the permissions it was given.
+        let direct = Some(PermSet::operator());
+        assert_eq!(
+            effective_profile(PermSet::NONE, direct, None),
+            PermSet::operator()
+        );
     }
 }

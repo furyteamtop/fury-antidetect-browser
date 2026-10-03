@@ -40,10 +40,13 @@ jobs:
   # the runner would have made the red tick go away and would have tested the
   # shell against a toolkit it will never run on.
   #
-  # So: the shell is tested where it ships, and everything else is tested on
-  # Linux — which also keeps honest the claim in platform-rs/src/dirs.rs that
-  # the Rust still compiles there for contributors, since an untested claim is
-  # the thing this repository is supposed to be against.
+  # So: the shell is tested where it ships. That is macOS — and, since the
+  # Linux port (docs/linux.md), Linux too: the GTK stack went from "the
+  # platform this project does not ship" to a shipped target, and the
+  # linux-shell job below compiles and tests it on the platform it now ships
+  # for. The macos job keeps its role: it proves the agent and server build on
+  # the platform they are released on, and the Windows surface job below stays
+  # the cross-check for the code a Mac cannot compile.
 
   rust:
     name: cargo test (everything but the shell)
@@ -57,6 +60,34 @@ jobs:
       - run: cargo test --workspace --exclude fury-desktop --all-targets
       - name: cargo build --release
         run: cargo build --release --workspace --exclude fury-desktop
+
+  linux-shell:
+    name: cargo test (the shell, on Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # The GTK stack the Linux shell actually runs against. Installing it is
+      # the whole difference from the `rust` job above, whose --exclude exists
+      # precisely because these libraries were not installed on the runner.
+      - name: GTK and WebKitGTK development libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      # Same reason as the macOS job: tauri-build resolves externalBin to
+      # binaries/fury-agent-<triple>, which does not exist in a fresh checkout.
+      - run: node desktop/scripts/sidecar.mjs
+      # The whole workspace including fury-desktop, so the Linux shell's Rust
+      # is tested against the toolkit it ships with.
+      - run: cargo test --workspace --all-targets
+
+  linux-release-contract:
+    name: the Linux release contract holds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: tools/ci/check-linux-release.sh
 
   shell-rust:
     name: cargo test (the shell, on macOS)

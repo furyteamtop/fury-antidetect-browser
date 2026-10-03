@@ -1077,9 +1077,29 @@ export function App() {
                     disabled={busy}
                     onClick={async () => {
                       setBusy(true);
-                      for (const p of closable) await api.stop(p.id, p.origin);
-                      await refreshProfiles();
-                      setBusy(false);
+                      let done = 0;
+                      try {
+                        for (; done < closable.length; done++) {
+                          await api.stop(closable[done].id, closable[done].origin);
+                        }
+                      } catch (e) {
+                        // The failure (a profile that stopped being closable
+                        // between the check and the call) does not undo the
+                        // closes before it: reload so the table shows them,
+                        // keep only the un-closed remainder selected for a
+                        // retry, and show the error on top.
+                        setSelected(new Set(closable.slice(done).map((p) => p.id)));
+                        setError(say(e));
+                      } finally {
+                        // busy clears even if the refresh itself throws: the
+                        // buttons must never stick on a rejection this catch
+                        // does not cover.
+                        try {
+                          await refreshProfiles();
+                        } finally {
+                          setBusy(false);
+                        }
+                      }
                     }}
                   />
                 )}
@@ -1102,11 +1122,28 @@ export function App() {
                     });
                     if (go === null) return;
                     setBusy(true);
-                    for (const p of chosen) await api.deleteProfile(p.id, p.origin);
-                    setSelected(new Set());
-                    await load();
-                    await refreshProfiles();
-                    setBusy(false);
+                    let done = 0;
+                    try {
+                      for (; done < chosen.length; done++) {
+                        await api.deleteProfile(chosen[done].id, chosen[done].origin);
+                      }
+                      setSelected(new Set());
+                      await load();
+                      await refreshProfiles();
+                    } catch (e) {
+                      // Deletion stops at the first failure (a profile locked
+                      // on the server between the check and the call). The
+                      // ones before it are gone: reload so the table stops
+                      // showing them, keep only the un-deleted remainder
+                      // selected for a retry, then show the error — after the
+                      // reload, because load() resets the error state.
+                      setSelected(new Set(chosen.slice(done).map((p) => p.id)));
+                      await load();
+                      await refreshProfiles();
+                      setError(say(e));
+                    } finally {
+                      setBusy(false);
+                    }
                   }}
                 />
                 {/* Filing, into folders of the SAME side as the selection.
@@ -1196,8 +1233,10 @@ export function App() {
                       }
                     }
                     setSelected(new Set());
-                    await refreshProfiles();
+                    // Before the refresh: if it throws, the selection buttons
+                    // must not stick busy.
                     setBusy(false);
+                    await refreshProfiles();
                     setNotice({ text: failed > 0 ? t("bar.proxySetFailed", { n: pairs.length - failed, f: failed }) : t("bar.proxySet", { n: pairs.length }), forProfile: null });
                   };
                   return (

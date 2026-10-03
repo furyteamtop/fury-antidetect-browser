@@ -35,10 +35,18 @@ export function Trash({ onChanged }: { onChanged: () => void }) {
     void load();
   }, [load]);
 
-  if (error) {
+  // A failed load shows the error with a retry; a failed restore or purge
+  // shows it above rows that are still there, so the row buttons below stay
+  // reachable — replacing the table with the notice left nothing to retry
+  // with short of navigating away.
+  if (error && rows.length === 0) {
     return (
-      <div className="notice warnBar" role="status">
-        {error}
+      <div className="tableWrap">
+        {dialog}
+        <div className="notice warnBar" role="status">
+          {error}{" "}
+          <button onClick={() => void load()}>{t("app.retry")}</button>
+        </div>
       </div>
     );
   }
@@ -55,6 +63,11 @@ export function Trash({ onChanged }: { onChanged: () => void }) {
   return (
     <>
       {dialog}
+      {error && (
+        <div className="notice warnBar" role="status">
+          {error}
+        </div>
+      )}
       <p className="hint" style={{ marginTop: 0, marginBottom: "var(--s-3)" }}>
         {t("trash.hint")}
       </p>
@@ -87,10 +100,20 @@ export function Trash({ onChanged }: { onChanged: () => void }) {
                       disabled={busy}
                       onClick={async () => {
                         setBusy(true);
-                        await api.restoreProfile(p.id, p.origin);
-                        await load();
-                        onChanged();
-                        setBusy(false);
+                        setError(null);
+                        try {
+                          await api.restoreProfile(p.id, p.origin);
+                          await load();
+                          onChanged();
+                        } catch (e) {
+                          // A failed restore (a profile gone from the server,
+                          // no access any more) must not stick the buttons in
+                          // busy: say what happened and leave the row for a
+                          // retry. Same shape as purge below.
+                          setError(say(e));
+                        } finally {
+                          setBusy(false);
+                        }
                       }}
                     >
                       {t("trash.restore")}

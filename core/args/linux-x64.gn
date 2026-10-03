@@ -1,0 +1,54 @@
+# GN args — Linux x64 release build.
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright 2026 Bogdan Shapovalov and the Fury authors
+#
+# Shaped after macos-arm64.gn and windows-x64.gn; the flags they share are
+# the same here for the same reasons. Only the Linux-specific part is
+# commented at length.
+
+target_os = "linux"
+target_cpu = "x64"
+
+is_official_build = true
+is_debug = false
+symbol_level = 0
+blink_symbol_level = 0
+dcheck_always_on = false
+
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"
+
+is_chrome_branded = false
+use_official_google_api_keys = false
+google_api_key = ""
+google_default_client_id = ""
+google_default_client_secret = ""
+enable_reporting = false
+enable_remoting = false
+enable_hangout_services_extension = false
+enable_widevine = true
+# Not `bundle_widevine_cdm = true`: the CDM is proprietary and bundling it is
+# redistribution without a licence (same decision as macOS — see NOTICE
+# section 5 and docs/10-legal-licensing.md). On Linux the component updater
+# registers it at runtime, which is why the launcher must not pass
+# --disable-component-update there either.
+bundle_widevine_cdm = false
+
+use_lld = true
+chrome_pgo_phase = 2
+disable_fieldtrial_testing_config = true
+use_siso = false
+
+# Display backends. BOTH are compiled in, and neither is chosen here: the
+# compile-time default stays X11 (Chromium's default on Linux), and the
+# agent's launcher adds --ozone-platform=wayland on any session that offers
+# a Wayland socket, XWayland or not (agent/src/launcher.rs). A core built
+# with only one backend could not run on the other at any price, and a build
+# that forces Wayland at the GN level stops working on every X11 session.
+#
+# XWayland stays reachable where it is wanted: explicitly, through
+# FURY_OZONE_PLATFORM=x11 in the agent's environment.
+use_ozone = true
+ozone_platform = "x11"
+ozone_platform_x11 = true
+ozone_platform_wayland = true

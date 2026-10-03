@@ -1,0 +1,43 @@
+name: Linux Chromium core
+
+# Builds the Linux core on the machine that exists for it. Not a hosted
+# runner: a Chromium checkout is ~38 GB and a build takes hours, which is why
+# ci.yml checks everything EXCEPT the browser (see the note at the top of that
+# file). This is linux-core's side of the same split — the self-hosted Linux
+# builder runs it by hand (workflow_dispatch) when the core needs rebuilding.
+#
+# No automatic publish, and no checksums: producing the artifact is as far as
+# this workflow goes. What happens to it is decided by the person who ran it.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: [self-hosted, linux, x64, fury-core]
+    timeout-minutes: 720
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check capacity
+        run: |
+          test "$(df -Pk . | awk 'NR==2 {print int($4/1048576)}')" -ge 150
+          test "$(nproc)" -ge 8
+      - name: Fetch Chromium
+        run: core/build/fetch.sh "$(cat core/CHROMIUM_VERSION)"
+      - name: Apply patch series
+        run: core/build/apply.sh
+      - name: Build Linux core
+        run: core/build/build.sh linux-x64
+      - name: Verify patched browser
+        run: python3 core/verify/run-all.py core/src/out/linux-x64.noindex/chrome
+      - name: Pack core archive
+        run: tools/release/pack-core-linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fury-linux-core
+          path: dist/fury-core-*-linux-x64.tar.xz
+          if-no-files-found: error
+          retention-days: 7

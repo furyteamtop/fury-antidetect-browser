@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "test": "node --experimental-strip-types --import ./tests/proxyline-register.mjs --test tests/proxyLine.race.test.ts",
     "tauri": "tauri",
     "app": "tauri dev",
     "app:build": "tauri build"

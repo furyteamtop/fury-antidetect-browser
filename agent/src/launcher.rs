@@ -247,8 +247,70 @@ pub fn build_args(spec: &LaunchSpec) -> Vec<String> {
         _ => {}
     }
 
+    // Display server, Linux only. Both Ozone backends are compiled into the
+    // core (core/args/linux-x64.gn); this decides which one to ask for at
+    // launch. See `ozone_platform_from` for the rules, and the guarantee it
+    // works under: no --disable-gpu, no --no-sandbox, here or anywhere else —
+    // a fallback that costs GPU acceleration or the sandbox is a worse port,
+    // not a safer one.
+    #[cfg(target_os = "linux")]
+    if let Some(platform) = ozone_platform() {
+        args.push(format!("--ozone-platform={platform}"));
+    }
+
     args.extend(spec.start_urls.iter().cloned());
     args
+}
+
+/// Reads the launch environment for the display-backend decision.
+///
+/// Split from the decision so tests can feed it values without touching the
+/// real environment of the test process.
+#[cfg(target_os = "linux")]
+fn ozone_platform() -> Option<String> {
+    ozone_platform_from(
+        non_empty_env("WAYLAND_DISPLAY"),
+        non_empty_env("FURY_OZONE_PLATFORM"),
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn non_empty_env(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|v| !v.is_empty())
+}
+
+/// Which display backend to hand the core, or `None` to pass no switch.
+///
+/// `wayland` says whether the session offers a Wayland socket (a nonempty
+/// `WAYLAND_DISPLAY`); `explicit` is the operator's own `FURY_OZONE_PLATFORM`
+/// and wins over anything inferred.
+///
+///   - Wayland session: `wayland`. Native Wayland is the default whenever
+///     the session offers it, because the native backend follows the
+///     compositor's scaling directly — which is the whole game on HiDPI
+///     setups — and because on a compositor running without XWayland there
+///     is no X11 server to fall back to: the browser would refuse to start
+///     (sway, Hyprland, and GNOME/KDE sessions running bare). Compositors
+///     that export both sockets, Hyprland among them, still get the native
+///     backend; XWayland remains reachable through the explicit override.
+///
+///   - Every other session: no switch at all. Without `WAYLAND_DISPLAY` the
+///     compiled-in default (X11) is the right answer for an X11 session, and
+///     a session with neither socket fails on its own with its own message:
+///     there is no more useful answer the agent could pick for it.
+///
+/// `FURY_OZONE_PLATFORM=x11` is the explicit XWayland compatibility path on
+/// a session that offers Wayland. Chromium's own error names an unknown
+/// platform value if it is misspelled.
+#[cfg(target_os = "linux")]
+fn ozone_platform_from(wayland: Option<String>, explicit: Option<String>) -> Option<String> {
+    if explicit.is_some() {
+        return explicit;
+    }
+    if wayland.is_some() {
+        return Some("wayland".to_string());
+    }
+    None
 }
 
 /// Validate, then spawn.
@@ -540,5 +602,36 @@ mod tests {
         // the forgotten seed the check exists for.
         cfg["noise"].as_object_mut().unwrap().remove("canvas");
         assert!(fury_shared::fingerprint::check_core_config(&cfg).is_err());
+    }
+
+    // Display-backend selection, Linux only. These run in the ubuntu CI job,
+    // which is where the Linux branch of the launcher is compiled.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_wayland_session_gets_the_wayland_backend() {
+        // With or without XWayland beside it: Hyprland exports both sockets,
+        // and the native backend is still the default there.
+        let choice = ozone_platform_from(Some("wayland-0".into()), None);
+        assert_eq!(choice.as_deref(), Some("wayland"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_session_without_wayland_keeps_the_chromium_default() {
+        // No WAYLAND_DISPLAY — an X11 session, or no session at all. Both get
+        // no switch and run the compiled-in default; the browser reports a
+        // missing display with its own message.
+        assert_eq!(ozone_platform_from(None, None), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn an_explicit_override_beats_the_environment_guess() {
+        let choice = ozone_platform_from(Some("wayland-0".into()), Some("wayland".into()));
+        assert_eq!(choice.as_deref(), Some("wayland"));
+        // The compatibility hatch: force XWayland on a session that offers
+        // Wayland.
+        let forced = ozone_platform_from(Some("wayland-0".into()), Some("x11".into()));
+        assert_eq!(forced.as_deref(), Some("x11"));
     }
 }

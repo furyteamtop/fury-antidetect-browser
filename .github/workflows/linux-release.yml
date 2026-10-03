@@ -1,0 +1,106 @@
+name: Linux release
+
+# Builds the Linux shell bundles (AppImage, deb) and assembles them with the
+# matching core into the three release artifacts. Run by hand, not by push —
+# there is no automatic publish in this flow: it stops at uploaded artifacts,
+# and attaching them to a release is a person's step (docs/linux.md has the
+# commands). macOS and Windows releases keep their existing paths untouched.
+#
+# The core arrives from core_url rather than from a companion job's artifact:
+# the core build (linux-core.yml) runs on the self-hosted builder, and this
+# workflow may run on a different machine. HTTPS only — the download is
+# executed by whoever installs the release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        # Must equal the version the manifests carry (desktop/package.json):
+        # the deb embeds it, and package-linux.sh rejects a mismatch —
+        # renaming artifacts cannot change the dpkg version.
+        description: Release version, for example 0.2.16
+        required: true
+        type: string
+      core_url:
+        description: HTTPS URL of the matching Linux core tar.xz
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    # ubuntu-22.04, pinned: it is the platform the portable Linux artifacts
+    # are built on. ubuntu-latest drifts under the pin, and a release artifact
+    # is the one thing that should not be rebuilt on a different distro by
+    # accident.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux desktop dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2
+      # tauri.conf.json declares the agent as an externalBin sidecar, and a
+      # clean checkout has none — fury-desktop's build script fails without
+      # it, taking `cargo test --workspace` down with it. Same step as the
+      # linux-shell job in ci.yml runs for the same reason; CONTRIBUTING.md
+      # documents the failure mode.
+      - name: Build the agent sidecar
+        run: node desktop/scripts/sidecar.mjs
+      - name: Test workspace
+        run: cargo test --workspace --all-targets
+      - name: Download the matching Linux core
+        env:
+          CORE_URL: ${{ inputs.core_url }}
+        run: |
+          set -euo pipefail
+          case "$CORE_URL" in https://*) ;; *) echo 'core_url must use HTTPS' >&2; exit 1 ;; esac
+          mkdir -p "$GITHUB_WORKSPACE/core-stage" "$GITHUB_WORKSPACE/core-download"
+          curl --fail --location --retry 3 --output "$GITHUB_WORKSPACE/core-download/core.tar.xz" "$CORE_URL"
+          # The archive is flat, chrome at the top (pack-core-linux.sh). A
+          # wrapping directory, if somebody feeds one anyway, is flattened so
+          # FURY_CORE_DIR is always the directory that holds chrome itself.
+          tar -xJf "$GITHUB_WORKSPACE/core-download/core.tar.xz" -C "$GITHUB_WORKSPACE/core-stage"
+          root=$(find "$GITHUB_WORKSPACE/core-stage" -maxdepth 2 -type f -name chrome -executable -print -quit)
+          test -n "$root"
+          if [ "$(dirname "$root")" != "$GITHUB_WORKSPACE/core-stage" ]; then
+            mv "$(dirname "$root")"/* "$GITHUB_WORKSPACE/core-stage/"
+          fi
+          "$GITHUB_WORKSPACE/core-stage/chrome" --version
+          echo "FURY_CORE_DIR=$GITHUB_WORKSPACE/core-stage" >> "$GITHUB_ENV"
+      - name: Build and collect Linux bundles
+        env:
+          OUT: ${{ github.workspace }}/dist
+        run: tools/release/package-linux.sh "${{ inputs.version }}"
+      - name: Verify packages
+        run: |
+          set -euo pipefail
+          test "$(find dist -maxdepth 1 -name '*.AppImage' | wc -l)" -eq 1
+          test "$(find dist -maxdepth 1 -name '*.deb' | wc -l)" -eq 1
+          test "$(find dist -maxdepth 1 -name 'fury-core-*-linux-x64.tar.xz' | wc -l)" -eq 1
+          appimage=$(find dist -maxdepth 1 -name '*.AppImage')
+          deb=$(find dist -maxdepth 1 -name '*.deb')
+          core=$(find dist -maxdepth 1 -name 'fury-core-*-linux-x64.tar.xz')
+          test -x "$appimage"
+          head -c 4 "$appimage" | grep -q $'\x7fELF'
+          dpkg-deb --field "$deb" Architecture | grep -qx amd64
+          dpkg-deb --field "$deb" Version | grep -qx "${{ inputs.version }}"
+          tar -tJf "$core" | grep -Eq '^\./(chrome|fury-core)$'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fury-linux-release
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7

@@ -47,6 +47,14 @@ sqlx = { version = "0.8", default-features = false, features = [
 ] }
 tar = "0.4"
 flate2 = "1"
+# TLS to an `https://` upstream proxy: the hop from this machine to the proxy
+# is encrypted and verified against the system root store before any CONNECT
+# runs inside it. The same three crates the checker's reqwest already pulls,
+# on the ring provider this workspace already carries — no aws-lc, no second
+# crypto family. `default-features = false` keeps it that way.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls-native-certs = { version = "0.8", default-features = false }
 # The .xz half of a core archive is decoded here rather than by whatever tar
 # the machine happens to have -- see unpack() in install_core.rs. Pure Rust on
 # purpose: the C liblzma would be faster and would put a C toolchain between

@@ -111,6 +111,7 @@ async fn main() -> anyhow::Result<()> {
                    fury-agent relay <upstream-url> [--port N]\n      \
                      Start a profile relay. Upstream may be:\n        \
                        http://user:pass@host:port\n        \
+                       https://user:pass@host:port — the proxy hop itself in TLS\n        \
                        socks5://user:pass@host:port\n  \
                    fury-agent launch <persona.json> [options]\n      \
                      Derive a profile from a persona and run the core on it.\n        \
@@ -381,10 +382,14 @@ async fn cmd_launch(args: &[String]) -> anyhow::Result<()> {
 /// Looked up rather than configured, because the common case is that the app
 /// bundle ships one next to the agent. FURY_CORE overrides for a development
 /// tree, where the build output is somewhere only the developer knows.
-/// The Chrome version of a core, read without starting it: the PE version
-/// resource on Windows, Info.plist on macOS. None when it cannot be read, and
-/// that is not treated as a mismatch -- a core that will not say is a core the
-/// existing checks already deal with at launch.
+/// The Chrome version of a core: the PE version resource on Windows and
+/// Info.plist on macOS, both read without starting anything. Linux has
+/// neither, so there the core is run once with `--version` -- on Linux a
+/// genuine fast path, which prints and exits without opening a browser (the
+/// opposite of Windows, see `probe_version`), and the run is bounded so a
+/// core that will not answer cannot hang a launch. None when it cannot be
+/// read, and that is not treated as a mismatch -- a core that will not say is
+/// a core the existing checks already deal with at launch.
 pub fn core_version(exe: &std::path::Path) -> Option<String> {
     #[cfg(windows)]
     {
@@ -400,8 +405,65 @@ pub fn core_version(exe: &std::path::Path) -> Option<String> {
         let end = rest[start..].find("</string>")?;
         return Some(rest[start..start + end].trim().to_string());
     }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        // The same probe install_core already runs to accept an install, this
+        // time bounded: a core that does not answer within five seconds is
+        // killed and reported as unreadable, never waited on forever. It is
+        // also the one version read here that starts a process, so it says so
+        // rather than borrowing the "without starting it" claim of the other
+        // platforms.
+        const VERSION_PROBE: std::time::Duration = std::time::Duration::from_secs(5);
+        let mut child = std::process::Command::new(exe)
+            .arg("--version")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .ok()?;
+        let deadline = std::time::Instant::now() + VERSION_PROBE;
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    let mut said = String::new();
+                    if let Some(mut out) = child.stdout.take() {
+                        use std::io::Read;
+                        let _ = out.read_to_string(&mut said);
+                    }
+                    return if status.success() {
+                        version_from_said(&said)
+                    } else {
+                        None
+                    };
+                }
+                Ok(None) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+            }
+        }
+    }
     #[allow(unreachable_code)]
     None
+}
+
+/// The version number in what a core printed, `Fury155.0.8059.12` included:
+/// the product name runs straight into the number, so the version is cut out
+/// as the first digit through the last digit or dot. None when nothing like a
+/// number was printed -- and None is never a mismatch.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn version_from_said(said: &str) -> Option<String> {
+    let bytes = said.as_bytes();
+    let start = bytes.iter().position(|b| b.is_ascii_digit())?;
+    let end = bytes[start..]
+        .iter()
+        .position(|b| !b.is_ascii_digit() && *b != b'.')
+        .map_or(said.len(), |i| start + i);
+    let version = said[start..end].trim_matches('.');
+    (!version.is_empty()).then(|| version.to_string())
 }
 
 /// The installed core's version, when it is a different Chrome from the one
@@ -757,7 +819,12 @@ pub fn parse_upstream(url: &str) -> anyhow::Result<Upstream> {
     let host = host.to_string();
 
     Ok(match scheme {
-        "http" | "https" => Upstream::Http { host, port, auth },
+        // Two different hops: `http` speaks in the clear, `https` wraps the
+        // same protocol in TLS verified against the system root store before
+        // any CONNECT runs inside it. Collapsing them again would send the
+        // credentials and the traffic of an https profile out in plaintext.
+        "http" => Upstream::Http { host, port, auth },
+        "https" => Upstream::Https { host, port, auth },
         // socks5 is treated as socks5h unconditionally: local DNS resolution
         // would leak the operator's resolver. See docs/05.
         "socks5" | "socks5h" => Upstream::Socks5 { host, port, auth },
@@ -913,6 +980,20 @@ mod tests {
             Upstream::Socks5 { auth: None, .. }
         ));
     }
+    #[test]
+    fn https_scheme_is_its_own_upstream() {
+        // The defect this is named for: https used to collapse into Http, and
+        // the relay then dialled a TLS-speaking proxy with a bare socket.
+        let u = parse_upstream("https://bob:s3cr3t@proxy.example:8443").unwrap();
+        match u {
+            Upstream::Https { host, port, auth } => {
+                assert_eq!(host, "proxy.example");
+                assert_eq!(port, 8443);
+                assert_eq!(auth.unwrap().password, "s3cr3t");
+            }
+            other => panic!("https:// must parse to Upstream::Https, got {other:?}"),
+        }
+    }
 
     #[test]
     fn unknown_schemes_are_refused() {
@@ -951,6 +1032,35 @@ mod tests {
         assert_eq!(super::core_outdated(&current), None);
         // A core whose version cannot be read is not called outdated.
         assert_eq!(super::core_outdated(&root.join("nowhere/Fury.app/Contents/MacOS/Fury")), None);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// The Linux twin of the macOS test above, with one honest difference: on
+    /// Linux the version is read by running the core with `--version`, so the
+    /// fixture is a real executable this test owns, printing the format the
+    /// real core prints — the product name run into the number, no space.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn a_linux_core_of_another_chrome_is_outdated_and_this_one_is_not() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join("fury-core-version-test-linux");
+        std::fs::remove_dir_all(&root).ok();
+        let exe_for = |version: &str| {
+            let dir = root.join(version);
+            std::fs::create_dir_all(&dir).unwrap();
+            let exe = dir.join("fury-core");
+            std::fs::write(&exe, format!("#!/bin/sh\necho Fury{version}\n")).unwrap();
+            std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+            exe
+        };
+        let old = exe_for("153.0.8010.37");
+        let current = exe_for(&format!("{}.0.8059.12", super::CHROME_MAJOR));
+        assert_eq!(super::core_version(&old).as_deref(), Some("153.0.8010.37"));
+        assert_eq!(super::core_outdated(&old).as_deref(), Some("153.0.8010.37"));
+        assert_eq!(super::core_outdated(&current), None);
+        // A core whose version cannot be read is not called outdated.
+        assert_eq!(super::core_outdated(&root.join("nowhere/fury-core")), None);
         std::fs::remove_dir_all(&root).ok();
     }
 }

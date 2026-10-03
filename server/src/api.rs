@@ -3925,13 +3925,117 @@ async fn upload_bundle(
         ));
     }
 
-    let current: i32 = sqlx::query_scalar("SELECT current_version FROM profiles WHERE id = $1")
-        .bind(profile_id)
-        .fetch_optional(db.as_mut())
-        .await?
-        .ok_or(ApiError::NotFound)?;
+    // Publication is serialized here by the profile's own row: the
+    // transaction takes the row lock (FOR UPDATE) BEFORE the version is
+    // re-read, because the version check and the publication are one decision
+    // and used to span two moments. Two uploads based on the same base
+    // version both read `current`, both derived the same filename, and both
+    // renamed onto it; the unique constraint on (profile_id, version) rejected
+    // the second INSERT, but the second rename had already replaced the
+    // winner's file with the loser's, and the row then pointed at bytes its
+    // digest did not describe. Under the row lock the loser waits, re-reads
+    // the version after the winner commits, and is refused here — a 409 with
+    // its staging file still its own, and the winner's bytes untouched.
+    // The publication itself — row lock, version check, insert, rename,
+    // prune, bump — is `publish_bundle` below. Extracted so the database test
+    // that races two publications on one base version drives this handler's
+    // own transaction rather than a copy of its SQL.
+    let Publication { version, stale_keys } = publish_bundle(
+        db.as_mut(),
+        profile_id,
+        base_version,
+        &staging,
+        written,
+        &sha256,
+        wrapped_key.as_bytes(),
+        caller.user_id,
+    )
+    .await?;
+
+    // Now that the rows are gone for good.
+    let mut freed = 0usize;
+    for key in &stale_keys {
+        match std::fs::remove_file(bundle_root().join(key)) {
+            Ok(()) => freed += 1,
+            // Not an error worth failing an upload over: the row is gone, the
+            // allowance is freed, and a file with no row is bytes nobody can
+            // reach. Logged so it can be swept if it ever becomes a pattern.
+            Err(e) => tracing::warn!(error = %e, key, "could not remove an old bundle"),
+        }
+    }
+    if freed > 0 {
+        tracing::info!(%profile_id, freed, "pruned old bundle versions");
+    }
+
+    audit(db.as_mut(), &caller, "bundle.upload", Some(profile_id),
+          json!({ "version": version, "bytes": written, "pruned": freed })).await?;
+
+    Ok(Json(json!({ "version": version })))
+}
+
+/// What a successful publication leaves behind: the version the profile moved
+/// to, and the bundle keys the new version made stale — files the caller may
+/// remove only once the transaction is known to have committed.
+pub(crate) struct Publication {
+    pub version: i32,
+    pub stale_keys: Vec<String>,
+}
+
+/// Records an already-verified upload as the profile's next version and moves
+/// its staged file into place.
+///
+/// Extracted verbatim from `upload_bundle`, which remains its only production
+/// caller, so the concurrency contract could be driven against a real
+/// PostgreSQL (`rls_tests`) without standing up the whole handler: two
+/// publications offered on the same base version must leave exactly one
+/// published version, and the loser must be refused with the stale-version
+/// conflict while the winner's bytes stay untouched. The SQL and the order of
+/// the steps are the handler's, not the test's.
+///
+/// On every refusal the staging file is removed here: a refused upload leaves
+/// no bytes behind for a later version to pick up.
+///
+/// The contract itself: publication is serialized by the profile's own row.
+/// The transaction takes the row lock (FOR UPDATE) BEFORE the version is
+/// re-read, because the version check and the publication are one decision
+/// and used to span two moments. Two uploads based on the same base version
+/// both read `current`, both derived the same filename, and both renamed onto
+/// it; the unique constraint on (profile_id, version) rejected the second
+/// INSERT, but the second rename had already replaced the winner's file with
+/// the loser's, and the row then pointed at bytes its digest did not
+/// describe. Under the row lock the loser waits, re-reads the version after
+/// the winner commits, and is refused here — a 409 with its staging file
+/// still its own, and the winner's bytes untouched.
+pub(crate) async fn publish_bundle(
+    db: &mut sqlx::PgConnection,
+    profile_id: Uuid,
+    base_version: i32,
+    staging: &std::path::Path,
+    size: usize,
+    sha256: &str,
+    wrapped_key: &[u8],
+    uploaded_by: Uuid,
+) -> ApiResult<Publication> {
+    use sqlx::Connection as _;
+    let mut tx = db.begin().await?;
+
+    let current: i32 = sqlx::query_scalar(
+        "SELECT current_version FROM profiles WHERE id = $1 FOR UPDATE",
+    )
+    .bind(profile_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| {
+        let _ = std::fs::remove_file(staging);
+        ApiError::Internal(e.into())
+    })?
+    .ok_or_else(|| {
+        let _ = std::fs::remove_file(staging);
+        ApiError::NotFound
+    })?;
 
     if base_version != current {
+        let _ = std::fs::remove_file(staging);
         return Err(ApiError::Conflict(format!(
             "this is based on version {base_version}, but the profile is at {current} —              someone else uploaded in between"
         )));
@@ -3939,11 +4043,14 @@ async fn upload_bundle(
 
     let version = current + 1;
     let key = format!("{profile_id}/{version}.bundle");
-    std::fs::rename(&staging, bundle_root().join(&key))
-        .map_err(|e| ApiError::Internal(e.into()))?;
 
-    let mut tx = db.begin().await?;
-    sqlx::query(
+    // The row is written before the bytes are moved into place, and both
+    // happen while the row lock is held. A rejected or failed insert rolls
+    // back with nothing published and nothing pointing at the staging file;
+    // a failed rename is cleaned up below. The previous order — rename first,
+    // insert second, with no lock at all — let a losing upload overwrite the
+    // winner's file between the two.
+    if let Err(e) = sqlx::query(
         "INSERT INTO bundles (id, profile_id, version, kind, s3_key, size_bytes, sha256,
                               wrapped_dek, uploaded_by)
          VALUES ($1, $2, $3, 'snapshot', $4, $5, $6, $7, $8)",
@@ -3952,12 +4059,21 @@ async fn upload_bundle(
     .bind(profile_id)
     .bind(version)
     .bind(&key)
-    .bind(written as i64)
+    .bind(size as i64)
     .bind(sha256.as_bytes())
-    .bind(wrapped_key.as_bytes())
-    .bind(caller.user_id)
+    .bind(wrapped_key)
+    .bind(uploaded_by)
     .execute(&mut *tx)
-    .await?;
+    .await
+    {
+        let _ = std::fs::remove_file(staging);
+        return Err(e.into());
+    }
+    std::fs::rename(staging, bundle_root().join(&key)).map_err(|e| {
+        let _ = std::fs::remove_file(staging);
+        ApiError::Internal(e.into())
+    })?;
+
     // Old versions go now, inside the same transaction that records the new
     // one, so a crash between the two cannot leave rows pointing at files that
     // were already removed.
@@ -3967,9 +4083,9 @@ async fn upload_bundle(
     // something that is gone, which is the worse of the two ways to be
     // inconsistent — a stray file wastes bytes, a missing one loses a profile.
     let keep = keep_bundle_versions();
-    let mut stale: Vec<String> = Vec::new();
+    let mut stale_keys: Vec<String> = Vec::new();
     if keep > 0 {
-        stale = sqlx::query_scalar(
+        stale_keys = sqlx::query_scalar(
             "DELETE FROM bundles WHERE profile_id = $1 AND version <= $2 - $3 RETURNING s3_key",
         )
         .bind(profile_id)
@@ -3986,25 +4102,36 @@ async fn upload_bundle(
         .await?;
     tx.commit().await?;
 
-    // Now that the rows are gone for good.
-    let mut freed = 0usize;
-    for key in &stale {
-        match std::fs::remove_file(bundle_root().join(key)) {
-            Ok(()) => freed += 1,
-            // Not an error worth failing an upload over: the row is gone, the
-            // allowance is freed, and a file with no row is bytes nobody can
-            // reach. Logged so it can be swept if it ever becomes a pattern.
-            Err(e) => tracing::warn!(error = %e, key, "could not remove an old bundle"),
-        }
-    }
-    if freed > 0 {
-        tracing::info!(%profile_id, freed, keep, "pruned old bundle versions");
-    }
+    Ok(Publication { version, stale_keys })
+}
 
-    audit(db.as_mut(), &caller, "bundle.upload", Some(profile_id),
-          json!({ "version": version, "bytes": written, "pruned": freed })).await?;
+/// How many bytes one poll of a bundle download reads from disk. Small
+/// enough that a download costs the buffer and not the bundle, large enough
+/// that the syscall count does not matter.
+const BUNDLE_CHUNK: usize = 64 * 1024;
 
-    Ok(Json(json!({ "version": version })))
+/// Reads a bundle file as a stream of bounded chunks, with one buffer reused
+/// across the whole file. This is the whole of download_bundle's streaming:
+/// kept separate so the resource property — every chunk at most
+/// [`BUNDLE_CHUNK`], the body byte-identical to the file — has a place to be
+/// tested without a database.
+pub(crate) fn bundle_chunks(
+    file: tokio::fs::File,
+) -> impl futures_util::Stream<Item = Result<Vec<u8>, std::io::Error>> {
+    futures_util::stream::unfold(
+        (
+            tokio::io::BufReader::with_capacity(BUNDLE_CHUNK, file),
+            vec![0u8; BUNDLE_CHUNK],
+        ),
+        |(mut reader, mut buf)| async move {
+            use tokio::io::AsyncReadExt as _;
+            match reader.read(&mut buf).await {
+                Ok(0) => None,
+                Ok(n) => Some((Ok(buf[..n].to_vec()), (reader, buf))),
+                Err(e) => Some((Err(e), (reader, buf))),
+            }
+        },
+    )
 }
 
 /// Fetch the current version.
@@ -4059,7 +4186,7 @@ async fn download_bundle(
     // started with a different FURY_BUNDLE_DIR than the one that wrote them.
     // Both happen, and "No such file or directory" with no path in it is a
     // 500 that tells the operator nothing about which of the two it was.
-    let bytes = std::fs::read(&path).map_err(|e| {
+    let file = tokio::fs::File::open(&path).await.map_err(|e| {
         ApiError::Internal(anyhow::anyhow!(
             "the database has version {version} of this profile but its bundle is not at {} ({e}). \
              Either FURY_BUNDLE_DIR points somewhere other than where it was written, or the \
@@ -4067,16 +4194,32 @@ async fn download_bundle(
             path.display()
         ))
     })?;
+    // A published version is never rewritten — a new upload gets a new number
+    // — so the length read here is the length the client will receive, even
+    // if a prune unlinks the file mid-stream: the open descriptor keeps
+    // reading the unlinked inode to its end.
+    let len = file.metadata().await.ok().map(|m| m.len());
 
-    let mut response = bytes.into_response();
-    let headers = response.headers_mut();
-    headers.insert("x-fury-version", version.to_string().parse().unwrap());
-    headers.insert(axum::http::header::ETAG, etag.parse().unwrap());
-    headers.insert(
-        "x-fury-wrapped-key",
-        String::from_utf8_lossy(&wrapped).parse().unwrap(),
-    );
-    Ok(response)
+    // Streamed from the descriptor in bounded chunks instead of read whole.
+    // `std::fs::read` materialised the entire bundle in the handler — up to
+    // the max_bundle_bytes() ceiling, a gigabyte by default — once per
+    // downloading agent, so several launches at once held several whole
+    // bundles in memory at once.
+    let stream = bundle_chunks(file);
+
+    let wrapped_key = String::from_utf8_lossy(&wrapped).into_owned();
+    let mut builder = axum::http::Response::builder()
+        .header(axum::http::header::CONTENT_TYPE, "application/octet-stream")
+        .header("x-fury-version", version.to_string())
+        .header(axum::http::header::ETAG, etag.as_str())
+        .header("x-fury-wrapped-key", wrapped_key.as_str());
+    if let Some(len) = len {
+        builder = builder.header(axum::http::header::CONTENT_LENGTH, len);
+    }
+
+    builder
+        .body(axum::body::Body::from_stream(stream))
+        .map_err(|e| ApiError::Internal(e.into()))
 }
 
 async fn heartbeat(
@@ -4206,5 +4349,47 @@ mod tests {
         assert!(mask_host("localhost").starts_with("***"));
         assert!(mask_host("ab.example.com").ends_with(".example.com"));
         assert!(!mask_host("ab.example.com").starts_with("ab***"));
+    }
+
+    #[tokio::test]
+    async fn a_download_is_read_in_bounded_chunks_and_arrives_whole() {
+        // The resource property the streaming was written for: whatever the
+        // file holds, one poll holds at most BUNDLE_CHUNK bytes and the chunks
+        // reassemble byte for byte. A regression to reading the file whole
+        // turns into a single oversized chunk here; a regression to a partial
+        // read turns into a body that does not match the file.
+        //
+        // Pinned to this test only: it exercises `bundle_chunks`, the helper
+        // `download_bundle` streams through — not the handler's wiring
+        // (headers, ETag, 304 path) and not any measured memory use.
+        let mut data = vec![0u8; BUNDLE_CHUNK * 5 / 2]; // 2 full chunks and a remainder
+        for (i, b) in data.iter_mut().enumerate() {
+            *b = (i % 251) as u8; // deterministic, not all one byte
+        }
+
+        let path = std::env::temp_dir().join(format!("fury-bundle-chunks-{}", Uuid::now_v7()));
+        std::fs::write(&path, &data).expect("write the fixture bundle");
+        let file = tokio::fs::File::open(&path).await.expect("open the fixture bundle");
+
+        use futures_util::StreamExt;
+        // `unfold`'s stream carries an async future and is not generally
+        // Unpin, so it is pinned before `next()` can walk it.
+        let mut stream = std::pin::pin!(bundle_chunks(file));
+        let mut body: Vec<u8> = Vec::new();
+        let mut chunks = 0;
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.expect("a chunk read failed");
+            assert!(
+                chunk.len() <= BUNDLE_CHUNK,
+                "a chunk held {} bytes — the download stopped being bounded",
+                chunk.len()
+            );
+            body.extend_from_slice(&chunk);
+            chunks += 1;
+        }
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(body, data, "the streamed body differs from the file");
+        assert!(chunks > 1, "a multi-chunk file arrived as one chunk");
     }
 }

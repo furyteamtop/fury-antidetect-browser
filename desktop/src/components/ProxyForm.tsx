@@ -30,7 +30,8 @@ export function ProxyForm({
   const [kind, setKind] = useState(editing?.kind ?? "socks5");
   /** The type the pasted address answered on, while it is still the one set. */
   const [sniffed, setSniffed] = useState<string | null>(null);
-  /** A type button pressed after the paste outranks what the address said. */
+  /** A type button pressed, or a host edit made, after the paste outrank
+   *  what the address said. */
   const kindTouched = useRef(false);
   const [host, setHost] = useState(editing?.host ?? "");
   const [port, setPort] = useState(String(editing?.port ?? ""));
@@ -91,7 +92,7 @@ export function ProxyForm({
             <div>
               <div className="row">
                 <input id="f-host" value={host} autoFocus placeholder="exit.provider.net"
-                  onChange={(e) => setHost(e.target.value)}
+                  onChange={(e) => { kindTouched.current = true; setHost(e.target.value); }}
                   onPaste={spreadPastedProxy((p) => {
                     kindTouched.current = false;
                     setSniffed(null);

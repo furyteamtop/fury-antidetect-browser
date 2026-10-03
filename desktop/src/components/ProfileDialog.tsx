@@ -570,7 +570,7 @@ export function ProfileDialog({
                             id="px-host"
                             value={pxHost}
                             placeholder="exit.provider.net"
-                            onChange={(e) => setPxHost(e.target.value)}
+                            onChange={(e) => { pxKindTouched.current = true; setPxHost(e.target.value); }}
                             onPaste={spreadPastedProxy((p) => {
                               pxKindTouched.current = false;
                               setPxSniffed(null);
