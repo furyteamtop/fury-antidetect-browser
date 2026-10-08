@@ -29,3 +29,12 @@ rand = "0.8"
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# Proc-macros and build scripts are not shipped, and stripping them broke the
+# release build on 08.10.2026 (rustc 1.97.1, ld-27037.1): the stripped
+# libsqlx_macros.dylib had a "mis-aligned LINKEDIT string pool" that dlopen
+# refuses, so `sqlx` could not compile; unstripped it loads. It surfaced when
+# the rustls bump rebuilt sqlx-macros for the first time in a while. The
+# binaries above stay stripped.
+[profile.release.build-override]
+strip = false
