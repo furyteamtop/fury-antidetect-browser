@@ -367,6 +367,13 @@ type Check = Awaited<ReturnType<typeof api.checkUpdate>>;
 function About({ shell }: { shell: Shell }) {
   const { t } = useI18n();
   const [check, setCheck] = useState<Check | null>(null);
+  const [autoCheck, setAutoCheck] = useState(() => {
+    try {
+      return localStorage.getItem("fury.update.auto") !== "off";
+    } catch {
+      return true;
+    }
+  });
   const [busy, setBusy] = useState(false);
 
   return (
@@ -431,6 +438,26 @@ function About({ shell }: { shell: Shell }) {
             {check.status === "unreachable" && (check.message ?? t("about.unreachable"))}
           </p>
         )}
+
+        {/* On by default since 0.2.18: a check nobody presses is a check that
+            does not happen. Off for whoever does not want the application to
+            ask GitHub anything; App.tsx reads the same key. */}
+        <label className="row" style={{ marginTop: "var(--s-2)" }}>
+          <input
+            type="checkbox"
+            style={{ width: 14, height: 14, accentColor: "var(--accent)" }}
+            checked={autoCheck}
+            onChange={(e) => {
+              setAutoCheck(e.target.checked);
+              try {
+                localStorage.setItem("fury.update.auto", e.target.checked ? "on" : "off");
+              } catch {
+                /* a private window: the choice lasts this session */
+              }
+            }}
+          />
+          {t("about.autoCheck")}
+        </label>
 
         {/* Said plainly rather than implied by a missing button: an application
             that could silently replace itself is exactly what this one must not

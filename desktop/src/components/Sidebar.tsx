@@ -5,7 +5,7 @@ import { useI18n } from "../i18n";
 import { useState } from "react";
 import type { Me, Project, Shell } from "../api";
 
-export type View = "profiles" | "sharedWithMe" | "proxies" | "extensions" | "trash" | "users";
+export type View = "profiles" | "sharedWithMe" | "proxies" | "extensions" | "assistants" | "trash" | "users";
 
 export function Sidebar({
   projects,
@@ -63,8 +63,8 @@ export function Sidebar({
         {/* "Shared with me" only when there is a server to be shared from.
             On a machine working alone it would be a permanently empty room. */}
         {((local
-          ? (["profiles", "proxies", "extensions", "users", "trash"] as const)
-          : (["profiles", "sharedWithMe", "proxies", "extensions", "users", "trash"] as const)) as readonly View[]
+          ? (["profiles", "proxies", "extensions", "assistants", "users", "trash"] as const)
+          : (["profiles", "sharedWithMe", "proxies", "extensions", "assistants", "users", "trash"] as const)) as readonly View[]
         ).map((v) => (
               <button
                 key={v}

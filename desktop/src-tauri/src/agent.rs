@@ -262,7 +262,7 @@ pub async fn ensure_running() -> Result<(), AgentError> {
     Err(AgentError::NotRunning)
 }
 
-fn agent_binary() -> Option<PathBuf> {
+pub(crate) fn agent_binary() -> Option<PathBuf> {
     if let Ok(explicit) = std::env::var("FURY_AGENT") {
         let path = PathBuf::from(explicit);
         return path.exists().then_some(path);

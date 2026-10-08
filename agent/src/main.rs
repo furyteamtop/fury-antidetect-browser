@@ -11,6 +11,7 @@
 //! docs/09-roadmap.md for what is still missing.
 
 mod blocklist;
+mod browse;
 mod bundle;
 mod capture;
 mod cookies;
@@ -22,6 +23,7 @@ mod http;
 mod import_browser;
 mod install_core;
 mod ipc;
+mod mcp;
 mod launcher;
 mod mirror;
 mod paths;
@@ -93,6 +95,13 @@ async fn main() -> anyhow::Result<()> {
 
             agent.serve().await
         }
+        // An MCP server on stdin/stdout, for Claude Desktop, Cursor and the
+        // rest. See mcp.rs; the desktop's AI assistants screen points them here.
+        Some("mcp") => mcp::serve().await,
+        Some("mcp-skill") => {
+            print!("{}", mcp::SKILL);
+            Ok(())
+        }
         Some("relay") => cmd_relay(&args[1..]).await,
         Some("launch") => cmd_launch(&args[1..]).await,
         Some("check-fingerprint") => cmd_check_fingerprint(&args[1..]),
@@ -108,6 +117,9 @@ async fn main() -> anyhow::Result<()> {
                    fury-agent serve\n      \
                      Run the local daemon: profiles, proxies, launching.\n      \
                      This is what the desktop app talks to.\n  \
+                   fury-agent mcp\n      \
+                     MCP server on stdin/stdout for Claude Desktop, Cursor, Claude Code.\n      \
+                     Fury's AI assistants settings connect it with one button.\n  \
                    fury-agent relay <upstream-url> [--port N]\n      \
                      Start a profile relay. Upstream may be:\n        \
                        http://user:pass@host:port\n        \
@@ -466,6 +478,12 @@ pub fn core_stale(exe: &std::path::Path) -> Option<Option<String>> {
     }
     let need = parse_release(CORE_BUILD)?;
     match std::fs::read_to_string(paths::core_release_file()) {
+        Err(_) if core_is_current_build(exe) => {
+            // Said once and written down, so the next poll reads a file
+            // instead of hashing a few hundred megabytes again.
+            let _ = std::fs::write(paths::core_release_file(), CORE_BUILD);
+            None
+        }
         Err(_) => Some(None),
         Ok(text) if text.trim() == "manual" => None,
         Ok(text) => match parse_release(&text) {
@@ -474,6 +492,57 @@ pub fn core_stale(exe: &std::path::Path) -> Option<Option<String>> {
             None => Some(None),
         },
     }
+}
+
+/// The library that carries the engine in a CORE_BUILD core, by platform:
+/// (path from the core's executable, SHA-256). The rest of the archive is
+/// resources, and every Fury patch lands in this one file.
+///
+/// Why this exists: a core installed before 0.2.16 has no record of its build,
+/// so every such install was told "possibly an older build" -- including the
+/// ones that were current. The owner of this project saw the bar on a core
+/// byte-identical to 0.2.10 (08.10.2026) and rightly asked why. Comparing the
+/// file settles it without a 150 MB download. Update these with CORE_BUILD.
+#[cfg(target_os = "macos")]
+const CORE_BUILD_ENGINE: Option<(&str, &str)> = Some((
+    "../Frameworks/Fury Framework.framework/Versions/Current/Fury Framework",
+    "315f6994d940509b26d844197b88e0c2c4808160a21365b1461249d9d8e29598",
+));
+#[cfg(windows)]
+const CORE_BUILD_ENGINE: Option<(&str, &str)> = Some((
+    "chrome.dll",
+    "73fa9acf891d073dc559017bf400bc5e13a6da619d79547aa94af8c91d0f3dd4",
+));
+#[cfg(not(any(target_os = "macos", windows)))]
+const CORE_BUILD_ENGINE: Option<(&str, &str)> = None;
+
+/// Whether an unrecorded core is in fact CORE_BUILD. Hashed at most once per
+/// run: a core that does not match keeps its bar without being read again on
+/// every status poll.
+fn core_is_current_build(exe: &std::path::Path) -> bool {
+    static VERDICT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *VERDICT.get_or_init(|| {
+        let Some((rel, want)) = CORE_BUILD_ENGINE else { return false };
+        let Some(dir) = exe.parent() else { return false };
+        engine_matches(&dir.join(rel), want)
+    })
+}
+
+fn engine_matches(path: &std::path::Path, want: &str) -> bool {
+    use sha2::Digest;
+    use std::io::Read;
+    let Ok(mut f) = std::fs::File::open(path) else { return false };
+    let mut hasher = sha2::Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        match f.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => hasher.update(&buf[..n]),
+            Err(_) => return false,
+        }
+    }
+    let got: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    got == want
 }
 
 fn core_version_problem(exe: &std::path::Path) -> Option<String> {
@@ -967,5 +1036,20 @@ mod core_build_tests {
         assert_eq!(parse_release("0.2"), None);
         assert_eq!(parse_release("0.2.10.1"), None);
         assert!(parse_release(CORE_BUILD).is_some(), "CORE_BUILD must parse");
+    }
+
+    #[test]
+    fn an_engine_is_recognised_by_its_hash_and_nothing_else() {
+        let dir = std::env::temp_dir().join(format!("fury-engine-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("engine");
+        std::fs::write(&f, b"abc").unwrap();
+        // sha256("abc")
+        let abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        assert!(super::engine_matches(&f, abc));
+        std::fs::write(&f, b"abd").unwrap();
+        assert!(!super::engine_matches(&f, abc));
+        assert!(!super::engine_matches(&dir.join("missing"), abc));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

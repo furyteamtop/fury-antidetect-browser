@@ -481,6 +481,16 @@ if (isDesktop && typeof localStorage !== "undefined") {
 /** A profile a bulk action (warming, mirroring) could not take. `code` is
  *  set when the reason is one of the application's own, so it can be shown in
  *  the interface's language rather than the agent's. */
+export type Assistants = {
+  agent: string | null;
+  agent_problem: "missing" | "not_installed" | null;
+  clients: { id: "claude_desktop" | "cursor"; installed: boolean; connected: boolean; stale: boolean; config: string }[];
+  claude_code: string | null;
+  snippet: string | null;
+  skill_installed: boolean;
+  skill_path: string;
+};
+
 export type Refusal = { id: string; reason: string; code?: string | null };
 
 export class ApiError extends Error {
@@ -799,12 +809,20 @@ export const api = {
   removeMember: (userId: string | null): Promise<{ generation: number }> =>
     cmd("remove_member", { userId }),
 
+  /** AI assistants over MCP: which are connected, and connecting them. See
+   *  src-tauri/assistants.rs. */
+  assistants: (): Promise<Assistants> => cmd("assistants_state"),
+  assistantsConnect: (client: string): Promise<Assistants> => cmd("assistants_connect", { client }),
+  assistantsDisconnect: (client: string): Promise<Assistants> => cmd("assistants_disconnect", { client }),
+  assistantsInstallSkill: (): Promise<Assistants> => cmd("assistants_install_skill"),
+
   /** Ask the release feed whether there is a newer build. It never installs:
    *  see src-tauri/update.rs for why that waits on signed releases. */
   checkUpdate: (): Promise<{
     current: string;
     latest: string | null;
     url: string | null;
+    download: string | null;
     notes: string | null;
     status: "current" | "available" | "unpublished" | "unreachable";
     message: string | null;
@@ -815,6 +833,7 @@ export const api = {
           current: "dev",
           latest: null,
           url: null,
+          download: null,
           notes: null,
           status: "unreachable" as const,
           message: "Update checks are desktop-only.",

@@ -11,6 +11,7 @@ import { Cookies } from "./components/Cookies";
 import { Extensions } from "./components/Extensions";
 import { NetworkReport } from "./components/NetworkReport";
 import { ExtensionsView } from "./components/ExtensionsView";
+import { AssistantsView } from "./components/AssistantsView";
 import { WarmDialog } from "./components/WarmDialog";
 import { useAsk } from "./components/Ask";
 import { CommandPalette, type Command } from "./components/CommandPalette";
@@ -63,6 +64,28 @@ export function App() {
   // first), and holding every button in the list for that long read as the
   // application having frozen -- "the Open button does not press", 27.09.2026.
   const [launching, setLaunching] = useState<Set<string>>(new Set());
+  // The release feed's answer, and the version the operator said "later" to.
+  const [update, setUpdate] = useState<Awaited<ReturnType<typeof api.checkUpdate>> | null>(null);
+  const [dismissedUpdate, setDismissedUpdate] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem("fury.update.dismissed");
+    } catch {
+      return null;
+    }
+  });
+  useEffect(() => {
+    let off = false;
+    try {
+      off = localStorage.getItem("fury.update.auto") === "off";
+    } catch {
+      /* default: on */
+    }
+    if (off) return;
+    const check = () => api.checkUpdate().then(setUpdate, () => {});
+    void check();
+    const every = setInterval(check, 6 * 60 * 60 * 1000);
+    return () => clearInterval(every);
+  }, []);
   const [editing, setEditing] = useState<Profile | null | undefined>(undefined);
   const [query, setQuery] = useState("");
   const [tag, setTag] = useState("");
@@ -685,6 +708,8 @@ export function App() {
                 ? t("nav.proxies")
                 : view === "extensions"
                 ? t("nav.extensions")
+                : view === "assistants"
+                ? t("nav.assistants")
                 : view === "users"
                   ? t("nav.users")
                   : view === "sharedWithMe"
@@ -838,6 +863,42 @@ export function App() {
               }}
             >
               {dl?.running ? t("app.coreDownloadingShort") : t("app.coreDownload")}
+            </button>
+          </div>
+        )}
+
+        {/* A newer Fury. The check used to sit behind a button on the About
+            screen, so nobody saw a release unless they went looking: the
+            owner ran 0.2.10 for a week of releases and asked why the
+            application never said (08.10.2026). Checked at start and every
+            six hours; dismissed per version. It links, it does not install --
+            see src-tauri/update.rs. */}
+        {update && update.status === "available" && update.latest !== dismissedUpdate && (
+          <div className="notice" role="status">
+            <div style={{ flex: 1 }}>
+              <strong>{t("app.updateAvailable", { version: (update.latest ?? "").replace(/^v/, ""), current: update.current })}</strong>
+              <div className="muted" style={{ marginTop: "var(--s-1)" }}>{t("app.updateHow")}</div>
+            </div>
+            {update.url && (
+              <button className="ghost" onClick={() => void api.openUrl(update.url!)}>
+                {t("app.updateNotes")}
+              </button>
+            )}
+            <button className="primary" onClick={() => void api.openUrl(update.download ?? update.url!)}>
+              {t("app.updateDownload")}
+            </button>
+            <button
+              className="ghost"
+              onClick={() => {
+                try {
+                  localStorage.setItem("fury.update.dismissed", update.latest ?? "");
+                } catch {
+                  /* a private window: dismissed for this session only */
+                }
+                setDismissedUpdate(update.latest);
+              }}
+            >
+              {t("app.updateLater")}
             </button>
           </div>
         )}
@@ -1292,6 +1353,7 @@ export function App() {
             them looking for a profile list that was never theirs. */}
         {view === "proxies" && <Proxies profiles={profiles} />}
         {view === "extensions" && <ExtensionsView profiles={profiles} />}
+        {view === "assistants" && <AssistantsView />}
 
         {view === "users" && (
           <Users

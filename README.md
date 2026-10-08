@@ -205,12 +205,15 @@ Six endpoints and one bearer token, off until `FURY_API_PORT` says otherwise.
 and the one people actually want: run a job across every profile, one at a time,
 never leaving a browser open on a failure.
 
-**MCP server — [tools/mcp/fury-mcp.py](tools/mcp/fury-mcp.py).** The same
-operations for Claude Desktop, Cursor and any MCP client: "open every profile
-tagged warm, visit the platform, close them". Competitors sell this as an "AI
-agent" — for credits, on their model, on their server, with access to your
-profiles. Here the agent is yours, the key is yours, and nothing about a profile
-leaves the machine. Not less convenient; fewer intermediaries.
+**MCP server, built in.** Open **AI assistants** in the sidebar and press
+Connect: Claude Desktop, Cursor, Claude Code or any MCP client can then list
+profiles, open them, go to sites, read pages, click, type, take screenshots and
+warm profiles up, by asking in plain words: "open every profile tagged warm,
+check the inbox, close them". The server is `fury-agent mcp`, shipped in every
+install, and it carries its own skill, so the assistant knows how Fury works
+from the first message. Competitors sell this as an "AI agent", for credits, on
+their model, on their server, with access to your profiles. Here the assistant
+is yours, the key is yours, and proxy passwords never reach it.
 
 **Extensions** — a `.crx` is installed into a profile from the application; the
 extension's id survives cloning (the developer key is written into the

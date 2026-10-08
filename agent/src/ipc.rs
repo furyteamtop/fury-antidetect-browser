@@ -1954,6 +1954,39 @@ impl Agent {
             }
             "profile.stop" => self.stop(&str_param(&params, "id")?).await,
 
+            // The page of an open profile, for an assistant over MCP. See
+            // browse.rs. Only a profile this agent opened with the debugging
+            // port has one to drive; anything else is refused with a reason
+            // the assistant can act on.
+            "page.navigate" | "page.read" | "page.click" | "page.type" | "page.screenshot" => {
+                let id = str_param(&params, "id")?;
+                let ws = {
+                    let mut running = self.running.lock().await;
+                    running.retain(|_, entry| !matches!(entry.child.try_wait(), Ok(Some(_))));
+                    match running.get(&id) {
+                        None => {
+                            return Err(Coded {
+                                code: "err.pageNotOpen",
+                                message: "this profile is not open. Start it with fury_start_profile first".into(),
+                            }
+                            .into())
+                        }
+                        Some(r) => r.ws_endpoint.clone(),
+                    }
+                };
+                let Some(ws) = ws else {
+                    return Err(Coded {
+                        code: "err.pageNoCdp",
+                        message: "this profile was opened without the automation port (from the Fury window, \
+                                  for instance), so its page cannot be driven. Close it with fury_stop_profile \
+                                  and start it again with fury_start_profile"
+                            .into(),
+                    }
+                    .into());
+                };
+                crate::browse::dispatch(method, &ws, &params).await
+            }
+
             "credentials.list" => {
                 let profile_id = str_param(&params, "profile_id")?;
                 Ok(serde_json::to_value(self.store.credentials(&profile_id).await?)?)

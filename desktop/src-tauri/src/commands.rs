@@ -112,7 +112,7 @@ impl ApiErr {
         }
     }
 
-    fn coded(code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn coded(code: &'static str, message: impl Into<String>) -> Self {
         Self { code: Some(code.to_string()), ..Self::local(message) }
     }
 }

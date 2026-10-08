@@ -37,6 +37,9 @@ pub struct UpdateCheck {
     /// `None` when nothing has been published yet, which is not an error.
     pub latest: Option<String>,
     pub url: Option<String>,
+    /// The installer for this platform in that release, so the bar's button
+    /// downloads the file rather than leaving the person on a page of six.
+    pub download: Option<String>,
     pub notes: Option<String>,
     /// `"current" | "available" | "unpublished" | "unreachable"`
     pub status: &'static str,
@@ -73,12 +76,34 @@ fn newer(latest: &str, current: &str) -> bool {
     false
 }
 
+/// The asset a person on this machine installs: the dmg on a Mac, the setup
+/// on Windows. Never the core archives, which the application fetches itself.
+fn installer(release: &serde_json::Value) -> Option<String> {
+    let suffix = if cfg!(target_os = "macos") {
+        "-macos-arm64.dmg"
+    } else if cfg!(windows) {
+        "-windows-x64-setup.exe"
+    } else {
+        return None;
+    };
+    release
+        .get("assets")?
+        .as_array()?
+        .iter()
+        .find(|a| a.get("name").and_then(|n| n.as_str()).is_some_and(|n| n.ends_with(suffix)))?
+        .get("browser_download_url")?
+        .as_str()
+        .filter(|u| u.starts_with("https://"))
+        .map(str::to_string)
+}
+
 #[tauri::command]
 pub async fn check_update(state: tauri::State<'_, crate::commands::AppState>) -> Result<UpdateCheck, crate::commands::ApiErr> {
     let unreachable = |message: String| UpdateCheck {
         current: current(),
         latest: None,
         url: None,
+        download: None,
         notes: None,
         status: "unreachable",
         message: Some(message),
@@ -106,6 +131,7 @@ pub async fn check_update(state: tauri::State<'_, crate::commands::AppState>) ->
             current: current(),
             latest: None,
             url: None,
+            download: None,
             notes: None,
             status: "unpublished",
             message: None,
@@ -130,6 +156,7 @@ pub async fn check_update(state: tauri::State<'_, crate::commands::AppState>) ->
                 current: current(),
                 latest: None,
                 url: None,
+                download: None,
                 notes: None,
                 status: "unpublished",
                 message: None,
@@ -143,6 +170,7 @@ pub async fn check_update(state: tauri::State<'_, crate::commands::AppState>) ->
             current: current(),
             latest: None,
             url: None,
+            download: None,
             notes: None,
             status: "unpublished",
             message: None,
@@ -153,6 +181,7 @@ pub async fn check_update(state: tauri::State<'_, crate::commands::AppState>) ->
         current: current(),
         latest: Some(latest.to_string()),
         url: body.get("html_url").and_then(|v| v.as_str()).map(str::to_string),
+        download: installer(&body),
         notes: body.get("body").and_then(|v| v.as_str()).map(str::to_string),
         status: if newer(latest, current()) { "available" } else { "current" },
         message: None,

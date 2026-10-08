@@ -14,6 +14,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod agent;
+mod assistants;
 mod commands;
 mod crypto;
 mod session;
@@ -124,6 +125,10 @@ fn main() {
             commands::shared_with_me,
             commands::move_profiles,
             update::check_update,
+            assistants::assistants_state,
+            assistants::assistants_connect,
+            assistants::assistants_disconnect,
+            assistants::assistants_install_skill,
             update::open_url,
             commands::set_remember_org_key,
             commands::audit,
