@@ -72,7 +72,8 @@ jobs:
         run: |
           BIN=target/${{ matrix.arch }}-unknown-linux-musl/release/fury-server
           file "$BIN"
-          file "$BIN" | grep -q "statically linked" || { echo "not static"; exit 1; }
+          # x86_64 musl links static-pie, which `file` words differently.
+          file "$BIN" | grep -qE "statically linked|static-pie linked" || { echo "not static"; exit 1; }
           got="$("$BIN" --version)"
           echo "$got"
           [ "$got" = "fury-server ${TAG#v}" ] || { echo "version mismatch: $got vs ${TAG#v}"; exit 1; }
