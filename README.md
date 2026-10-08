@@ -316,7 +316,7 @@ row says why the alternative is worse.
 
 | | |
 |---|---|
-| ~~Chromium 155~~ | done: the Windows core moved from 153 to 155.0.8059.12 on 27.09.2026 (0.2.3), macOS on 30.09.2026 (0.2.10). A copy running an older build of the browser is told so and offered the new one (0.2.16) |
+| ~~Chromium 155~~ | done: the Windows core moved from 153 to 155.0.8059.12 on 27.09.2026 (0.2.3), macOS on 30.09.2026 (0.2.10). A copy running an older build of the browser is told so and offered the new one (0.2.16). Both moved to the stable 155.0.8059.39, with its 247 security fixes, on 08.10.2026 (0.2.21) |
 | ~~pixelscan and iphey flagging profiles~~ | done 29.09.2026 (0.2.9), with edge noise that keeps the colour in 0.2.10: what they caught were the fonts a persona reported and the shape of the canvas and WebGL noise |
 | ~~MCP for AI assistants~~ | done 08.10.2026 (0.2.18): built into the application. It used to be a Python script that needed the HTTP API switched on by hand and was in no installer |
 | ~~Windows core build~~ | done 16.08.2026: the core builds on the build server, release `v0.1.2` ships `fury-core-0.1.2-windows-x64.tar.xz` on Chromium 153, `verify-windows.ps1` passes 30 claims, Widevine answers |

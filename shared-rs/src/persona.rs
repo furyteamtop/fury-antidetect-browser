@@ -781,7 +781,7 @@ mod tests {
             ui_locale: "en-US".into(),
             geolocation: Some((40.7128, -74.0060)),
             chrome_major: 155,
-            chrome_full_version: "155.0.8059.12".into(),
+            chrome_full_version: "155.0.8059.39".into(),
         }
     }
 

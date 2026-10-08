@@ -449,7 +449,11 @@ pub fn core_outdated(exe: &std::path::Path) -> Option<String> {
 /// colour (0.2.10). Nothing told an installed copy. A tester ran the 0.2.3 core
 /// until 02.10.2026 and noticed only the icon -- Chromium's blue ball on his
 /// taskbar -- while the canvas fixes he had been told about were missing too.
-pub const CORE_BUILD: &str = "0.2.10";
+///
+/// 0.2.21 rebuilt both on Chrome 155.0.8059.39, the stable release with 247
+/// security fixes that the 155.0.8059.12 cores lacked, and carries 0903 (a
+/// macOS profile's browser quits with its last window, with its own icon).
+pub const CORE_BUILD: &str = "0.2.21";
 
 /// `0.2.10` as (0, 2, 10); None for anything else.
 pub fn parse_release(s: &str) -> Option<(u32, u32, u32)> {
@@ -506,12 +510,12 @@ pub fn core_stale(exe: &std::path::Path) -> Option<Option<String>> {
 #[cfg(target_os = "macos")]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = Some((
     "../Frameworks/Fury Framework.framework/Versions/Current/Fury Framework",
-    "315f6994d940509b26d844197b88e0c2c4808160a21365b1461249d9d8e29598",
+    "4ce8cce7a414a414fd31a62578ae95e543516c6f99bcc42e360296e5b16673a7",
 ));
 #[cfg(windows)]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = Some((
     "chrome.dll",
-    "73fa9acf891d073dc559017bf400bc5e13a6da619d79547aa94af8c91d0f3dd4",
+    "43fbc509c8817bd0bd78ace4d67dda765c74b38343737f07c592d595ca8cff8f",
 ));
 #[cfg(not(any(target_os = "macos", windows)))]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = None;
@@ -757,7 +761,7 @@ fn core_leaves() -> &'static [&'static str] {
 /// The core this agent expects to drive. Read from core/CHROMIUM_VERSION at
 /// build time would be better; hard-coded until the two are built together.
 pub const CHROME_MAJOR: u32 = 155;
-pub const CHROME_FULL_VERSION: &str = "155.0.8059.12";
+pub const CHROME_FULL_VERSION: &str = "155.0.8059.39";
 
 fn cmd_check_fingerprint(args: &[String]) -> anyhow::Result<()> {
     let path = args

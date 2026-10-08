@@ -71,7 +71,7 @@ from, it removes the quarantine flag your browser attached to the download, and
 If it prints a version, it is installed:
 
 ```
-installed Fury 155.0.8059.12
+installed Fury 155.0.8059.39
   /Users/you/Library/Application Support/Fury/core.bundle/Fury.app/Contents/MacOS/Fury
 ```
 

@@ -71,7 +71,7 @@ macOS-фреймворк, снимает карантинный флаг, кот
 стартует**. Если напечаталась версия, ядро установлено:
 
 ```
-installed Fury 155.0.8059.12
+installed Fury 155.0.8059.39
   /Users/you/Library/Application Support/Fury/core.bundle/Fury.app/Contents/MacOS/Fury
 ```
 
