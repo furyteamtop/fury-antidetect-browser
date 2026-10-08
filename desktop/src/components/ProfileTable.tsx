@@ -40,6 +40,13 @@ export function isOpenHere(
   );
 }
 
+/** 5.4 MB, 820 KB: one decimal under ten, none above. */
+function formatSize(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  const mb = bytes / (1024 * 1024);
+  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
+}
+
 export function ProfileTable({
   profiles,
   me,
@@ -343,6 +350,15 @@ export function ProfileTable({
                     is which profiles have gone stale. A profile untouched for
                     two months behaves differently from a live one. */}
                 {p.last_opened_at ? new Date(p.last_opened_at).toLocaleString() : t("row.never")}
+                {/* What it weighs where the team keeps it, and on hover what
+                    that is. "How big will a profile be, and what goes to the
+                    server -- cookies, history?" was a tester's question
+                    (08.10.2026); the answer belongs where the profile is. */}
+                {p.origin === "team" && p.bundle_bytes != null && (
+                  <div title={t("row.onServerWhat")}>
+                    {t("row.onServer", { size: formatSize(p.bundle_bytes) })}
+                  </div>
+                )}
               </td>
               <td className="actions">
                 <div>

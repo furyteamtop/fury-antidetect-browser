@@ -308,6 +308,8 @@ const en = {
   "row.idle": "Idle",
   "row.never": "never",
   "row.noProxy": "No proxy",
+  "row.onServer": "{size} on the server",
+  "row.onServerWhat": "What the team keeps of this profile: cookies, history, site data (local storage, IndexedDB), passwords and autofill saved in the browser, bookmarks, extensions and their data, site settings. Not caches, and not the parts Chrome downloads again by itself. Encrypted on the machine that uploaded it; the server cannot read it.",
   "row.noProxyAllowed": "No proxy · this machine",
   "row.sharedExit": "{n} profiles on this exit",
   "row.fixFirst": "Fix before opening",
@@ -1273,6 +1275,8 @@ const ru: Record<Key, string> = {
   "row.idle": "Свободен",
   "row.never": "ни разу",
   "row.noProxy": "Без прокси",
+  "row.onServer": "на сервере {size}",
+  "row.onServerWhat": "Что команда хранит от этого профиля: куки, историю, данные сайтов (localStorage, IndexedDB), пароли и автозаполнение браузера, закладки, расширения и их данные, настройки сайтов. Без кэшей и без того, что Chrome сам скачивает заново. Зашифровано на машине, которая отправила; сервер прочитать не может.",
   "row.noProxyAllowed": "Без прокси · с этой машины",
   "row.sharedExit": "{n} профилей на этом выходе",
   "row.fixFirst": "Сначала исправьте",
@@ -1948,6 +1952,11 @@ export function useI18n(): {
    *  happened beats a translated one that does not. */
   say: (e: unknown) => string;
   language: Language;
+  /** The language the interface is actually in: `language` resolved, so
+   *  "system" becomes "en" or "ru". Compare against this, never against the
+   *  setting -- the extension catalogue compared the setting with "ru" and
+   *  showed English to everybody on "system" (08.10.2026). */
+  resolved: "en" | "ru";
   setLanguage: (l: Language) => void;
 } {
   const [language, setStored] = useState<Language>(storedLanguage);
@@ -1977,6 +1986,7 @@ export function useI18n(): {
       return (e as Error)?.message ?? String(e);
     },
     language,
+    resolved: resolve(language),
     setLanguage: (l) => {
       localStorage.setItem(KEY, l);
       listeners.forEach((fn) => fn());

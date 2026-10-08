@@ -93,6 +93,9 @@ export interface Profile {
   origin: Origin;
   /** How many people hold this profile through a share. Zero for a local one. */
   shared_with: number;
+  /** Team profiles: the current version's size on the server, encrypted and
+   *  compressed. Absent before the first upload and from older servers. */
+  bundle_bytes?: number | null;
   /** Null when the profile is in no project. Profiles is the master list —
    *  every profile on this machine — and a project is a grouping a profile can
    *  be put into or taken out of without ever being at risk. */

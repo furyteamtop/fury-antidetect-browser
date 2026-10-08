@@ -46,6 +46,11 @@ pub struct ProfileSummary {
     /// hundred requests to draw one icon.
     #[serde(default)]
     pub shared_with: i64,
+    /// Size of the profile's current version on the server, encrypted and
+    /// compressed: what a colleague downloads to open it. None when nothing
+    /// has been uploaded yet, or from a server older than 0.2.21.
+    #[serde(default)]
+    pub bundle_bytes: Option<i64>,
     /// The operator's own note on the profile. Carried in the listing because
     /// the editor opens from a row, and an editor that opens on an empty notes
     /// box and saves it wrote the emptiness back — which is what happened until

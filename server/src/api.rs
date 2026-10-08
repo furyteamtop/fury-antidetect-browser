@@ -1049,6 +1049,7 @@ pub(crate) async fn profiles_in(
                     // sixteen-column limit for tuples, and one more would have
                     // meant a named struct for a single integer.
                     shared_with: 0,
+                    bundle_bytes: None,
                     notes: String::new(),
                     start_urls: Vec::new(),
                     status: String::new(),
@@ -1157,6 +1158,22 @@ async fn with_share_counts(
     for (id, at) in launched {
         if let Some(row) = rows.iter_mut().find(|r| r.id == id) {
             row.last_opened_at = Some(at);
+        }
+    }
+    // How much each one weighs on the server, which is the question an
+    // operator asks before sending a profile there (tester, 08.10.2026): the
+    // current version's bundle, as stored -- encrypted and compressed.
+    let sizes: Vec<(Uuid, i64)> = sqlx::query_as(
+        "SELECT b.profile_id, b.size_bytes FROM bundles b \
+         JOIN profiles f ON f.id = b.profile_id AND b.version = f.current_version \
+         WHERE b.profile_id = ANY($1)",
+    )
+    .bind(&ids)
+    .fetch_all(&mut *db)
+    .await?;
+    for (id, bytes) in sizes {
+        if let Some(row) = rows.iter_mut().find(|r| r.id == id) {
+            row.bundle_bytes = Some(bytes);
         }
     }
     let counts: Vec<(Uuid, i64)> = sqlx::query_as(

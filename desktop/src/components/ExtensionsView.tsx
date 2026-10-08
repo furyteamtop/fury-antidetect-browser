@@ -25,7 +25,7 @@ type Pick = { mode: "file" } | { mode: "store"; id: string; name: string };
 const ID_IN_TEXT = /[a-p]{32}/;
 
 export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
-  const { t, say, language } = useI18n();
+  const { t, say, resolved } = useI18n();
   const [rows, setRows] = useState<ExtensionEverywhere[] | null>(null);
   const [catalogue, setCatalogue] = useState<CatalogueEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -253,7 +253,7 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
                       · {c.licence}
                     </div>
                   </td>
-                  <td className="muted" style={{ maxWidth: 420 }}>{language === "ru" ? c.summary.ru : c.summary.en}</td>
+                  <td className="muted" style={{ maxWidth: 420 }}>{resolved === "ru" ? c.summary.ru : c.summary.en}</td>
                   <td className="muted small" style={{ whiteSpace: "nowrap" }}>
                     {n > 0 ? t("exv.inN", { n, m: eligible.length }) : t("exv.notInstalled")}
                   </td>

@@ -749,3 +749,31 @@ db_test!(the_listing_carries_the_last_launch_from_the_audit, c, {
     assert_eq!(at("shared").as_deref(), Some("2026-09-24T08:30:00Z"));
     assert_eq!(at("private"), None, "an edit is not a launch");
 });
+
+// ---------------------------------------------------------------------------
+// What a profile weighs on the server, carried by the listing
+// ---------------------------------------------------------------------------
+
+db_test!(the_listing_carries_the_current_bundle_size, c, {
+    make_shared_fixture(&mut c).await;
+    let caller = crate::auth::Caller {
+        user_id: uuid::Uuid::parse_str(USER_A).unwrap(),
+        org_id: uuid::Uuid::parse_str(ORG_A).unwrap(),
+        role: fury_shared::rbac::OrgRole::Owner,
+    };
+    let project = uuid::Uuid::parse_str(PROJECT_A).unwrap();
+    // Two versions of one profile: the listing reports the current one, not
+    // the sum and not the first. The other profile has never been uploaded.
+    let sql = format!(
+        "INSERT INTO bundles (id, profile_id, version, kind, s3_key, size_bytes, sha256, wrapped_dek, uploaded_by) VALUES
+           (gen_random_uuid(),'{SHARED}',1,'snapshot','k1',1000,'\\x00','\\x00','{USER_A}'),
+           (gen_random_uuid(),'{SHARED}',2,'snapshot','k2',5662310,'\\x00','\\x00','{USER_A}');
+         UPDATE profiles SET current_version = 2 WHERE id = '{SHARED}';"
+    );
+    c.execute(sql.as_str()).await.expect("seed two bundle versions");
+
+    let axum::Json(rows) = crate::api::profiles_in(&mut c, &caller, project).await.expect("list");
+    let size = |name: &str| rows.iter().find(|r| r.name == name).unwrap().bundle_bytes;
+    assert_eq!(size("shared"), Some(5662310));
+    assert_eq!(size("private"), None, "never uploaded, so nothing to weigh");
+});
