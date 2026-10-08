@@ -16,6 +16,16 @@ Fury keeps browser profiles. Each profile is a separate browser with its own fin
 
 For several profiles, work through them one at a time: open, do the task, close, next. Opening many at once makes the machine slow.
 
+## Creating and changing profiles
+
+`fury_create_profiles` makes one profile or a batch ("Shop {n}", up to 50). Each gets its own fingerprint seed and, unless the person names a persona, its own machine picked by how common it is; pass `os` to keep them on the person's OS. `fury_list_personas` shows the machines. Give every account its own proxy: save proxies with `fury_add_proxies` (any common format, one per line) or pass `proxy_line`, then `fury_update_profile` to assign them. Profiles sharing one exit are linked by it, so say so if the person asks for a batch on one proxy.
+
+`fury_update_profile` changes the name, tags, stage, proxy or start pages; it never touches the fingerprint. Changing the proxy of a profile that already holds an account moves that account to another address: ask first.
+
+`fury_move_to_trash` moves a profile to Fury's Trash, from which it can be restored. Ask before using it. Nothing here erases a profile for good.
+
+New profiles are created on this machine. To share one with a team, the person sends it to the server from the Fury window.
+
 ## Warming
 
 `fury_warm_up` visits ordinary sites in each profile with human-like pauses so it collects normal cookies before it is used for an account. It runs in the background and closes each profile at the end by default. Check progress with `fury_warm_status`. Use Fury's default site list unless the person gives one.
@@ -27,4 +37,5 @@ For several profiles, work through them one at a time: open, do the task, close,
 - **Ask before anything irreversible** on a site: sending a message, posting, buying, deleting, changing account settings. Reading and navigating need no confirmation.
 - **Logins are the person's.** If a site asks for a password or a code, ask the person to type it in the open window themselves.
 - Team profiles (on a Fury team server) are not available here yet; only profiles on this machine are.
+- The fingerprint (persona, seed) of an existing profile is not changed from here: a profile whose machine changes overnight is the anomaly platforms look for.
 - Errors come back as text: read them. "this profile has no proxy" means the person has to add one in Fury, or tick "Let this profile open without a proxy" on the profile's Proxy tab if it holds no account.

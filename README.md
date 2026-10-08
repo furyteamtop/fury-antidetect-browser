@@ -206,8 +206,8 @@ and the one people actually want: run a job across every profile, one at a time,
 never leaving a browser open on a failure.
 
 **MCP server, built in.** Open **AI assistants** in the sidebar and press
-Connect: Claude Desktop, Cursor, Claude Code or any MCP client can then list
-profiles, open them, go to sites, read pages, click, type, take screenshots and
+Connect: Claude Desktop, Cursor, Claude Code or any MCP client can then create
+profiles and proxies, open profiles, go to sites, read pages, click, type, take screenshots and
 warm profiles up, by asking in plain words: "open every profile tagged warm,
 check the inbox, close them". The server is `fury-agent mcp`, shipped in every
 install, and it carries its own skill, so the assistant knows how Fury works

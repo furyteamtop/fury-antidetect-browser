@@ -16,11 +16,13 @@
 //! uses -- no port, no token -- and starts the agent if nothing answers.
 //!
 //! What it may do is a fixed list (TOOLS), and that list is the whole surface:
-//! there is no "call any method" tool. It can read the profile list, open and
-//! close profiles, warm them, and drive the page of one it opened. It cannot
-//! delete, edit, export, or read cookies and passwords; proxy passwords are cut
-//! out of everything it returns, because what it returns goes to a model
-//! provider's servers.
+//! there is no "call any method" tool. It can read the profile list, create
+//! profiles and save proxies, rename, tag and re-proxy a profile, move one to
+//! the Trash, open and close profiles, warm them, and drive the page of one it
+//! opened. Creating was added on a tester's request (08.10.2026): "AdsPower's
+//! AI does everything". It cannot erase a profile, change a fingerprint,
+//! export cookies or read passwords; proxy passwords and notes are cut out of
+//! everything it returns, because what it returns goes to a model provider.
 //!
 //! Protocol: newline-delimited JSON-RPC 2.0 on stdin/stdout. Nothing else may
 //! ever be written to stdout -- logging goes to stderr and the log file.
@@ -86,6 +88,59 @@ const TOOLS: &[Tool] = &[
         name: "fury_list_proxies",
         description: "Saved proxies: name, type, host, port, last seen country and IP. Passwords are never returned.",
         schema: || json!({ "type": "object", "properties": {} }),
+    },
+    Tool {
+        name: "fury_list_personas",
+        description: "The machines a profile can be: id, OS, GPU, screen, and how common each is among real users. \
+                      Prefer common ones; the OS should usually match the person's own computer.",
+        schema: || json!({ "type": "object", "properties": {
+            "os": { "type": "string", "description": "Only this OS: windows, macos" },
+        }}),
+    },
+    Tool {
+        name: "fury_create_profiles",
+        description: "Create one profile or a batch on this machine. Each gets its own fingerprint seed. \
+                      Without a persona, machines are spread by how common they are (or restricted to `os`). \
+                      Give each account its own proxy: profiles sharing one exit are linked by it.",
+        schema: || json!({ "type": "object", "properties": {
+            "name": { "type": "string", "description": "Name, or a pattern with {n} for a batch, e.g. \"Shop {n}\"" },
+            "count": { "type": "integer", "description": "How many, 1-50 (default 1)" },
+            "tags": { "type": "array", "items": { "type": "string" } },
+            "proxy": { "type": "string", "description": "A saved proxy's id or name (fury_list_proxies)" },
+            "proxy_line": { "type": "string", "description": "Or a proxy as a line, e.g. socks5://user:pass@host:port; it is saved first" },
+            "persona": { "type": "string", "description": "Persona id from fury_list_personas" },
+            "os": { "type": "string", "description": "Or just the OS: windows, macos" },
+            "start_urls": { "type": "array", "items": { "type": "string" } },
+            "stage": { "type": "string", "description": "The account's stage, e.g. warming" },
+        }, "required": ["name"] }),
+    },
+    Tool {
+        name: "fury_update_profile",
+        description: "Change a profile on this machine: name, tags, stage, proxy, start pages. \
+                      Only the fields given change. The fingerprint is never changed here.",
+        schema: || json!({ "type": "object", "properties": {
+            "profile": profile_arg(),
+            "name": { "type": "string" },
+            "tags": { "type": "array", "items": { "type": "string" } },
+            "stage": { "type": "string" },
+            "proxy": { "type": "string", "description": "A saved proxy's id or name; empty string removes the proxy" },
+            "start_urls": { "type": "array", "items": { "type": "string" } },
+        }, "required": ["profile"] }),
+    },
+    Tool {
+        name: "fury_add_proxies",
+        description: "Save proxies from text, one per line, in any common format (host:port:user:pass, \
+                      user:pass@host:port, scheme://...). Returns what was saved and which lines were not understood.",
+        schema: || json!({ "type": "object", "properties": {
+            "lines": { "type": "string" },
+            "name_prefix": { "type": "string", "description": "Optional prefix for their names" },
+        }, "required": ["lines"] }),
+    },
+    Tool {
+        name: "fury_move_to_trash",
+        description: "Move a profile to Fury's Trash. It can be restored from there; nothing is erased. \
+                      Ask the person before doing this.",
+        schema: || json!({ "type": "object", "properties": { "profile": profile_arg() }, "required": ["profile"] }),
     },
     Tool {
         name: "fury_start_profile",
@@ -258,6 +313,110 @@ async fn call_tool(backend: &Backend, name: &str, args: &Value) -> anyhow::Resul
             let rows: Vec<Value> = all.as_array().map(|a| a.iter().map(proxy_summary).collect()).unwrap_or_default();
             Ok(text(&json!({ "count": rows.len(), "proxies": rows })))
         }
+        "fury_list_personas" => {
+            let all = backend("personas.list", json!({})).await?;
+            let want = s(args, "os").map(os_word);
+            let rows: Vec<Value> = all
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter(|p| want.as_deref().is_none_or(|w| os_word(p.get("os").and_then(Value::as_str).unwrap_or_default()) == w))
+                        .map(|p| json!({ "id": p.get("id"), "os": p.get("os"), "gpu": p.get("gpu"), "screen": p.get("screen"), "share": p.get("weight") }))
+                        .collect()
+                })
+                .unwrap_or_default();
+            Ok(text(&json!({ "count": rows.len(), "personas": rows })))
+        }
+        "fury_create_profiles" => {
+            let count = args.get("count").and_then(Value::as_u64).unwrap_or(1);
+            // Fifty, not the five hundred the window allows: a model that
+            // misread "5" as "500" should not get to fill the list.
+            if !(1..=50).contains(&count) {
+                anyhow::bail!("count must be 1-50 here; for more, create them in the Fury window");
+            }
+            let name = s(args, "name").ok_or_else(|| anyhow::anyhow!("name is required"))?;
+            let proxy_id: Option<String> = match (s(args, "proxy"), s(args, "proxy_line")) {
+                (Some(p), _) => Some(proxy_ref(backend, p).await?),
+                (None, Some(line)) => Some(import_one_proxy(backend, line).await?),
+                (None, None) => None,
+            };
+            let strings = |k: &str| -> Vec<String> {
+                args.get(k)
+                    .and_then(Value::as_array)
+                    .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                    .unwrap_or_default()
+            };
+            let (tags, start_urls) = (strings("tags"), strings("start_urls"));
+            let mut created = Vec::new();
+            let mut failed = Vec::new();
+            for n in 1..=count {
+                let this = if name.contains("{n}") {
+                    name.replace("{n}", &n.to_string())
+                } else if count == 1 {
+                    name.to_string()
+                } else {
+                    format!("{name} {n}")
+                };
+                // A persona per profile, not one for the batch: a batch on one
+                // persona is a crowd of identical machines, which is the one
+                // thing a batch of accounts must not look like.
+                let persona = match s(args, "persona") {
+                    Some(p) => p.to_string(),
+                    None => pick_persona(backend, s(args, "os")).await?,
+                };
+                // Through profiles.upsert, the window's own path: id and seed
+                // left empty are generated by the store, a fresh seed each.
+                let profile = json!({
+                    "id": "", "project_id": null, "name": this, "notes": "",
+                    "tags": tags, "status": s(args, "stage").unwrap_or_default(),
+                    "persona_id": persona, "fp_seed": 0, "proxy": null, "proxy_id": proxy_id,
+                    "timezone": null, "languages": null, "overrides": {},
+                    "start_urls": start_urls, "allow_no_proxy": false, "last_opened_at": null,
+                });
+                match backend("profiles.upsert", profile).await {
+                    Ok(r) => created.push(json!({ "name": this, "id": r.get("id"), "persona": persona })),
+                    Err(e) => failed.push(json!({ "name": this, "error": format!("{e:#}") })),
+                }
+            }
+            let mut out = json!({ "created": created, "failed": failed });
+            if proxy_id.is_none() {
+                out["note"] = json!("No proxy: these profiles will not open until one is set (fury_update_profile).");
+            } else if count > 1 {
+                out["note"] = json!("All of them share one proxy. Give each account its own exit before using them.");
+            }
+            Ok(text(&out))
+        }
+        "fury_update_profile" => {
+            let (id, _) = resolve(backend, args).await?;
+            let all = backend("profiles.list", json!({})).await?;
+            let mut p = all
+                .as_array()
+                .and_then(|a| a.iter().find(|p| p.get("id").and_then(Value::as_str) == Some(&id)).cloned())
+                .ok_or_else(|| anyhow::anyhow!("that profile is not on this machine"))?;
+            if p.get("running").and_then(Value::as_bool) == Some(true) {
+                anyhow::bail!("the profile is open; close it first (fury_stop_profile)");
+            }
+            if let Some(n) = s(args, "name") { p["name"] = json!(n); }
+            if let Some(t) = args.get("tags").filter(|v| v.is_array()) { p["tags"] = t.clone(); }
+            if let Some(st) = args.get("stage").and_then(Value::as_str) { p["status"] = json!(st.trim()); }
+            if let Some(u) = args.get("start_urls").filter(|v| v.is_array()) { p["start_urls"] = u.clone(); }
+            if let Some(px) = args.get("proxy").and_then(Value::as_str) {
+                p["proxy_id"] = if px.trim().is_empty() { Value::Null } else { json!(proxy_ref(backend, px.trim()).await?) };
+                p["proxy"] = Value::Null;
+            }
+            backend("profiles.upsert", p).await?;
+            Ok(text(&json!({ "updated": id })))
+        }
+        "fury_add_proxies" => {
+            let lines = s(args, "lines").ok_or_else(|| anyhow::anyhow!("lines is required"))?;
+            let r = backend("proxies.importMany", json!({ "text": lines, "name_prefix": s(args, "name_prefix").unwrap_or_default() })).await?;
+            Ok(text(&r))
+        }
+        "fury_move_to_trash" => {
+            let (id, name) = resolve(backend, args).await?;
+            backend("profiles.delete", json!({ "id": id })).await?;
+            Ok(text(&json!({ "moved_to_trash": name, "id": id, "restore": "Fury → Trash → Restore" })))
+        }
         "fury_start_profile" => {
             let (id, name) = resolve(backend, args).await?;
             let r = backend("profile.launch", json!({ "id": id, "cdp": true })).await?;
@@ -345,6 +504,70 @@ async fn call_tool(backend: &Backend, name: &str, args: &Value) -> anyhow::Resul
         "fury_warm_status" => Ok(text(&backend("warm.status", json!({})).await?)),
         other => anyhow::bail!("no tool {other:?}"),
     }
+}
+
+/// "Windows 11", "windows", "macOS 15", "mac" -> "windows" | "macos".
+fn os_word(os: &str) -> String {
+    let o = os.to_lowercase();
+    if o.contains("win") { "windows".into() } else if o.contains("mac") || o.contains("os x") { "macos".into() } else { o }
+}
+
+/// A saved proxy by id or by name.
+async fn proxy_ref(backend: &Backend, want: &str) -> anyhow::Result<String> {
+    let all = backend("proxies.list", json!({})).await?;
+    let all = all.as_array().cloned().unwrap_or_default();
+    let field = |p: &Value, k: &str| p.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
+    if let Some(p) = all.iter().find(|p| field(p, "id") == want) {
+        return Ok(field(p, "id"));
+    }
+    let by_name: Vec<&Value> = all.iter().filter(|p| field(p, "name").eq_ignore_ascii_case(want)).collect();
+    match by_name.as_slice() {
+        [one] => Ok(field(one, "id")),
+        [] => anyhow::bail!("no saved proxy {want:?}; fury_list_proxies shows them, fury_add_proxies saves new ones"),
+        _ => anyhow::bail!("{} proxies are called {want:?}; use the id", by_name.len()),
+    }
+}
+
+/// Save one proxy line and return its id.
+async fn import_one_proxy(backend: &Backend, line: &str) -> anyhow::Result<String> {
+    let r = backend("proxies.importMany", json!({ "text": line })).await?;
+    if let Some(id) = r.pointer("/saved/0/id").and_then(Value::as_str) {
+        return Ok(id.to_string());
+    }
+    let why = r.pointer("/rejected/0/error").and_then(Value::as_str).unwrap_or("not understood");
+    anyhow::bail!("the proxy line was not saved: {why}")
+}
+
+/// A persona of this OS, the common ones more likely, as the window does.
+async fn pick_persona(backend: &Backend, os: Option<&str>) -> anyhow::Result<String> {
+    let want = os.map(os_word);
+    let all = backend("personas.list", json!({})).await?;
+    let pool: Vec<(String, f64)> = all
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter(|p| want.as_deref().is_none_or(|w| os_word(p.get("os").and_then(Value::as_str).unwrap_or_default()) == w))
+                .map(|p| {
+                    (
+                        p.get("id").and_then(Value::as_str).unwrap_or_default().to_string(),
+                        p.get("weight").and_then(Value::as_f64).unwrap_or(1.0).max(0.0001),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if pool.is_empty() {
+        anyhow::bail!("no persona for {:?}; fury_list_personas shows what there is", os.unwrap_or_default());
+    }
+    let total: f64 = pool.iter().map(|(_, w)| w).sum();
+    let mut x = rand::random::<f64>() * total;
+    for (id, w) in &pool {
+        if x < *w {
+            return Ok(id.clone());
+        }
+        x -= w;
+    }
+    Ok(pool[pool.len() - 1].0.clone())
 }
 
 fn keep(p: &Value, args: &Value) -> bool {
