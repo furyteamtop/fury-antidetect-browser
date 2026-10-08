@@ -48,6 +48,15 @@ identity=""
 adhoc=0
 notarize=0
 keychain_profile="${FURY_NOTARY_PROFILE:-fury-notary}"
+# Or an App Store Connect API key, used directly. The stored profile vanished
+# from the keychain after a reboot on 09.10.2026 while a release was half
+# signed; the key it was made from still worked. Set all three to use it:
+#   FURY_NOTARY_KEY=~/.private_keys/AuthKey_XXXX.p8 FURY_NOTARY_KEY_ID=XXXX FURY_NOTARY_ISSUER=<uuid>
+if [ -n "${FURY_NOTARY_KEY:-}" ] && [ -n "${FURY_NOTARY_KEY_ID:-}" ] && [ -n "${FURY_NOTARY_ISSUER:-}" ]; then
+  notary_auth=(--key "$FURY_NOTARY_KEY" --key-id "$FURY_NOTARY_KEY_ID" --issuer "$FURY_NOTARY_ISSUER")
+else
+  notary_auth=(--keychain-profile "$keychain_profile")
+fi
 
 usage() {
   cat <<'EOF'
@@ -256,7 +265,7 @@ if [ "$notarize" = 1 ]; then
   zip="$staged/Fury.zip"
   rm -f "$zip"
   ditto -c -k --keepParent "$signed" "$zip"
-  xcrun notarytool submit "$zip" --keychain-profile "$keychain_profile" --wait
+  xcrun notarytool submit "$zip" "${notary_auth[@]}" --wait
   rm -f "$zip"
 
   echo

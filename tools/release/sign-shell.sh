@@ -41,6 +41,15 @@ notarize=0
 build=1
 dmg=0
 keychain_profile="${FURY_NOTARY_PROFILE:-fury-notary}"
+# Or an App Store Connect API key, used directly. The stored profile vanished
+# from the keychain after a reboot on 09.10.2026 while a release was half
+# signed; the key it was made from still worked. Set all three to use it:
+#   FURY_NOTARY_KEY=~/.private_keys/AuthKey_XXXX.p8 FURY_NOTARY_KEY_ID=XXXX FURY_NOTARY_ISSUER=<uuid>
+if [ -n "${FURY_NOTARY_KEY:-}" ] && [ -n "${FURY_NOTARY_KEY_ID:-}" ] && [ -n "${FURY_NOTARY_ISSUER:-}" ]; then
+  notary_auth=(--key "$FURY_NOTARY_KEY" --key-id "$FURY_NOTARY_KEY_ID" --issuer "$FURY_NOTARY_ISSUER")
+else
+  notary_auth=(--keychain-profile "$keychain_profile")
+fi
 
 usage() {
   cat <<'EOF'
@@ -194,7 +203,7 @@ if [ "$notarize" = 1 ]; then
   rm -f "$zip"
   ditto -c -k --keepParent "$app" "$zip"
 
-  xcrun notarytool submit "$zip" --keychain-profile "$keychain_profile" --wait
+  xcrun notarytool submit "$zip" "${notary_auth[@]}" --wait
 
   # Staple the .app, not the zip: the zip is a transport, and what a user keeps
   # is the bundle. Without a stapled ticket a first launch with no network
@@ -235,7 +244,7 @@ if [ "$dmg" = 1 ]; then
   rm -rf "$stage"
   codesign --force --sign "$identity" --timestamp "$dmg_path"
   if [ "$notarize" = 1 ]; then
-    xcrun notarytool submit "$dmg_path" --keychain-profile "$keychain_profile" --wait
+    xcrun notarytool submit "$dmg_path" "${notary_auth[@]}" --wait
     xcrun stapler staple "$dmg_path"
     xcrun stapler validate "$dmg_path"
     echo
