@@ -315,7 +315,10 @@ const en = {
   "auth.unlockWhy": "Your session is still valid, but this machine is not holding the key that opens the team's data. Either you asked not to keep it between launches, or nobody has handed it to you yet — in which case a password will not help and an owner has to grant it.",
   "err.notSignedIn": "Not signed in.",
   "err.agentDown": "The local agent is not running, so this machine cannot list personas or open a profile. It is started automatically — if this persists, quit and reopen Fury.",
-  "err.noProxy": "This profile has no proxy. Everything the browser does goes through one, so launching without it would send traffic from this machine's own address.",
+  "err.noProxy":
+    "This profile has no proxy, so it would go out from this machine's own address. Give it one, or tick \"Let this profile open without a proxy\" on the Proxy tab of its settings (the pencil).",
+  "err.noProxyTeam":
+    "This team profile has no proxy. A team profile cannot open without one: the server will not hand it out. Give it a proxy in its settings.",
   "err.staleOrgKey": "This server offered an older organisation key than this machine has already used. Refusing: a key that goes backwards is one somebody removed from the team may still hold.",
   "err.noOrgKey": "This machine does not hold the organisation key yet. An owner or admin has to hand it over before anything here can be decrypted — until then you can see the team and open nothing.",
   "err.noOrgKeySeal": "This machine does not hold the organisation key yet, so it cannot seal a proxy's credentials. Ask an owner or admin to hand the key over first.",
@@ -1232,7 +1235,10 @@ const ru: Record<Key, string> = {
   "auth.unlockWhy": "Сессия жива, но на этой машине нет ключа, которым открываются данные команды. Либо вы просили не хранить его между запусками, либо вам его ещё не выдали — тогда пароль не поможет и ключ должен выдать владелец.",
   "err.notSignedIn": "Вы не вошли.",
   "err.agentDown": "Локальный агент не запущен, поэтому эта машина не может показать список машин и открыть профиль. Он поднимается сам — если не проходит, закройте и откройте Fury.",
-  "err.noProxy": "У этого профиля нет прокси. Через прокси идёт всё, что делает браузер, поэтому запуск без него отправил бы трафик с адреса этой машины.",
+  "err.noProxy":
+    "У этого профиля нет прокси, поэтому он пошёл бы в сеть с адреса этой машины. Укажите прокси или отметьте «Разрешить этому профилю открываться без прокси» в его настройках: карандаш, вкладка «Прокси».",
+  "err.noProxyTeam":
+    "У этого командного профиля нет прокси. Командный профиль без прокси не открывается: сервер его не выдаст. Укажите прокси в настройках профиля.",
   "err.staleOrgKey": "Сервер предложил ключ организации старее того, которым эта машина уже пользовалась. Отказ: ключ, который идёт назад, — это ключ, который может остаться у удалённого из команды.",
   "err.noOrgKey": "На этой машине пока нет ключа организации. Владелец или админ должен его выдать — до этого вы видите команду и не можете ничего открыть.",
   "err.noOrgKeySeal": "На этой машине пока нет ключа организации, поэтому запечатать учётку прокси нечем. Попросите владельца или админа выдать ключ.",

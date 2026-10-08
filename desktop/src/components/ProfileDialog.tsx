@@ -347,6 +347,35 @@ export function ProfileDialog({
   // in English, to somebody whose interface was in Russian.
   const needsProxy = editing ? editing.origin === "team" : !local;
   const hasProxy = proxyMode === "saved" ? proxyId !== "" : pxComplete;
+
+  // Offered in both proxy modes. It lived under "saved" with "none" picked,
+  // and a profile with no proxy opens on "configure", so the one place an
+  // operator would look showed the address fields and nothing else. A tester
+  // searched for it there and reported it missing (08.10.2026).
+  const noProxyChoice = (
+    <div style={{ marginTop: "var(--s-1)" }}>
+      {/* The refusal used to be absolute, which made the
+          application useless for the cases with no account
+          to protect: reading documentation, testing a
+          fingerprint, filling a profile in before its proxy
+          has been bought. It is a per-profile permission
+          rather than a setting because a throwaway profile
+          and a warmed account must not share a switch. */}
+      <label className="row" style={{ alignItems: "flex-start" }}>
+        <input
+          type="checkbox"
+          style={{ width: 14, height: 14, accentColor: "var(--accent)", marginTop: 3 }}
+          checked={allowNoProxy}
+          onChange={(e) => setAllowNoProxy(e.target.checked)}
+        />
+        <span>{t("pd.allowNoProxy")}</span>
+      </label>
+      <p className={allowNoProxy ? "hint warn" : "hint"}>
+        {allowNoProxy ? t("pd.allowNoProxyOn") : t("pd.proxyRequired")}
+      </p>
+    </div>
+  );
+
   const pxUrl = () => {
     const auth = pxUser ? `${encodeURIComponent(pxUser)}:${encodeURIComponent(pxPass)}@` : "";
     return `${pxKind}://${auth}${pxHost.trim()}:${Number(pxPort)}`;
@@ -521,29 +550,7 @@ export function ProfileDialog({
                           </option>
                         ))}
                       </select>
-                      {!proxyId && !needsProxy && (
-                        <div style={{ marginTop: "var(--s-1)" }}>
-                          {/* The refusal used to be absolute, which made the
-                              application useless for the cases with no account
-                              to protect: reading documentation, testing a
-                              fingerprint, filling a profile in before its proxy
-                              has been bought. It is a per-profile permission
-                              rather than a setting because a throwaway profile
-                              and a warmed account must not share a switch. */}
-                          <label className="row" style={{ alignItems: "flex-start" }}>
-                            <input
-                              type="checkbox"
-                              style={{ width: 14, height: 14, accentColor: "var(--accent)", marginTop: 3 }}
-                              checked={allowNoProxy}
-                              onChange={(e) => setAllowNoProxy(e.target.checked)}
-                            />
-                            <span>{t("pd.allowNoProxy")}</span>
-                          </label>
-                          <p className={allowNoProxy ? "hint warn" : "hint"}>
-                            {allowNoProxy ? t("pd.allowNoProxyOn") : t("pd.proxyRequired")}
-                          </p>
-                        </div>
-                      )}
+                      {!proxyId && !needsProxy && noProxyChoice}
                       {!proxyId && needsProxy && <p className="hint">{t("pd.proxyRequired")}</p>}
                     </div>
                   </div>
@@ -613,6 +620,7 @@ export function ProfileDialog({
                         {needsProxy && !pxComplete && (
                           <p className="hint">{t("pd.proxyRequired")}</p>
                         )}
+                        {!needsProxy && !pxComplete && noProxyChoice}
                         {pxCheck && (
                           <div
                             className={pxCheck.ok ? "verdict good" : "verdict bad"}

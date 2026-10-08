@@ -478,6 +478,11 @@ if (isDesktop && typeof localStorage !== "undefined") {
   localStorage.removeItem("fury.machine_id");
 }
 
+/** A profile a bulk action (warming, mirroring) could not take. `code` is
+ *  set when the reason is one of the application's own, so it can be shown in
+ *  the interface's language rather than the agent's. */
+export type Refusal = { id: string; reason: string; code?: string | null };
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -992,7 +997,7 @@ export const api = {
   /** Start mirroring between these profiles. Ones not open are launched with
    *  the debugging port; ones open without it are refused by id. */
   mirrorStart: (profileIds: string[], typing: boolean): Promise<{
-    joined: string[]; refused: { id: string; reason: string }[]; status: MirrorStatus;
+    joined: string[]; refused: Refusal[]; status: MirrorStatus;
   }> => cmd("mirror_start", { profileIds, typing }),
   mirrorStop: (): Promise<unknown> => cmd("mirror_stop"),
   mirrorStatus: (): Promise<MirrorStatus> => cmd<MirrorStatus>("mirror_status"),
@@ -1000,7 +1005,7 @@ export const api = {
 
   // ---- warming ------------------------------------------------------------
 
-  warmStart: (profileIds: string[], plan: WarmPlan): Promise<{ started: string[]; refused: { id: string; reason: string }[] }> =>
+  warmStart: (profileIds: string[], plan: WarmPlan): Promise<{ started: string[]; refused: Refusal[] }> =>
     cmd("warm_start", { profileIds, plan }),
   warmStatus: (): Promise<WarmProgress[]> => cmd<WarmProgress[]>("warm_status"),
   warmStop: (id: string): Promise<unknown> => cmd("warm_stop", { id }),

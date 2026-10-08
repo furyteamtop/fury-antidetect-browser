@@ -68,6 +68,16 @@ pub struct Coded {
     pub message: String,
 }
 
+/// One profile a bulk action could not take, for the interface to name.
+///
+/// The code goes with the sentence. Warming and mirroring launch whatever is
+/// not open yet, and a launch refused there was shown as the agent's English
+/// text, beside the translated banner the Open button raises for the very same
+/// refusal: two notices, one of them in the wrong language.
+fn refusal(id: &str, e: &anyhow::Error) -> serde_json::Value {
+    serde_json::json!({ "id": id, "reason": e.to_string(), "code": e.downcast_ref::<Coded>().map(|c| c.code) })
+}
+
 /// A profile that is open right now.
 struct Running {
     child: std::process::Child,
@@ -1298,7 +1308,7 @@ impl Agent {
                     let is_running = self.running.lock().await.contains_key(&id);
                     if !is_running {
                         if let Err(e) = self.launch(&id, None, None, None, None, true).await {
-                            refused.push(json!({ "id": id, "reason": e.to_string() }));
+                            refused.push(refusal(&id, &e));
                             continue;
                         }
                     }
@@ -1310,7 +1320,7 @@ impl Agent {
                     match ws {
                         Some(ws) => match self.mirror.join(&id, &name, &ws).await {
                             Ok(()) => joined.push(id),
-                            Err(e) => refused.push(json!({ "id": id, "reason": e.to_string() })),
+                            Err(e) => refused.push(refusal(&id, &e)),
                         },
                         None => refused.push(json!({ "id": id, "reason": "no debugging port after launch" })),
                     }
@@ -1344,7 +1354,7 @@ impl Agent {
                     let is_running = self.running.lock().await.contains_key(&id);
                     if !is_running {
                         if let Err(e) = self.launch(&id, None, None, None, None, true).await {
-                            refused.push(json!({ "id": id, "reason": e.to_string() }));
+                            refused.push(refusal(&id, &e));
                             continue;
                         }
                     }
@@ -1368,7 +1378,7 @@ impl Agent {
                     }).await;
                     match r {
                         Ok(()) => started.push(id),
-                        Err(e) => refused.push(json!({ "id": id, "reason": e.to_string() })),
+                        Err(e) => refused.push(refusal(&id, &e)),
                     }
                 }
                 Ok(json!({ "started": started, "refused": refused }))
@@ -2122,7 +2132,10 @@ impl Agent {
         let proxy = profile.proxy.as_ref();
         if proxy.is_none() && (from_server || !profile.allow_no_proxy) {
             return Err(Coded {
-                code: "err.noProxy",
+                // Two codes for one sentence, because what to do next differs:
+                // a profile of this machine's can be given the permission in
+                // its own settings, and a team one cannot be given it at all.
+                code: if from_server { "err.noProxyTeam" } else { "err.noProxy" },
                 message: "this profile has no proxy. Everything the core does goes through one, \
                           so launching without it would send traffic from this machine's own \
                           address"
@@ -2936,6 +2949,21 @@ mod tests {
         let text = serde_json::to_string(&r).unwrap();
         assert!(text.contains("err.noProxy"), "{text}");
         assert!(text.contains("this profile has no proxy"), "{text}");
+    }
+
+    /// The same, for a profile a bulk action could not take: warming one with
+    /// no proxy showed the English sentence beside the translated banner.
+    #[test]
+    fn a_bulk_refusal_keeps_its_code() {
+        let e: anyhow::Error = Coded {
+            code: "err.noProxy",
+            message: "this profile has no proxy".into(),
+        }
+        .into();
+        let r = refusal("p1", &e);
+        assert_eq!(r["code"], "err.noProxy");
+        assert_eq!(r["reason"], "this profile has no proxy");
+        assert!(refusal("p1", &anyhow::anyhow!("plain"))["code"].is_null());
     }
 }
 

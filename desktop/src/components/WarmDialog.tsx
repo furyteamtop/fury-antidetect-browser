@@ -106,7 +106,7 @@ export function WarmDialog({
                     ? r.refused
                         .map((x) => {
                           const name = profiles.find((p) => p.id === x.id)?.name ?? x.id;
-                          return x.reason === "open_without_cdp" ? t("mir.refusedOpen", { name }) : `${name}: ${x.reason}`;
+                          return x.reason === "open_without_cdp" ? t("mir.refusedOpen", { name }) : `${name}: ${say({ code: x.code, message: x.reason })}`;
                         })
                         .join(" ")
                     : null,
