@@ -79,7 +79,7 @@ Postgres, он сломает соседей. Так было у тестера 
 
 ```bash
 git clone https://github.com/furyteamtop/fury-antidetect-browser fury && cd fury
-git checkout v0.2.20                 # последняя версия со страницы релизов
+git checkout v0.2.21                 # последняя версия со страницы релизов
 cp .env.example .env                 # задайте FURY_DB_PASSWORD
 docker compose up -d --build
 curl -s http://127.0.0.1:8901/v1/me  # должно быть {"error":"unauthenticated"}
@@ -129,7 +129,7 @@ docker run --rm -v fury_fury-bundles:/b -v "$HOME":/out debian:bookworm-slim \
 
 # 2. Нужная версия
 git fetch --tags
-git checkout v0.2.20
+git checkout v0.2.21
 
 # 3. Пересобрать и заменить только сервер; база не перезапускается,
 #    миграции применяются сами при старте
