@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright 2026 Bogdan Shapovalov and the Fury authors
+
 //! A team profile whose last session never reached the server.
 //!
 //! Closing a team profile uploads its bundle. When that upload fails, the
