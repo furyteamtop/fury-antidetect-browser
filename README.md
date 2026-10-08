@@ -111,10 +111,10 @@ MacBook, reports:
 
 ```
 navigator.platform      Win32
-userAgent               Windows NT 10.0; Win64; x64 … Chrome/153.0.0.0
+userAgent               Windows NT 10.0; Win64; x64 … Chrome/155.0.0.0
 WebGL renderer          ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 …)
 screen                  1920×1080, availHeight 1032   ← the taskbar
-Client Hints platform   Windows        brands: … Google Chrome/153
+Client Hints platform   Windows        brands: … Google Chrome/155
 timezone                Europe/Berlin
 navigator.webdriver     false
 ```
@@ -140,13 +140,13 @@ desktop (Tauri)  ──socket──▶  agent (Rust)  ──spawn──▶  core
      └──HTTPS──▶ server (optional: teams)
 ```
 
-- **core** — Chromium 153 fork, [28 patches](core/patches/); spoofing is in C++,
+- **core** — Chromium 155 fork, [28 patches](core/patches/); spoofing is in C++,
   never injected JavaScript
 - **agent** — the only component holding decrypted secrets: proxy relays,
   launching, the local automation API
 - **server** — organizations, projects, permissions, locking. Deliberately dumb:
   it never generates a fingerprint and never decrypts a bundle
-- **desktop** — Tauri rather than Electron: a 7 MB app, not 120 MB
+- **desktop** — Tauri rather than Electron: a 12 MB download, not 120 MB
 
 Details in [docs/01](docs/01-architecture.md).
 
@@ -168,7 +168,7 @@ minutes depending on what changed; `ccache` and `sccache` do not help, because
 the build uses `-fmodules` and they miss on everything.
 
 ```bash
-git clone https://github.com/furyteamtop/fury-antidetect-browser && cd fury
+git clone https://github.com/furyteamtop/fury-antidetect-browser && cd fury-antidetect-browser
 cargo build --release
 ```
 
@@ -217,7 +217,18 @@ is yours, the key is yours, and proxy passwords never reach it.
 
 **Extensions** — a `.crx` is installed into a profile from the application; the
 extension's id survives cloning (the developer key is written into the
-manifest), so a wallet or an anti-captcha stays signed in inside the copy.
+manifest), so a wallet or an anti-captcha stays signed in inside the copy. Or
+pick one from the built-in catalogue, or by its Web Store id: the package is
+fetched through each profile's own proxy.
+
+**Warm-up and window sync** — warming visits ordinary sites in a profile, with
+human pauses and scrolling, so it carries everyday cookies before an account
+goes into it. Window sync repeats clicks and typing from one profile in several
+others.
+
+**Proxies** — paste a list in any common format; the exit is checked through
+the proxy itself (IP, country, timezone), a mobile proxy is rotated by its
+link, and profiles are created in bulk or from CSV.
 
 **Domain lists** — a per-profile blocklist enforced by the relay (DoH cannot
 route around it), or a whitelist: put `@allow-only` on the first line and the
@@ -297,7 +308,7 @@ row says why the alternative is worse.
 | Linux | not a target, and this is a decision rather than a gap. The Rust still compiles there so CI and contributors can run the suite; there is no Linux release, no Linux core config and no plan for one. Shipping a third platform nobody tests would be a claim, not a port |
 | WebRTC through the proxy | no. The relay is TCP; patch 0070 puts the browser in the state a real Chrome reaches under the enterprise `WebRTCIPHandlingPolicy` — no ICE candidates at all — rather than let a peer connection go around the proxy and hand the page the real address |
 | Hiding CDP from a timing check | no, and now known to be unclosable rather than merely undone. Split into its two parts ([cdp-timing.py](tools/detect-suite/cdp-timing.py)): attaching costs nothing, `Runtime.enable` costs a fixed 2.7x plus more as the logged object grows. A patch can remove the size half — preview generation — and not the fixed half, which is the message reaching the frontend at all. Real Chrome measures the same. The control that works is `cdp: false`, which is the default |
-| Automatic updates | none, and deliberately so: an updater is a scheduled channel into an anti-detect browser from an address that is not the profile's proxy. [docs/15](docs/15-install.md) says what updating looks like meanwhile |
+| Automatic updates | the application checks, and never installs. Since 0.2.18 it asks GitHub for a new release at start and every six hours and shows a bar with the download for your system; Settings → About turns the check off. The request goes from this machine's address, not a profile's proxy, and tells GitHub only that some machine runs Fury. An updater that replaced the application by itself would be a scheduled channel into an anti-detect browser, and that stays out. [docs/15](docs/15-install.md) says how to install over the old version |
 | Offline GeoIP | no, and it is a dependency rather than a leak. The exit check asks ipinfo.io **through the proxy**, so what the third party sees is the exit's address and never the operator's — asserted by a test that points the check at a dead proxy and requires it to fail rather than answer. `checker_url` per proxy and `FURY_IP_CHECK` let you point it at your own. An embedded database would remove the dependency and costs 60+ MB and a licence to redistribute |
 | QUIC / HTTP-3 | no difference from Chrome, but it does show the proxy. Measured on three sites: real Chrome with no proxy uses h3; real Chrome behind a SOCKS5 proxy uses h2 and never h3. Chromium does not carry QUIC through a proxy, and a profile is always behind one, so Fury behaves exactly like Chrome behind the same proxy. That is not the same as looking like a home user: a site that offers h3 and sees a client stay on h2 visit after visit can conclude that UDP does not reach it, meaning the client is behind a proxy or on a network that blocks UDP. The signal is weak (h2 is also normal on office networks and on a first visit, before the browser learns about h3), but it exists and Fury does not hide it. Hiding it takes a proxy that forwards UDP, which Chromium cannot do through `--proxy-server`; turning that on would make Fury *differ* from Chrome behind a proxy |
 
@@ -305,6 +316,9 @@ row says why the alternative is worse.
 
 | | |
 |---|---|
+| ~~Chromium 155~~ | done: the Windows core moved from 153 to 155.0.8059.12 on 27.09.2026 (0.2.3), macOS on 30.09.2026 (0.2.10). A copy running an older build of the browser is told so and offered the new one (0.2.16) |
+| ~~pixelscan and iphey flagging profiles~~ | done 29.09.2026 (0.2.9), with edge noise that keeps the colour in 0.2.10: what they caught were the fonts a persona reported and the shape of the canvas and WebGL noise |
+| ~~MCP for AI assistants~~ | done 08.10.2026 (0.2.18): built into the application. It used to be a Python script that needed the HTTP API switched on by hand and was in no installer |
 | ~~Windows core build~~ | done 16.08.2026: the core builds on the build server, release `v0.1.2` ships `fury-core-0.1.2-windows-x64.tar.xz` on Chromium 153, `verify-windows.ps1` passes 30 claims, Widevine answers |
 | ~~Windows launcher~~ | done: agent and shell run, NSIS installer in the releases. The config reaches the browser as an inherited HANDLE and no persona value appears in any argv — checked on a live machine |
 | ~~Code signing and notarisation, macOS~~ | done 21.09.2026: Developer ID, notarised, stapled — application, core and disk image, [sign-core.sh](tools/release/sign-core.sh) and [sign-shell.sh](tools/release/sign-shell.sh). Verified on the files downloaded back from the release page with the quarantine flag set |
