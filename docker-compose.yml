@@ -3,6 +3,13 @@
 #   cp .env.example .env   # set FURY_DB_PASSWORD
 #   docker compose up -d
 #
+# The server comes as a ready image, built and checked for each release
+# (.github/workflows/server-release.yml), so this takes as long as a download.
+# FURY_VERSION in .env pins a release; without it, the newest. To compile it
+# here instead, from the checkout you are in:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#
 # The server is deliberately dumb: it never generates a fingerprint, never
 # decrypts a profile, and never proxies browser traffic. That is why a 1 vCPU
 # box carries a team — and why compromising it yields metadata, not accounts.
@@ -25,9 +32,7 @@ services:
       retries: 20
 
   server:
-    build:
-      context: .
-      dockerfile: server/Dockerfile
+    image: ghcr.io/furyteamtop/fury-server:${FURY_VERSION:-latest}
     restart: unless-stopped
     depends_on:
       db:

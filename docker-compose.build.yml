@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright 2026 Bogdan Shapovalov and the Fury authors
+#
+# Build the server from this checkout instead of pulling the release image:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#
+# Several minutes to half an hour on a small machine. For a change of your own,
+# or a commit that has not been released.
+services:
+  server:
+    image: fury-server:local
+    build:
+      context: .
+      dockerfile: server/Dockerfile

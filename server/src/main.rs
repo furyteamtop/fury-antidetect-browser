@@ -117,7 +117,13 @@ async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("invite") => return enroll::cli(&args[1..]).await,
-        Some(other) => anyhow::bail!("unknown command: {other}\n\nusage:\n  fury-server\n  fury-server invite --email you@example.com --org \"My team\""),
+        // What a prebuilt binary is checked with before it is published, and
+        // what an operator runs to see which one they have.
+        Some("--version") | Some("version") => {
+            println!("fury-server {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        Some(other) => anyhow::bail!("unknown command: {other}\n\nusage:\n  fury-server\n  fury-server --version\n  fury-server invite --email you@example.com --org \"My team\""),
         None => {}
     }
 

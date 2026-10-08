@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright 2026 Bogdan Shapovalov and the Fury authors
+#
+# The published image: the static binaries server-release.yml built and
+# checked, copied in. Nothing is compiled here -- that was the point of it.
+# server/Dockerfile still builds from source, for docker-compose.build.yml.
+
+FROM alpine:3.20
+ARG TARGETARCH
+RUN apk add --no-cache ca-certificates \
+ && adduser -S -D -H -u 10001 fury \
+ && mkdir -p /var/lib/fury/bundles \
+ && chown -R fury /var/lib/fury
+COPY image-bin/ /tmp/bins/
+RUN set -e; \
+    case "$TARGETARCH" in amd64) a=x86_64 ;; arm64) a=aarch64 ;; *) echo "unsupported $TARGETARCH"; exit 1 ;; esac; \
+    install -m 0755 "/tmp/bins/fury-server-$a" /usr/local/bin/fury-server; \
+    rm -rf /tmp/bins; \
+    fury-server --version
+USER fury
+EXPOSE 8901
+CMD ["fury-server"]

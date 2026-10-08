@@ -24,12 +24,14 @@
 
 ## Что понадобится
 
-- VPS: 2 vCPU и 4 ГБ RAM, если сервер собирается на нём же.
-  [`deploy/server-install.sh`](../deploy/server-install.sh) строит `fury-server`
-  из исходников с thin LTO и первым делом заводит 2 ГБ свопа, потому что на
-  четырёх гигабайтах линковка временами не помещается и падает OOM-киллом
-  посреди сборки, что выглядит как загадочное зависание (:30-44). Готовый
-  бинарь потом работает и на 1 vCPU / 1 ГБ — тяжёлая здесь только сборка.
+- VPS: 1 vCPU и 1 ГБ RAM. С 0.2.21 сервер ставится готовым: к каждому релизу
+  приложены статические `fury-server-<версия>-linux-x86_64.tar.gz` и
+  `…-linux-aarch64.tar.gz` с контрольными суммами, а образ лежит в
+  `ghcr.io/furyteamtop/fury-server`. И [`deploy/server-install.sh`](../deploy/server-install.sh),
+  и `docker compose` берут готовое; собирать из исходников нужно только свой
+  код (`FURY_BUILD_FROM_SOURCE=1` или `docker-compose.build.yml`). Для сборки
+  на самом VPS нужно 2 vCPU и 4 ГБ: скрипт заводит 2 ГБ свопа, потому что на
+  четырёх гигабайтах линковка временами падает OOM-киллом.
 - Диск считается по бандлам, а не по базе. Бандл — это цельный профиль
   браузера, Caddy принимает до 512 МБ на загрузку (:198-202), и всё это лежит
   на самом сервере в `/var/lib/fury/bundles` (:70, :143). 10 ГБ — это десяток
@@ -53,12 +55,15 @@ S3-совместимое хранилище не нужно и не испол�
 ## Быстрый путь: docker compose
 
 ```bash
-git clone https://github.com/furyteamtop/fury-antidetect-browser && cd fury
+git clone https://github.com/furyteamtop/fury-antidetect-browser && cd fury-antidetect-browser
 cp .env.example .env          # задайте FURY_DB_PASSWORD
 docker compose up -d
 ```
 
 Всё. Поднимается Postgres и сервер, миграции применяются сами при старте.
+Сервер скачивается готовым образом, ничего не компилируется. `FURY_VERSION` в
+`.env` закрепляет версию; без неё берётся последняя. Собрать из исходников:
+`docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
 Сервер слушает `127.0.0.1:8901` — наружу его выводит обратный прокси, см. TLS
 ниже. База лежит в томе `fury-db`, профили — в томе `fury-bundles`; копировать
 нужно оба. До 02.10.2026 тома для профилей не было, и сервер из этого файла не
@@ -80,6 +85,17 @@ compose это одна команда, `docker compose exec server fury-server 
 она и описана.
 
 ## Установка без docker
+
+Готовый бинарь со страницы релиза (подставьте версию и `aarch64` для ARM):
+
+```bash
+V=0.2.21; A=x86_64
+curl -fLO https://github.com/furyteamtop/fury-antidetect-browser/releases/download/v$V/fury-server-$V-linux-$A.tar.gz
+curl -fL https://github.com/furyteamtop/fury-antidetect-browser/releases/download/v$V/fury-server-$V-linux-$A.tar.gz.sha256 | sha256sum -c
+tar -xzf fury-server-$V-linux-$A.tar.gz && ./fury-server --version
+```
+
+Или из исходников:
 
 ```bash
 cargo build --release -p fury-server

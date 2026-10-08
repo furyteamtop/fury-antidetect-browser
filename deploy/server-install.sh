@@ -101,6 +101,40 @@ sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='fury'" | gr
 # account rather than two people who cannot see each other's work.
 sudo -u postgres psql -q -d fury -c "CREATE EXTENSION IF NOT EXISTS citext"
 
+say "Server binary"
+# The release's own binary when there is one, and a build only when there is
+# not. Compiling on the VPS took several minutes to half an hour on the small
+# machines people rent for this, and a tester's whole account of installing
+# his server was "something compiled for a long time" (08.10.2026).
+# .github/workflows/server-release.yml builds these, statically, for x86_64
+# and aarch64, and checks each answers with its release's version.
+#
+# FURY_BUILD_FROM_SOURCE=1 skips the download. deploy/push.sh sets it: it ships
+# a working tree, which may be ahead of the release carrying its version.
+FURY_VER="${FURY_SERVER_VERSION:-$(sed -n 's/^version = "\(.*\)"$/\1/p' "$SRC/deploy/workspace.toml" | head -1)}"
+case "$(uname -m)" in
+    x86_64) FURY_ARCH=x86_64 ;;
+    aarch64|arm64) FURY_ARCH=aarch64 ;;
+    *) FURY_ARCH="" ;;
+esac
+PREBUILT=""
+if [ "${FURY_BUILD_FROM_SOURCE:-0}" != "1" ] && [ -n "$FURY_VER" ] && [ -n "$FURY_ARCH" ]; then
+    URL="https://github.com/furyteamtop/fury-antidetect-browser/releases/download/v$FURY_VER/fury-server-$FURY_VER-linux-$FURY_ARCH.tar.gz"
+    DL="$(mktemp -d)"
+    if curl -fsSL "$URL" -o "$DL/server.tar.gz" && curl -fsSL "$URL.sha256" -o "$DL/server.sha256" \
+        && echo "$(cut -d' ' -f1 "$DL/server.sha256")  $DL/server.tar.gz" | sha256sum -c --quiet \
+        && tar -xzf "$DL/server.tar.gz" -C "$DL" \
+        && [ "$("$DL/fury-server" --version)" = "fury-server $FURY_VER" ]; then
+        install -o root -g root -m 0755 "$DL/fury-server" /usr/local/bin/fury-server
+        PREBUILT=1
+        echo "   fury-server $FURY_VER for $FURY_ARCH, from the release, checksum verified"
+    else
+        echo "   no ready binary for $FURY_VER on $FURY_ARCH; building it here instead"
+    fi
+    rm -rf "$DL"
+fi
+
+if [ -z "$PREBUILT" ]; then
 say "Rust"
 if ! [ -x /root/.cargo/bin/cargo ]; then
     curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
@@ -133,6 +167,7 @@ fi
 cd "$SRC"
 cargo build --release -p fury-server
 install -o root -g root -m 0755 target/release/fury-server /usr/local/bin/fury-server
+fi
 
 say "Configuration"
 

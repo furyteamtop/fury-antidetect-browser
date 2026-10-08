@@ -40,4 +40,4 @@ echo "==> installing"
 # -t so apt and rustup have a terminal; without it rustup writes progress bars
 # into a pipe and some apt prompts hang forever rather than defaulting.
 "${SSH[@]}" -t "$TARGET" \
-    "chmod +x /opt/fury/src/deploy/server-install.sh && HOSTNAME='$HOSTNAME' ALIASES='${ALIASES:-}' /opt/fury/src/deploy/server-install.sh"
+    "chmod +x /opt/fury/src/deploy/server-install.sh && HOSTNAME='$HOSTNAME' ALIASES='${ALIASES:-}' FURY_BUILD_FROM_SOURCE=1 /opt/fury/src/deploy/server-install.sh"
