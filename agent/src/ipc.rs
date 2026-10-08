@@ -689,10 +689,28 @@ impl Agent {
             // installed", not "what does profile X have". Read from disk per
             // profile, like `extensions.list`, for the same reason it does.
             "extensions.list_all" => {
-                let profiles = self.store.profiles(None).await?;
+                // This machine's profiles, plus the team profiles the shell
+                // names: (id, name) pairs, since only the shell knows them.
+                let mut profiles: Vec<(String, String)> = self
+                    .store
+                    .profiles(None)
+                    .await?
+                    .into_iter()
+                    .map(|p| (p.id, p.name))
+                    .collect();
+                if let Some(extra) = params.get("team").and_then(|v| v.as_array()) {
+                    for t in extra {
+                        if let (Some(id), Some(name)) = (t.get("id").and_then(|v| v.as_str()), t.get("name").and_then(|v| v.as_str())) {
+                            // The id goes into a path; a team id is a UUID.
+                            if !profiles.iter().any(|(p, _)| p == id) && uuid::Uuid::parse_str(id).is_ok() {
+                                profiles.push((id.to_string(), name.to_string()));
+                            }
+                        }
+                    }
+                }
                 let mut by_id: std::collections::BTreeMap<String, serde_json::Value> = Default::default();
-                for p in &profiles {
-                    for x in crate::ext::installed(&paths::extensions_dir(&p.id)) {
+                for (pid, pname) in &profiles {
+                    for x in crate::ext::installed(&paths::extensions_dir(pid)) {
                         let entry = by_id.entry(x.id.clone()).or_insert_with(|| {
                             json!({ "id": x.id, "name": x.name, "version": x.version, "profiles": [] })
                         });
@@ -705,7 +723,7 @@ impl Agent {
                         entry["profiles"]
                             .as_array_mut()
                             .unwrap()
-                            .push(json!({ "id": p.id, "name": p.name, "version": x.version }));
+                            .push(json!({ "id": pid, "name": pname, "version": x.version }));
                     }
                 }
                 Ok(json!(by_id.into_values().collect::<Vec<_>>()))
@@ -774,6 +792,18 @@ impl Agent {
                     .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
                     .unwrap_or_default();
                 let proxies = self.store.proxies().await?;
+                // A team profile is not in this machine's store, and its proxy
+                // lives on the server. The shell takes the profile's lock --
+                // the server's own check that this person may change it --
+                // opens the proxy credentials with the organisation key, and
+                // passes the proxy here, exactly as it does for a launch.
+                let inline: std::collections::HashMap<String, crate::store::Proxy> = params
+                    .get("proxies")
+                    .cloned()
+                    .map(serde_json::from_value)
+                    .transpose()
+                    .map_err(|e| anyhow::anyhow!("proxies: {e}"))?
+                    .unwrap_or_default();
                 let running = self.running.lock().await;
                 // Route → the package fetched along it, or why it could not be.
                 let mut fetched: std::collections::HashMap<Option<String>, Result<Vec<u8>, String>> = Default::default();
@@ -785,19 +815,24 @@ impl Agent {
                         skipped.push(json!({ "id": id, "reason": "open" }));
                         continue;
                     }
-                    let Some(profile) = self.store.profile(&id).await? else {
-                        skipped.push(json!({ "id": id, "reason": "no such profile" }));
-                        continue;
+                    let route = if let Some(proxy) = inline.get(&id) {
+                        Some(proxy.url())
+                    } else {
+                        let Some(profile) = self.store.profile(&id).await? else {
+                            skipped.push(json!({ "id": id, "reason": "no such profile" }));
+                            continue;
+                        };
+                        let route = profile
+                            .proxy_id
+                            .as_deref()
+                            .and_then(|pid| proxies.iter().find(|p| p.id == pid))
+                            .map(|p| p.url());
+                        if profile.proxy_id.is_some() && route.is_none() {
+                            skipped.push(json!({ "id": id, "reason": "proxy_missing" }));
+                            continue;
+                        }
+                        route
                     };
-                    let route = profile
-                        .proxy_id
-                        .as_deref()
-                        .and_then(|pid| proxies.iter().find(|p| p.id == pid))
-                        .map(|p| p.url());
-                    if profile.proxy_id.is_some() && route.is_none() {
-                        skipped.push(json!({ "id": id, "reason": "proxy_missing" }));
-                        continue;
-                    }
                     if !fetched.contains_key(&route) {
                         let got = match crate::webstore::fetch(&ext_id, route.as_deref()).await {
                             Ok(bytes) => match crate::ext::parse(&bytes) {

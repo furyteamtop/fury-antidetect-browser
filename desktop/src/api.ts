@@ -1062,6 +1062,14 @@ export const api = {
     cmd<Extension>("install_extension", { profileId, crxB64 }),
   /** Every extension on this machine, grouped by id, with the profiles it is in. */
   allExtensions: (): Promise<ExtensionEverywhere[]> => cmd<ExtensionEverywhere[]>("all_extensions"),
+  /** The same, counting the team profiles named here as well. */
+  allExtensionsWith: (team: { id: string; name: string }[]): Promise<ExtensionEverywhere[]> =>
+    cmd<ExtensionEverywhere[]>("all_extensions_with", { team }),
+  /** By Web Store id into team profiles: each one's lock is taken for the
+   *  download, so the package comes through that profile's proxy. */
+  installExtensionFromStoreTeam: (profileIds: string[], extId: string): Promise<{
+    extension: Extension | null; installed: string[]; skipped: { id: string; reason: string }[];
+  }> => cmd("install_extension_from_store_team", { profileIds, extId }),
   /** One .crx into many profiles. Open profiles are skipped and named. */
   installExtensionMany: (profileIds: string[], crxB64: string): Promise<{
     extension: Extension | null; installed: string[]; skipped: { id: string; reason: string }[];

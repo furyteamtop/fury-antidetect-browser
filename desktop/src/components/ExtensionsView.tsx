@@ -31,17 +31,24 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  // Which profiles the next install goes into. Starts as every local profile:
+  // Which profiles the next install goes into. Starts as every one it can go into:
   // "install everywhere" is the common case, unticking is the exception.
-  const local = profiles.filter((p) => p.origin === "local");
-  const [targets, setTargets] = useState<Set<string>>(() => new Set(local.map((p) => p.id)));
+  //
+  // Team profiles too, for whoever may edit them -- the rule the extensions
+  // button on a profile's row already follows. This screen used to take local
+  // profiles only, so a tester whose one profile was a team profile saw every
+  // button greyed and no reason, and was told to close profiles he had never
+  // opened (08.10.2026).
+  const eligible = profiles.filter((p) => p.origin === "local" || p.permissions.includes("edit_profile"));
+  const isTeam = (id: string) => profiles.find((p) => p.id === id)?.origin === "team";
+  const [targets, setTargets] = useState<Set<string>>(() => new Set(eligible.map((p) => p.id)));
   const [picking, setPicking] = useState<Pick | null>(null);
   const [byId, setById] = useState("");
   const file = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
-      setRows(await api.allExtensions());
+      setRows(await api.allExtensionsWith(profiles.filter((p) => p.origin === "team").map((p) => ({ id: p.id, name: p.name }))));
       setError(null);
     } catch (e) {
       setError(say(e));
@@ -72,6 +79,7 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
         skippedOpen > 0 ? t("exv.skippedOpen", { n: skippedOpen }) : "",
         others.length > 0 ? others.map((s) => `${nameOf(s.id)}: ${reason(s.reason)}`).join("; ") : "",
         "routes" in r && r.installed.length > 0 ? t("exv.fetchedVia", { n: r.routes }) : "",
+        r.installed.some(isTeam) ? t("exv.teamNote") : "",
       ]
         .filter(Boolean)
         .join(" "),
@@ -105,7 +113,19 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
     setError(null);
     setNote(null);
     try {
-      report(await api.installExtensionFromStore([...targets], id), name);
+      const mine = [...targets].filter((x) => !isTeam(x));
+      const team = [...targets].filter(isTeam);
+      const a = mine.length > 0 ? await api.installExtensionFromStore(mine, id) : null;
+      const b = team.length > 0 ? await api.installExtensionFromStoreTeam(team, id) : null;
+      report(
+        {
+          extension: a?.extension ?? b?.extension ?? null,
+          installed: [...(a?.installed ?? []), ...(b?.installed ?? [])],
+          skipped: [...(a?.skipped ?? []), ...(b?.skipped ?? [])],
+          routes: (a?.routes ?? 0) + (b?.installed.length ?? 0),
+        },
+        name,
+      );
       setPicking(null);
       await load();
     } catch (e) {
@@ -117,7 +137,10 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
 
   const nameOf = (id: string) => profiles.find((p) => p.id === id)?.name ?? id;
   const carriers = (extId: string) => rows?.find((x) => x.id === extId)?.profiles.length ?? 0;
-  const targetsWithoutProxy = [...targets].filter((id) => !profiles.find((p) => p.id === id)?.proxy_id).length;
+  const targetsWithoutProxy = [...targets].filter((id) => {
+    const p = profiles.find((x) => x.id === id);
+    return !p?.proxy_id && !p?.proxy;
+  }).length;
   const pastedId = byId.match(ID_IN_TEXT)?.[0] ?? null;
 
   return (
@@ -125,7 +148,7 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
       <div className="toolbar">
         <button
           className="primary"
-          disabled={busy || local.length === 0}
+          disabled={busy || eligible.length === 0}
           onClick={() => setPicking((v) => (v?.mode === "file" ? null : { mode: "file" }))}
         >
           {t("exv.add")}
@@ -140,7 +163,7 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
         <div className="notice" style={{ display: "block" }}>
           <p style={{ margin: "0 0 var(--s-2)" }}>{t("exv.pickTargets", { n: targets.size })}</p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--s-2) var(--s-4)", marginBottom: "var(--s-3)" }}>
-            {local.map((p) => (
+            {eligible.map((p) => (
               <label key={p.id} className="row">
                 <input
                   type="checkbox"
@@ -156,12 +179,13 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
                   }
                 />
                 <span>{p.name}</span>
+                {p.origin === "team" && <span className="muted small">{t("exv.team")}</span>}
                 {p.running && <span className="muted small">{t("exv.open")}</span>}
               </label>
             ))}
           </div>
           <div className="row">
-            <button className="linky" onClick={() => setTargets(new Set(local.map((p) => p.id)))}>{t("exv.all")}</button>
+            <button className="linky" onClick={() => setTargets(new Set(eligible.map((p) => p.id)))}>{t("exv.all")}</button>
             <button className="linky" onClick={() => setTargets(new Set())}>{t("exv.clear")}</button>
             <div className="spacer" />
             {picking.mode === "file" ? (
@@ -198,6 +222,7 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
         </div>
       )}
 
+      {eligible.length === 0 && <div className="notice">{t("exv.noTargets")}</div>}
       {note && <div className="notice">{note}</div>}
       {error && <div className="notice warnBar">{error}</div>}
 
@@ -230,12 +255,12 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
                   </td>
                   <td className="muted" style={{ maxWidth: 420 }}>{language === "ru" ? c.summary.ru : c.summary.en}</td>
                   <td className="muted small" style={{ whiteSpace: "nowrap" }}>
-                    {n > 0 ? t("exv.inN", { n, m: local.length }) : t("exv.notInstalled")}
+                    {n > 0 ? t("exv.inN", { n, m: eligible.length }) : t("exv.notInstalled")}
                   </td>
                   <td className="actions">
                     <button
                       className="ghost"
-                      disabled={busy || local.length === 0}
+                      disabled={busy || eligible.length === 0}
                       onClick={() => setPicking({ mode: "store", id: c.id, name: c.name })}
                     >
                       {t("exv.installInto")}
@@ -258,7 +283,7 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
         />
         <button
           className="ghost"
-          disabled={busy || !pastedId || local.length === 0}
+          disabled={busy || !pastedId || eligible.length === 0}
           onClick={() => pastedId && setPicking({ mode: "store", id: pastedId, name: pastedId.slice(0, 8) + "…" })}
         >
           {t("exv.byIdGo")}
@@ -298,9 +323,9 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
                         </span>
                       ))}
                     </div>
-                    {local.length > x.profiles.length && (
+                    {eligible.length > x.profiles.length && (
                       <div className="muted small" style={{ marginTop: "var(--s-1)" }}>
-                        {t("exv.missingFrom", { n: local.length - x.profiles.length })}
+                        {t("exv.missingFrom", { n: eligible.length - x.profiles.length })}
                       </div>
                     )}
                   </td>

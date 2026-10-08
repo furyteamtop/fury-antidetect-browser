@@ -3056,6 +3056,104 @@ pub async fn install_extension_from_store(profile_ids: Vec<String>, ext_id: Stri
     .await?)
 }
 
+/// The same, into team profiles.
+///
+/// A team profile's proxy is on the server, sealed under the organisation
+/// key, and the package has to come through it like any other request the
+/// profile makes. So each profile's lock is taken for the moment of the
+/// download: the server checks this person may open it and hands over the
+/// proxy, the credentials are opened here, the agent fetches through them,
+/// and the lock is released whatever happened. The extension lands in this
+/// machine's copy of the profile and reaches the server the next time the
+/// profile is opened and closed here.
+///
+/// One profile at a time, and a profile that cannot be locked -- open on
+/// another machine, say -- is skipped with the server's reason.
+#[tauri::command]
+pub async fn install_extension_from_store_team(
+    state: State<'_, AppState>,
+    profile_ids: Vec<String>,
+    ext_id: String,
+) -> R<serde_json::Value> {
+    let org_key = state.org_key().ok_or_else(|| {
+        ApiErr::local("This machine does not hold the organisation key yet, so a team profile's proxy cannot be opened.")
+    })?;
+    let mut installed: Vec<serde_json::Value> = Vec::new();
+    let mut skipped: Vec<serde_json::Value> = Vec::new();
+    let mut extension = serde_json::Value::Null;
+    for id in profile_ids {
+        let body = serde_json::json!({
+            "machine_id": state.machine_id(),
+            "machine_name": settings::machine_name(),
+            "force": false,
+        });
+        let grant: LockGrant = match state
+            .call(reqwest::Method::POST, &format!("/v1/profiles/{id}/lock"), Body::Json(body), true)
+            .await
+        {
+            Ok(g) => g,
+            Err(e) => {
+                skipped.push(serde_json::json!({ "id": id, "reason": e.message }));
+                continue;
+            }
+        };
+        let spec = &grant.spec;
+        let result: R<serde_json::Value> = async {
+            let credentials = crypto::open_proxy_credentials(
+                &org_key,
+                &spec.proxy.credentials_enc,
+                &spec.proxy.wrapped_dek,
+            )
+            .map_err(|e| ApiErr::local(format!("Could not open this proxy's credentials: {e}")))?;
+            let proxy = serde_json::json!({
+                "id": spec.proxy.id.to_string(),
+                "name": "",
+                "kind": spec.proxy.kind,
+                "host": spec.proxy.host,
+                "port": spec.proxy.port,
+                "username": credentials.username,
+                "password": credentials.password,
+                "last_country": null,
+                "last_ip": null,
+                "rotate_url": null,
+                "checker_url": null,
+            });
+            Ok(crate::agent::call(
+                "extensions.install_from_store",
+                serde_json::json!({ "profile_ids": [id], "ext_id": ext_id, "proxies": { id.clone(): proxy } }),
+            )
+            .await?)
+        }
+        .await;
+        let _: R<serde_json::Value> = state
+            .call(
+                reqwest::Method::POST,
+                &format!("/v1/profiles/{id}/unlock"),
+                Body::Json(serde_json::json!({ "lock_token": grant.lock_token })),
+                true,
+            )
+            .await;
+        match result {
+            Ok(r) => {
+                if extension.is_null() {
+                    extension = r.get("extension").cloned().unwrap_or_default();
+                }
+                installed.extend(r.get("installed").and_then(|v| v.as_array()).cloned().unwrap_or_default());
+                skipped.extend(r.get("skipped").and_then(|v| v.as_array()).cloned().unwrap_or_default());
+            }
+            Err(e) => skipped.push(serde_json::json!({ "id": id, "reason": e.message })),
+        }
+    }
+    Ok(serde_json::json!({ "extension": extension, "installed": installed, "skipped": skipped }))
+}
+
+/// Every extension, in this machine's profiles and in the team profiles the
+/// window names -- only the window knows those.
+#[tauri::command]
+pub async fn all_extensions_with(team: Vec<serde_json::Value>) -> R<serde_json::Value> {
+    Ok(crate::agent::call("extensions.list_all", serde_json::json!({ "team": team })).await?)
+}
+
 #[tauri::command]
 pub async fn remove_extension(profile_id: String, id: String) -> R<serde_json::Value> {
     Ok(crate::agent::call(

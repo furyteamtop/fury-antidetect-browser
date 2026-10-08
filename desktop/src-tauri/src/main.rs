@@ -171,6 +171,8 @@ fn main() {
             commands::install_extension_many,
             commands::extension_catalogue,
             commands::install_extension_from_store,
+            commands::install_extension_from_store_team,
+            commands::all_extensions_with,
             commands::profile_usage,
             commands::trim_profile,
             commands::reseed_profile,
