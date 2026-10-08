@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, type Perm, type Project } from "../api";
 import { useI18n, type Key } from "../i18n";
 import { withStepUp } from "../stepUp";
@@ -93,9 +93,8 @@ export function Users({
   const teamProjects = projects.filter((p) => p.origin === "team");
   const [project, setProject] = useState<string>(teamProjects[0]?.id ?? "");
   const [grants, setGrants] = useState<Grants | null>(null);
-  // Whose grant is open for editing flag by flag, if anybody's. One at a time:
-  // ten checkboxes under every row would turn the table into a form.
-  const [editing, setEditing] = useState<string | null>(null);
+  // Whom the "add from the team" picker has chosen.
+  const [adding, setAdding] = useState("");
   // Somebody being let in, and the folders ticked for them so far.
   const [admitting, setAdmitting] = useState<{
     member: Members["members"][number];
@@ -189,7 +188,6 @@ export function Users({
 
   const myRole = team.members.find((m) => m.is_you)?.role;
   const granted = new Set(grants?.granted.map((g) => g.user_id) ?? []);
-  const implicit = new Set(grants?.implicit.map((g) => g.user_id) ?? []);
 
   return (
     <div className="teamPane">
@@ -281,6 +279,14 @@ export function Users({
         <li>{t("team.how4")}</li>
       </ol>
 
+      {/* Two sections, in the order an owner thinks in (the owner's own
+          sketch, 08.10.2026): the team first -- who is in it, as what, holding
+          the key -- and then one project at a time, with who works in it and
+          what each may do, ticked in the row. People are added to a project
+          from the team, or invited into it from outside. It used to be one
+          table answering both questions, its project chosen in a dropdown
+          under it, and an owner asked why he could not simply pick people
+          already in the team and add them. */}
       <h2 className="sectionTitle">{t("team.people")}</h2>
       <table className="grid">
         <thead>
@@ -288,14 +294,12 @@ export function Users({
             <th>{t("team.member")}</th>
             <th>{t("team.role")}</th>
             <th>{t("team.key")}</th>
-            {project && <th>{t("team.access", { project: teamProjects.find((p) => p.id === project)?.name ?? "" })}</th>}
             <th />
           </tr>
         </thead>
         <tbody>
           {team.members.map((m) => (
-            <Fragment key={m.user_id}>
-            <tr>
+            <tr key={m.user_id}>
               <td>
                 <div className="name">{m.email}</div>
                 {m.is_you && <div className="muted small">{t("team.you")}</div>}
@@ -303,8 +307,7 @@ export function Users({
               <td className="muted">
                 {/* A select only where the server would accept the change
                     (api.rs, set_member_role): never the owner, never yourself,
-                    and an admin handles managers and members only. Anywhere
-                    else it is text, rather than a control that always fails. */}
+                    and an admin handles managers and members only. */}
                 {canChangeRole(myRole, m) ? (
                   <select
                     style={{ width: "auto" }}
@@ -341,55 +344,23 @@ export function Users({
                   <span className="state lock">{t("team.waitingForKey")}</span>
                 )}
               </td>
-              {project && (
-                <td className="muted small">
-                  {implicit.has(m.user_id)
-                    ? t("team.everything")
-                    : granted.has(m.user_id)
-                      ? (grants?.granted.find((g) => g.user_id === m.user_id)?.permissions ?? []).join(", ")
-                      : t("team.noAccess")}
-                </td>
-              )}
               <td className="actions">
                 <div>
-                  {/* One button for letting somebody in, and it does both halves.
-                      Handing the key over and granting access were two buttons
-                      on the same row, pressed one after the other, every time —
-                      because a member who can decrypt and cannot reach a single
-                      folder is nobody's intention. The second press was a step
-                      the interface asked for and the work never needed.
-
-                      Not the same operation underneath, and that is worth
-                      knowing: the key is sealed to their public key HERE, on
-                      this machine, because the server cannot do it. The grants
-                      are ordinary server calls. What is shared is the moment an
-                      owner decides this person is in. */}
+                  {/* Letting somebody in hands over the key and asks which
+                      projects to open; a project they were invited into is
+                      already ticked. Which folders is asked, not assumed: a
+                      tester who invited somebody for one client found them
+                      looking at all of them (01.10.2026). */}
                   {!m.has_key && (
                     <button
                       disabled={busy}
                       onClick={() =>
-                        // Which folders is asked, not assumed. This used to
-                        // open every folder the team had, on the reasoning
-                        // that a colleague who can reach none is nobody's
-                        // intention -- and a tester who invited somebody to
-                        // work on one client found them looking at all of
-                        // them, 01.10.2026. Separating projects is the reason
-                        // a team has more than one.
                         teamProjects.length > 0
-                          ? setAdmitting({ member: m, picked: new Set() })
+                          ? setAdmitting({ member: m, picked: new Set(invitedFor(m.email)) })
                           : run(() => api.handOverKey(m.user_id, m.public_key))
                       }
                     >
                       {teamProjects.length > 0 ? t("team.letIn") : t("team.giveKey")}
-                    </button>
-                  )}
-                  {project && m.has_key && !implicit.has(m.user_id) && !granted.has(m.user_id) && (
-                    <button
-                      className="ghost"
-                      disabled={busy}
-                      onClick={() => run(() => api.grantAccess(project, m.user_id, MEMBER_PERMS))}
-                    >
-                      {t("team.grant")}
                     </button>
                   )}
                   {!m.is_you && (
@@ -410,127 +381,21 @@ export function Users({
                       {t("team.removeShort")}
                     </button>
                   )}
-                  {project && granted.has(m.user_id) && (
-                    <button
-                      className="ghost"
-                      disabled={busy}
-                      onClick={() => run(() => api.revokeAccess(project, m.user_id))}
-                    >
-                      {t("team.revoke")}
-                    </button>
-                  )}
-                  {project && granted.has(m.user_id) && (
-                    <button
-                      className="ghost"
-                      aria-expanded={editing === m.user_id}
-                      onClick={() => setEditing(editing === m.user_id ? null : m.user_id)}
-                    >
-                      {t("team.perms")}
-                    </button>
-                  )}
-                  {/* Which of the organisation's domain lists this grant
-                      applies. Shown only where there is a grant to attach
-                      them to: owners and admins have none and are not
-                      restricted. */}
-                  {project && granted.has(m.user_id) && orgLists.length > 0 && (() => {
-                    const g = grants?.granted.find((x) => x.user_id === m.user_id);
-                    const attached = new Set(g?.domain_lists ?? []);
-                    return (
-                      <div className="row" style={{ flexWrap: "wrap", gap: "var(--s-2)", marginTop: "var(--s-1)" }}>
-                        <span className="muted small">{t("tdl.applies")}</span>
-                        {orgLists.map((l) => (
-                          <label key={l.id} className="row" style={{ gap: 4 }}>
-                            <input
-                              type="checkbox"
-                              style={{ width: 13, height: 13, accentColor: "var(--accent)" }}
-                              checked={attached.has(l.id)}
-                              disabled={busy}
-                              onChange={(e) => {
-                                const next = new Set(attached);
-                                if (e.target.checked) next.add(l.id);
-                                else next.delete(l.id);
-                                void run(() => api.grantAccess(project, m.user_id, g?.permissions ?? MEMBER_PERMS, [...next]));
-                              }}
-                            />
-                            <span className="small">{l.name}</span>
-                          </label>
-                        ))}
-                      </div>
-                    );
-                  })()}
                 </div>
               </td>
             </tr>
-            {/* The grant, flag by flag. A second row rather than more in the
-                actions cell: that cell is right-aligned and may not wrap its
-                text, and ten labelled boxes are a form, not an action.
-
-                Each box saves on change, the way the domain-list boxes above
-                do — there is no draft to lose and no second button to find.
-                `view` is sent whether or not it is shown ticked: a grant
-                without it is a row that lets somebody do things to profiles
-                they cannot see, and the server would not know what to make of
-                it either. `manage_access` is greyed for a member because the
-                server would silently drop it (`role_ceiling`), and a box that
-                ticks and then unticks itself on reload is a lie with a delay. */}
-            {project && editing === m.user_id && granted.has(m.user_id) && (() => {
-              const g = grants?.granted.find((x) => x.user_id === m.user_id);
-              const have = new Set<Perm>(g?.permissions ?? []);
-              const name = teamProjects.find((p) => p.id === project)?.name ?? "";
-              return (
-                <tr className="permsRow">
-                  <td colSpan={5}>
-                    <p className="hint small" style={{ maxWidth: 620, margin: "0 0 var(--s-2)" }}>
-                      {t("team.permsHint", { project: name })}
-                    </p>
-                    <div className="permsGrid">
-                      {ALL_PERMS.map((p) => {
-                        const locked = p === "view" || (p === "manage_access" && m.role === "member");
-                        const checked = p === "view" || have.has(p);
-                        return (
-                          <label key={p} className="row" style={{ gap: 6, alignItems: "flex-start" }}>
-                            <input
-                              type="checkbox"
-                              style={{ width: 13, height: 13, marginTop: 2, accentColor: "var(--accent)" }}
-                              checked={checked}
-                              disabled={busy || locked}
-                              onChange={(e) => {
-                                const next = new Set(have);
-                                next.add("view");
-                                if (e.target.checked) next.add(p);
-                                else next.delete(p);
-                                // In catalogue order, so the summary in the
-                                // access column reads the same for everyone.
-                                void run(() => api.grantAccess(project, m.user_id, ALL_PERMS.filter((x) => next.has(x))));
-                              }}
-                            />
-                            <span className="small">{t(("perm." + p) as Key)}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })()}
-            </Fragment>
           ))}
         </tbody>
       </table>
-
-      {/* What the one button did, spelled out where it was pressed. A default
-          that opens every folder is a reasonable default and a bad secret. */}
-      {teamProjects.length > 0 && (
-        <p className="hint" style={{ maxWidth: 620, marginTop: "var(--s-3)" }}>
-          {t("team.letInHint")}
-        </p>
+      {team.members.length === 1 && (
+        <p className="hint" style={{ maxWidth: 620 }}>{t("team.aloneOnServer")}</p>
       )}
 
-      {teamProjects.length > 0 ? (
-        <p className="hint" style={{ marginTop: "var(--s-3)" }}>
-          {t("team.accessFor")}{" "}
+      <h2 className="sectionTitle" style={{ marginTop: "var(--s-6)" }}>
+        {t("team.projectAccess")}{" "}
+        {teamProjects.length > 0 && (
           <select
-            style={{ width: "auto" }}
+            style={{ width: "auto", marginLeft: "var(--s-2)", textTransform: "none", letterSpacing: 0 }}
             value={project}
             onChange={(e) => setProject(e.target.value)}
           >
@@ -540,26 +405,167 @@ export function Users({
               </option>
             ))}
           </select>
-        </p>
-      ) : (
-        // Said rather than left blank. Step 4 above tells an owner to pick a
-        // project and grant access; with no folder on the server there is
-        // nothing to pick, and an instruction pointing at an absent control is
-        // how somebody concludes the screen is broken.
-        <p className="hint" style={{ maxWidth: 620, marginTop: "var(--s-3)" }}>
-          {t("team.noTeamProjects")}
-        </p>
-      )}
+        )}
+      </h2>
 
-      {team.members.length === 1 && (
-        <p className="hint" style={{ maxWidth: 620 }}>{t("team.aloneOnServer")}</p>
+      {teamProjects.length === 0 ? (
+        // Said rather than left blank: with no folder on the server there is
+        // nothing to give anybody access to.
+        <p className="hint" style={{ maxWidth: 620 }}>{t("team.noTeamProjects")}</p>
+      ) : (
+        <>
+          <table className="grid">
+            <thead>
+              <tr>
+                <th>{t("team.member")}</th>
+                <th>{t("team.rights")}</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {team.members
+                .filter((m) => m.role === "owner" || m.role === "admin" || granted.has(m.user_id))
+                .map((m) => {
+                  const g = grants?.granted.find((x) => x.user_id === m.user_id);
+                  const have = new Set<Perm>(g?.permissions ?? []);
+                  const attached = new Set(g?.domain_lists ?? []);
+                  const everything = m.role === "owner" || m.role === "admin";
+                  return (
+                    <tr key={m.user_id}>
+                      <td style={{ minWidth: 180 }}>
+                        <div className="name">{m.email}</div>
+                        <div className="muted small">{t(roleKey(m.role))}</div>
+                      </td>
+                      <td>
+                        {everything ? (
+                          <span className="muted small">{t("team.everything")}</span>
+                        ) : (
+                          <>
+                            {/* Each box saves on change. `view` is always on:
+                                a grant without it lets somebody act on
+                                profiles they cannot see. `manage_access` is
+                                greyed for a member, because the server drops
+                                it for that role (role_ceiling). */}
+                            <div className="permsGrid">
+                              {ALL_PERMS.map((p) => {
+                                const locked = p === "view" || (p === "manage_access" && m.role === "member");
+                                return (
+                                  <label key={p} className="row" style={{ gap: 6, alignItems: "flex-start" }}>
+                                    <input
+                                      type="checkbox"
+                                      style={{ width: 13, height: 13, marginTop: 2, accentColor: "var(--accent)" }}
+                                      checked={p === "view" || have.has(p)}
+                                      disabled={busy || locked}
+                                      onChange={(e) => {
+                                        const next = new Set(have);
+                                        next.add("view");
+                                        if (e.target.checked) next.add(p);
+                                        else next.delete(p);
+                                        void run(() =>
+                                          api.grantAccess(project, m.user_id, ALL_PERMS.filter((x) => next.has(x)), [...attached]),
+                                        );
+                                      }}
+                                    />
+                                    <span className="small">{t(("perm." + p) as Key)}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                            {orgLists.length > 0 && (
+                              <div className="row" style={{ flexWrap: "wrap", gap: "var(--s-2)", marginTop: "var(--s-2)" }}>
+                                <span className="muted small">{t("tdl.applies")}</span>
+                                {orgLists.map((l) => (
+                                  <label key={l.id} className="row" style={{ gap: 4 }}>
+                                    <input
+                                      type="checkbox"
+                                      style={{ width: 13, height: 13, accentColor: "var(--accent)" }}
+                                      checked={attached.has(l.id)}
+                                      disabled={busy}
+                                      onChange={(e) => {
+                                        const next = new Set(attached);
+                                        if (e.target.checked) next.add(l.id);
+                                        else next.delete(l.id);
+                                        void run(() => api.grantAccess(project, m.user_id, g?.permissions ?? MEMBER_PERMS, [...next]));
+                                      }}
+                                    />
+                                    <span className="small">{l.name}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </td>
+                      <td className="actions">
+                        {!everything && (
+                          <button
+                            className="ghost"
+                            disabled={busy}
+                            onClick={() => run(() => api.revokeAccess(project, m.user_id))}
+                          >
+                            {t("team.removeFromProject")}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </table>
+
+          {/* From the team: anybody let in, not owner or admin (they see every
+              project already), and not here yet. Somebody still waiting for
+              the key is added when they are let in, from the invite below. */}
+          {(() => {
+            const addable = team.members.filter(
+              (m) => m.has_key && m.role !== "owner" && m.role !== "admin" && !granted.has(m.user_id),
+            );
+            return (
+              <div className="row" style={{ marginTop: "var(--s-3)", gap: "var(--s-2)", flexWrap: "wrap" }}>
+                <span className="small">{t("team.addFromTeam")}</span>
+                {addable.length > 0 ? (
+                  <>
+                    <select
+                      style={{ width: "auto" }}
+                      value={adding}
+                      onChange={(e) => setAdding(e.target.value)}
+                    >
+                      <option value="">{t("team.pickMember")}</option>
+                      {addable.map((m) => (
+                        <option key={m.user_id} value={m.user_id}>
+                          {m.email}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      className="primary"
+                      disabled={busy || !adding}
+                      onClick={() =>
+                        run(async () => {
+                          await api.grantAccess(project, adding, MEMBER_PERMS);
+                          setAdding("");
+                        })
+                      }
+                    >
+                      {t("team.add")}
+                    </button>
+                  </>
+                ) : (
+                  <span className="muted small">{t("team.nobodyToAdd")}</span>
+                )}
+              </div>
+            );
+          })()}
+        </>
       )}
 
       <h2 className="sectionTitle" style={{ marginTop: "var(--s-6)" }}>
-        {t("team.invite")}
+        {teamProjects.length > 0
+          ? t("team.inviteTo", { project: teamProjects.find((p) => p.id === project)?.name ?? "" })
+          : t("team.invite")}
       </h2>
       <p className="hint">{t("team.inviteHint")}</p>
-      <div className="row" style={{ maxWidth: 680 }}>
+      <div className="row" style={{ gap: "var(--s-2)" }}>
         <input
           type="email"
           placeholder={t("auth.email")}
@@ -580,6 +586,7 @@ export function Users({
           onClick={() =>
             run(async () => {
               const out = await api.invite(email, role);
+              if (project) rememberInvite(email, project);
               setCode({ code: out.code, email });
               setEmail("");
             })
@@ -588,13 +595,13 @@ export function Users({
           {t("team.sendInvite")}
         </button>
       </div>
+      {teamProjects.length > 0 && <p className="hint small">{t("team.inviteToHint")}</p>}
 
       {code && (
         <div className="notice" role="status" style={{ marginTop: "var(--s-3)" }}>
           <div>
             <div>{t("team.codeFor", { email: code.email })}</div>
-            {/* Shown once. The server keeps only a hash of it, so there is no
-                screen anywhere that can show it again. */}
+            {/* Shown once. The server keeps only a hash of it. */}
             <div className="mono" style={{ fontSize: 16, margin: "var(--s-2) 0" }}>
               {code.code}
             </div>
@@ -697,5 +704,31 @@ function roleKey(role: string): "role.owner" | "role.admin" | "role.manager" | "
       return "role.manager";
     default:
       return "role.member";
+  }
+}
+
+/** Which projects somebody was invited into, remembered on this machine until
+ *  they are let in, so the Let in dialog has those projects ticked already.
+ *  Local, because it is a convenience for the person who sent the invite and
+ *  not something the server needs to hold. */
+const INVITED = "fury.invitedFor";
+
+function invitedFor(email: string): string[] {
+  try {
+    const all = JSON.parse(localStorage.getItem(INVITED) ?? "{}") as Record<string, string[]>;
+    return all[email.toLowerCase()] ?? [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberInvite(email: string, project: string) {
+  try {
+    const all = JSON.parse(localStorage.getItem(INVITED) ?? "{}") as Record<string, string[]>;
+    const key = email.toLowerCase();
+    all[key] = Array.from(new Set([...(all[key] ?? []), project]));
+    localStorage.setItem(INVITED, JSON.stringify(all));
+  } catch {
+    // A private window: the project is simply not pre-ticked.
   }
 }
