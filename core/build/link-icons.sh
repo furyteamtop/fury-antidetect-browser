@@ -31,11 +31,25 @@ THEME="$SRC/chrome/app/theme/chromium/mac"
     "$ROOT/assets/generate.sh"
 }
 
-echo "==> app.icns"
-cp "$ROOT/core/branding/app.icns" "$THEME/app.icns"
+# The browser a profile runs in wears its own icon, white F on an orange tile,
+# so the Dock tells it from the application (assets/generate-browser-icon.py).
+# Two identical tiles side by side was a tester's question on 08.10.2026.
+ICON="$ROOT/assets/icon-browser.png"
+[ -f "$ICON" ] || ICON="$ROOT/assets/icon.png"
+
+echo "==> app.icns (from $(basename "$ICON"))"
+ICNS_TMP="$(mktemp -d)"
+mkdir -p "$ICNS_TMP/app.iconset"
+for s in 16 32 128 256 512; do
+    sips -z $s $s "$ICON" --out "$ICNS_TMP/app.iconset/icon_${s}x${s}.png" >/dev/null
+    d=$((s * 2))
+    sips -z $d $d "$ICON" --out "$ICNS_TMP/app.iconset/icon_${s}x${s}@2x.png" >/dev/null
+done
+iconutil -c icns "$ICNS_TMP/app.iconset" -o "$THEME/app.icns"
+rm -rf "$ICNS_TMP"
 
 echo "==> asset catalogue"
-python3 - "$ROOT/assets/icon.png" "$THEME" <<'PY'
+python3 - "$ICON" "$THEME" <<'PY'
 import sys, pathlib
 from PIL import Image
 

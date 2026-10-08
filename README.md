@@ -140,7 +140,7 @@ desktop (Tauri)  ──socket──▶  agent (Rust)  ──spawn──▶  core
      └──HTTPS──▶ server (optional: teams)
 ```
 
-- **core** — Chromium 155 fork, [28 patches](core/patches/); spoofing is in C++,
+- **core** — Chromium 155 fork, [29 patches](core/patches/); spoofing is in C++,
   never injected JavaScript
 - **agent** — the only component holding decrypted secrets: proxy relays,
   launching, the local automation API

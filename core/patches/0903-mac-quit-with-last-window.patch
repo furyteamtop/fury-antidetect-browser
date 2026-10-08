@@ -1,0 +1,49 @@
+diff --git a/chrome/browser/app_controller_mac.mm b/chrome/browser/app_controller_mac.mm
+index cb1b5aa8be..52eb1ea790 100644
+--- a/chrome/browser/app_controller_mac.mm
++++ b/chrome/browser/app_controller_mac.mm
+@@ -765,6 +765,10 @@ @implementation AppController {
+   // recreate `_keepAlive` if and when the activation policy changes.
+   std::unique_ptr<ScopedKeepAlive> _keepAlive;
+ 
++  // Fury: set once the first window is up, after which closing the last
++  // window quits, as it does on Windows. See applicationDidFinishLaunching.
++  BOOL _furyQuitWithLastWindow;
++
+   // Set to `NSRunningApplication.currentApplication` while we're observing
+   // the `activationPolicy` of ourselves.
+   NSRunningApplication* __strong _runningApplication;
+@@ -1342,6 +1346,23 @@ - (void)applicationDidFinishLaunching:(NSNotification*)notify {
+   [self updateHandoffManager:activeWebContents];
+   [self openStartupUrls];
+ 
++  // Fury: a profile's browser quits when its last window closes.
++  //
++  // macOS Chrome stays running with no windows, held by `_keepAlive`, until
++  // the person presses Cmd+Q. For a browser started by the Fury agent that
++  // left a second icon in the Dock and a profile the agent still counted as
++  // open -- which, for a team profile, also meant its session was not sent to
++  // the server until something else closed it (reported 08.10.2026). Each
++  // Browser holds a keep-alive of its own, so once a window exists this one
++  // is only what keeps the process up without any; releasing it here gives
++  // the Windows lifecycle, and the ordinary shutdown path with it. Nothing a
++  // page can observe changes. With no window yet -- not a launch the agent
++  // makes -- the keep-alive stays, which is Chrome's behaviour.
++  if (browser && _keepAlive) {
++    _keepAlive.reset();
++    _furyQuitWithLastWindow = YES;
++  }
++
+   PrefService* localState = g_browser_process->local_state();
+   if (localState) {
+     _localPrefRegistrar.Init(localState);
+@@ -1381,6 +1402,9 @@ - (void)observeValueForKeyPath:(NSString*)keyPath
+                              forKeyPath:@"activationPolicy"
+                                 context:nullptr];
+     _runningApplication = nil;
++    if (_furyQuitWithLastWindow) {
++      return;
++    }
+     _keepAlive = std::make_unique<ScopedKeepAlive>(
+         KeepAliveOrigin::APP_CONTROLLER, KeepAliveRestartOption::DISABLED);
+   }

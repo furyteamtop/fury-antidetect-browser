@@ -738,3 +738,13 @@
 # real Chrome under the same conditions and stay. Reported 21.09.2026 by a
 # Windows tester as "Google API-Schlüssel fehlen" above a German profile.
 0902-no-api-keys-infobar.patch
+
+# A profile's browser on macOS quits when its last window closes, as it does
+# on Windows. macOS Chrome stays running with no windows until Cmd+Q, held by
+# AppController's own keep-alive; for a browser the agent started, that left a
+# second icon in the Dock and a profile the agent still counted as open, so a
+# team profile's session did not reach the server until something else closed
+# it. Reported 08.10.2026 by a tester with two identical Fury icons in his
+# Dock, one of them a profile he had closed. The keep-alive is released once
+# the first window exists; nothing a page can observe changes. macOS only.
+0903-mac-quit-with-last-window.patch
