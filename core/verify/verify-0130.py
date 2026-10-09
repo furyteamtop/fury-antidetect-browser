@@ -252,10 +252,10 @@ check(d_worker.get("connectionType") != "cellular",
 check(bare == 980,
       f"a page with no <meta viewport> lays out at 980, as Chrome on Android "
       f"(got {bare}; desktop {d_bare})")
-check(bare == 980 and isinstance(meta, int) and meta != 980 and meta == d_meta,
-      f"and width=device-width brings it back to the window's width, so the "
+check(bare == 980 and isinstance(meta, int) and meta != 980,
+      f"and width=device-width brings it back to the device width, so the "
       f"980 above is the viewport rule and not a wider window (got {meta}; "
-      f"desktop {d_meta})")
+      f"desktop {d_meta}; with 0131 it is the phone's screen.width)")
 
 server.shutdown()
 bad = [t for ok, t in results if not ok]

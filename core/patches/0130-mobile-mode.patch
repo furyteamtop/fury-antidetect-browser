@@ -1,5 +1,5 @@
 diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
-index afc5ffbe13..e2311dcba2 100644
+index afc5ffbe13..6789ff8983 100644
 --- a/chrome/browser/chrome_content_browser_client.cc
 +++ b/chrome/browser/chrome_content_browser_client.cc
 @@ -239,6 +239,7 @@
@@ -10,7 +10,70 @@ index afc5ffbe13..e2311dcba2 100644
  #include "components/fury/location/fury_location_provider.h"
  #include "components/autofill/core/common/autofill_features.h"
  #include "components/autofill/core/common/autofill_switches.h"
-@@ -4941,6 +4942,50 @@ void ChromeContentBrowserClient::OverrideWebPreferences(
+@@ -4588,6 +4589,62 @@ content::TtsPlatform* ChromeContentBrowserClient::GetTtsPlatform() {
+ #endif
+ }
+ 
++namespace {
++
++// Patch 0130: the browser's own pages (settings, the new tab page, DevTools)
++// are not the phone's web content and keep the desktop layout; the persona's
++// screen is not theirs to lay out in either (0131 leaves them alone too).
++bool FuryIsBrowserPage(content::WebContents* web_contents) {
++  const GURL& url = web_contents->GetLastCommittedURL().is_empty()
++                        ? web_contents->GetVisibleURL()
++                        : web_contents->GetLastCommittedURL();
++  return url.SchemeIs(content::kChromeUIScheme) ||
++         url.SchemeIs(content::kChromeDevToolsScheme) ||
++         url.SchemeIs(content::kChromeUIUntrustedScheme);
++}
++
++// The layout half of a phone: the layout viewport and <meta viewport>,
++// Android's 0.25-5 page scale range (with the desktop minimum of 1 a page
++// with no <meta viewport> cannot be shown whole, so Blink kept the layout at
++// the window's width instead of Android's 980; measured 500), resizes as
++// rotations. `phone` false puts back what a desktop WebPreferences has.
++// Returns whether anything changed, for OverrideWebPreferencesAfterNavigation.
++bool FuryMobileLayout(WebPreferences* p, bool phone) {
++  const WebPreferences desktop;
++  const WebPreferences before = *p;
++  p->viewport_enabled = phone || desktop.viewport_enabled;
++  p->viewport_meta_enabled = phone || desktop.viewport_meta_enabled;
++  p->shrinks_viewport_contents_to_fit =
++      phone || desktop.shrinks_viewport_contents_to_fit;
++  p->viewport_style =
++      phone ? blink::mojom::ViewportStyle::kMobile : desktop.viewport_style;
++  p->main_frame_resizes_are_orientation_changes =
++      phone || desktop.main_frame_resizes_are_orientation_changes;
++  p->double_tap_to_zoom_enabled = phone || desktop.double_tap_to_zoom_enabled;
++  p->text_size_adjust_enabled = phone || desktop.text_size_adjust_enabled;
++  // 0.25 is WebPreferences::kDefaultMinimumPageScaleFactor, which exists
++  // only in an Android build.
++  p->default_minimum_page_scale_factor =
++      phone ? 0.25f : desktop.default_minimum_page_scale_factor;
++  p->default_maximum_page_scale_factor =
++      phone ? 5.f : desktop.default_maximum_page_scale_factor;
++  return p->viewport_enabled != before.viewport_enabled ||
++         p->viewport_meta_enabled != before.viewport_meta_enabled ||
++         p->shrinks_viewport_contents_to_fit !=
++             before.shrinks_viewport_contents_to_fit ||
++         p->viewport_style != before.viewport_style ||
++         p->main_frame_resizes_are_orientation_changes !=
++             before.main_frame_resizes_are_orientation_changes ||
++         p->double_tap_to_zoom_enabled != before.double_tap_to_zoom_enabled ||
++         p->text_size_adjust_enabled != before.text_size_adjust_enabled ||
++         p->default_minimum_page_scale_factor !=
++             before.default_minimum_page_scale_factor ||
++         p->default_maximum_page_scale_factor !=
++             before.default_maximum_page_scale_factor;
++}
++
++}  // namespace
++
+ void ChromeContentBrowserClient::OverrideWebPreferences(
+     WebContents* web_contents,
+     content::SiteInstance& main_frame_site,
+@@ -4941,6 +4998,36 @@ void ChromeContentBrowserClient::OverrideWebPreferences(
  
    web_prefs->clipboard_focus_exempt = IsClipboardFocusExemptOrigin(
        web_contents->GetPrimaryMainFrame()->GetLastCommittedOrigin());
@@ -42,25 +105,26 @@ index afc5ffbe13..e2311dcba2 100644
 +    web_prefs->available_hover_types =
 +        static_cast<int>(blink::mojom::HoverType::kHoverNone);
 +    web_prefs->primary_hover_type = blink::mojom::HoverType::kHoverNone;
-+    web_prefs->viewport_enabled = true;
-+    web_prefs->viewport_meta_enabled = true;
-+    web_prefs->shrinks_viewport_contents_to_fit = true;
-+    web_prefs->viewport_style = blink::mojom::ViewportStyle::kMobile;
-+    web_prefs->main_frame_resizes_are_orientation_changes = true;
-+    web_prefs->double_tap_to_zoom_enabled = true;
-+    web_prefs->text_size_adjust_enabled = true;
-+    // Android's page scale range. With the desktop minimum of 1 a page with
-+    // no <meta viewport> cannot be shown whole, so Blink keeps the layout at
-+    // the window's width instead of Android's 980 (measured: 500 without
-+    // these, the width of the window). DevToolsEmulator sets the same 0.25-5.
-+    // 0.25 is WebPreferences::kDefaultMinimumPageScaleFactor, which exists
-+    // only in an Android build.
-+    web_prefs->default_minimum_page_scale_factor = 0.25f;
-+    web_prefs->default_maximum_page_scale_factor = 5.f;
++    FuryMobileLayout(web_prefs, !FuryIsBrowserPage(web_contents));
 +  }
  }
  
  bool ChromeContentBrowserClientParts::OverrideWebPreferencesAfterNavigation(
+@@ -4956,6 +5043,14 @@ bool ChromeContentBrowserClient::OverrideWebPreferencesAfterNavigation(
+     WebPreferences* web_prefs) {
+   bool prefs_changed = false;
+ 
++  // Patch 0130: a tab going to or from one of the browser's own pages changes
++  // between the phone's layout and the desktop's.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get();
++      config && config->GetBool("mobile.enabled").value_or(false)) {
++    prefs_changed |=
++        FuryMobileLayout(web_prefs, !FuryIsBrowserPage(web_contents));
++  }
++
+   const auto autoplay_policy = GetAutoplayPolicyForWebContents(web_contents);
+   prefs_changed |= (web_prefs->autoplay_policy != autoplay_policy);
+   web_prefs->autoplay_policy = autoplay_policy;
 diff --git a/content/child/BUILD.gn b/content/child/BUILD.gn
 index 3bd2725762..b95b76ff90 100644
 --- a/content/child/BUILD.gn

@@ -1,0 +1,174 @@
+diff --git a/third_party/blink/renderer/core/frame/web_frame_widget_impl.cc b/third_party/blink/renderer/core/frame/web_frame_widget_impl.cc
+index f3cea4974f..aa919d97fa 100644
+--- a/third_party/blink/renderer/core/frame/web_frame_widget_impl.cc
++++ b/third_party/blink/renderer/core/frame/web_frame_widget_impl.cc
+@@ -30,6 +30,8 @@
+ 
+ #include "third_party/blink/renderer/core/frame/web_frame_widget_impl.h"
+ 
++#include "components/fury/fury_config.h"
++
+ #include <algorithm>
+ #include <memory>
+ #include <optional>
+@@ -204,6 +206,57 @@ namespace blink {
+ 
+ namespace {
+ 
++// Patch 0131: the page's screen is the persona's phone, not the window
++// (docs/18, step 3).
++//
++// A Chrome window on macOS is never narrower than 500, so with a 384-wide
++// phone persona a page using width=device-width saw a 500-wide viewport on a
++// 384-wide screen: a contradiction any script can read. This is DevTools'
++// device mode, ScreenMetricsEmulator, switched on by the main frame's widget
++// from the config instead of over CDP: the layout viewport, innerWidth and
++// innerHeight, screen and devicePixelRatio become the phone's, whatever the
++// window is, and the page is drawn at its top-left. Input needs nothing: the
++// renderer maps events through the same emulation transform.
++//
++// The inner height is the screen less the browser's own chrome, which is
++// what screen.chromeHeightDelta already says for outerHeight (patch 0020), so
++// outer and inner come out as a phone's do.
++std::optional<DeviceEmulationParams> FuryMobileEmulation() {
++  const fury::FuryConfig* config = fury::FuryConfig::Get();
++  if (!config || !config->GetBool("mobile.enabled").value_or(false)) {
++    return std::nullopt;
++  }
++  std::optional<int> width = config->GetInt("screen.width");
++  std::optional<int> height = config->GetInt("screen.height");
++  std::optional<double> dpr = config->GetDouble("screen.devicePixelRatio");
++  if (!width || !height || !dpr || *width <= 0 || *height <= 0 || *dpr <= 0) {
++    return std::nullopt;
++  }
++  const int chrome = config->GetInt("screen.chromeHeightDelta").value_or(0);
++  DeviceEmulationParams params;
++  params.screen_type = mojom::EmulatedScreenType::kMobile;
++  params.screen_size = gfx::Size(*width, *height);
++  params.view_position = gfx::Point(0, 0);
++  params.view_size = gfx::Size(*width, std::max(1, *height - chrome));
++  params.device_scale_factor = static_cast<float>(*dpr);
++  params.scale = 1;
++  params.screen_orientation_type =
++      *height >= *width ? display::mojom::ScreenOrientation::kPortraitPrimary
++                        : display::mojom::ScreenOrientation::kLandscapePrimary;
++  params.screen_orientation_angle = 0;
++  params.force_android_overlay_scrollbar = true;
++  params.force_viewport_meta = true;
++  return params;
++}
++
++// The browser's own pages stay as they are: the new tab page, settings and
++// DevTools are not the phone's web content, and a 384-wide settings page
++// helps nobody.
++bool FuryIsBrowserPage(const KURL& url) {
++  return url.ProtocolIs("chrome") || url.ProtocolIs("devtools") ||
++         url.ProtocolIs("chrome-untrusted") || url.ProtocolIs("chrome-extension");
++}
++
+ Element* GetElementFromDOMNodeId(DOMNodeIdType target_dom_node_id) {
+   if (target_dom_node_id.is_null()) {
+     return nullptr;
+@@ -2104,6 +2157,11 @@ void WebFrameWidgetImpl::UpdateVisualProperties(
+       unbounded_surface_state_->host_->UpdateBounds(bounds);
+     }
+   }
++
++  // Patch 0131: every new main-frame widget takes the phone's screen on its
++  // first visual properties, which covers every tab, popup and process swap;
++  // after that the emulator owns the sizing.
++  MaybeApplyFuryMobileEmulation();
+ }
+ 
+ void WebFrameWidgetImpl::ApplyVisualPropertiesSizing(
+@@ -2493,6 +2551,35 @@ void WebFrameWidgetImpl::DisableDeviceEmulation() {
+     device_emulator_->DisableAndApply();
+   }
+   device_emulator_ = nullptr;
++  // Patch 0131: DevTools clearing its own override must not take the phone
++  // away for the rest of the page's life.
++  MaybeApplyFuryMobileEmulation();
++}
++
++void WebFrameWidgetImpl::MaybeApplyFuryMobileEmulation() {
++  if (!ForTopMostMainFrame() || AutoResizeMode() || !widget_base_ ||
++      widget_base_->WillBeDestroyed()) {
++    return;
++  }
++  std::optional<DeviceEmulationParams> params = FuryMobileEmulation();
++  if (!params) {
++    return;
++  }
++  const bool browser_page =
++      LocalRootImpl() && LocalRootImpl()->GetFrame() &&
++      LocalRootImpl()->GetFrame()->GetDocument() &&
++      FuryIsBrowserPage(LocalRootImpl()->GetFrame()->GetDocument()->Url());
++  if (browser_page) {
++    if (device_emulator_) {
++      device_emulator_->DisableAndApply();
++      device_emulator_ = nullptr;
++    }
++    return;
++  }
++  if (!device_emulator_) {
++    EnableDeviceEmulation(*params,
++                          mojom::blink::DeviceEmulationCacheBehavior::kKeepCache);
++  }
+ }
+ 
+ void WebFrameWidgetImpl::SetIsInertForSubFrame(bool inert) {
+@@ -4556,6 +4643,8 @@ void WebFrameWidgetImpl::DidNavigate() {
+   if (RuntimeEnabledFeatures::UnboundedElementEnabled()) {
+     OnDismissed();
+   }
++  // Patch 0131: a navigation to or from a browser page decides again.
++  MaybeApplyFuryMobileEmulation();
+ }
+ 
+ void WebFrameWidgetImpl::FlushInputForTesting(base::OnceClosure done_callback) {
+diff --git a/third_party/blink/renderer/core/frame/web_frame_widget_impl.h b/third_party/blink/renderer/core/frame/web_frame_widget_impl.h
+index e74d8a7fd4..053564c57a 100644
+--- a/third_party/blink/renderer/core/frame/web_frame_widget_impl.h
++++ b/third_party/blink/renderer/core/frame/web_frame_widget_impl.h
+@@ -988,6 +988,8 @@ class CORE_EXPORT WebFrameWidgetImpl
+       const DeviceEmulationParams& parameters,
+       const mojom::blink::DeviceEmulationCacheBehavior cache_behavior) override;
+   void DisableDeviceEmulation() override;
++  // Patch 0131: the persona's phone screen, from the Fury config.
++  void MaybeApplyFuryMobileEmulation();
+   // Sets the inert bit on an out-of-process iframe, causing it to ignore
+   // input.
+   void SetIsInertForSubFrame(bool inert) override;
+diff --git a/third_party/blink/renderer/core/frame/local_dom_window.cc b/third_party/blink/renderer/core/frame/local_dom_window.cc
+index f880e3b374..eac39b0c46 100644
+--- a/third_party/blink/renderer/core/frame/local_dom_window.cc
++++ b/third_party/blink/renderer/core/frame/local_dom_window.cc
+@@ -1702,6 +1702,15 @@ int LocalDOMWindow::outerHeight() const {
+   // the page. So the real viewport is kept and only the chrome is described.
+   // The window stays freely resizable and the delta stays correct at any size.
+   if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    // Patch 0131: a phone's window is its screen. innerHeight here is in
++    // layout pixels, which a page without <meta viewport> zooms out to 980
++    // wide, so inner + chrome would give a phone 1825 pixels of window on an
++    // 832-pixel screen (measured on verify-0131's bare page).
++    if (config->GetBool("mobile.enabled").value_or(false)) {
++      if (std::optional<int> height = config->GetInt("screen.height")) {
++        return *height;
++      }
++    }
+     if (std::optional<int> delta = config->GetInt("screen.chromeHeightDelta")) {
+       if (*delta >= 0) {
+         return innerHeight() + *delta;
+@@ -1746,6 +1755,12 @@ int LocalDOMWindow::outerWidth() const {
+   // On both Windows and macOS this delta is 0 for a normal window, but it is
+   // configurable rather than assumed.
+   if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    // Patch 0131: see outerHeight.
++    if (config->GetBool("mobile.enabled").value_or(false)) {
++      if (std::optional<int> width = config->GetInt("screen.width")) {
++        return *width;
++      }
++    }
+     if (std::optional<int> delta = config->GetInt("screen.chromeWidthDelta")) {
+       if (*delta >= 0) {
+         return innerWidth() + *delta;

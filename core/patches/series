@@ -472,6 +472,16 @@
 # factor, the window, or mouse-to-touch input, which are docs/18 steps 3 and 4.
 0130-mobile-mode.patch
 
+# MOBILE SCREEN (docs/18, step 3). A Chrome window on macOS is never narrower
+# than 500, so a 384-wide phone persona's page saw a 500-wide viewport on a
+# 384-wide screen. The main frame's widget runs Blink's ScreenMetricsEmulator
+# (DevTools' device mode) from the config on its first visual properties:
+# innerWidth/innerHeight, devicePixelRatio and the screen are the phone's
+# whatever the window is, input is mapped by the same transform, and the
+# browser's own pages are left alone. outerWidth/outerHeight become the
+# screen, which is what a phone's window is.
+0131-mobile-screen.patch
+
 # --- network ----------------------------------------------------------------
 # NOT NEEDED FOR PARITY, and removing them from the plan is a finding rather
 # than a shortcut. Verified against M150 source on 31.07.2026:
