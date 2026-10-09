@@ -3012,18 +3012,28 @@ pub async fn import_cookies(id: String, cookies: serde_json::Value) -> R<serde_j
     .await?)
 }
 
-/// GoLogin's profiles, read with the operator's API token. See import_gologin.rs.
+/// Another anti-detect browser's profiles, read through its API with the
+/// operator's token. See agent/src/import_antidetect/.
 #[tauri::command]
-pub async fn gologin_list(token: String) -> R<serde_json::Value> {
-    Ok(crate::agent::call("import.gologin.list", serde_json::json!({ "token": token })).await?)
+pub async fn vendor_list(vendor: String, token: String, base: Option<String>) -> R<serde_json::Value> {
+    Ok(crate::agent::call(
+        "import.vendor.list",
+        serde_json::json!({ "vendor": vendor, "token": token, "base": base }),
+    )
+    .await?)
 }
 
-/// One GoLogin profile's proxy, start page and cookies.
+/// One of those profiles' proxy, start page and cookies.
 #[tauri::command]
-pub async fn gologin_profile(token: String, id: String) -> R<serde_json::Value> {
+pub async fn vendor_profile(
+    vendor: String,
+    token: String,
+    base: Option<String>,
+    profile: serde_json::Value,
+) -> R<serde_json::Value> {
     Ok(crate::agent::call(
-        "import.gologin.profile",
-        serde_json::json!({ "token": token, "id": id }),
+        "import.vendor.profile",
+        serde_json::json!({ "vendor": vendor, "token": token, "base": base, "profile": profile }),
     )
     .await?)
 }

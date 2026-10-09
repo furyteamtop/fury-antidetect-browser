@@ -2,11 +2,11 @@
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
 import { useMemo, useState } from "react";
-import { api, type GoLoginProfile, type LocalProxy, type Persona } from "../api";
+import { api, type LocalProxy, type Persona, type Vendor, type VendorProfile } from "../api";
 import { useI18n } from "../i18n";
 
-/** Profiles and their cookies out of GoLogin, through GoLogin's API
- *  (agent/src/import_gologin.rs says what is read and why).
+/** Profiles and their cookies out of another anti-detect browser, through
+ *  its own API (agent/src/import_antidetect/ says what is read and why).
  *
  *  Each profile is made the way CsvImport makes one: its proxy through the
  *  paste parser, deduplicated by address, then `saveProfile`, then the cookies
@@ -24,9 +24,20 @@ type Row = {
   notes: string[];
 };
 
-const OS_PREFIX: Record<string, string> = { win: "Windows", mac: "macOS" };
+const OS_PREFIX: Record<string, string> = { win: "Windows", mac: "macOS", android: "Android" };
 
-export function GoLoginImport({
+/** What each source needs from the person. `local` is the address its API
+ *  answers on when the app is running; null for a cloud API. */
+const VENDORS: { id: Vendor; name: string; token: "required" | "optional" | "none"; local: string | null }[] = [
+  { id: "gologin", name: "GoLogin", token: "required", local: null },
+  { id: "dolphin", name: "Dolphin Anty", token: "required", local: null },
+  { id: "adspower", name: "AdsPower", token: "optional", local: "http://127.0.0.1:50325" },
+  { id: "undetectable", name: "Undetectable", token: "none", local: "http://127.0.0.1:25325" },
+  { id: "kameleo", name: "Kameleo", token: "none", local: "http://localhost:5050" },
+  { id: "vision", name: "Vision", token: "required", local: null },
+];
+
+export function AntidetectImport({
   projectId,
   onDone,
   onClose,
@@ -36,8 +47,12 @@ export function GoLoginImport({
   onClose: () => void;
 }) {
   const { t, say } = useI18n();
+  const [vendor, setVendor] = useState<Vendor>("gologin");
   const [token, setToken] = useState("");
-  const [list, setList] = useState<GoLoginProfile[] | null>(null);
+  const [base, setBase] = useState("");
+  const [list, setList] = useState<VendorProfile[] | null>(null);
+  const spec = VENDORS.find((v) => v.id === vendor)!;
+  const baseArg = spec.local && base.trim() && base.trim() !== spec.local ? base.trim() : null;
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState(false);
@@ -56,7 +71,7 @@ export function GoLoginImport({
     setBusy(true);
     setError(null);
     try {
-      const got = await api.gologinList(token.trim());
+      const got = await api.vendorList(vendor, token.trim(), baseArg);
       setList(got);
       setPicked(new Set(got.map((p) => p.id)));
     } catch (e) {
@@ -97,11 +112,11 @@ export function GoLoginImport({
         const g = todo[i];
         const row: Row = { name: g.name || g.id, ok: false, notes: [] };
         try {
-          const d = await api.gologinProfile(token.trim(), g.id);
+          const d = await api.vendorProfile(vendor, token.trim(), baseArg, g);
 
           let proxy_id: string | null = null;
           if (d.proxy_line) {
-            const imported = await api.importProxies(d.proxy_line, "GoLogin");
+            const imported = await api.importProxies(d.proxy_line, spec.name);
             const s = imported.saved[0];
             if (s) {
               const key = `${s.host}:${s.port}`;
@@ -119,7 +134,12 @@ export function GoLoginImport({
           } else if (d.proxy_note) {
             row.notes.push(d.proxy_note);
           }
-          if (!OS_PREFIX[g.os]) row.notes.push(t("gl.osSubstituted", { os: g.os || "?" }));
+          // Said whenever the catalogue has no device of that OS, Android
+          // included until a phone has been captured (docs/18).
+          const prefix = OS_PREFIX[g.os];
+          if (g.os && !(prefix && personas.some((p) => p.os.startsWith(prefix)))) {
+            row.notes.push(t("gl.osSubstituted", { os: g.os }));
+          }
 
           const saved = await api.saveProfile({
             id: "",
@@ -139,6 +159,7 @@ export function GoLoginImport({
           created++;
           row.ok = true;
 
+          if (d.cookie_note) row.notes.push(d.cookie_note);
           if (d.cookies.length > 0) {
             try {
               const r = await api.importCookies(saved.id, d.cookies);
@@ -177,33 +198,72 @@ export function GoLoginImport({
     <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose()}>
       <div className="modal" style={{ height: "auto", maxHeight: "90vh", width: 760 }} role="dialog" aria-modal="true">
         <div className="modalHead">
-          <h2>{t("gl.title")}</h2>
+          <h2>{t("gl.title", { vendor: spec.name })}</h2>
         </div>
         <div className="form" style={{ paddingTop: "var(--s-5)", overflowY: "auto" }}>
           <p className="hint">{t("gl.why")}</p>
           <p className="hint">{t("gl.notCarried")}</p>
 
           {!list && (
-            <div className="field">
-              <label htmlFor="gl-token">{t("gl.token")}</label>
-              <div>
-                <input
-                  id="gl-token"
-                  type="password"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && token.trim() && !busy && void load()}
-                />
-                <p className="hint small">{t("gl.tokenWhere")}</p>
+            <>
+              <div className="field">
+                <label htmlFor="gl-vendor">{t("gl.source")}</label>
+                <div>
+                  <select
+                    id="gl-vendor"
+                    value={vendor}
+                    onChange={(e) => {
+                      setVendor(e.target.value as Vendor);
+                      setToken("");
+                      setBase("");
+                      setError(null);
+                    }}
+                  >
+                    {VENDORS.map((v) => (
+                      <option key={v.id} value={v.id}>{v.name}</option>
+                    ))}
+                  </select>
+                  <p className="hint small">{t(`gl.how.${vendor}` as never)}</p>
+                </div>
               </div>
-            </div>
+              {spec.token !== "none" && (
+                <div className="field">
+                  <label htmlFor="gl-token">{spec.token === "optional" ? t("gl.tokenOptional") : t("gl.token")}</label>
+                  <div>
+                    <input
+                      id="gl-token"
+                      type="password"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={token}
+                      onChange={(e) => setToken(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && !busy && (token.trim() || spec.token !== "required") && void load()}
+                    />
+                    <p className="hint small">{t("gl.tokenKept")}</p>
+                  </div>
+                </div>
+              )}
+              {spec.local && (
+                <div className="field">
+                  <label htmlFor="gl-base">{t("gl.base")}</label>
+                  <div>
+                    <input
+                      id="gl-base"
+                      spellCheck={false}
+                      placeholder={spec.local}
+                      value={base}
+                      onChange={(e) => setBase(e.target.value)}
+                    />
+                    <p className="hint small">{t("gl.baseHint", { vendor: spec.name })}</p>
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           {list && !rows && (
             <div className="field">
-              <label>{t("gl.found", { n: list.length })}</label>
+              <label>{t("gl.found", { n: list.length, vendor: spec.name })}</label>
               <div>
                 <input
                   className="search"
@@ -279,7 +339,7 @@ export function GoLoginImport({
           <div className="spacer" />
           <button className="ghost" disabled={busy} onClick={onClose}>{rows && !busy ? t("ui.close") : t("ui.cancel")}</button>
           {!list && (
-            <button className="primary" disabled={busy || !token.trim()} onClick={() => void load()}>
+            <button className="primary" disabled={busy || (spec.token === "required" && !token.trim())} onClick={() => void load()}>
               {busy ? t("bp.working") : t("gl.load")}
             </button>
           )}

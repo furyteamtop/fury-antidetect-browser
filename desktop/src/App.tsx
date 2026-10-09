@@ -26,7 +26,7 @@ import { Settings } from "./components/Settings";
 import { Sidebar, type View } from "./components/Sidebar";
 import { ShareDialog } from "./components/ShareDialog";
 import { CsvImport } from "./components/CsvImport";
-import { GoLoginImport } from "./components/GoLoginImport";
+import { AntidetectImport } from "./components/AntidetectImport";
 import { Icon, IconButton } from "./components/Icon";
 import { useTheme } from "./theme";
 import { exitSharing } from "./consistency";
@@ -1548,7 +1548,7 @@ export function App() {
         )}
 
         {gologin && (
-          <GoLoginImport
+          <AntidetectImport
             projectId={active?.origin === "local" ? active.id : null}
             onDone={() => void refreshProfiles()}
             onClose={() => setGologin(false)}

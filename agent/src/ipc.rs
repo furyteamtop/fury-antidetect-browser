@@ -572,21 +572,28 @@ impl Agent {
                 Ok(serde_json::to_value(report)?)
             }
 
-            // GoLogin, through its API (import_gologin.rs). Reading only:
-            // the shell creates each profile the ordinary way, as with
-            // `import.profile`, and hands the cookies to
-            // `profile.cookies.import`. The token is a parameter of each call
-            // and is kept nowhere.
-            "import.gologin.list" => {
-                let token = str_param(&params, "token")?;
-                let profiles = crate::import_gologin::list(token.trim()).await?;
-                Ok(serde_json::to_value(profiles)?)
-            }
-            "import.gologin.profile" => {
-                let token = str_param(&params, "token")?;
-                let id = str_param(&params, "id")?;
-                let detail = crate::import_gologin::profile(token.trim(), &id).await?;
-                Ok(serde_json::to_value(detail)?)
+            // Other anti-detect browsers, through their APIs
+            // (import_antidetect/). Reading only: the shell creates each
+            // profile the ordinary way, as with `import.profile`, and hands
+            // the cookies to `profile.cookies.import`. The token is a
+            // parameter of each call and is kept nowhere.
+            "import.vendor.list" | "import.vendor.profile" => {
+                let vendor = crate::import_antidetect::Vendor::parse(&str_param(&params, "vendor")?)?;
+                let access = crate::import_antidetect::Access {
+                    token: params.get("token").and_then(|v| v.as_str()).unwrap_or("").trim().to_string(),
+                    base: params.get("base").and_then(|v| v.as_str()).map(str::to_string),
+                };
+                if method == "import.vendor.list" {
+                    let profiles = crate::import_antidetect::list(vendor, &access).await?;
+                    Ok(serde_json::to_value(profiles)?)
+                } else {
+                    let summary: crate::import_antidetect::Summary = serde_json::from_value(
+                        params.get("profile").cloned().unwrap_or(serde_json::Value::Null),
+                    )
+                    .map_err(|e| anyhow::anyhow!("missing or malformed parameter \"profile\": {e}"))?;
+                    let detail = crate::import_antidetect::profile(vendor, &access, &summary).await?;
+                    Ok(serde_json::to_value(detail)?)
+                }
             }
 
             // Named blocklists, shared between profiles. A profile names the

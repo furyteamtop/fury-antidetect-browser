@@ -306,22 +306,28 @@ export interface OverrideOptions {
   ui_locales: string[];
 }
 
-export interface GoLoginProfile {
+export type Vendor = "gologin" | "dolphin" | "adspower" | "undetectable" | "kameleo" | "vision";
+
+export interface VendorProfile {
   id: string;
   name: string;
   notes: string;
   tags: string[];
-  /** GoLogin's word for it: "win", "mac", "lin", "android". */
+  /** "win", "mac", "lin", "android", or "" when the source does not say. */
   os: string;
   /** host:port, for showing. */
   proxy: string | null;
+  /** What that source needs back to read the profile; passed through. */
+  extra: unknown;
 }
 
-export interface GoLoginDetail {
+export interface VendorDetail {
   proxy_line: string | null;
   proxy_note: string | null;
   start_url: string | null;
   cookies: unknown[];
+  /** Why there are no cookies, when the source says: sync off, a running profile. */
+  cookie_note?: string | null;
 }
 
 export interface Persona {
@@ -1036,11 +1042,12 @@ export const api = {
   ): Promise<{ imported: number; session_only: number; skipped: number }> =>
     cmd("import_cookies", { id, cookies }),
 
-  /** GoLogin, through its API. The token is passed per call and kept nowhere. */
-  gologinList: (token: string): Promise<GoLoginProfile[]> =>
-    cmd<GoLoginProfile[]>("gologin_list", { token }),
-  gologinProfile: (token: string, id: string): Promise<GoLoginDetail> =>
-    cmd<GoLoginDetail>("gologin_profile", { token, id }),
+  /** Another anti-detect browser, through its API. The token is passed per
+   *  call and kept nowhere; `base` overrides where a local API answers. */
+  vendorList: (vendor: Vendor, token: string, base: string | null): Promise<VendorProfile[]> =>
+    cmd<VendorProfile[]>("vendor_list", { vendor, token, base }),
+  vendorProfile: (vendor: Vendor, token: string, base: string | null, profile: VendorProfile): Promise<VendorDetail> =>
+    cmd<VendorDetail>("vendor_profile", { vendor, token, base, profile }),
   // ---- synchronised windows ---------------------------------------------
 
   /** Start mirroring between these profiles. Ones not open are launched with

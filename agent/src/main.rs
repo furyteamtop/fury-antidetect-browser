@@ -22,7 +22,7 @@ mod ext;
 mod geoip;
 mod http;
 mod import_browser;
-mod import_gologin;
+mod import_antidetect;
 mod install_core;
 mod ipc;
 mod mcp;

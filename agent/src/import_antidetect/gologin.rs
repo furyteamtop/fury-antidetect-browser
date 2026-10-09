@@ -37,71 +37,27 @@
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
 
+use super::{client, os_word, send_json, Detail, Summary};
+
 pub const API: &str = "https://api.gologin.com";
 
 /// `FURY_GOLOGIN_API` points the import at a stand-in for end-to-end tests.
 /// An environment variable of the agent's own process, so only whoever starts
 /// the agent can set it; a page or a peer cannot.
-fn base() -> String {
+pub(crate) fn base() -> String {
     std::env::var("FURY_GOLOGIN_API").unwrap_or_else(|_| API.to_string())
 }
 
-/// One GoLogin profile, as much as the list shows.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
-pub struct Summary {
-    pub id: String,
-    pub name: String,
-    pub notes: String,
-    pub tags: Vec<String>,
-    /// GoLogin's own word: "win", "mac", "lin", "android".
-    pub os: String,
-    /// `host:port` for showing, or None when the profile has no proxy.
-    pub proxy: Option<String>,
-}
-
-/// What `profile` returns: the parts the list does not carry.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
-pub struct Detail {
-    /// A proxy line the paste parser reads, credentials included.
-    pub proxy_line: Option<String>,
-    /// Why the proxy is not in `proxy_line`, when the profile has one.
-    pub proxy_note: Option<String>,
-    pub start_url: Option<String>,
-    pub cookies: Vec<Value>,
-}
-
-fn client() -> Result<reqwest::Client> {
-    Ok(reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()?)
-}
-
 async fn get(client: &reqwest::Client, base: &str, path: &str, token: &str) -> Result<Value> {
-    let response = client
-        .get(format!("{base}{path}"))
-        .bearer_auth(token)
-        .header("User-Agent", concat!("fury-agent/", env!("CARGO_PKG_VERSION")))
-        .send()
-        .await
-        .context("GoLogin did not answer")?;
-    let status = response.status();
-    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-        bail!(
-            "GoLogin refused the token ({status}). Copy it again from GoLogin: \
-             API & MCP, the API tab"
-        );
-    }
-    if !status.is_success() {
-        bail!("GoLogin answered {status} for {path}");
-    }
-    response.json().await.with_context(|| format!("GoLogin's answer for {path} is not JSON"))
+    send_json(
+        client.get(format!("{base}{path}")).bearer_auth(token),
+        "GoLogin",
+        "Copy it again from GoLogin: API & MCP, the API tab",
+    )
+    .await
 }
 
 /// Every profile in the account, page by page.
-pub async fn list(token: &str) -> Result<Vec<Summary>> {
-    list_from(&base(), token).await
-}
-
 pub async fn list_from(base: &str, token: &str) -> Result<Vec<Summary>> {
     let client = client()?;
     let mut out: Vec<Summary> = Vec::new();
@@ -128,10 +84,6 @@ pub async fn list_from(base: &str, token: &str) -> Result<Vec<Summary>> {
 }
 
 /// One profile's proxy, start page and cookies.
-pub async fn profile(token: &str, id: &str) -> Result<Detail> {
-    profile_from(&base(), token, id).await
-}
-
 pub async fn profile_from(base: &str, token: &str, id: &str) -> Result<Detail> {
     // The id goes into a path; GoLogin's are 24 hex characters, and anything
     // else is not one of theirs.
@@ -159,7 +111,7 @@ pub async fn profile_from(base: &str, token: &str, id: &str) -> Result<Detail> {
             .unwrap_or_default(),
         _ => Vec::new(),
     };
-    Ok(Detail { proxy_line, proxy_note, start_url, cookies })
+    Ok(Detail { proxy_line, proxy_note, start_url, cookies, cookie_note: None })
 }
 
 /// The profiles on one page of `/browser/v2`, and the total if it says one.
@@ -182,8 +134,9 @@ pub fn parse_list(body: &Value) -> Result<(Vec<Summary>, Option<usize>)> {
             name: text("name"),
             notes: text("notes"),
             tags: tags_of(p.get("tags")),
-            os: os_of(p.get("os")),
+            os: os_word(&os_of(p.get("os"))),
             proxy: (!host.is_empty() && port > 0 && mode != "none").then(|| format!("{host}:{port}")),
+            extra: Value::Null,
         });
     }
     Ok((out, total))
@@ -241,25 +194,7 @@ pub fn proxy_of(profile: &Value) -> (Option<String>, Option<String>) {
     let pass = p.get("password").and_then(Value::as_str).unwrap_or("");
     match mode.as_str() {
         "" | "none" => (None, None),
-        // socks4 is left to the parser, which refuses it with the reason.
-        "http" | "https" | "socks5" | "socks4" if !host.is_empty() && port > 0 => {
-            // Unescaped: the paste parser splits on the LAST `@` and the
-            // FIRST `:`, so a password with either arrives whole, and it does
-            // not decode `%XX` — escaping here would store the escapes. The
-            // one shape it cannot carry is a colon in the username.
-            if user.contains(':') {
-                return (None, Some("the proxy username contains a colon".into()));
-            }
-            let auth = if user.is_empty() {
-                String::new()
-            } else {
-                format!("{user}:{pass}@")
-            };
-            (Some(format!("{mode}://{auth}{host}:{port}")), None)
-        }
-        "http" | "https" | "socks5" | "socks4" => {
-            (None, Some("the proxy has no address in GoLogin".into()))
-        }
+        "http" | "https" | "socks5" | "socks4" => super::proxy_line(&mode, host, port, user, pass),
         other => (
             None,
             Some(format!(
