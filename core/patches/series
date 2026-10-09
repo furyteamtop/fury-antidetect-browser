@@ -451,6 +451,27 @@
 # BatteryManager is Window-only.
 # 0122-network-information.patch
 
+# MOBILE MODE (docs/18). A phone persona lays out, takes input and answers as
+# Chrome on Android, from the config's `mobile` branch; a desktop persona has
+# no such branch and nothing here runs.
+#
+# Measured first: DevTools' mobile emulation over CDP made the main frame and
+# same-site iframes a phone and left a cross-site iframe reporting the whole
+# Mac, workers macOS. So this is not emulation. WebPreferences (viewport,
+# <meta viewport>, coarse pointer, no hover, touch events) are set in
+# OverrideWebPreferences and reach every renderer of the page; the runtime
+# features that differ between desktop and Android in
+# runtime_enabled_features.json5 are switched process-wide in
+# content/child/runtime_features.cc, where --enable-blink-features is read,
+# without putting anything in argv; navigator.connection.type,
+# screen.orientation and the PDF plugin list read the config directly.
+#
+# Not here, and said in the patch: Android-only interfaces bound by the
+# browser only on Android (contacts, NFC, digital goods), since a desktop
+# browser kills a renderer that asks for an unbound one. Nor the device scale
+# factor, the window, or mouse-to-touch input, which are docs/18 steps 3 and 4.
+0130-mobile-mode.patch
+
 # --- network ----------------------------------------------------------------
 # NOT NEEDED FOR PARITY, and removing them from the plan is a finding rather
 # than a shortcut. Verified against M150 source on 31.07.2026:

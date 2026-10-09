@@ -1,0 +1,291 @@
+diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
+index afc5ffbe13..e2311dcba2 100644
+--- a/chrome/browser/chrome_content_browser_client.cc
++++ b/chrome/browser/chrome_content_browser_client.cc
+@@ -239,6 +239,7 @@
+ #include "chrome/common/webui_url_constants.h"
+ #include "chrome/common/webui_url_utils.h"
+ #include "chrome/installer/util/google_update_settings.h"
++#include "components/fury/fury_config.h"
+ #include "components/fury/location/fury_location_provider.h"
+ #include "components/autofill/core/common/autofill_features.h"
+ #include "components/autofill/core/common/autofill_switches.h"
+@@ -4941,6 +4942,50 @@ void ChromeContentBrowserClient::OverrideWebPreferences(
+ 
+   web_prefs->clipboard_focus_exempt = IsClipboardFocusExemptOrigin(
+       web_contents->GetPrimaryMainFrame()->GetLastCommittedOrigin());
++
++  // Patch 0130: a phone persona lays out and takes input as Chrome on Android
++  // does (docs/18). Last in this function so nothing above writes over it.
++  //
++  // WebPreferences, not DevTools' Emulation domain. Measured 09.10.2026 on
++  // this core: emulation set over CDP fixed the main frame and same-site
++  // iframes and left a cross-site iframe reporting the whole Mac, because it
++  // is per target. WebPreferences belong to the WebContents and are sent to
++  // every renderer that hosts any of its frames, out-of-process iframes
++  // included, and recomputing them (input devices changing, a navigation)
++  // passes through here again.
++  //
++  // The values are the ones ComputeWebPreferences fills under
++  // BUILDFLAG(IS_ANDROID) and SlowWebPreferenceCache reads off a touchscreen:
++  // a coarse pointer and no hover, touch events feature-detected, the layout
++  // viewport and <meta viewport> honoured, a resize being a rotation.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get();
++      config && config->GetBool("mobile.enabled").value_or(false)) {
++    web_prefs->touch_event_feature_detection_enabled = true;
++    web_prefs->pointer_events_max_touch_points =
++        config->GetInt("navigator.maxTouchPoints").value_or(5);
++    web_prefs->available_pointer_types =
++        static_cast<int>(blink::mojom::PointerType::kPointerCoarseType);
++    web_prefs->primary_pointer_type =
++        blink::mojom::PointerType::kPointerCoarseType;
++    web_prefs->available_hover_types =
++        static_cast<int>(blink::mojom::HoverType::kHoverNone);
++    web_prefs->primary_hover_type = blink::mojom::HoverType::kHoverNone;
++    web_prefs->viewport_enabled = true;
++    web_prefs->viewport_meta_enabled = true;
++    web_prefs->shrinks_viewport_contents_to_fit = true;
++    web_prefs->viewport_style = blink::mojom::ViewportStyle::kMobile;
++    web_prefs->main_frame_resizes_are_orientation_changes = true;
++    web_prefs->double_tap_to_zoom_enabled = true;
++    web_prefs->text_size_adjust_enabled = true;
++    // Android's page scale range. With the desktop minimum of 1 a page with
++    // no <meta viewport> cannot be shown whole, so Blink keeps the layout at
++    // the window's width instead of Android's 980 (measured: 500 without
++    // these, the width of the window). DevToolsEmulator sets the same 0.25-5.
++    // 0.25 is WebPreferences::kDefaultMinimumPageScaleFactor, which exists
++    // only in an Android build.
++    web_prefs->default_minimum_page_scale_factor = 0.25f;
++    web_prefs->default_maximum_page_scale_factor = 5.f;
++  }
+ }
+ 
+ bool ChromeContentBrowserClientParts::OverrideWebPreferencesAfterNavigation(
+diff --git a/content/child/BUILD.gn b/content/child/BUILD.gn
+index 3bd2725762..b95b76ff90 100644
+--- a/content/child/BUILD.gn
++++ b/content/child/BUILD.gn
+@@ -76,6 +76,7 @@ target(link_target_type, "child") {
+     "//components/attribution_reporting:features",
+     "//components/discardable_memory/client",
+     "//components/discardable_memory/public/mojom",
++    "//components/fury",
+     "//components/metrics",
+     "//components/performance_manager/public/mojom",
+     "//components/performance_manager/scenario_api",
+diff --git a/content/child/DEPS b/content/child/DEPS
+index 3d31969a7b..1a88c3f5ea 100644
+--- a/content/child/DEPS
++++ b/content/child/DEPS
+@@ -1,6 +1,7 @@
+ include_rules = [
+   # Allow inclusion of specific components that we depend on.
+   # See comment in content/DEPS for which components are allowed.
++  "+components/fury/fury_config.h",
+   "+components/metrics",
+   "+components/services/font/public",
+   "+components/tracing",
+diff --git a/content/child/runtime_features.cc b/content/child/runtime_features.cc
+index c49e9cf2ba..b21be844ce 100644
+--- a/content/child/runtime_features.cc
++++ b/content/child/runtime_features.cc
+@@ -20,6 +20,7 @@
+ #include "cc/base/features.h"
+ #include "components/attribution_reporting/features.h"
+ #include "components/content_settings/core/common/features.h"
++#include "components/fury/fury_config.h"
+ #include "content/common/content_navigation_policy.h"
+ #include "content/common/content_switches_internal.h"
+ #include "content/common/features.h"
+@@ -546,6 +547,56 @@ void ResolveInvalidConfigurations() {
+ 
+ namespace content {
+ 
++// Patch 0130: the web platform of Chrome on Android, in a phone persona's
++// processes (docs/18).
++//
++// The lists are runtime_enabled_features.json5 itself, read on 155.0.8059.39:
++// every web-visible feature whose status is "stable" by default and not on
++// Android is switched off, and the ones stable on Android and not on desktop
++// are switched on where Blink alone implements them. A page that probes for
++// `queryLocalFonts`, `PressureObserver`, `documentPictureInPicture` or
++// `new Notification()` gets the phone's answer rather than the Mac's.
++//
++// Process-wide is right here and would be wrong in Chrome: a Fury browser is
++// one profile, so every renderer it starts belongs to the same phone. And it
++// is done here, after the command line, rather than with
++// --enable/--disable-blink-features: no persona value goes into any process's
++// argv (README, the Windows launcher), and this is the code those switches
++// call anyway.
++//
++// Left off on purpose although Android has them: ContactsManager, WebNFC,
++// DigitalGoods, ContentIndex, DisplayCutoutAPI. Their interfaces are bound by
++// the browser only on Android, and a desktop browser answers a request for an
++// unbound interface by killing the renderer that made it. A page calling
++// navigator.contacts.select() would close the tab, which is louder than the
++// interface being absent. They need stub binders first.
++namespace {
++
++void SetFuryMobileRuntimeFeatures() {
++  const fury::FuryConfig* config = fury::FuryConfig::Get();
++  if (!config || !config->GetBool("mobile.enabled").value_or(false)) {
++    return;
++  }
++  for (const char* off : {
++           "AudioOutputDevices", "CaptureController", "CapturedSurfaceControl",
++           "CaptureHandle", "ComputePressure", "DocumentPictureInPictureAPI",
++           "DocumentPictureInPicturePreferInitialPlacement",
++           "DocumentPictureInPictureUserActivation", "FontAccess",
++           "GetDisplayMedia", "NavigatorContentUtils", "NotificationConstructor",
++           "WebHID"}) {
++    WebRuntimeFeatures::EnableFeatureFromString(off, false);
++  }
++  // MobileLayoutTheme is Android's look for form controls and the one
++  // DevToolsEmulator switches on; the sizes of a default <input> and <select>
++  // are measurable, and a desktop theme under a phone persona is a mismatch.
++  for (const char* on : {"NetInfoDownlinkMax", "OrientationEvent",
++                         "TouchEventFeatureDetection", "MobileLayoutTheme"}) {
++    WebRuntimeFeatures::EnableFeatureFromString(on, true);
++  }
++}
++
++}  // namespace
++
+ void SetRuntimeFeaturesDefaultsAndUpdateFromArgs(
+     const base::CommandLine& command_line) {
+   // Sets experimental features.
+@@ -595,6 +646,8 @@ void SetRuntimeFeaturesDefaultsAndUpdateFromArgs(
+     WebRuntimeFeatures::EnableXSLT(value == "true");
+   }
+ 
++  SetFuryMobileRuntimeFeatures();
++
+   ResolveInvalidConfigurations();
+ }
+ 
+diff --git a/third_party/blink/renderer/modules/netinfo/network_information.cc b/third_party/blink/renderer/modules/netinfo/network_information.cc
+index 976a3c8c36..6fa868283f 100644
+--- a/third_party/blink/renderer/modules/netinfo/network_information.cc
++++ b/third_party/blink/renderer/modules/netinfo/network_information.cc
+@@ -7,6 +7,7 @@
+ #include <algorithm>
+ 
+ #include "base/time/time.h"
++#include "components/fury/fury_config.h"
+ #include "third_party/blink/public/mojom/devtools/console_message.mojom-blink.h"
+ #include "third_party/blink/public/platform/task_type.h"
+ #include "third_party/blink/renderer/bindings/modules/v8/v8_connection_type.h"
+@@ -88,6 +89,18 @@ V8ConnectionType NetworkInformation::type() const {
+     return V8ConnectionType(V8ConnectionType::Enum::kUnknown);
+   }
+ 
++  // Patch 0130: `type` exists only on Android and ChromeOS (0130 switches
++  // NetInfoDownlinkMax on for a phone persona), and what it would read here
++  // is the host's link, a Mac's Wi-Fi or a desktop's Ethernet. A phone says
++  // cellular or wifi, as its persona does, in a Worker as in the page.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<std::string> kind =
++            config->GetString("mobile.connectionType")) {
++      return V8ConnectionType(*kind == "wifi" ? V8ConnectionType::Enum::kWifi
++                                              : V8ConnectionType::Enum::kCellular);
++    }
++  }
++
+   // type_ is only updated when listening for events, so ask
+   // networkStateNotifier if not listening (crbug.com/379841).
+   if (!IsObserving()) {
+@@ -104,6 +117,14 @@ double NetworkInformation::downlinkMax() const {
+     return std::numeric_limits<double>::infinity();
+   }
+ 
++  // With `type` above: the host's maximum (an Ethernet's 1000) would
++  // contradict the cellular it claims. "Unknown", which the spec spells as
++  // +Infinity, until a phone capture says what one really reports.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get();
++      config && config->GetString("mobile.connectionType")) {
++    return std::numeric_limits<double>::infinity();
++  }
++
+   if (!IsObserving())
+     return GetNetworkStateNotifier().MaxBandwidth();
+ 
+diff --git a/third_party/blink/renderer/modules/plugins/dom_plugin_array.cc b/third_party/blink/renderer/modules/plugins/dom_plugin_array.cc
+index 3608837758..709af49852 100644
+--- a/third_party/blink/renderer/modules/plugins/dom_plugin_array.cc
++++ b/third_party/blink/renderer/modules/plugins/dom_plugin_array.cc
+@@ -21,6 +21,7 @@
+ #include "third_party/blink/renderer/modules/plugins/dom_plugin_array.h"
+ 
+ #include "build/build_config.h"
++#include "components/fury/fury_config.h"
+ #include "third_party/blink/public/common/features.h"
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+ #include "third_party/blink/renderer/core/frame/local_frame.h"
+@@ -136,6 +137,14 @@ HeapVector<Member<DOMMimeType>> DOMPluginArray::GetFixedMimeTypeArray() {
+ }
+ 
+ bool DOMPluginArray::IsPdfViewerAvailable() {
++  // Patch 0130: Chrome on Android has no PDF plugin, so a phone reports
++  // pdfViewerEnabled false and empty plugins and mimeTypes (both arrays are
++  // built from this answer). The Android branch below is behind
++  // kAndroidHandlePdfInIframe, disabled by default in 155.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get();
++      config && config->GetBool("mobile.enabled").value_or(false)) {
++    return false;
++  }
+ #if BUILDFLAG(IS_ANDROID)
+   // TODO(crbug.com/556858610, crbug.com/556857897): Other desktop platforms
+   // dynamically check whether PDF viewing is handled by an extension or
+diff --git a/third_party/blink/renderer/modules/screen_orientation/screen_orientation.cc b/third_party/blink/renderer/modules/screen_orientation/screen_orientation.cc
+index fce1a975e3..3e3599aab8 100644
+--- a/third_party/blink/renderer/modules/screen_orientation/screen_orientation.cc
++++ b/third_party/blink/renderer/modules/screen_orientation/screen_orientation.cc
+@@ -7,6 +7,7 @@
+ #include <memory>
+ 
+ #include "base/memory/raw_ptr_exclusion.h"
++#include "components/fury/fury_config.h"
+ #include "services/network/public/mojom/web_sandbox_flags.mojom-blink.h"
+ #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+ #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+@@ -87,11 +88,40 @@ ExecutionContext* ScreenOrientation::GetExecutionContext() const {
+   return ExecutionContextClient::GetExecutionContext();
+ }
+ 
++namespace {
++
++// Patch 0130: a phone held the way its screen is shaped. The host's display
++// is a landscape monitor, and screen.orientation would say so next to a
++// 384x832 screen.width/height (patch 0020) on the same object's owner.
++// Natural orientation, angle 0, which is how a phone sits in the hand.
++std::optional<bool> FuryPortrait() {
++  const fury::FuryConfig* config = fury::FuryConfig::Get();
++  if (!config || !config->GetBool("mobile.enabled").value_or(false)) {
++    return std::nullopt;
++  }
++  std::optional<int> width = config->GetInt("screen.width");
++  std::optional<int> height = config->GetInt("screen.height");
++  if (!width || !height) {
++    return std::nullopt;
++  }
++  return *height >= *width;
++}
++
++}  // namespace
++
+ V8OrientationType ScreenOrientation::type() const {
++  if (std::optional<bool> portrait = FuryPortrait()) {
++    return V8OrientationType(*portrait
++                                 ? V8OrientationType::Enum::kPortraitPrimary
++                                 : V8OrientationType::Enum::kLandscapePrimary);
++  }
+   return V8OrientationType(OrientationTypeToV8Enum(type_));
+ }
+ 
+ uint16_t ScreenOrientation::angle() const {
++  if (FuryPortrait()) {
++    return 0;
++  }
+   return angle_;
+ }
+ 
