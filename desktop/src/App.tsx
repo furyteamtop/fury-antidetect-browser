@@ -183,6 +183,11 @@ export function App() {
   }, []);
 
   const local = shell?.mode === "local";
+  // Where a NEW profile is made: the open project's world, else the shell's.
+  // With no project open on a connected shell the dialogs ask instead.
+  const newOrigin: "local" | "team" =
+    active?.origin === "local" || active?.origin === "team" ? active.origin : local ? "local" : "team";
+  const canChooseOrigin = !local && !active;
   // Local mode has nobody to sign in as. Team mode does, and until it happens
   // there is nothing to show.
   const ready = shell !== null && (local || shell.signed_in);
@@ -1509,7 +1514,8 @@ export function App() {
           <ProfileDialog
             projectId={active?.id ?? null}
             editing={editing}
-            local={local}
+            origin={newOrigin}
+            canChoose={canChooseOrigin}
             onClose={() => setEditing(undefined)}
             onSaved={async () => {
               setEditing(undefined);
@@ -1523,7 +1529,8 @@ export function App() {
           <BulkProfiles
             cloneOf={bulk}
             projectId={active?.id ?? null}
-            local={local}
+            origin={newOrigin}
+            canChoose={canChooseOrigin}
             onClose={() => setBulk(undefined)}
             onDone={async () => {
               setSelected(new Set());

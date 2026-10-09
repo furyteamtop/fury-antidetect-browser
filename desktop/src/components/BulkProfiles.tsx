@@ -26,17 +26,21 @@ type Made = { created: unknown[]; failed?: { n: number; error: string }[] };
 export function BulkProfiles({
   cloneOf,
   projectId,
-  local,
+  origin,
+  canChoose,
   onClose,
   onDone,
 }: {
   /** Present when copying an existing profile rather than making new ones. */
   cloneOf: Profile | null;
   projectId: string | null;
-  /** A team profile must have a project and a proxy — the server refuses
-   *  otherwise, and refusing here means one sentence instead of N identical
-   *  failures. */
-  local: boolean;
+  /** Where new profiles are made: the open project's world, or the shell's
+   *  when none is open (see ProfileDialog). A team profile must have a
+   *  project and a proxy — the server refuses otherwise, and refusing here
+   *  means one sentence instead of N identical failures. */
+  origin: "local" | "team";
+  /** No project open and a server connected: the person picks the world. */
+  canChoose: boolean;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -68,11 +72,16 @@ export function BulkProfiles({
   // dialog is open, and threading it through the screen behind would make
   // every profile view refetch proxies it never shows.
   const [proxies, setProxies] = useState<LocalProxy[]>([]);
+  const [where, setWhere] = useState<"local" | "team">(origin);
   useEffect(() => {
     if (cloning) return;
-    void api.proxies().then(setProxies).catch(() => setProxies([]));
     void api.templates().then(setTemplates).catch(() => setTemplates([]));
   }, [cloning]);
+  // The proxies of the world the batch goes to, not of the shell's mode.
+  useEffect(() => {
+    if (cloning) return;
+    void api.proxies(where).then(setProxies).catch(() => setProxies([]));
+  }, [cloning, where]);
 
   const split = (s: string) => s.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
   const current = (name: string): ProfileTemplate => ({
@@ -103,7 +112,7 @@ export function BulkProfiles({
   const inRange = Number.isInteger(n) && n >= 1 && n <= 500;
   // On a team server the project is what carries access and the proxy is what
   // the browser goes through; the create endpoint requires both.
-  const missing = cloning || local
+  const missing = cloning || where === "local"
     ? null
     : !projectId
       ? t("bp.needProject")
@@ -160,6 +169,22 @@ export function BulkProfiles({
                       )}
                     </div>
                     <p className="hint">{t("bp.templateHint")}</p>
+                  </div>
+                </div>
+              )}
+              {canChoose && !cloning && (
+                <div className="field">
+                  <label>{t("pd.where")}</label>
+                  <div>
+                    <div className="segmented">
+                      <button aria-pressed={where === "local"} onClick={() => { setWhere("local"); setProxyId(""); }}>
+                        {t("pd.whereLocal")}
+                      </button>
+                      <button aria-pressed={where === "team"} onClick={() => { setWhere("team"); setProxyId(""); }}>
+                        {t("pd.whereTeam")}
+                      </button>
+                    </div>
+                    <p className="hint">{where === "local" ? t("pd.whereLocalHint") : t("pd.whereTeamHint")}</p>
                   </div>
                 </div>
               )}
@@ -392,7 +417,7 @@ export function BulkProfiles({
                           languages: split(languages).length > 0 ? split(languages) : null,
                           start_urls: split(startUrls),
                           last_opened_at: null,
-                        }),
+                        }, where),
                       );
                     }
                   } catch (e) {

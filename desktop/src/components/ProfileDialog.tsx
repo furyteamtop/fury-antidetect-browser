@@ -127,7 +127,8 @@ function pickWeighted(list: Persona[]): string | undefined {
 export function ProfileDialog({
   projectId,
   editing,
-  local,
+  origin,
+  canChoose,
   onClose,
   onSaved,
 }: {
@@ -135,10 +136,16 @@ export function ProfileDialog({
    *  project, which is a place it can live. It can be filed later. */
   projectId: string | null;
   editing: Profile | null;
-  /** Whether the shell is on its own or connected to a team server. A new
-   *  profile is born wherever the shell is, and a team profile has to have a
-   *  proxy -- so the dialog has to know, to say so before the button. */
-  local: boolean;
+  /** Where a NEW profile is made: the open project's world, or the shell's
+   *  when no project is open. A team profile has to have a proxy, so the
+   *  dialog has to know, to say so before the button. It used to be the
+   *  shell's mode alone, and a local project on a shell that was also
+   *  connected to a server got the team's rules and the team's proxies
+   *  (reported 09.10.2026: "it is not a team profile"). */
+  origin: "local" | "team";
+  /** No project open and a server connected: either world is a fair answer,
+   *  so the person picks it instead of the shell deciding silently. */
+  canChoose: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -146,6 +153,9 @@ export function ProfileDialog({
   // The interface language, for naming languages in it.
   const lang = document.documentElement.lang || "en";
   const [tab, setTab] = useState<Tab>("General");
+  const [where, setWhere] = useState<"local" | "team">(origin);
+  // The world this profile lives in, or will: an existing one keeps its own.
+  const target = editing ? editing.origin : where;
   const [personas, setPersonas] = useState<Persona[]>([]);
   // The picked machine is chosen at random from twenty-six, so it is usually
   // NOT the one on screen. Selecting a card nobody can see reads as selecting
@@ -235,9 +245,14 @@ export function ProfileDialog({
       setPersonas(p);
       setPersonaId((current) => current || pickWeighted(p) || "");
     });
-    void api.proxies().then(setProxies);
     void api.blocklists().then(setLists).catch(() => setLists([]));
   }, []);
+
+  // That world's proxies. A borrowed profile ("shared") keeps the old
+  // behaviour, the shell's own list.
+  useEffect(() => {
+    void api.proxies(target === "shared" ? undefined : target).then(setProxies);
+  }, [target]);
 
   // Recomputed on every change rather than on a "preview" button: a value you
   // have to ask for is a value nobody looks at.
@@ -290,7 +305,7 @@ export function ProfileDialog({
           last_ip: pxCheck?.ip ?? null,
           rotate_url: pxRotate.trim() || null,
           checker_url: pxChecker.trim() || null,
-        });
+        }, target === "shared" ? undefined : target);
         useProxyId = saved.id;
       }
 
@@ -328,9 +343,8 @@ export function ProfileDialog({
       },
       // Where to save it. An existing profile goes back where it came from --
       // with both worlds in one list, the shell's mode no longer says which.
-      // A new one has no origin yet and is born wherever the shell is
-      // connected, which is what `undefined` means to the command.
-      editing?.origin);
+      // A new one goes where the dialog says, never to the shell's default.
+      editing?.origin ?? where);
       onSaved();
     } catch (e) {
       setError(say(e));
@@ -345,7 +359,7 @@ export function ProfileDialog({
   // own address. Said here, under the fields, with the button off, rather than
   // as an error after Create -- which is where it was said until 21.09.2026,
   // in English, to somebody whose interface was in Russian.
-  const needsProxy = editing ? editing.origin === "team" : !local;
+  const needsProxy = target === "team";
   const hasProxy = proxyMode === "saved" ? proxyId !== "" : pxComplete;
 
   // Offered in both proxy modes. It lived under "saved" with "none" picked,
@@ -406,6 +420,34 @@ export function ProfileDialog({
           <div className={tab === "Device" ? "form fill" : "form"}>
             {tab === "General" && (
               <>
+                {!editing && canChoose && (
+                  <div className="field">
+                    <label>{t("pd.where")}</label>
+                    <div>
+                      <div className="segmented">
+                        <button
+                          aria-pressed={where === "local"}
+                          onClick={() => {
+                            setWhere("local");
+                            setProxyId("");
+                          }}
+                        >
+                          {t("pd.whereLocal")}
+                        </button>
+                        <button
+                          aria-pressed={where === "team"}
+                          onClick={() => {
+                            setWhere("team");
+                            setProxyId("");
+                          }}
+                        >
+                          {t("pd.whereTeam")}
+                        </button>
+                      </div>
+                      <p className="hint">{where === "local" ? t("pd.whereLocalHint") : t("pd.whereTeamHint")}</p>
+                    </div>
+                  </div>
+                )}
                 <div className="field">
                   <label htmlFor="p-name">{t("pd.name")}</label>
                   <div>

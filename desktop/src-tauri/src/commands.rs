@@ -2165,8 +2165,14 @@ pub async fn totp_code(
 }
 
 #[tauri::command]
-pub async fn proxies(state: State<'_, AppState>) -> R<serde_json::Value> {
-    if mode_of(&state) == "local" {
+pub async fn proxies(
+    state: State<'_, AppState>,
+    origin: Option<String>,
+) -> R<serde_json::Value> {
+    // `origin` is which world's proxies: a local profile on a shell that is
+    // also connected to a server picks from this machine's list, not the
+    // team's. Absent, the shell's mode decides, as before.
+    if local_for(&state, origin.as_deref()) {
         return Ok(crate::agent::call("proxies.list", serde_json::json!({})).await?);
     }
     // Reshaped into what the local store returns, so the interface has one
@@ -2218,8 +2224,9 @@ pub async fn proxies(state: State<'_, AppState>) -> R<serde_json::Value> {
 pub async fn save_proxy(
     state: State<'_, AppState>,
     proxy: serde_json::Value,
+    origin: Option<String>,
 ) -> R<serde_json::Value> {
-    if mode_of(&state) == "local" {
+    if local_for(&state, origin.as_deref()) {
         return Ok(crate::agent::call("proxies.upsert", proxy).await?);
     }
 
@@ -2772,6 +2779,7 @@ pub async fn create_profiles(
     count: u32,
     name_pattern: String,
     template: serde_json::Value,
+    origin: Option<String>,
 ) -> R<serde_json::Value> {
     if !(1..=500).contains(&count) {
         return Err(ApiErr::local(
@@ -2783,7 +2791,13 @@ pub async fn create_profiles(
 
     // The agent does the whole loop in one call when the profiles are local:
     // one round trip over a socket beats five hundred.
-    if mode_of(&state) == "local" {
+    //
+    // Which world is the caller's to say: a local project on a shell that is
+    // also connected to a server is made on this machine. Deciding it from
+    // the shell's mode sent such a batch to the server, which then demanded
+    // the proxy a team profile needs (reported 09.10.2026, "it is not a team
+    // profile").
+    if local_for(&state, origin.as_deref()) {
         return Ok(crate::agent::call(
             "profiles.createMany",
             serde_json::json!({
@@ -2816,11 +2830,7 @@ pub async fn create_profiles(
             one["persona_id"] =
                 serde_json::json!(fury_shared::catalogue::pick_weighted(rand::random()).id);
         }
-        // No origin: bulk creation makes NEW profiles, and a new profile is
-        // born in whichever world the shell is connected to. Only an existing
-        // row carries an origin, because only an existing row already lives
-        // somewhere.
-        match save_profile(state.clone(), one, None).await {
+        match save_profile(state.clone(), one, origin.clone()).await {
             Ok(v) => created.push(v),
             Err(e) => failed.push(serde_json::json!({ "n": i, "error": e.message })),
         }
@@ -2944,7 +2954,7 @@ pub async fn import_proxies(
                     "username": p.username,
                     "password": p.password,
                 });
-                match save_proxy(state.clone(), body).await {
+                match save_proxy(state.clone(), body, Some("team".into())).await {
                     Ok(v) => saved.push(serde_json::json!({
                         "id": v.get("id").cloned().unwrap_or(serde_json::Value::Null),
                         "line": line,

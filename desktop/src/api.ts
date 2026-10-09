@@ -902,7 +902,9 @@ export const api = {
     languages: string[] | null;
     overrides?: MachineOverrides;
   }): Promise<Preview> => cmd<Preview>("preview", { spec }),
-  proxies: (): Promise<LocalProxy[]> => cmd<LocalProxy[]>("proxies"),
+  /** `origin` picks this machine's list or the team's; absent, the shell's mode. */
+  proxies: (origin?: Origin): Promise<LocalProxy[]> =>
+    cmd<LocalProxy[]>("proxies", { origin: origin ?? null }),
 
   /** Logins stored beside a profile. Local mode only for now — see commands.rs. */
   credentials: (profileId: string): Promise<Credential[]> =>
@@ -924,8 +926,8 @@ export const api = {
   totpCode: (profileId: string, id: string): Promise<TotpCode> =>
     cmd<TotpCode>("totp_code", { profileId, id }),
 
-  saveProxy: (proxy: Partial<LocalProxy>): Promise<{ id: string }> =>
-    cmd<{ id: string }>("save_proxy", { proxy }),
+  saveProxy: (proxy: Partial<LocalProxy>, origin?: Origin): Promise<{ id: string }> =>
+    cmd<{ id: string }>("save_proxy", { proxy, origin: origin ?? null }),
   deleteProxy: (id: string): Promise<unknown> => cmd("delete_proxy", { id }),
   checkProxy: (url: string, checkerUrl?: string | null, proxyId?: string | null): Promise<{
     ok: boolean; error?: string; ip?: string; country?: string;
@@ -988,8 +990,9 @@ export const api = {
     count: number,
     namePattern: string,
     template: unknown,
+    origin?: Origin,
   ): Promise<{ created: unknown[]; failed: { n: number; error: string }[] }> =>
-    cmd("create_profiles", { count, namePattern, template }),
+    cmd("create_profiles", { count, namePattern, template, origin: origin ?? null }),
   /** Saved answers to the batch dialog, by name (docs/16 5.6). */
   templates: (): Promise<ProfileTemplate[]> => cmd("templates"),
   saveTemplate: (template: ProfileTemplate): Promise<{ saved: string }> => cmd("save_template", { template }),

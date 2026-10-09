@@ -494,6 +494,11 @@ const en = {
   "bar.noStage": "No stage",
   "pd.proxy": "Proxy",
   "pd.proxyNone": "— none —",
+  "pd.where": "Where",
+  "pd.whereLocal": "On this computer",
+  "pd.whereTeam": "In the team",
+  "pd.whereLocalHint": "Kept on this machine only. A proxy can be added later.",
+  "pd.whereTeamHint": "Stored on the team server and shared by project; a team profile needs a proxy.",
   "pd.proxyRequired":
     "A profile without a proxy cannot be opened — everything the browser does goes through one.",
   "pd.allowNoProxy": "Let this profile open without a proxy",
@@ -1483,6 +1488,11 @@ const ru: Record<Key, string> = {
   "bar.noStage": "Без стадии",
   "pd.proxy": "Прокси",
   "pd.proxyNone": "— нет —",
+  "pd.where": "Где",
+  "pd.whereLocal": "На этом компьютере",
+  "pd.whereTeam": "В команде",
+  "pd.whereLocalHint": "Хранится только на этой машине. Прокси можно добавить позже.",
+  "pd.whereTeamHint": "Хранится на сервере команды и выдаётся по проектам; командному профилю нужен прокси.",
   "pd.proxyRequired":
     "Профиль без прокси открыть нельзя — весь трафик браузера идёт через него.",
   "pd.allowNoProxy": "Разрешить этому профилю открываться без прокси",
