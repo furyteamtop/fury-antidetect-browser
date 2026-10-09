@@ -302,18 +302,32 @@ fn classify_relay(e: &RelayError, target: &str) -> (&'static str, String) {
 }
 
 async fn fetch_exit(url: &str, endpoint: &str) -> anyhow::Result<Exit> {
+    let (endpoint, geo_db) = crate::geoip::split_checker(endpoint);
     let client = reqwest::Client::builder()
         .proxy(reqwest::Proxy::all(url)?)
         .timeout(Duration::from_secs(15))
         .build()?;
-    let body: serde_json::Value = client.get(endpoint).send().await?.json().await?;
+    let body: serde_json::Value = client.get(&endpoint).send().await?.json().await?;
     let s = |k: &str| body.get(k).and_then(|v| v.as_str()).map(str::to_string);
+    // Same overlay as the check: a pasted database path resolves geo here
+    // too rather than only where the button is.
+    let (country, city, timezone) = match (&geo_db, s("ip")) {
+        (Some(db), Some(ref ip)) => {
+            let geo = crate::geoip::lookup(db, ip)?;
+            (
+                geo.country.or_else(|| s("country")),
+                geo.city.or_else(|| s("city")),
+                geo.timezone.or_else(|| s("timezone")),
+            )
+        }
+        _ => (s("country"), s("city"), s("timezone")),
+    };
     Ok(Exit {
         ip: s("ip"),
-        country: s("country"),
+        country,
         region: s("region"),
-        city: s("city"),
-        timezone: s("timezone"),
+        city,
+        timezone,
         org: s("org"),
     })
 }

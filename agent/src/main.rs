@@ -19,6 +19,7 @@ mod diagnose;
 mod core_download;
 mod logging;
 mod ext;
+mod geoip;
 mod http;
 mod import_browser;
 mod install_core;
