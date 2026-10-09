@@ -112,7 +112,7 @@ MacBook, reports:
 ```
 navigator.platform      Win32
 userAgent               Windows NT 10.0; Win64; x64 … Chrome/155.0.0.0
-WebGL renderer          ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 …)
+WebGL renderer          ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 …)
 screen                  1920×1080, availHeight 1032   ← the taskbar
 Client Hints platform   Windows        brands: … Google Chrome/155
 timezone                Europe/Berlin

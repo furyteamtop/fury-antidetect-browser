@@ -652,6 +652,16 @@ impl Persona {
         if is_win && r.contains("Metal") {
             errs.push(format!("Windows persona with a Metal renderer: {r}"));
         }
+        // ANGLE's D3D11 backend always writes the PCI device id after the
+        // adapter's name: "NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11"
+        // (Renderer11.cpp, getRendererDescription; and every Windows capture
+        // in baselines/). Without it the string is one Chrome never shows (#16).
+        if is_win && r.contains("Direct3D11") && !has_pci_device_id(r) {
+            errs.push(format!(
+                "Windows D3D11 renderer without the PCI device id ANGLE always writes, \
+                 \"(0x0000XXXX)\" after the adapter name: {r}"
+            ));
+        }
 
         if let Some(webgpu) = &self.gpu.webgpu {
             if !r.to_lowercase().contains(&webgpu.vendor.to_lowercase()) {
@@ -841,6 +851,14 @@ impl Persona {
     }
 }
 
+/// " (0x" + eight hex digits + ")", as ANGLE formats a DXGI DeviceId.
+fn has_pci_device_id(renderer: &str) -> bool {
+    renderer.match_indices("(0x").any(|(i, _)| {
+        let hex = &renderer[i + 3..];
+        hex.len() > 8 && hex[..8].chars().all(|c| c.is_ascii_hexdigit()) && hex[8..].starts_with(')')
+    })
+}
+
 /// The fingerprint seed, in the one representation everything agrees on.
 ///
 /// Three places hold this value and each had its own idea of it: the server
@@ -1018,6 +1036,18 @@ mod tests {
             connection: "cellular".into(),
         });
         p
+    }
+
+    #[test]
+    fn a_windows_renderer_without_the_pci_id_is_refused() {
+        let mut p = load("windows-11-rtx4060-1920x1080");
+        p.validate().unwrap_or_else(|e| panic!("{e:?}"));
+        p.gpu.webgl_renderer =
+            "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)".into();
+        assert!(p.validate().is_err(), "#16: no device id was accepted");
+        for r in crate::catalogue::all().iter().filter(|p| p.os.name == "Windows") {
+            assert!(has_pci_device_id(&r.gpu.webgl_renderer), "{}: {}", r.id, r.gpu.webgl_renderer);
+        }
     }
 
     #[test]

@@ -534,7 +534,7 @@ iframe (`same-origin`, `about:blank`, `srcdoc`), `crossContext.disagreementCount
   "os": { "name": "Windows", "version": "11", "build": "26100", "arch": "x86_64" },
   "gpu": {
     "webgl_vendor": "Google Inc. (NVIDIA)",
-    "webgl_renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "webgl_renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)",
     "webgl_params": { "MAX_TEXTURE_SIZE": 16384, "...": "..." },
     "webgpu": { "vendor": "nvidia", "architecture": "ada", "limits": { "...": "..." } }
   },
