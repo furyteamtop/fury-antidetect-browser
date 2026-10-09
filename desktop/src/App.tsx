@@ -26,6 +26,7 @@ import { Settings } from "./components/Settings";
 import { Sidebar, type View } from "./components/Sidebar";
 import { ShareDialog } from "./components/ShareDialog";
 import { CsvImport } from "./components/CsvImport";
+import { GoLoginImport } from "./components/GoLoginImport";
 import { Icon, IconButton } from "./components/Icon";
 import { useTheme } from "./theme";
 import { exitSharing } from "./consistency";
@@ -95,6 +96,7 @@ export function App() {
   /** `undefined` closed, `null` making new ones, a profile means copying it. */
   const [bulk, setBulk] = useState<Profile | null | undefined>(undefined);
   const [csv, setCsv] = useState(false);
+  const [gologin, setGologin] = useState(false);
   const [cookiesFor, setCookiesFor] = useState<Profile | null>(null);
   const [extFor, setExtFor] = useState<Profile | null>(null);
   const [netFor, setNetFor] = useState<Profile | null>(null);
@@ -999,6 +1001,7 @@ export function App() {
             {/* Local mode only: a team profile's proxy carries sealed
                 credentials on the server — see CsvImport. */}
             {local && <button className="ghost" onClick={() => setCsv(true)}>{t("csv.button")}</button>}
+            {local && <button className="ghost" onClick={() => setGologin(true)}>{t("gl.button")}</button>}
             <input
               className="search"
               placeholder={t("bar.search")}
@@ -1534,6 +1537,14 @@ export function App() {
             projectId={active?.origin === "local" ? active.id : null}
             onDone={() => void refreshProfiles()}
             onClose={() => setCsv(false)}
+          />
+        )}
+
+        {gologin && (
+          <GoLoginImport
+            projectId={active?.origin === "local" ? active.id : null}
+            onDone={() => void refreshProfiles()}
+            onClose={() => setGologin(false)}
           />
         )}
 

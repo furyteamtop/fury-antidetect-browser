@@ -193,6 +193,8 @@ fn main() {
             commands::save_blocklist,
             commands::delete_blocklist,
             commands::import_cookies,
+            commands::gologin_list,
+            commands::gologin_profile,
             commands::delete_profile,
             commands::export_project,
             commands::import_project,

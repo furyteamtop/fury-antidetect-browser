@@ -572,6 +572,23 @@ impl Agent {
                 Ok(serde_json::to_value(report)?)
             }
 
+            // GoLogin, through its API (import_gologin.rs). Reading only:
+            // the shell creates each profile the ordinary way, as with
+            // `import.profile`, and hands the cookies to
+            // `profile.cookies.import`. The token is a parameter of each call
+            // and is kept nowhere.
+            "import.gologin.list" => {
+                let token = str_param(&params, "token")?;
+                let profiles = crate::import_gologin::list(token.trim()).await?;
+                Ok(serde_json::to_value(profiles)?)
+            }
+            "import.gologin.profile" => {
+                let token = str_param(&params, "token")?;
+                let id = str_param(&params, "id")?;
+                let detail = crate::import_gologin::profile(token.trim(), &id).await?;
+                Ok(serde_json::to_value(detail)?)
+            }
+
             // Named blocklists, shared between profiles. A profile names the
             // ones it wants; `profiles.upsert` carries the names.
             "blocklists.list" => {

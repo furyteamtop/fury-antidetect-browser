@@ -181,7 +181,7 @@ pub struct Imported {
 /// Fields Chromium does not know are dropped rather than passed through:
 /// `setCookies` rejects the whole batch on an unknown key, so forwarding one
 /// would turn a working export from another tool into a total failure.
-fn prepare(cookies: &[serde_json::Value]) -> anyhow::Result<Vec<serde_json::Value>> {
+pub(crate) fn prepare(cookies: &[serde_json::Value]) -> anyhow::Result<Vec<serde_json::Value>> {
     const KNOWN: &[&str] = &[
         "name", "value", "url", "domain", "path", "secure", "httpOnly", "sameSite", "expires",
         "priority", "sameParty", "sourceScheme", "sourcePort", "partitionKey",

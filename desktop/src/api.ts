@@ -306,6 +306,24 @@ export interface OverrideOptions {
   ui_locales: string[];
 }
 
+export interface GoLoginProfile {
+  id: string;
+  name: string;
+  notes: string;
+  tags: string[];
+  /** GoLogin's word for it: "win", "mac", "lin", "android". */
+  os: string;
+  /** host:port, for showing. */
+  proxy: string | null;
+}
+
+export interface GoLoginDetail {
+  proxy_line: string | null;
+  proxy_note: string | null;
+  start_url: string | null;
+  cookies: unknown[];
+}
+
 export interface Persona {
   id: string;
   os: string;
@@ -1014,6 +1032,12 @@ export const api = {
     cookies: unknown[],
   ): Promise<{ imported: number; session_only: number; skipped: number }> =>
     cmd("import_cookies", { id, cookies }),
+
+  /** GoLogin, through its API. The token is passed per call and kept nowhere. */
+  gologinList: (token: string): Promise<GoLoginProfile[]> =>
+    cmd<GoLoginProfile[]>("gologin_list", { token }),
+  gologinProfile: (token: string, id: string): Promise<GoLoginDetail> =>
+    cmd<GoLoginDetail>("gologin_profile", { token, id }),
   // ---- synchronised windows ---------------------------------------------
 
   /** Start mirroring between these profiles. Ones not open are launched with
