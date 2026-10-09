@@ -1,0 +1,316 @@
+diff --git a/content/browser/devtools/protocol/input_handler.cc b/content/browser/devtools/protocol/input_handler.cc
+index 411d7835ac..f98a99f11e 100644
+--- a/content/browser/devtools/protocol/input_handler.cc
++++ b/content/browser/devtools/protocol/input_handler.cc
+@@ -710,6 +710,8 @@ class InputHandler::InputInjector
+ 
+     widget_host_->Focus();
+     input_queued_ = false;
++    queued_touch_ = false;
++    queued_other_ = false;
+     pending_mouse_callbacks_.push_back(std::move(callback));
+     // This may destroy the injector if the events get discarded.
+     base::WeakPtr<InputHandler::InputInjector> weak_this =
+@@ -718,7 +720,7 @@ class InputHandler::InputInjector
+     if (!weak_this) {
+       return;
+     }
+-    if (!input_queued_) {
++    if (!input_queued_ || BecameTouchOnly()) {
+       pending_mouse_callbacks_.back()->sendSuccess();
+       pending_mouse_callbacks_.pop_back();
+       MaybeSelfDestruct();
+@@ -750,6 +752,8 @@ class InputHandler::InputInjector
+ 
+     widget_host_->Focus();
+     input_queued_ = false;
++    queued_touch_ = false;
++    queued_other_ = false;
+     pending_mouse_callbacks_.push_back(std::move(callback));
+     // This may destroy the injector if the events get discarded.
+     base::WeakPtr<InputHandler::InputInjector> weak_this =
+@@ -758,7 +762,7 @@ class InputHandler::InputInjector
+     if (!weak_this) {
+       return;
+     }
+-    if (!input_queued_) {
++    if (!input_queued_ || BecameTouchOnly()) {
+       pending_mouse_callbacks_.back()->sendSuccess();
+       pending_mouse_callbacks_.pop_back();
+       MaybeSelfDestruct();
+@@ -830,8 +834,24 @@ class InputHandler::InputInjector
+                     const blink::WebInputEvent& event,
+                     InputEventSource source) override {
+     input_queued_ = true;
++    // The mouse or wheel event itself reaching the renderer is what will be
++    // acked; touches and the gestures the emulator makes from them are not.
++    if (blink::WebInputEvent::IsMouseEventType(event.GetType()) ||
++        event.GetType() == blink::WebInputEvent::Type::kMouseWheel) {
++      queued_other_ = true;
++    } else {
++      queued_touch_ = true;
++    }
+   }
+ 
++  // Patch 0132: a phone persona's TouchEmulator turns the mouse and the wheel
++  // into touches, so the mouse event this call queued is never acked as a
++  // mouse event, and the CDP call waited for that ack forever. Measured on
++  // verify-0132: Input.dispatchMouseEvent timed out on the first click,
++  // which is also how Fury's agent clicks. When only touches were queued, the
++  // event has been delivered as everything it will ever be.
++  bool BecameTouchOnly() const { return queued_touch_ && !queued_other_; }
++
+   void OnInputEventAck(const RenderWidgetHost& widget,
+                        blink::mojom::InputEventResultSource source,
+                        blink::mojom::InputEventResultState state,
+@@ -881,6 +901,8 @@ class InputHandler::InputInjector
+   base::WeakPtr<RenderWidgetHostImpl> widget_host_;
+   // Callbacks for calls to Input.dispatchKey/MouseEvent that have been sent to
+   // the renderer, but that we haven't yet received an ack for.
++  bool queued_touch_ = false;
++  bool queued_other_ = false;
+   bool input_queued_ = false;
+   base::circular_deque<std::unique_ptr<DispatchKeyEventCallback>>
+       pending_key_callbacks_;
+diff --git a/content/browser/renderer_host/input/touch_emulator_impl.cc b/content/browser/renderer_host/input/touch_emulator_impl.cc
+index 9db810a30d..1ce47514e4 100644
+--- a/content/browser/renderer_host/input/touch_emulator_impl.cc
++++ b/content/browser/renderer_host/input/touch_emulator_impl.cc
+@@ -10,6 +10,7 @@
+ #include "base/containers/queue.h"
+ #include "base/time/time.h"
+ #include "build/build_config.h"
++#include "components/fury/fury_config.h"
+ #include "components/input/events_helper.h"
+ #include "components/input/render_widget_host_view_input.h"
+ #include "components/input/web_touch_event_traits.h"
+@@ -209,6 +210,11 @@ bool TouchEmulatorImpl::HandleMouseEvent(
+   if (!IsEnabled() || mode_ != Mode::kEmulatingTouchFromMouse)
+     return false;
+ 
++  // Patch 0132: the view the wheel's finger will be put down on.
++  if (target_view) {
++    fury_wheel_view_ = target_view;
++  }
++
+   UpdateCursor();
+ 
+   if (mouse_event.button == WebMouseEvent::Button::kRight &&
+@@ -262,10 +268,89 @@ bool TouchEmulatorImpl::HandleMouseWheelEvent(const WebMouseWheelEvent& event) {
+   if (!IsEnabled() || mode_ != Mode::kEmulatingTouchFromMouse)
+     return false;
+ 
++  // Patch 0132: on a phone persona the wheel is a finger too. A phone has no
++  // wheel, and a page listening for `wheel` on one has found a desktop.
++  //
++  // The first wheel event puts a finger down under the pointer and each one
++  // after moves it by the wheel's delta, through HandleMouseEvent, so it is
++  // the same touch sequence and the same gestures a dragged mouse makes. 150
++  // ms without a wheel event lifts it, and the gesture provider flings from
++  // the finger's speed as it would off a real swipe; the trackpad's own
++  // momentum events are dropped for that reason. A finger that has travelled
++  // 250 pixels is lifted and put down again where it started, as a thumb
++  // scrolling a long page does.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get();
++      config && config->GetBool("mobile.enabled").value_or(false)) {
++    if (mouse_pressed_ && !fury_wheel_down_) {
++      return true;  // a real finger is down; the wheel does nothing then
++    }
++    if (event.momentum_phase != WebMouseWheelEvent::kPhaseNone) {
++      return true;
++    }
++    if (!fury_wheel_view_) {
++      return false;
++    }
++    FuryWheelFinger(event);
++    return true;
++  }
++
+   // Send mouse wheel for easy scrolling when there is no active touch.
+   return emulated_stream_active_sequence_count_ > 0;
+ }
+ 
++// Patch 0132: one step of the wheel's finger. See HandleMouseWheelEvent.
++void TouchEmulatorImpl::FuryWheelFinger(const WebMouseWheelEvent& event) {
++  constexpr float kLiftAfter = 250.f;
++  auto press = [&](WebInputEvent::Type type, const gfx::PointF& at) {
++    WebMouseEvent m(type,
++                    type == WebInputEvent::Type::kMouseUp
++                        ? 0
++                        : WebInputEvent::kLeftButtonDown,
++                    base::TimeTicks::Now());
++    m.button = WebMouseEvent::Button::kLeft;
++    m.click_count = type == WebInputEvent::Type::kMouseMove ? 0 : 1;
++    m.SetPositionInWidget(at);
++    m.SetPositionInScreen(at);
++    // Not dropped as "too soon after the last move": every wheel step must
++    // move the finger.
++    last_mouse_event_was_move_ = false;
++    HandleMouseEvent(m, fury_wheel_view_.get());
++  };
++  if (!fury_wheel_down_) {
++    fury_wheel_origin_ = event.PositionInWidget();
++    fury_wheel_offset_ = gfx::Vector2dF();
++    press(WebInputEvent::Type::kMouseDown, fury_wheel_origin_);
++    fury_wheel_down_ = true;
++  }
++  fury_wheel_offset_ += gfx::Vector2dF(event.delta_x, event.delta_y);
++  if (fury_wheel_offset_.Length() > kLiftAfter) {
++    press(WebInputEvent::Type::kMouseUp, fury_wheel_origin_ + fury_wheel_offset_ - gfx::Vector2dF(event.delta_x, event.delta_y));
++    press(WebInputEvent::Type::kMouseDown, fury_wheel_origin_);
++    fury_wheel_offset_ = gfx::Vector2dF(event.delta_x, event.delta_y);
++  }
++  press(WebInputEvent::Type::kMouseMove, fury_wheel_origin_ + fury_wheel_offset_);
++  fury_wheel_lift_timer_.Start(
++      FROM_HERE, base::Milliseconds(150),
++      base::BindOnce(
++          [](TouchEmulatorImpl* self) {
++            if (!self->fury_wheel_down_ || !self->fury_wheel_view_) {
++              self->fury_wheel_down_ = false;
++              return;
++            }
++            WebMouseEvent up(WebInputEvent::Type::kMouseUp, 0,
++                             base::TimeTicks::Now());
++            up.button = WebMouseEvent::Button::kLeft;
++            up.click_count = 1;
++            gfx::PointF at = self->fury_wheel_origin_ + self->fury_wheel_offset_;
++            up.SetPositionInWidget(at);
++            up.SetPositionInScreen(at);
++            self->fury_wheel_down_ = false;
++            self->last_mouse_event_was_move_ = false;
++            self->HandleMouseEvent(up, self->fury_wheel_view_.get());
++          },
++          base::Unretained(this)));
++}
++
+ bool TouchEmulatorImpl::HandleKeyboardEvent(const WebKeyboardEvent& event) {
+   if (!IsEnabled() || mode_ != Mode::kEmulatingTouchFromMouse)
+     return false;
+@@ -393,6 +478,11 @@ void TouchEmulatorImpl::OnGestureEventAck(const WebGestureEvent& event,
+ 
+ void TouchEmulatorImpl::OnViewDestroyed(
+     input::RenderWidgetHostViewInput* destroyed_view) {
++  if (destroyed_view == fury_wheel_view_) {
++    fury_wheel_lift_timer_.Stop();
++    fury_wheel_down_ = false;
++    fury_wheel_view_ = nullptr;
++  }
+   if (destroyed_view != last_emulated_start_target_)
+     return;
+ 
+diff --git a/content/browser/renderer_host/input/touch_emulator_impl.h b/content/browser/renderer_host/input/touch_emulator_impl.h
+index a295b34992..aeb7fdc79b 100644
+--- a/content/browser/renderer_host/input/touch_emulator_impl.h
++++ b/content/browser/renderer_host/input/touch_emulator_impl.h
+@@ -10,6 +10,9 @@
+ #include "base/memory/raw_ptr.h"
+ #include "base/memory/weak_ptr.h"
+ #include "base/time/time.h"
++#include "base/timer/timer.h"
++#include "ui/gfx/geometry/point_f.h"
++#include "ui/gfx/geometry/vector2d_f.h"
+ #include "components/input/touch_emulator.h"
+ #include "components/input/touch_emulator_client.h"
+ #include "content/common/content_export.h"
+@@ -118,6 +121,14 @@ class CONTENT_EXPORT TouchEmulatorImpl : public input::TouchEmulator {
+   // Called when ack for injected touch has been received.
+   void OnInjectedTouchCompleted();
+ 
++  // Patch 0132: the wheel as a finger on a phone persona.
++  void FuryWheelFinger(const blink::WebMouseWheelEvent& event);
++  raw_ptr<input::RenderWidgetHostViewInput> fury_wheel_view_ = nullptr;
++  bool fury_wheel_down_ = false;
++  gfx::PointF fury_wheel_origin_;
++  gfx::Vector2dF fury_wheel_offset_;
++  base::OneShotTimer fury_wheel_lift_timer_;
++
+   const raw_ptr<input::TouchEmulatorClient> client_;
+ 
+   // Emulator is enabled iff gesture provider is created.
+diff --git a/content/browser/web_contents/web_contents_impl.cc b/content/browser/web_contents/web_contents_impl.cc
+index 6d6d0947fa..88a963d6f4 100644
+--- a/content/browser/web_contents/web_contents_impl.cc
++++ b/content/browser/web_contents/web_contents_impl.cc
+@@ -108,6 +108,7 @@
+ #include "content/browser/renderer_host/frame_token_message_queue.h"
+ #include "content/browser/renderer_host/frame_tree_node.h"
+ #include "content/browser/renderer_host/input/touch_emulator_impl.h"
++#include "components/fury/fury_config.h"
+ #include "content/browser/renderer_host/media/media_stream_manager.h"
+ #include "content/browser/renderer_host/navigation_entry_impl.h"
+ #include "content/browser/renderer_host/navigation_request.h"
+@@ -8460,6 +8461,48 @@ void WebContentsImpl::DidNavigateAnyFramePreCommit(
+   }
+ }
+ 
++// Patch 0132: on a phone persona, the mouse becomes a finger.
++//
++// DevTools' "emit touch events for mouse", the browser-side TouchEmulator,
++// switched on from the config instead of over CDP: a click reaches the page
++// as touchstart/touchend and a tap, a drag as a touch scroll, and a mouse
++// moving with no button pressed reaches the page as nothing at all, because
++// a phone cannot hover. Pointer events report pointerType "touch". Patch 0130
++// already makes the page expect this (touch events, coarse pointer, no hover);
++// without it the page would see a touchscreen that only ever sends mouse
++// events, which no phone does.
++//
++// Per WebContents, after each committed main-frame navigation, because the
++// browser's own pages and DevTools are not the phone's content and are
++// operated with a mouse. The wheel still arrives as a wheel when no touch is
++// active (TouchEmulatorImpl::HandleMouseWheelEvent); turning it into a finger
++// drag is not done here.
++void WebContentsImpl::FuryUpdateTouchFromMouse(const GURL& url) {
++  const fury::FuryConfig* config = fury::FuryConfig::Get();
++  if (!config || !config->GetBool("mobile.enabled").value_or(false)) {
++    return;
++  }
++  const bool browser_page = url.SchemeIs(kChromeUIScheme) ||
++                            url.SchemeIs(kChromeDevToolsScheme) ||
++                            url.SchemeIs(kChromeUIUntrustedScheme);
++  // The router owns what the emulator talks to; make sure it exists.
++  if (!GetInputEventRouter()) {
++    return;
++  }
++  auto* emulator = static_cast<TouchEmulatorImpl*>(GetTouchEmulator(/*create_if_necessary=*/true));
++  if (!emulator) {
++    return;
++  }
++  if (browser_page) {
++    emulator->Disable();
++    SetForceDisableOverscrollContent(false);
++  } else if (!emulator->IsEnabled()) {
++    emulator->Enable(input::TouchEmulator::Mode::kEmulatingTouchFromMouse,
++                     ui::GestureProviderConfigType::GENERIC_MOBILE);
++    SetForceDisableOverscrollContent(true);
++  }
++}
++
+ void WebContentsImpl::DidNavigateMainFramePostCommit(
+     RenderFrameHostImpl* render_frame_host,
+     const LoadCommittedDetails& details) {
+@@ -8508,6 +8551,11 @@ void WebContentsImpl::DidNavigateMainFramePostCommit(
+     TRACE_EVENT_END("content", tracing_track_->track());
+     EmitTracingSlice(base::UTF16ToUTF8(GetTitle()));
+   }
++
++  // Patch 0132: a phone persona is driven by a finger (docs/18, step 4).
++  if (is_primary_main_frame && !GetOuterWebContents()) {
++    FuryUpdateTouchFromMouse(render_frame_host->GetLastCommittedURL());
++  }
+ }
+ 
+ void WebContentsImpl::DidNavigateAnyFramePostCommit(
+diff --git a/content/browser/web_contents/web_contents_impl.h b/content/browser/web_contents/web_contents_impl.h
+index c2c99afba1..40cd60302a 100644
+--- a/content/browser/web_contents/web_contents_impl.h
++++ b/content/browser/web_contents/web_contents_impl.h
+@@ -1099,6 +1099,9 @@ class CONTENT_EXPORT WebContentsImpl
+                                      bool navigation_is_within_page) override;
+   void DidNavigateAnyFramePreCommit(NavigationHandle* navigation_handle,
+                                     bool navigation_is_within_page) override;
++  // Patch 0132: the mouse as a finger on a phone persona.
++  void FuryUpdateTouchFromMouse(const GURL& url);
++
+   void DidNavigateMainFramePostCommit(
+       RenderFrameHostImpl* render_frame_host,
+       const LoadCommittedDetails& details) override;

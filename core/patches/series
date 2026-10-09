@@ -482,6 +482,16 @@
 # screen, which is what a phone's window is.
 0131-mobile-screen.patch
 
+# MOBILE TOUCH (docs/18, step 4). On a phone persona the mouse is a finger:
+# the browser-side TouchEmulator (DevTools' "emit touch events for mouse")
+# switched on per tab from the config, so a click reaches the page as a touch
+# and a tap, a drag as a touch scroll, and a mouse moving without a button as
+# nothing, since a phone cannot hover. CDP's Input.dispatchMouseEvent goes
+# through the same path, so the agent's clicks become touches too. Off on the
+# browser's own pages and DevTools. The wheel is a finger too: a phone has no
+# wheel, and a page listening for `wheel` on one has found a desktop.
+0132-mobile-touch.patch
+
 # --- network ----------------------------------------------------------------
 # NOT NEEDED FOR PARITY, and removing them from the plan is a finding rather
 # than a shortcut. Verified against M150 source on 31.07.2026:
