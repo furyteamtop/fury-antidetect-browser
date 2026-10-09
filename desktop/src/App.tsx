@@ -854,6 +854,10 @@ export function App() {
                 setCoreBusy(true);
                 try {
                   await api.downloadCore();
+                } catch (e) {
+                  // Said, not swallowed: a refusal here used to vanish and the
+                  // button looked dead (09.10.2026).
+                  setError(say(e));
                 } finally {
                   // Cleared by the next poll seeing running: true. Held only
                   // for the gap between the click and that poll, so the button
@@ -941,6 +945,8 @@ export function App() {
                 setCoreBusy(true);
                 try {
                   await api.downloadCore();
+                } catch (e) {
+                  setError(say(e));
                 } finally {
                   setTimeout(() => setCoreBusy(false), 3000);
                 }

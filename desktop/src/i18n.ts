@@ -360,6 +360,7 @@ const en = {
   "err.agentDown": "The local agent is not running, so this machine cannot list personas or open a profile. It is started automatically — if this persists, quit and reopen Fury.",
   "err.noProxy":
     "This profile has no proxy, so it would go out from this machine's own address. Give it one, or tick \"Let this profile open without a proxy\" on the Proxy tab of its settings (the pencil).",
+  "err.closeProfilesFirst": "Close the open profiles first: the browser they run in is the one being replaced.",
   "err.noProxyTeam":
     "This team profile has no proxy. A team profile cannot open without one: the server will not hand it out. Give it a proxy in its settings.",
   "err.staleOrgKey": "This server offered an older organisation key than this machine has already used. Refusing: a key that goes backwards is one somebody removed from the team may still hold.",
@@ -1335,6 +1336,7 @@ const ru: Record<Key, string> = {
   "err.agentDown": "Локальный агент не запущен, поэтому эта машина не может показать список машин и открыть профиль. Он поднимается сам — если не проходит, закройте и откройте Fury.",
   "err.noProxy":
     "У этого профиля нет прокси, поэтому он пошёл бы в сеть с адреса этой машины. Укажите прокси или отметьте «Разрешить этому профилю открываться без прокси» в его настройках: карандаш, вкладка «Прокси».",
+  "err.closeProfilesFirst": "Сначала закройте открытые профили: обновляется браузер, в котором они работают.",
   "err.noProxyTeam":
     "У этого командного профиля нет прокси. Командный профиль без прокси не открывается: сервер его не выдаст. Укажите прокси в настройках профиля.",
   "err.staleOrgKey": "Сервер предложил ключ организации старее того, которым эта машина уже пользовалась. Отказ: ключ, который идёт назад, — это ключ, который может остаться у удалённого из команды.",

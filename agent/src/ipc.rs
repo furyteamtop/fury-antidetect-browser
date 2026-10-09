@@ -472,12 +472,26 @@ impl Agent {
             // Nothing schedules this. See core_download.rs for why that
             // sentence is the whole design.
             "core.download" => {
-                if self.core().is_some() {
-                    // Refused rather than allowed-and-ignored: replacing a
-                    // working core is a different operation from installing a
-                    // missing one, and the button that means the second should
-                    // not quietly do the first.
-                    anyhow::bail!("a core is already installed; remove it first to replace it");
+                // A missing core, or one older than this agent expects. The
+                // second is what the "Update the browser" bar asks for, and
+                // until 0.2.22 it was refused here with "a core is already
+                // installed" -- which the bar swallowed, so the button did
+                // nothing at all from 0.2.16 on (found 09.10.2026, by pressing
+                // it). A current core is still refused: replacing a working
+                // browser is not what any button here means.
+                if let Some(exe) = self.core() {
+                    if crate::core_stale(&exe).is_none() {
+                        anyhow::bail!("the installed browser is already the build this version needs");
+                    }
+                    // Files of a running browser cannot be moved on Windows,
+                    // and on macOS a profile would keep the old engine open.
+                    if !self.running.lock().await.is_empty() {
+                        return Err(Coded {
+                            code: "err.closeProfilesFirst",
+                            message: "close the open profiles first; the browser they run is the one being replaced".into(),
+                        }
+                        .into());
+                    }
                 }
                 crate::core_download::start(Arc::clone(&self.core_download));
                 Ok(json!({ "started": true }))

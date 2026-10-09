@@ -239,5 +239,25 @@ async fn run(shared: &Shared) -> Result<PathBuf> {
     })
     .await??;
 
+    // The install said it worked; make sure the agent can now find a browser
+    // it will run. A tester on Windows pressed Download, watched it reach 100%
+    // and got the Download button back with no error (09.10.2026): whatever
+    // happened between the install and the next look, saying nothing left him
+    // nowhere. An antivirus moving a freshly unpacked, unsigned chrome.exe to
+    // quarantine is the likeliest cause on Windows, so the message names it.
+    match crate::core_binary() {
+        Some(exe) if crate::core_outdated(&exe).is_none() => {}
+        Some(exe) => anyhow::bail!(
+            "the browser was installed, but the one now found at {} is a different Chrome version",
+            exe.display()
+        ),
+        None => anyhow::bail!(
+            "the browser was installed to {} but is not there any more. If an antivirus is running, \
+             it may have moved the browser to quarantine: allow it there, then press the button again",
+            installed.display()
+        ),
+    }
+
+
     Ok(installed)
 }
