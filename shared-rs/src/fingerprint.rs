@@ -35,7 +35,7 @@ pub struct FingerprintConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OsSpec {
-    /// "Windows" | "macOS"
+    /// "Windows" | "macOS" | "Android"
     pub name: String,
     pub version: String,
     /// "x86_64" | "arm64"
@@ -196,6 +196,7 @@ impl FingerprintConfig {
 
         let is_mac = self.os.name == "macOS";
         let is_win = self.os.name == "Windows";
+        let is_android = self.os.name == "Android";
 
         // --- OS vs GPU driver stack -------------------------------------
         let r = &self.gpu.webgl_renderer;
@@ -224,8 +225,19 @@ impl FingerprintConfig {
         }
 
         // --- OS vs platform strings -------------------------------------
+        if is_android {
+            if !crate::persona::ANDROID_PLATFORMS.contains(&self.navigator.platform.as_str()) {
+                bad(format!(
+                    "navigator.platform '{}' is not one Android reports",
+                    self.navigator.platform
+                ));
+            }
+            if r.contains("Direct3D") || r.contains("Metal") {
+                bad(format!("Android profile reports a desktop renderer: {r}"));
+            }
+        }
         let expected_platform = if is_mac { "MacIntel" } else { "Win32" };
-        if self.navigator.platform != expected_platform {
+        if !is_android && self.navigator.platform != expected_platform {
             bad(format!(
                 "navigator.platform '{}' does not match OS '{}' (expected '{}')",
                 self.navigator.platform, self.os.name, expected_platform
@@ -314,7 +326,15 @@ impl FingerprintConfig {
         if is_win && !ua.contains("Windows NT") {
             bad("user agent does not mention Windows NT on a Windows profile".into());
         }
-        if self.navigator.ua_mobile {
+        if is_android && !ua.contains("Android") {
+            bad("user agent does not mention Android on an Android profile".into());
+        }
+        // Sec-CH-UA-Mobile and the "Mobile" token in the user agent are one
+        // fact said twice: a phone says both, a desktop and a tablet neither.
+        if self.navigator.ua_mobile != ua.contains(" Mobile ") {
+            bad("Sec-CH-UA-Mobile disagrees with the user agent's \"Mobile\" token".into());
+        }
+        if !is_android && self.navigator.ua_mobile {
             bad("desktop profile must report Sec-CH-UA-Mobile: ?0".into());
         }
 

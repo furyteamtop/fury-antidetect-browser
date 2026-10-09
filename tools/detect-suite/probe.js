@@ -951,6 +951,12 @@
         connectionRtt: safe(() => navigator.connection && navigator.connection.rtt),
         connectionDownlink: safe(() => navigator.connection && navigator.connection.downlink),
         connectionSaveData: safe(() => navigator.connection && navigator.connection.saveData),
+        // `type` exists on Android ("cellular", "wifi") and not on desktop
+        // Chrome at all, where `effectiveType` above is all there is.
+        connectionKind: safe(() => navigator.connection && navigator.connection.type),
+        // The phone-shaped surface (docs/18): touch events are feature-detected
+        // by `ontouchstart`.
+        hasTouchEvents: 'ontouchstart' in window,
         hasComputePressure: 'PressureObserver' in window,
         hasDevicePosture: 'devicePosture' in navigator,
         keyboardLayout: null, // filled asynchronously below

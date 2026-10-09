@@ -77,10 +77,13 @@ const WINDOWS_ONLY: &[&str] = &[
 /// the other OS's own families. Sorted, so the config is stable.
 pub fn hidden(os: &str, present: &[String]) -> Vec<String> {
     let has = |f: &str| present.iter().any(|p| p.eq_ignore_ascii_case(f));
-    let other: &[&str] = match os {
-        "Windows" => MAC_ONLY,
-        "macOS" => WINDOWS_ONLY,
-        _ => &[],
+    // A phone has neither desktop's families: what it draws Arial with is
+    // its own sans-serif, so on the host the desktop fonts must not resolve.
+    let other: Vec<&str> = match os {
+        "Windows" => MAC_ONLY.to_vec(),
+        "macOS" => WINDOWS_ONLY.to_vec(),
+        "Android" => MAC_ONLY.iter().chain(WINDOWS_ONLY).copied().collect(),
+        _ => Vec::new(),
     };
     let mut out: Vec<String> = PROBED
         .iter()
@@ -130,6 +133,16 @@ mod tests {
         for gone in ["Calibri", "Segoe UI", "Zapfino", "Lucida Console", "SimSun"] {
             assert!(h.iter().any(|x| x == gone), "{gone} not hidden on a Mac");
         }
+    }
+
+    #[test]
+    fn an_android_persona_hides_both_desktops() {
+        let present: Vec<String> = ["Roboto"].iter().map(|s| s.to_string()).collect();
+        let h = hidden("Android", &present);
+        for gone in ["Helvetica", "Segoe UI", "Arial", "Menlo", "SimSun", "PingFang SC"] {
+            assert!(h.iter().any(|x| x == gone), "{gone} not hidden on Android");
+        }
+        assert!(!h.iter().any(|x| x == "Roboto"));
     }
 
     #[test]

@@ -94,7 +94,13 @@ pub fn from_capture(dump: &Value, id: &str, weight: f64) -> Result<Value, String
     let ua = s(dump, "navigator.userAgent").ok_or("capture has no navigator.userAgent")?;
     let platform = s(dump, "navigator.platform").ok_or("capture has no navigator.platform")?;
     let ch_platform = s(dump, "clientHints.platform").unwrap_or_else(|| {
-        if platform.starts_with("Win") { "Windows".into() } else { "macOS".into() }
+        if platform.starts_with("Win") {
+            "Windows".into()
+        } else if ua.contains("Android") {
+            "Android".into()
+        } else {
+            "macOS".into()
+        }
     });
 
     let renderer = s(dump, "webgl.webgl2.unmasked.renderer")
@@ -110,6 +116,10 @@ pub fn from_capture(dump: &Value, id: &str, weight: f64) -> Result<Value, String
     // Consistency, checked here rather than left to persona.validate() so the
     // message names the capture rather than the file it produced.
     let mac = ch_platform == "macOS";
+    let android = ch_platform == "Android";
+    if android && (renderer.contains("Direct3D") || renderer.contains("Metal")) {
+        return Err(format!("capture claims Android with a desktop renderer: {renderer}"));
+    }
     if mac && (renderer.contains("Direct3D") || renderer.contains("D3D11")) {
         return Err(format!("capture claims macOS with a Direct3D renderer: {renderer}"));
     }
@@ -163,21 +173,35 @@ pub fn from_capture(dump: &Value, id: &str, weight: f64) -> Result<Value, String
         .map(|s| s.split(',').map(str::to_string).collect())
         .unwrap_or_default();
 
-    Ok(json!({
+    // A phone carries what a desktop has no field for. Android Chrome leaves
+    // architecture and bitness empty in the hints, and says "Mobile" in the
+    // user agent exactly when it is a phone.
+    let mobile = android.then(|| {
+        json!({
+            "model": s(dump, "clientHints.model").unwrap_or_default(),
+            "form_factor": if ua.contains(" Mobile ") { "phone" } else { "tablet" },
+            "connection": s(dump, "engine.misc.connectionKind")
+                .filter(|k| k == "wifi" || k == "cellular")
+                .unwrap_or_else(|| "cellular".into()),
+        })
+    });
+    let (arch_default, bitness_default) = if android { ("", "") } else { ("x86", "64") };
+
+    let mut persona = json!({
         "id": id,
         "weight": weight,
         // NOT "measured". See the module comment.
         "source": "capture",
         "os": {
-            "name": if mac { "macOS" } else { "Windows" },
+            "name": if mac { "macOS" } else if android { "Android" } else { "Windows" },
             "version": s(dump, "clientHints.platformVersion").unwrap_or_default(),
-            "arch": s(dump, "clientHints.architecture").unwrap_or_else(|| "x86".into()),
+            "arch": if android { "arm64".to_string() } else { s(dump, "clientHints.architecture").unwrap_or_else(|| "x86".into()) },
             "user_agent_template": ua_template(&ua),
             "platform": platform,
             "ch_platform": ch_platform,
             "ch_platform_version": s(dump, "clientHints.platformVersion").unwrap_or_default(),
-            "ch_architecture": s(dump, "clientHints.architecture").unwrap_or_else(|| "x86".into()),
-            "ch_bitness": s(dump, "clientHints.bitness").unwrap_or_else(|| "64".into()),
+            "ch_architecture": s(dump, "clientHints.architecture").unwrap_or_else(|| arch_default.into()),
+            "ch_bitness": s(dump, "clientHints.bitness").unwrap_or_else(|| bitness_default.into()),
         },
         "gpu": {
             "webgl_vendor": vendor,
@@ -213,7 +237,11 @@ pub fn from_capture(dump: &Value, id: &str, weight: f64) -> Result<Value, String
         },
         "voices": voices,
         "media_devices": media_devices,
-    }))
+    });
+    if let Some(m) = mobile {
+        persona["mobile"] = m;
+    }
+    Ok(persona)
 }
 
 #[cfg(test)]

@@ -69,11 +69,32 @@ pub struct Persona {
     pub voices: Vec<String>,
     #[serde(default)]
     pub media_devices: Vec<PersonaMediaDevice>,
+    /// The handset, on an Android persona and nowhere else (docs/18).
+    ///
+    /// A separate block rather than more fields on `os`, because everything in
+    /// it is about the device in the hand rather than the operating system: a
+    /// phone and a tablet run the same Android and announce themselves
+    /// differently, and the model is what Sec-CH-UA-Model carries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mobile: Option<PersonaMobile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersonaMobile {
+    /// Sec-CH-UA-Model and `getHighEntropyValues().model`: "SM-A546B".
+    pub model: String,
+    /// "phone" | "tablet". Chrome on an Android tablet sends the desktop-shaped
+    /// user agent without "Mobile" and Sec-CH-UA-Mobile: ?0, so the two are
+    /// not a detail of one another.
+    pub form_factor: String,
+    /// `navigator.connection.type`: "cellular" | "wifi". Desktop Chrome does
+    /// not expose the attribute at all; Android always does.
+    pub connection: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersonaOs {
-    /// "Windows" | "macOS"
+    /// "Windows" | "macOS" | "Android"
     pub name: String,
     pub version: String,
     /// "x86_64" | "arm64"
@@ -81,7 +102,8 @@ pub struct PersonaOs {
     /// The UA string template, with {CHROME_MAJOR} substituted at derive time
     /// so a persona survives a Chromium uprev without being rewritten.
     pub user_agent_template: String,
-    /// navigator.platform: "Win32" or "MacIntel".
+    /// navigator.platform: "Win32", "MacIntel", or "Linux armv81" and its
+    /// siblings on Android (see `ANDROID_PLATFORMS`).
     pub platform: String,
     /// Sec-CH-UA-Platform.
     pub ch_platform: String,
@@ -271,7 +293,29 @@ pub fn chrome_brand_list(major: u32, version: &str, full: bool) -> Vec<String> {
     out
 }
 
+/// What `navigator.platform` says on Android. "Linux armv81" is what current
+/// phones are seen answering, "Linux armv8l" and "Linux armv7l" older or
+/// 32-bit builds, "Linux aarch64" a few devices. Not yet checked against our
+/// own captures (docs/18, step 6); the list only refuses what no phone says.
+pub const ANDROID_PLATFORMS: &[&str] =
+    &["Linux armv81", "Linux armv8l", "Linux armv7l", "Linux aarch64"];
+
+/// Driver families that ship in Android handsets. A renderer naming none of
+/// them is a desktop GPU wearing a phone.
+pub const ANDROID_GPU_FAMILIES: &[&str] =
+    &["Adreno", "Mali", "PowerVR", "Xclipse", "Immortalis", "Maleoon", "IMG"];
+
 impl Persona {
+    pub fn is_android(&self) -> bool {
+        self.os.name == "Android"
+    }
+
+    /// Sec-CH-UA-Mobile: ?1. A phone; not a tablet, whose Chrome asks for the
+    /// desktop site and says so.
+    pub fn is_phone(&self) -> bool {
+        self.is_android() && self.mobile.as_ref().is_some_and(|m| m.form_factor == "phone")
+    }
+
     /// Builds the JSON the patched core reads.
     ///
     /// Key paths match what components/fury reads and what
@@ -304,15 +348,22 @@ impl Persona {
                 "platformVersion": self.os.ch_platform_version,
                 "architecture": self.os.ch_architecture,
                 "bitness": self.os.ch_bitness,
-                "model": "",
-                "mobile": false,
+                "model": self.mobile.as_ref().map(|m| m.model.as_str()).unwrap_or(""),
+                "mobile": self.is_phone(),
                 "wow64": false,
                 "fullVersion": ctx.chrome_full_version,
                 // Empty is what a desktop Chrome sends. The header exists and
                 // is read; omitting the key left the patch falling back to
                 // whatever the host reports, which on a phone-shaped host
                 // would contradict Sec-CH-UA-Mobile: ?0.
-                "formFactors": Vec::<String>::new(),
+                //
+                // A phone and a tablet name themselves, as Chrome on Android
+                // does (user_agent_utils.cc, GetFormFactorsClientHint).
+                "formFactors": match self.mobile.as_ref().map(|m| m.form_factor.as_str()) {
+                    Some("phone") => vec!["Mobile"],
+                    Some("tablet") => vec!["Tablet"],
+                    _ => Vec::<&str>::new(),
+                },
             },
             "screen": {
                 "width": self.screen.width,
@@ -449,7 +500,11 @@ impl Persona {
         // 4294705152. What must not happen is a persona claiming 2 GB while
         // reporting the 16 GB ceiling — see `js_heap_limit` for the tiers.
         config["engine"] = serde_json::json!({
-            "jsHeapSizeLimit": js_heap_limit(self.memory_gb),
+            "jsHeapSizeLimit": if self.is_android() {
+                js_heap_limit_android(self.memory_gb)
+            } else {
+                js_heap_limit(self.memory_gb)
+            },
         });
 
         // Only when there is one. An absent key is what tells the core to leave
@@ -521,6 +576,19 @@ impl Persona {
             "dischargingTime": -1.0,
         });
 
+        // The switch the mobile patch reads (0130): layout viewport and
+        // <meta viewport>, coarse pointer without hover, touch events, the
+        // screen orientation, connection.type, and the desktop-only surfaces
+        // (PDF viewer, HID, Serial) taken away. Absent on a desktop persona,
+        // which is what leaves every one of those to stock Chromium there.
+        if let Some(m) = &self.mobile {
+            config["mobile"] = serde_json::json!({
+                "enabled": true,
+                "formFactor": m.form_factor,
+                "connectionType": m.connection,
+            });
+        }
+
         if let Some(webgpu) = &self.gpu.webgpu {
             config["gpu"]["webgpu"] = serde_json::json!({
                 "vendor": webgpu.vendor,
@@ -542,18 +610,30 @@ impl Persona {
         let mut errs = Vec::new();
         let is_mac = self.os.name == "macOS";
         let is_win = self.os.name == "Windows";
+        let is_android = self.is_android();
 
-        if !is_mac && !is_win {
+        if !is_mac && !is_win && !is_android {
             errs.push(format!("unknown os.name {:?}", self.os.name));
         }
 
-        let expected_platform = if is_mac { "MacIntel" } else { "Win32" };
-        if self.os.platform != expected_platform {
-            errs.push(format!(
-                "os.platform {:?} does not match os.name {:?} (expected {expected_platform:?})",
-                self.os.platform, self.os.name
-            ));
+        if is_android {
+            if !ANDROID_PLATFORMS.contains(&self.os.platform.as_str()) {
+                errs.push(format!(
+                    "os.platform {:?} is not one Android reports ({ANDROID_PLATFORMS:?})",
+                    self.os.platform
+                ));
+            }
+        } else {
+            let expected_platform = if is_mac { "MacIntel" } else { "Win32" };
+            if self.os.platform != expected_platform {
+                errs.push(format!(
+                    "os.platform {:?} does not match os.name {:?} (expected {expected_platform:?})",
+                    self.os.platform, self.os.name
+                ));
+            }
         }
+
+        self.validate_mobile(&mut errs);
 
         if is_mac && self.chrome_metrics.scrollbar_width != 0 {
             errs.push("macOS uses overlay scrollbars; scrollbar_width must be 0".into());
@@ -602,12 +682,21 @@ impl Persona {
         // in 25% steps. A ratio outside these is a machine that does not exist,
         // and it is one `window.devicePixelRatio` hands to any page that asks.
         let dpr = self.screen.device_pixel_ratio;
+        //
+        // Android has no such ladder: the ratio is the panel's density over
+        // 160 dpi, rounded by the vendor (2.625, 2.75, 2.8125, 3.5 are all
+        // real), so only the range is checked there and the whole-pixel rule
+        // below does the rest.
         let allowed: &[f64] = if is_mac {
             &[1.0, 2.0]
         } else {
             &[1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 3.0]
         };
-        if !allowed.iter().any(|a| (a - dpr).abs() < 1e-9) {
+        if is_android {
+            if !(1.0..=4.5).contains(&dpr) {
+                errs.push(format!("devicePixelRatio {dpr} is outside what Android panels report (1 to 4.5)"));
+            }
+        } else if !allowed.iter().any(|a| (a - dpr).abs() < 1e-9) {
             errs.push(format!(
                 "devicePixelRatio {dpr} is not one {} reports ({allowed:?})",
                 self.os.name
@@ -669,6 +758,87 @@ impl Persona {
 
         if errs.is_empty() { Ok(()) } else { Err(errs) }
     }
+
+    /// The handset rules: everything an Android persona must say about itself
+    /// and a desktop one must not.
+    fn validate_mobile(&self, errs: &mut Vec<String>) {
+        let Some(m) = &self.mobile else {
+            if self.is_android() {
+                errs.push("an Android persona needs its `mobile` block (model, form_factor, connection)".into());
+            }
+            return;
+        };
+        if !self.is_android() {
+            errs.push(format!("a {} persona with a `mobile` block", self.os.name));
+            return;
+        }
+
+        if self.os.ch_platform != "Android" {
+            errs.push(format!("os.ch_platform {:?} on an Android persona", self.os.ch_platform));
+        }
+        if m.model.trim().is_empty() {
+            errs.push("mobile.model is empty; every Android Chrome sends Sec-CH-UA-Model".into());
+        }
+        let phone = match m.form_factor.as_str() {
+            "phone" => true,
+            "tablet" => false,
+            other => {
+                errs.push(format!("mobile.form_factor {other:?} is neither \"phone\" nor \"tablet\""));
+                true
+            }
+        };
+        if !matches!(m.connection.as_str(), "cellular" | "wifi") {
+            errs.push(format!("mobile.connection {:?} is neither \"cellular\" nor \"wifi\"", m.connection));
+        }
+
+        // The user agent and the hints have to tell one story: a phone says
+        // "Mobile" in both, a tablet in neither.
+        let ua = &self.os.user_agent_template;
+        if !ua.contains("Android") {
+            errs.push("the user agent of an Android persona does not say Android".into());
+        }
+        if phone != ua.contains(" Mobile ") {
+            errs.push(if phone {
+                "a phone's user agent must carry \"Mobile\"".into()
+            } else {
+                "a tablet's user agent must not carry \"Mobile\"".into()
+            });
+        }
+
+        if self.chrome_metrics.scrollbar_width != 0 {
+            errs.push("Android scrollbars overlay the page; scrollbar_width must be 0".into());
+        }
+        if !(1..=10).contains(&self.max_touch_points) {
+            errs.push(format!(
+                "max_touch_points {} on a touchscreen device (phones report 5 or 10)",
+                self.max_touch_points
+            ));
+        }
+        if self.screen.color_depth != 24 {
+            errs.push(format!("color_depth {} on Android, which reports 24", self.screen.color_depth));
+        }
+        // Device Memory caps at 8 on Android; all 50 of ShardBrowser's
+        // Android personas sit at 2, 4 or 8.
+        if self.memory_gb > 8 {
+            errs.push(format!("memory_gb {} above the 8 Android reports", self.memory_gb));
+        }
+
+        let r = &self.gpu.webgl_renderer;
+        if r.contains("Direct3D") || r.contains("D3D11") || r.contains("Metal") {
+            errs.push(format!("Android persona with a desktop driver stack: {r}"));
+        }
+        if !ANDROID_GPU_FAMILIES.iter().any(|f| r.contains(f)) {
+            errs.push(format!(
+                "renderer {r:?} names no handset GPU family ({ANDROID_GPU_FAMILIES:?})"
+            ));
+        }
+
+        const DESKTOP_ONLY_FONTS: &[&str] =
+            &["Segoe UI", "Bahnschrift", "Calibri", "Helvetica Neue", "Menlo", "SF Pro", "Apple Color Emoji"];
+        if let Some(f) = self.fonts.iter().find(|f| DESKTOP_ONLY_FONTS.contains(&f.as_str())) {
+            errs.push(format!("desktop font {f:?} on an Android persona"));
+        }
+    }
 }
 
 /// The fingerprint seed, in the one representation everything agrees on.
@@ -694,6 +864,19 @@ fn js_heap_limit(memory_gb: u32) -> u64 {
         0..=2 => 1_073_741_824,
         3..=4 => 2_197_815_296,
         _ => 4_294_705_152,
+    }
+}
+
+/// The same ceiling on Android, where it is a plain power of two per memory
+/// tier. Taken from ShardBrowser's 50 Android personas (docs/18), all of which
+/// pair 2, 4 and 8 GB with 1, 2 and 4 GiB; to be confirmed by our own phone
+/// captures. The desktop numbers would be a tell here: 4294705152 is what a
+/// desktop V8 reports, and no phone in that set does.
+fn js_heap_limit_android(memory_gb: u32) -> u64 {
+    match memory_gb {
+        0..=2 => 1_073_741_824,
+        3..=4 => 2_147_483_648,
+        _ => 4_294_967_296,
     }
 }
 
@@ -792,6 +975,116 @@ mod tests {
                 .validate()
                 .unwrap_or_else(|e| panic!("persona {name}: {e:?}"));
         }
+    }
+
+    /// A phone for the tests, NOT a catalogue entry: the shape of a Galaxy A54
+    /// from its public specification, on the Windows base's WebGL table, until
+    /// a phone is captured (docs/18, step 6). Only the fields the rules read
+    /// are made to look like a phone.
+    fn android() -> Persona {
+        let mut p = load("windows-11-rtx4060-1920x1080");
+        p.id = "android-test-a54".into();
+        p.weight = 0.0;
+        p.os.name = "Android".into();
+        p.os.version = "15".into();
+        p.os.arch = "arm64".into();
+        p.os.platform = "Linux armv81".into();
+        p.os.ch_platform = "Android".into();
+        p.os.ch_platform_version = "15.0.0".into();
+        p.os.ch_architecture = String::new();
+        p.os.ch_bitness = String::new();
+        p.os.user_agent_template = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 \
+            (KHTML, like Gecko) Chrome/{CHROME_MAJOR}.0.0.0 Mobile Safari/537.36"
+            .into();
+        p.gpu.webgl_vendor = "Google Inc. (ARM)".into();
+        p.gpu.webgl_renderer = "ANGLE (ARM, Mali-G68, OpenGL ES 3.2)".into();
+        p.gpu.webgpu = None;
+        p.screen = PersonaScreen {
+            width: 384,
+            height: 832,
+            avail_width: 384,
+            avail_height: 832,
+            color_depth: 24,
+            device_pixel_ratio: 2.8125,
+        };
+        p.chrome_metrics.scrollbar_width = 0;
+        p.cpu.cores = 8;
+        p.memory_gb = 8;
+        p.max_touch_points = 5;
+        p.fonts = vec!["Roboto".into(), "Noto Color Emoji".into(), "Droid Sans Mono".into()];
+        p.mobile = Some(PersonaMobile {
+            model: "SM-A546B".into(),
+            form_factor: "phone".into(),
+            connection: "cellular".into(),
+        });
+        p
+    }
+
+    #[test]
+    fn a_phone_is_consistent_and_derives_a_phone() {
+        let p = android();
+        p.validate().unwrap_or_else(|e| panic!("{e:?}"));
+        let c = p.derive_core_config(1, &ctx());
+        assert_eq!(c["clientHints"]["mobile"], true);
+        assert_eq!(c["clientHints"]["model"], "SM-A546B");
+        assert_eq!(c["clientHints"]["formFactors"], serde_json::json!(["Mobile"]));
+        assert_eq!(c["navigator"]["platform"], "Linux armv81");
+        assert_eq!(c["screen"]["availTop"], 0);
+        assert_eq!(c["mobile"]["enabled"], true);
+        assert_eq!(c["mobile"]["connectionType"], "cellular");
+        assert_eq!(c["engine"]["jsHeapSizeLimit"], 4_294_967_296u64);
+        let hidden: Vec<&str> = c["fontsHidden"].as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();
+        for f in ["Arial", "Segoe UI", "Helvetica"] {
+            assert!(hidden.contains(&f), "{f} not hidden on a phone");
+        }
+        crate::fingerprint::check_core_config(&c)
+            .unwrap_or_else(|missing| panic!("{}", missing.join("\n")));
+    }
+
+    #[test]
+    fn a_desktop_derives_no_mobile_branch_and_says_so_in_the_hints() {
+        let c = load("windows-11-rtx4060-1920x1080").derive_core_config(1, &ctx());
+        assert!(c.get("mobile").is_none());
+        assert_eq!(c["clientHints"]["mobile"], false);
+        assert_eq!(c["clientHints"]["model"], "");
+        assert_eq!(c["clientHints"]["formFactors"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn a_tablet_says_neither_mobile_nor_phone() {
+        let mut p = android();
+        p.mobile.as_mut().unwrap().form_factor = "tablet".into();
+        p.os.user_agent_template = p.os.user_agent_template.replace(" Mobile ", " ");
+        p.validate().unwrap_or_else(|e| panic!("{e:?}"));
+        let c = p.derive_core_config(1, &ctx());
+        assert_eq!(c["clientHints"]["mobile"], false);
+        assert_eq!(c["clientHints"]["formFactors"], serde_json::json!(["Tablet"]));
+    }
+
+    #[test]
+    fn a_phone_that_contradicts_itself_is_refused() {
+        let cases: Vec<(&str, Box<dyn Fn(&mut Persona)>)> = vec![
+            ("desktop platform", Box::new(|p| p.os.platform = "Win32".into())),
+            ("no mobile block", Box::new(|p| p.mobile = None)),
+            ("phone UA without Mobile", Box::new(|p| p.os.user_agent_template = p.os.user_agent_template.replace(" Mobile ", " "))),
+            ("Metal renderer", Box::new(|p| p.gpu.webgl_renderer = "ANGLE (Apple, ANGLE Metal Renderer: Apple M5, Unspecified Version)".into())),
+            ("desktop GPU", Box::new(|p| p.gpu.webgl_renderer = "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)".into())),
+            ("scrollbar", Box::new(|p| p.chrome_metrics.scrollbar_width = 15)),
+            ("no touch", Box::new(|p| p.max_touch_points = 0)),
+            ("deep colour", Box::new(|p| p.screen.color_depth = 30)),
+            ("16 GB", Box::new(|p| p.memory_gb = 16)),
+            ("desktop font", Box::new(|p| p.fonts.push("Segoe UI".into()))),
+            ("empty model", Box::new(|p| p.mobile.as_mut().unwrap().model.clear())),
+            ("fractional panel", Box::new(|p| p.screen.device_pixel_ratio = 2.7)),
+        ];
+        for (what, break_it) in cases {
+            let mut p = android();
+            break_it(&mut p);
+            assert!(p.validate().is_err(), "{what} was accepted");
+        }
+        let mut win = load("windows-11-rtx4060-1920x1080");
+        win.mobile = android().mobile;
+        assert!(win.validate().is_err(), "a Windows persona with a handset block was accepted");
     }
 
     #[test]

@@ -220,6 +220,20 @@ pub async fn run() -> Result<Captured, String> {
 fn suggest_id(dump: &serde_json::Value) -> String {
     use fury_shared::capture::{n, s};
     let plat = s(dump, "clientHints.platform").unwrap_or_default();
+    // A phone is known by its model, which the hints carry: android-sm-a546b.
+    // The GPU and the screen say much less about a handset than about a PC.
+    if plat == "Android" {
+        let model = s(dump, "clientHints.model").unwrap_or_default().to_ascii_lowercase();
+        let slug: String = model
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect::<String>()
+            .split('-')
+            .filter(|w| !w.is_empty())
+            .collect::<Vec<_>>()
+            .join("-");
+        return format!("android-{}", if slug.is_empty() { "phone".into() } else { slug });
+    }
     let os = if plat == "macOS" {
         "macos".to_string()
     } else if plat == "Windows" {
@@ -293,6 +307,8 @@ mod tests {
             "screen": { "width": 1470, "height": 956 }
         });
         assert_eq!(suggest_id(&dump), "macos-m5-1470x956");
+        let phone = serde_json::json!({ "clientHints": { "platform": "Android", "model": "SM-A546B" } });
+        assert_eq!(suggest_id(&phone), "android-sm-a546b");
     }
 
     #[test]

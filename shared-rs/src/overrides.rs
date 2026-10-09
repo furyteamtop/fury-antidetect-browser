@@ -165,10 +165,25 @@ pub fn options_for(persona: &Persona, catalogue: &[Persona]) -> OverrideOptions 
     }
     gpus.sort_by(|a, b| a.renderer.cmp(&b.renderer));
     OverrideOptions {
-        screens: if mac { MAC_SCREENS } else { WINDOWS_SCREENS }.to_vec(),
-        device_pixel_ratios: if mac { MAC_DPR } else { WINDOWS_DPR }.to_vec(),
+        // A handset's screen and density are the model, not a setting: the
+        // only honest choice offered is the one the phone has.
+        screens: if persona.is_android() {
+            vec![(persona.screen.width, persona.screen.height)]
+        } else if mac {
+            MAC_SCREENS.to_vec()
+        } else {
+            WINDOWS_SCREENS.to_vec()
+        },
+        device_pixel_ratios: if persona.is_android() {
+            vec![persona.screen.device_pixel_ratio]
+        } else if mac {
+            MAC_DPR.to_vec()
+        } else {
+            WINDOWS_DPR.to_vec()
+        },
         cores: CORES.to_vec(),
-        memory_gb: MEMORY_GB.to_vec(),
+        // Device Memory stops at 8 on Android (persona.rs, validate_mobile).
+        memory_gb: MEMORY_GB.iter().copied().filter(|&m| !persona.is_android() || m <= 8).collect(),
         gpus,
         ui_locales: locale::shipped_ui_locales()
             .into_iter()
