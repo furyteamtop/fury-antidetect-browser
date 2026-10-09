@@ -2164,18 +2164,30 @@ impl Agent {
         //
         // Same overlay as `proxies.check` so a launch and a check can never
         // disagree about an exit.
-        let (country, timezone, location) = match (&geo_db, s("ip")) {
-            (Some(db), Some(ref ip)) => {
-                let geo = crate::geoip::lookup(db, ip)?;
-                (
-                    geo.country.or_else(|| s("country")),
-                    geo.timezone.or_else(|| s("timezone")),
-                    geo.location
-                        .filter(|v| parse_location(v).is_some())
-                        .or_else(|| s("loc")),
-                )
-            }
-            _ => (s("country"), s("timezone"), s("loc")),
+        // A database that will not open, or has no record for this exit, does
+        // not throw away the checker's answer, which is already in hand: the
+        // launch carries on with that and the log says why the file was not
+        // used. (The check button, by contrast, reports the failure, because
+        // that is where the operator is looking at the path.)
+        let local = match (&geo_db, s("ip")) {
+            (Some(db), Some(ref ip)) => match crate::geoip::lookup(db, ip) {
+                Ok(geo) => Some(geo),
+                Err(e) => {
+                    tracing::warn!(error = format!("{e:#}"), "the local GeoIP database was not used for this launch");
+                    None
+                }
+            },
+            _ => None,
+        };
+        let (country, timezone, location) = match local {
+            Some(geo) => (
+                geo.country.or_else(|| s("country")),
+                geo.timezone.or_else(|| s("timezone")),
+                geo.location
+                    .filter(|v| parse_location(v).is_some())
+                    .or_else(|| s("loc")),
+            ),
+            None => (s("country"), s("timezone"), s("loc")),
         };
         Ok(ExitFacts {
             ip: s("ip"),
