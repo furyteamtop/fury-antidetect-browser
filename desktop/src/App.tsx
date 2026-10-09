@@ -26,7 +26,7 @@ import { Settings } from "./components/Settings";
 import { Sidebar, type View } from "./components/Sidebar";
 import { ShareDialog } from "./components/ShareDialog";
 import { CsvImport } from "./components/CsvImport";
-import { IconButton } from "./components/Icon";
+import { Icon, IconButton } from "./components/Icon";
 import { useTheme } from "./theme";
 import { exitSharing } from "./consistency";
 import { isSuggested } from "./status";
@@ -1075,12 +1075,9 @@ export function App() {
                     the right question and the answer was four steps of our
                     bookkeeping. */}
                 {!local && chosen.length > 0 && (
-                  <IconButton
-                    icon="share"
-                    label={t("row.share")}
-                    disabled={busy}
-                    onClick={() => setSharing(chosen)}
-                  />
+                  <button className="ghost" disabled={busy} onClick={() => setSharing(chosen)}>
+                    <Icon name="share" /> {t("row.share")}
+                  </button>
                 )}
                 {/* The other direction, and the one that makes sharing reachable
                     for a profile that started here. Offered only for local rows,
@@ -1424,6 +1421,7 @@ export function App() {
               onStop={onStop}
               onEdit={setEditing}
               onExtensions={setExtFor}
+              onShare={local ? undefined : (p) => setSharing([p])}
               onNetwork={setNetFor}
               onClone={(p) => setBulk(p)}
               personas={personaIds}

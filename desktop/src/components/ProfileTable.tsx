@@ -59,6 +59,7 @@ export function ProfileTable({
   onEdit,
   onDelete,
   onExtensions,
+  onShare,
   onNetwork,
   onClone,
   personas,
@@ -83,6 +84,11 @@ export function ProfileTable({
   onDelete?: (p: Profile) => void;
   /** Extensions and disk usage — the two things beside the browser data. */
   onExtensions?: (p: Profile) => void;
+  /** Give someone access to this one profile. On the row, in words, because
+   *  as an unlabelled icon that appeared only once a row was ticked nobody
+   *  found it -- the owner asked where it was (08.10.2026). Absent when there
+   *  is no server to share through. */
+  onShare?: (p: Profile) => void;
   /** What network this profile is on, step by step. Opens from the proxy cell. */
   onNetwork?: (p: Profile) => void;
   /** Copies of this one — the same dialog the selection bar opens (5.24). */
@@ -391,6 +397,11 @@ export function ProfileTable({
                     rare and irreversible. The icons carry title and aria-label,
                     so the name is a hover away and a screen reader still gets
                     a word rather than a glyph. */}
+                {onShare && (p.origin === "local" || p.permissions.includes("manage_access")) && (
+                  <button className="ghost" disabled={busy} title={t("row.shareHint")} onClick={() => onShare(p)}>
+                    <Icon name="share" /> {t("row.shareShort")}
+                  </button>
+                )}
                 {onExtensions && canEdit && (
                   <IconButton icon="puzzle" label={t("ext.extensions")} disabled={busy} onClick={() => onExtensions(p)} />
                 )}
