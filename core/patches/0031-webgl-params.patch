@@ -1,5 +1,5 @@
 diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
-index b452298c24..1ea40ddcea 100644
+index b452298c24..957cd0bc52 100644
 --- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 +++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 @@ -25,6 +25,12 @@
@@ -15,7 +15,7 @@ index b452298c24..1ea40ddcea 100644
  #include <inttypes.h>
  
  #include <memory>
-@@ -4003,10 +4009,136 @@ void WebGLRenderingContextBase::RecordANGLEImplementation() {
+@@ -4003,10 +4009,149 @@ void WebGLRenderingContextBase::RecordANGLEImplementation() {
                              webgl_angle_implementation);
  }
  
@@ -101,7 +101,20 @@ index b452298c24..1ea40ddcea 100644
 +  // the renderer string, and a persona that changes one without the others
 +  // describes a card that has never existed.
 +  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
-+    if (const char* name = FuryFindName(kFuryGlStringParams, pname)) {
++    // UNMASKED_VENDOR_WEBGL and UNMASKED_RENDERER_WEBGL exist only once the
++    // page has enabled WEBGL_debug_renderer_info. Before that, real Chrome
++    // answers null and raises INVALID_ENUM, which is the upstream case below.
++    // Answering the configured string regardless meant two lines of JS told
++    // Fury from Chrome whatever the persona (#16, measured by yxtbikak on
++    // 0.2.16: 258 of 258 readings). So those two fall through until the
++    // extension is on; VENDOR and RENDERER are always readable and keep
++    // answering here.
++    const bool unmasked_without_extension =
++        (pname == WebGLDebugRendererInfo::kUnmaskedRendererWebgl ||
++         pname == WebGLDebugRendererInfo::kUnmaskedVendorWebgl) &&
++        !ExtensionEnabled(kWebGLDebugRendererInfoName);
++    if (const char* name = FuryFindName(kFuryGlStringParams, pname);
++        name && !unmasked_without_extension) {
 +      if (std::optional<std::string> value = config->GetString(
 +              std::string("gpu.webglParams.") + name)) {
 +        return WebGLAny(script_state, String::FromUtf8(*value));
@@ -152,7 +165,7 @@ index b452298c24..1ea40ddcea 100644
    const int kIntZero = 0;
    switch (pname) {
      case GL_ACTIVE_TEXTURE:
-@@ -4549,6 +4681,20 @@ WebGLRenderingContextBase::getSupportedExtensions() {
+@@ -4549,6 +4694,20 @@ WebGLRenderingContextBase::getSupportedExtensions() {
      }
    }
  
@@ -173,7 +186,7 @@ index b452298c24..1ea40ddcea 100644
    return result;
  }
  
-@@ -5372,6 +5518,42 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
+@@ -5372,6 +5531,42 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
      }
      ContextGL()->ReadPixels(x, y, width, height, format, type, data);
    }

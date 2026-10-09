@@ -130,6 +130,26 @@ PROBE = """
 """
 
 
+# #16: the UNMASKED_* pair must not answer before WEBGL_debug_renderer_info is
+# enabled. Real Chrome returns null and raises INVALID_ENUM (1280) there, and a
+# configured string returned regardless told Fury apart in two lines of JS.
+# Fresh contexts, both WebGL versions, read before and after the extension.
+GATE = """
+(() => {
+  const out = {};
+  for (const kind of ['webgl', 'webgl2']) {
+    const gl = document.createElement('canvas').getContext(kind);
+    if (!gl) { out[kind] = null; continue; }
+    const before = [gl.getParameter(0x9246), gl.getError(), gl.getParameter(0x9245), gl.getError()];
+    gl.getExtension('WEBGL_debug_renderer_info');
+    const after = [gl.getParameter(0x9246), gl.getError(), gl.getParameter(0x9245), gl.getError()];
+    out[kind] = {before, after};
+  }
+  return JSON.stringify(out);
+})()
+"""
+
+
 def main():
     claims = Claims("0031 — WebGL parameters and pixels", CORE)
 
@@ -155,6 +175,17 @@ def main():
                      f"and so are the UNMASKED_* pair behind "
                      f"WEBGL_debug_renderer_info, which is where every library "
                      f"actually looks")
+
+        g = json.loads(s.js(GATE))
+        print(f"  unmasked before/after the extension: {json.dumps(g)}")
+        claims.check(all(g[k] and g[k]["before"] == [None, 1280, None, 1280]
+                         for k in ("webgl", "webgl2")),
+                     "before WEBGL_debug_renderer_info is enabled, the UNMASKED_* "
+                     "pair answers null with INVALID_ENUM, as real Chrome does (#16)")
+        claims.check(all(g[k] and g[k]["after"] == [PARAMS["UNMASKED_RENDERER_WEBGL"], 0,
+                                                    PARAMS["UNMASKED_VENDOR_WEBGL"], 0]
+                         for k in ("webgl", "webgl2")),
+                     "and after it, the persona's card with no error")
 
         # The limits, which is where a strings-only spoof contradicts itself.
         claims.check(a["maxTexture"] == PARAMS["MAX_TEXTURE_SIZE"]
