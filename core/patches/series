@@ -511,6 +511,15 @@
 # need no mapping.
 0134-mobile-center.patch
 
+# A phone persona has the motion sensors of a phone in a hand: the tab gets
+# the virtual sensors DevTools' sensor emulation uses (accelerometer, linear
+# acceleration, gravity, gyroscope, both orientation quaternions) fed at
+# 120 Hz from one model of how this profile holds its phone, so gravity,
+# rotation rate and the DeviceOrientation angles agree. A desktop fires its
+# one empty event, as before. Shares web_contents_impl.cc with 0132 and
+# content/browser/BUILD.gn with 0001.
+0135-mobile-sensors.patch
+
 # --- network ----------------------------------------------------------------
 # NOT NEEDED FOR PARITY, and removing them from the plan is a finding rather
 # than a shortcut. Verified against M150 source on 31.07.2026:
