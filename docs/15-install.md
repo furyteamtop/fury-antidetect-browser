@@ -230,16 +230,30 @@ did not set up yourself.
 
 ## Updating
 
-Download the new `.dmg` and drag the application over the old one. For a new core, run
+From 0.2.25 the bar that says a new version is out has an **Update** button:
+Fury downloads the new version, checks its signature, installs it and restarts.
+Profiles, proxies and settings stay. Close open profiles first; the button
+says so if they are open. Before 0.2.25, and whenever you prefer to do it by
+hand: download the new `.dmg` and drag the application over the old one. For a new core, run
 `install-core` again with the new archive — it verifies the new one starts
 before it replaces the one you have, so a bad download leaves you with a working
 browser rather than none.
 
-## Automatic updates
+## How the Update button is kept safe
 
-There are none, and that is a deliberate gap rather than an unfinished feature.
-An updater is a channel that reaches into an anti-detect browser from outside,
-on a schedule, from an address that is not the profile's proxy. Building one
-that does not weaken the thing it updates needs more care than it has been given
-so far, and until then the honest position is that you update when you choose
-to. [docs/09](09-roadmap.md) has what a good one would have to do.
+An updater is a channel into an anti-detect browser, so this one is built to
+be no wider than a person downloading the installer themselves:
+
+- **Nothing installs on its own.** The check only shows the bar; the install
+  starts when you press the button, never on a schedule.
+- **Only a build signed with the project's key installs.** Every release
+  carries `latest.json` and a minisign signature for each platform's build; the
+  application checks it against the public key it was built with, before it
+  stops anything. A changed file, a different key or a release without a
+  signature is refused, and the button falls back to the download link. The
+  private key lives on the release machine and nowhere else.
+- **Open profiles are never interrupted.** The button refuses while any is
+  open; the background service is stopped only after the download has been
+  verified.
+- The download comes from GitHub over this machine's own connection, like the
+  check, not through a profile's proxy.

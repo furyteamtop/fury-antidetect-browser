@@ -216,6 +216,11 @@ const SKIP_COMPONENTS: &[&str] = &[
     // 1.7 MB on the tester's profile, 01.10.2026: hyphenation patterns the
     // component updater fetches per language.
     "hyphen-data",
+    // The Widevine CDM the agent copies into each macOS profile before it
+    // launches (widevine.rs, from 10.10.2026): about 19 MB, and Google's
+    // licensed binary from this machine's Chrome, which must not travel to
+    // the server or to a teammate. Their agent puts their own copy in.
+    "WidevineCdm",
 ];
 
 /// Caches. Not account state, and not worth carrying between machines.
@@ -612,6 +617,8 @@ mod tests {
         let d = dir("skip-components");
         std::fs::create_dir_all(d.join("WasmTtsEngine/20260820.1")).unwrap();
         std::fs::write(d.join("WasmTtsEngine/20260820.1/voice.wasm"), b"component").unwrap();
+        std::fs::create_dir_all(d.join("WidevineCdm/4.10.3112.0")).unwrap();
+        std::fs::write(d.join("WidevineCdm/4.10.3112.0/manifest.json"), b"{}").unwrap();
         std::fs::write(d.join("DevToolsActivePort"), b"53508\n/devtools/browser/x").unwrap();
         // The same word below the top is somebody else's directory, and goes.
         std::fs::create_dir_all(d.join("Default/Extensions/abc/OptimizationHints")).unwrap();
@@ -625,6 +632,7 @@ mod tests {
 
         assert!(out.join("Default/Bookmarks").exists(), "the bookmarks did not travel");
         assert!(!out.join("WasmTtsEngine").exists(), "a component travelled");
+        assert!(!out.join("WidevineCdm").exists(), "the staged CDM travelled");
         assert!(!out.join("DevToolsActivePort").exists(), "the packer's DevTools port travelled");
         assert!(
             out.join("Default/Extensions/abc/OptimizationHints/data").exists(),
