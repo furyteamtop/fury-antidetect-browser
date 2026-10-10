@@ -33,6 +33,26 @@
 //! `requestMediaKeySystemAccess` refuses. That switch is gone from the launcher
 //! for exactly this reason — see the note in `launcher::build_args`. Staging the
 //! file is half the job; not disabling the registration path is the other half.
+//!
+//! # Where it goes: the profile on macOS, beside the core elsewhere
+//!
+//! On macOS the CDM used to go INTO the signed, notarised core bundle, beside
+//! where `bundle_widevine_cdm` would have put it. That breaks the bundle's seal,
+//! and measured 10.10.2026 on macOS 27: a core whose seal was broken before its
+//! first launch is "damaged" to Gatekeeper ("Приложение «Fury» повреждено...
+//! Переместите в Корзину"), while the same core launched once intact and
+//! staged afterwards keeps running. The agent staged at its own startup, so a
+//! user who downloaded a core and restarted the app before opening a profile
+//! got the dialog.
+//!
+//! The component updater also registers a CDM from `<user-data-dir>/
+//! WidevineCdm/<version>/`, which is where real Chrome keeps the one it
+//! downloads. Measured the same day on the 0.2.24 release core with its seal
+//! intact: the CDM there and requestMediaKeySystemAccess answers available;
+//! the same profile without it, NotSupportedError. So on macOS each profile
+//! gets it there just before it launches (`stage_into_profile`), and the core
+//! is never written to. On APFS `fs::copy` is a clone, so 19 MB per profile
+//! costs nothing. Windows has no seal to break and keeps the core directory.
 
 use std::path::{Path, PathBuf};
 
@@ -144,6 +164,32 @@ fn find_cdm(chrome: &Path) -> Option<PathBuf> {
 /// `dest` is the WidevineCdm directory beside the Fury core — the same layout
 /// Chromium's bundled CDM uses, so no switch or preference is needed to find it.
 pub fn stage(dest_root: &Path) -> Result<Staged, StageError> {
+    let (chrome, from) = chrome_cdm()?;
+    stage_from(&chrome, from, dest_root)
+}
+
+/// Copy the CDM into a profile, as `<user_data_dir>/WidevineCdm/<version>/`:
+/// the component updater's own layout, which it registers at startup. See the
+/// module notes for why macOS uses this instead of the core bundle.
+pub fn stage_into_profile(user_data_dir: &Path) -> Result<Staged, StageError> {
+    let (chrome, from) = chrome_cdm()?;
+    let version = from
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .map(|root| root.join("manifest.json"))
+        .and_then(|m| std::fs::read(m).ok())
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|v| v.get("version").and_then(|v| v.as_str()).map(str::to_string))
+        // A version directory named by anything else would be skipped by the
+        // component updater, so no manifest is the same as no CDM.
+        .filter(|v| !v.is_empty() && v.chars().all(|c| c.is_ascii_digit() || c == '.'))
+        .ok_or_else(|| StageError::NoCdm(chrome.clone()))?;
+    stage_from(&chrome, from, &user_data_dir.join("WidevineCdm").join(version))
+}
+
+/// The installed Chrome and the CDM library inside it.
+fn chrome_cdm() -> Result<(PathBuf, PathBuf), StageError> {
     let candidates = chrome_candidates();
     let chrome = candidates
         .iter()
@@ -153,8 +199,11 @@ pub fn stage(dest_root: &Path) -> Result<Staged, StageError> {
                 candidates.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", "),
             )
         })?;
-
     let from = find_cdm(chrome).ok_or_else(|| StageError::NoCdm(chrome.clone()))?;
+    Ok((chrome.clone(), from))
+}
+
+fn stage_from(chrome: &Path, from: PathBuf, dest_root: &Path) -> Result<Staged, StageError> {
     let src_dir = from.parent().unwrap();
 
     let to_dir = dest_root.join("_platform_specific").join(platform_dir());
@@ -200,17 +249,26 @@ pub fn stage(dest_root: &Path) -> Result<Staged, StageError> {
     // Without the manifest the rest is useless, so say so rather than report a
     // success the browser will not honour.
     if !dest_root.join("manifest.json").is_file() {
-        return Err(StageError::NoCdm(chrome.clone()));
+        return Err(StageError::NoCdm(chrome.to_path_buf()));
     }
 
     Ok(Staged { from, to, bytes })
 }
 
-/// Where the CDM belongs for a given core binary.
-///
-/// Mirrors the layout `bundle_widevine_cdm` produces, so a build that bundled
-/// its own and an install that staged one look identical to the browser.
+/// Where the CDM belongs beside a given core binary: the core's own
+/// directory on Windows and Linux. None on macOS, where writing into the
+/// signed bundle is what made Gatekeeper call it damaged; profiles get it
+/// from `stage_into_profile` there.
 pub fn destination_for(core: &Path) -> Option<PathBuf> {
+    if cfg!(target_os = "macos") {
+        return None;
+    }
+    bundle_destination_for(core)
+}
+
+/// The layout `bundle_widevine_cdm` produces, so a build that bundled its own
+/// and an install that staged one look identical to the browser.
+fn bundle_destination_for(core: &Path) -> Option<PathBuf> {
     if cfg!(target_os = "macos") {
         // …/Fury.app/Contents/MacOS/Fury -> …/Fury.app/Contents/Frameworks/
         //   Fury Framework.framework/Versions/<v>/Libraries/WidevineCdm
@@ -293,6 +351,43 @@ mod tests {
             Err(e) => panic!("unexpected error: {e}"),
         }
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn a_profile_gets_the_component_updaters_layout() {
+        // <user-data-dir>/WidevineCdm/<version>/ with the manifest at the top
+        // and the library under _platform_specific: what Chrome's own component
+        // directory looks like, and the only shape the component updater
+        // registers. Skipped where there is no Chrome to copy from.
+        let tmp = std::env::temp_dir().join(format!("fury-wv-profile-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        match stage_into_profile(&tmp) {
+            Ok(s) => {
+                let dirs: Vec<_> = std::fs::read_dir(tmp.join("WidevineCdm"))
+                    .unwrap()
+                    .flatten()
+                    .map(|e| e.file_name().to_string_lossy().to_string())
+                    .collect();
+                assert_eq!(dirs.len(), 1, "{dirs:?}");
+                assert!(dirs[0].split('.').all(|p| p.parse::<u32>().is_ok()), "{dirs:?}");
+                let root = tmp.join("WidevineCdm").join(&dirs[0]);
+                assert!(root.join("manifest.json").is_file());
+                assert_eq!(
+                    s.to,
+                    root.join("_platform_specific").join(platform_dir()).join(library_name())
+                );
+                assert!(s.to.is_file());
+            }
+            Err(StageError::NoChrome(_)) | Err(StageError::NoCdm(_)) => {}
+            Err(e) => panic!("unexpected error: {e}"),
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn nothing_is_written_into_the_core_on_macos() {
+        assert_eq!(destination_for(Path::new("/x/Fury.app/Contents/MacOS/Fury")), None);
     }
 
     #[test]

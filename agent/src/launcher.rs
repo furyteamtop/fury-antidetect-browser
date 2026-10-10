@@ -272,6 +272,20 @@ pub fn spawn(spec: &LaunchSpec) -> Result<std::process::Child, LaunchError> {
         return Err(LaunchError::CoreMissing(spec.core_binary.to_path_buf()));
     }
 
+    // The Widevine CDM, into this profile and not into the signed core: see
+    // widevine.rs. Never fatal, like the staging at startup on other systems:
+    // a profile without DRM opens, one that refuses to open is an outage.
+    // Idempotent, and an APFS clone, so a launch does not wait on 19 MB.
+    #[cfg(target_os = "macos")]
+    match crate::widevine::stage_into_profile(spec.user_data_dir) {
+        Ok(s) => tracing::debug!(to = %s.to.display(), "Widevine CDM in the profile"),
+        Err(e) => tracing::warn!(
+            error = %e,
+            "no Widevine CDM for this profile — DRM video will not play, and \
+             requestMediaKeySystemAccess will refuse where real Chrome accepts"
+        ),
+    }
+
     let mut cmd = std::process::Command::new(spec.core_binary);
     cmd.args(build_args(spec)).stdin(Stdio::null());
 

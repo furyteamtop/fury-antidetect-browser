@@ -209,7 +209,11 @@ impl Agent {
         // Done once at startup rather than per launch — it is a file copy of
         // about 19 MB, it is idempotent, and doing it while a user waits for a
         // profile to open would be felt.
-        if let Some(core) = crate::core_binary() {
+        //
+        // Not on macOS: there each profile gets it in its own directory at
+        // launch (launcher::spawn), because writing into the signed core is
+        // what made Gatekeeper call it damaged (widevine.rs).
+        if let Some(core) = crate::core_binary().filter(|_| !cfg!(target_os = "macos")) {
             match crate::widevine::destination_for(&core) {
                 Some(dest) => match crate::widevine::stage(&dest) {
                     Ok(s) => tracing::info!(
