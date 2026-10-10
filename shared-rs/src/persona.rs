@@ -586,6 +586,11 @@ impl Persona {
                 "enabled": true,
                 "formFactor": m.form_factor,
                 "connectionType": m.connection,
+                // The finger's habits (patch 0132): where it lands relative
+                // to its target, how big and how hard. Per profile and stable,
+                // like the rest of the fingerprint; its own stream, so it
+                // shifts nothing else.
+                "touchSeed": sub_seed(seed, "touch"),
             });
         }
 
@@ -1062,6 +1067,12 @@ mod tests {
         assert_eq!(c["screen"]["availTop"], 0);
         assert_eq!(c["mobile"]["enabled"], true);
         assert_eq!(c["mobile"]["connectionType"], "cellular");
+        assert!(c["mobile"]["touchSeed"].as_u64().is_some());
+        assert_ne!(
+            p.derive_core_config(1, &ctx())["mobile"]["touchSeed"],
+            p.derive_core_config(2, &ctx())["mobile"]["touchSeed"],
+            "each profile has its own finger"
+        );
         assert_eq!(c["engine"]["jsHeapSizeLimit"], 4_294_967_296u64);
         let hidden: Vec<&str> = c["fontsHidden"].as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();
         for f in ["Arial", "Segoe UI", "Helvetica"] {

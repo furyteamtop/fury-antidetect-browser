@@ -534,6 +534,7 @@ pub const CORE_CONFIG_KEYS: &[&str] = &[
     "mediaDevices.",
     "mobile.connectionType",
     "mobile.enabled",
+    "mobile.touchSeed",
     "navigator.deviceMemory",
     "navigator.hardwareConcurrency",
     "navigator.languages",
@@ -593,7 +594,7 @@ const OPTIONAL_BRANCHES: &[(&str, &[&str])] = &[
     ("speech", &["speech.voices"]),
     // A desktop persona has no handset, and its absence is what leaves
     // patch 0130 out of the way (persona.rs, derive_core_config).
-    ("mobile", &["mobile.connectionType", "mobile.enabled"]),
+    ("mobile", &["mobile.connectionType", "mobile.enabled", "mobile.touchSeed"]),
     ("mediaDevices", &["mediaDevices."]),
     (
         "geolocation",

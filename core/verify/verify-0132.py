@@ -53,7 +53,7 @@ for (const t of ['touchstart','touchmove','touchend','mousedown','mouseup','mous
 
 class Pages(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        data = PAGE.encode() if self.path == "/" else b""
+        data = PAGE.encode() if self.path == "/" else TAPS.encode() if self.path == "/taps" else b""
         self.send_response(200 if data else 404)
         self.send_header("content-type", "text/html")
         self.send_header("content-length", str(len(data)))
@@ -169,7 +169,40 @@ PHONE = {"schema_version": 1,
          "navigator": {"maxTouchPoints": 5},
          "screen": {"width": 384, "height": 832, "availWidth": 384, "availHeight": 832,
                     "devicePixelRatio": 2.8125, "chromeHeightDelta": 192, "colorDepth": 24},
-         "mobile": {"enabled": True, "connectionType": "cellular"}}
+         "mobile": {"enabled": True, "connectionType": "cellular", "touchSeed": 12345}}
+
+TAPS = """<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>taps</title><style>body{margin:0} #t{position:absolute;left:195px;top:295px;width:10px;height:10px;padding:0;border:0}</style>
+<button id="t"></button>
+<script>
+window.taps = []; window.hits = 0;
+document.getElementById('t').addEventListener('click', () => hits++);
+addEventListener('touchstart', e => { const t = e.touches[0];
+  taps.push([t.clientX, t.clientY, t.radiusX, t.radiusY, t.force, t.rotationAngle]); }, {passive: true});
+</script>"""
+
+
+def measure_taps(config, n=20):
+    """n taps at the centre of a 10x10 button at (200, 300)."""
+    p, ws, d = launch(config)
+    try:
+        url = URL + "taps"
+        t = ws.call("Target.createTarget", {"url": url})["targetId"]
+        s = ws.call("Target.attachToTarget", {"targetId": t, "flatten": True})["sessionId"]
+        ws.call("Runtime.enable", session=s)
+        time.sleep(2.5)
+        for _ in range(n):
+            for kind, b in (("mousePressed", 1), ("mouseReleased", 0)):
+                ws.call("Input.dispatchMouseEvent", {"type": kind, "x": 200, "y": 300, "button": "left",
+                                                     "buttons": b, "clickCount": 1}, session=s)
+            time.sleep(0.35)
+        time.sleep(0.5)
+        r = ws.call("Runtime.evaluate", {"expression": "({taps, hits})", "returnByValue": True},
+                    session=s)["result"]["value"]
+        return r["taps"], r["hits"]
+    finally:
+        stop(p, d)
+
 
 print("\n--- desktop config ---")
 d_click, d_hover, d_drag, d_wheel = measure(DESKTOP)
@@ -201,6 +234,35 @@ check("wheel" in d_wheel["log"] and d_wheel["y"] > 0,
 check("wheel" not in wheel["log"] and "touchmove" in wheel["log"] and wheel["y"] > 100,
       f"phone: the wheel is a finger, no wheel event reaches the page and it still scrolls "
       f"(scrollY {wheel['y']})")
+
+print("\n--- the finger: 20 taps on a 10x10 button ---")
+taps, hits = measure_taps(PHONE)
+taps2, _ = measure_taps(PHONE)
+other = dict(PHONE, mobile=dict(PHONE["mobile"], touchSeed=987654))
+taps3, _ = measure_taps(other)
+mean = lambda ts, i: sum(t[i] for t in ts) / len(ts)
+xs = sorted({(round(t[0], 1), round(t[1], 1)) for t in taps})
+m1 = (mean(taps, 0) - 200, mean(taps, 1) - 300)
+m2 = (mean(taps2, 0) - 200, mean(taps2, 1) - 300)
+m3 = (mean(taps3, 0) - 200, mean(taps3, 1) - 300)
+print(f"  {len(taps)} touches, {len(xs)} distinct points, hits {hits}")
+print(f"  mean offset: profile A {m1[0]:+.2f},{m1[1]:+.2f}; again {m2[0]:+.2f},{m2[1]:+.2f}; profile B {m3[0]:+.2f},{m3[1]:+.2f}")
+print(f"  radius {min(t[2] for t in taps):.1f}..{max(t[2] for t in taps):.1f}, "
+      f"force {min(t[4] for t in taps):.2f}..{max(t[4] for t in taps):.2f}, "
+      f"angle {min(t[5] for t in taps):.0f}..{max(t[5] for t in taps):.0f}")
+check(len(taps) == 20 and len(xs) >= 10,
+      f"20 taps at one point land on {len(xs)} different points, not the cursor's pixel each time")
+check(all(abs(t[0] - 200) <= 7 and abs(t[1] - 300) <= 7 for t in taps),
+      "and all within 7 px of it: a bias of a few px plus a scatter of at most 4")
+check(all(5 <= t[2] <= 20 and 5 <= t[3] <= 20 for t in taps) and len({round(t[2], 2) for t in taps}) > 5,
+      "the contact is a fingertip's size and changes from touch to touch")
+check(all(0 < t[4] < 1 for t in taps) and len({round(t[4], 3) for t in taps}) > 5,
+      "the force is never exactly 1, and varies")
+check(abs(m1[0] - m2[0]) < 1.2 and abs(m1[1] - m2[1]) < 1.2,
+      f"the same profile's finger lands the same way on another launch")
+check(abs(m1[0] - m3[0]) + abs(m1[1] - m3[1]) > 0.8,
+      f"and another profile's lands its own way")
+check(hits == 20, f"a 10x10 button still takes all 20 taps ({hits}): Blink adjusts a tap with a contact area")
 
 server.shutdown()
 bad = [t for ok, t in results if not ok]
