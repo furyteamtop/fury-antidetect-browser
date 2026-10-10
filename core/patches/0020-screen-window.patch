@@ -225,3 +225,35 @@ index ed5028943e..b439c025e8 100644
    if (frame->GetSettings()->GetReportScreenSizeInPhysicalPixelsQuirk())
      return gfx::ScaleToRoundedRect(rect, screen_info.device_scale_factor);
    if (frame->GetDocument() && frame->GetDocument()->TextScaleMetaTagPresent()) {
+diff --git a/third_party/blink/renderer/modules/csspaint/paint_worklet_global_scope.cc b/third_party/blink/renderer/modules/csspaint/paint_worklet_global_scope.cc
+index c885f53917..41872d60fd 100644
+--- a/third_party/blink/renderer/modules/csspaint/paint_worklet_global_scope.cc
++++ b/third_party/blink/renderer/modules/csspaint/paint_worklet_global_scope.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "third_party/blink/renderer/modules/csspaint/paint_worklet_global_scope.h"
+ 
++#include "components/fury/fury_config.h"
++
+ #include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
+ #include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
+ #include "third_party/blink/renderer/bindings/core/v8/v8_no_argument_constructor.h"
+@@ -245,6 +247,18 @@ CSSPaintDefinition* PaintWorkletGlobalScope::FindDefinition(
+ }
+ 
+ double PaintWorkletGlobalScope::devicePixelRatio() const {
++  // Fury patch 0020: the persona's ratio, as window.devicePixelRatio says.
++  // Off the main thread this was the element's effective zoom, which carries
++  // the host screen's scale: a 2.8125 phone persona on a 2x Mac painted with
++  // devicePixelRatio 2 (measured 10.10.2026, by the width a paint() drew),
++  // and so would any persona whose ratio differs from the host's.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<double> ratio =
++            config->GetDouble("screen.devicePixelRatio");
++        ratio && *ratio > 0) {
++      return *ratio;
++    }
++  }
+   return IsMainThread()
+              ? GetFrame()->DevicePixelRatio()
+              : PaintWorkletProxyClient::From(Clients())->DevicePixelRatio();

@@ -1,3 +1,83 @@
+diff --git a/third_party/blink/renderer/core/frame/screen_metrics_emulator.cc b/third_party/blink/renderer/core/frame/screen_metrics_emulator.cc
+index 034fb7e51d..a86708e9c4 100644
+--- a/third_party/blink/renderer/core/frame/screen_metrics_emulator.cc
++++ b/third_party/blink/renderer/core/frame/screen_metrics_emulator.cc
+@@ -5,6 +5,7 @@
+ #include "third_party/blink/renderer/core/frame/screen_metrics_emulator.h"
+ 
+ #include "base/numerics/safe_conversions.h"
++#include "components/fury/fury_config.h"
+ #include "third_party/blink/public/common/widget/visual_properties.h"
+ #include "third_party/blink/renderer/core/frame/web_frame_widget_impl.h"
+ 
+@@ -68,16 +69,31 @@ void ScreenMetricsEmulator::Apply(
+   // though.
+   gfx::Size window_size = original_window_rect().size();
+ 
++  // Fury patch 0131: on a phone persona the compositor runs at the phone's
++  // scale factor (see below), so the widget is laid out larger by phone /
++  // host and the root scale brings it back to the phone's size on screen.
++  // Without this the page saw 384 * 2 / 2.8125 = 273 CSS px of width.
++  float fury_ratio = 1.f;
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get();
++      config && config->GetBool("mobile.enabled").value_or(false) &&
++      emulation_params_.device_scale_factor > 0 &&
++      original_screen_infos_.current().device_scale_factor > 0) {
++    fury_ratio = emulation_params_.device_scale_factor /
++                 original_screen_infos_.current().device_scale_factor;
++  }
++
+   // If either the width or height are specified by the emulator, then we use
+   // that size, and assume that they have the scale pre-applied to them.
+   if (emulation_params_.view_size.width()) {
+-    widget_size.set_width(emulation_params_.view_size.width());
++    widget_size.set_width(
++        base::ClampRound(emulation_params_.view_size.width() * fury_ratio));
+   } else {
+     widget_size.set_width(
+         base::ClampRound(widget_size.width() / emulation_params_.scale));
+   }
+   if (emulation_params_.view_size.height()) {
+-    widget_size.set_height(emulation_params_.view_size.height());
++    widget_size.set_height(
++        base::ClampRound(emulation_params_.view_size.height() * fury_ratio));
+   } else {
+     widget_size.set_height(
+         base::ClampRound(widget_size.height() / emulation_params_.scale));
+@@ -136,6 +152,33 @@ void ScreenMetricsEmulator::Apply(
+   DeviceEmulationParams modified_emulation_params = emulation_params_;
+   modified_emulation_params.device_scale_factor =
+       original_screen_info.device_scale_factor;
++
++  // Fury patch 0131: on a phone persona the compositor and layout run at the
++  // phone's scale factor, not the host's.
++  //
++  // Keeping the real one, as DevTools does for sharpness, leaves only the
++  // number in window.devicePixelRatio emulated. Measured on a 2.8125 phone
++  // persona on a 2x Mac: a 0.3px border rounded to 0.5 CSS px (one device
++  // pixel at 2, where the phone gives 0.356), devicePixelContentBoxSize of a
++  // 100px box said 200 (the phone, 281), and a paint worklet read
++  // devicePixelRatio 2. All three are the host's scale showing through.
++  //
++  // So the phone's factor goes to the compositor too, and the page is scaled
++  // by host / phone at the root so it still occupies the phone's size on
++  // screen: the same root scale DevTools applies when it zooms a device to
++  // fit, which the input mapping already follows.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get();
++      config && config->GetBool("mobile.enabled").value_or(false) &&
++      emulation_params_.device_scale_factor > 0 &&
++      original_screen_info.device_scale_factor > 0 &&
++      emulation_params_.device_scale_factor !=
++          original_screen_info.device_scale_factor) {
++    modified_emulation_params.device_scale_factor =
++        emulation_params_.device_scale_factor;
++    modified_emulation_params.scale =
++        emulation_params_.scale * original_screen_info.device_scale_factor /
++        emulation_params_.device_scale_factor;
++  }
+   frame_widget_->SetScreenMetricsEmulationParameters(
+       true, std::move(modified_emulation_params), cache_behavior);
+ 
 diff --git a/third_party/blink/renderer/core/frame/web_frame_widget_impl.cc b/third_party/blink/renderer/core/frame/web_frame_widget_impl.cc
 index f3cea4974f..aa919d97fa 100644
 --- a/third_party/blink/renderer/core/frame/web_frame_widget_impl.cc
@@ -172,3 +252,20 @@ index f880e3b374..eac39b0c46 100644
      if (std::optional<int> delta = config->GetInt("screen.chromeWidthDelta")) {
        if (*delta >= 0) {
          return innerWidth() + *delta;
+diff --git a/third_party/blink/renderer/core/frame/screen.cc b/third_party/blink/renderer/core/frame/screen.cc
+index b439c025e8..0c6c6f472a 100644
+--- a/third_party/blink/renderer/core/frame/screen.cc
++++ b/third_party/blink/renderer/core/frame/screen.cc
+@@ -172,6 +172,12 @@ bool Screen::isExtended() const {
+   if (!DomWindow()) {
+     return false;
+   }
++  // Fury patch 0131: a phone has one screen. The host's would say whether a
++  // second monitor is plugged into the Mac.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get();
++      config && config->GetBool("mobile.enabled").value_or(false)) {
++    return false;
++  }
+   auto* context = GetExecutionContext();
+   if (!context->IsFeatureEnabled(
+           network::mojom::PermissionsPolicyFeature::kWindowManagement)) {
