@@ -3,7 +3,7 @@
 
 //! Is there a newer version, and installing it.
 //!
-//! The check asks the release feed and reports. The install (from 0.2.25) is
+//! The check asks the release feed and reports. The install (from 0.3.0) is
 //! Tauri's updater: it downloads the build named in `latest.json` on the
 //! newest release, checks its minisign signature against the public key in
 //! tauri.conf.json, and only then replaces the application. Installing an
@@ -372,7 +372,7 @@ async fn install(app: &tauri::AppHandle) -> Result<(), crate::commands::ApiErr> 
 
     // The agent runs from inside the application: on macOS the bundle is
     // replaced under it, and it would go on serving the old code until the
-    // machine restarts. An agent older than 0.2.25 does not know the method;
+    // machine restarts. An agent older than 0.3.0 does not know the method;
     // that is not a reason to stop (Windows' installer kills it anyway).
     set_stage("stopping");
     match crate::agent::call::<serde_json::Value>("agent.shutdown", serde_json::json!({})).await {

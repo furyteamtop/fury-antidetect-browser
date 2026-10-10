@@ -89,7 +89,7 @@ export function App() {
     } catch (e: any) {
       const code = e instanceof ApiError ? e.code : null;
       if (code === "no_signed_update") {
-        // A release without a signed build: the link, as before 0.2.25.
+        // A release without a signed build: the link, as before 0.3.0.
         void api.openUrl(update.download ?? update.url ?? "");
       } else if (code === "profiles_open") {
         setInstallError(t("app.updateCloseProfiles"));
@@ -909,7 +909,7 @@ export function App() {
             screen, so nobody saw a release unless they went looking: the
             owner ran 0.2.10 for a week of releases and asked why the
             application never said (08.10.2026). Checked at start and every
-            six hours; dismissed per version. From 0.2.25 the button installs a
+            six hours; dismissed per version. From 0.3.0 the button installs a
             signed build and restarts; a release without one falls back to the
             download link. See src-tauri/update.rs. */}
         {update && update.status === "available" && update.latest !== dismissedUpdate && (

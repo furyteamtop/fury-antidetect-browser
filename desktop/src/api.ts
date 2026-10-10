@@ -937,7 +937,7 @@ export const api = {
   openUrl: (url: string): Promise<void> => cmd<void>("open_url", { url }),
 
   /** Download, verify against the release key, install and restart (from
-   *  0.2.25; src-tauri/update.rs). Rejects with code `profiles_open`,
+   *  0.3.0; src-tauri/update.rs). Rejects with code `profiles_open`,
    *  `no_signed_update` or `update_failed`; on success the application
    *  restarts and the promise never settles. */
   installUpdate: (): Promise<void> => cmd<void>("install_update"),

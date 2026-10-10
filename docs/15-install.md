@@ -2,7 +2,7 @@
 
 > **There are releases; macOS ones are signed, Windows ones are not.** The
 > [Releases](https://github.com/furyteamtop/fury-antidetect-browser/releases)
-> page has had builds since 18.08.2026; the current one is 0.2.24 for Windows x64
+> page has had builds since 18.08.2026; the current one is 0.3.0 for Windows x64
 > and macOS on Apple Silicon. Each ships with
 > `SHA256SUMS` and a `REPORT.md` — the measurement the core passed before it was
 > published. Since 21.09.2026 the macOS application, core and disk image are
@@ -230,10 +230,10 @@ did not set up yourself.
 
 ## Updating
 
-From 0.2.25 the bar that says a new version is out has an **Update** button:
+From 0.3.0 the bar that says a new version is out has an **Update** button:
 Fury downloads the new version, checks its signature, installs it and restarts.
 Profiles, proxies and settings stay. Close open profiles first; the button
-says so if they are open. Before 0.2.25, and whenever you prefer to do it by
+says so if they are open. Before 0.3.0, and whenever you prefer to do it by
 hand: download the new `.dmg` and drag the application over the old one. For a new core, run
 `install-core` again with the new archive — it verifies the new one starts
 before it replaces the one you have, so a bad download leaves you with a working
