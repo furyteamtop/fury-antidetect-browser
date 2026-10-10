@@ -1,5 +1,5 @@
 {
-  "__collectedInMs": 544,
+  "__collectedInMs": 451,
   "__probeVersion": "0.2.0",
   "__redacted": true,
   "__schema": 1,
@@ -16,36 +16,36 @@
       "sampleRate": 48000
     },
     "offline": {
-      "hash": "e4fb95e5",
-      "sum": 124.0434973264928
+      "hash": "5ff8e2d7",
+      "sum": 124.04350457736292
     },
     "stableAcrossCalls": true
   },
   "canvas2d": {
-    "getImageData": "5a2c34c0",
+    "getImageData": "06648e28",
     "getImageDataBytes": 67200,
     "isPointInPath": true,
     "stableAcrossCalls": true,
     "textMetrics": "213.076171875|10.021484375|2.9462890625|-1.1484375|212.1259765625|13|3",
-    "toDataURL": "bb7ec26b",
+    "toDataURL": "0b1c83ef",
     "winding": false
   },
   "clientHints": {
     "architecture": "x86",
     "bitness": "64",
-    "brands": "Not;A=Brand/8,Chromium/153,Google Chrome/153",
+    "brands": "Google Chrome/155,Chromium/155,Not(A:Brand/24",
     "formFactors": "",
-    "fullVersionList": "Not;A=Brand/8.0.0.0,Chromium/153.0.8010.37,Google Chrome/153.0.8010.37",
+    "fullVersionList": "Google Chrome/155.0.8059.39,Chromium/155.0.8059.39,Not(A:Brand/24.0.0.0",
     "mobile": false,
     "model": "",
     "platform": "Windows",
     "platformVersion": "15.0.0",
-    "uaFullVersion": "153.0.8010.37",
+    "uaFullVersion": "155.0.8059.39",
     "wow64": false
   },
   "clientRects": {
-    "hash": "b5e2dc58",
-    "rect": "12.267337799072266|7.568454265594482|222.9308319091797|-9999.2705078125|-9987.003170013428|230.49928617477417|-9999.2705078125|222.9308319091797"
+    "hash": "1138800d",
+    "rect": "12.259650230407715|7.560130596160889|262.4308776855469|-9999.2705078125|-9987.010857582092|269.99100828170776|-9999.2705078125|262.4308776855469"
   },
   "codecs": {
     "hasProprietaryCodecs": true,
@@ -112,13 +112,13 @@
       "locale": "en-US",
       "numberFormat": "123,456.789",
       "sampleRate": 48000,
-      "timezone": "Europe/Berlin",
+      "timezone": "America/New_York",
       "userAgent": null
     },
     "iframe:about:blank": {
       "availHeight": 1032,
       "calendar": "gregory",
-      "canvasHash": "2a81d71f",
+      "canvasHash": "2e3c382e",
       "deviceMemory": 16,
       "devicePixelRatio": 1,
       "hardwareConcurrency": 12,
@@ -131,16 +131,16 @@
       "platform": "Win32",
       "screenHeight": 1080,
       "screenWidth": 1920,
-      "timezone": "Europe/Berlin",
-      "timezoneOffset": -120,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+      "timezone": "America/New_York",
+      "timezoneOffset": 240,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
       "webdriver": false,
-      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)"
     },
     "iframe:cross-origin": {
       "availHeight": 1032,
       "calendar": "gregory",
-      "canvasHash": "2a81d71f",
+      "canvasHash": "2e3c382e",
       "deviceMemory": 16,
       "devicePixelRatio": 1,
       "hardwareConcurrency": 12,
@@ -153,16 +153,16 @@
       "platform": "Win32",
       "screenHeight": 1080,
       "screenWidth": 1920,
-      "timezone": "Europe/Berlin",
-      "timezoneOffset": -120,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+      "timezone": "America/New_York",
+      "timezoneOffset": 240,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
       "webdriver": false,
-      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)"
     },
     "iframe:same-origin": {
       "availHeight": 1032,
       "calendar": "gregory",
-      "canvasHash": "2a81d71f",
+      "canvasHash": "2e3c382e",
       "deviceMemory": 16,
       "devicePixelRatio": 1,
       "hardwareConcurrency": 12,
@@ -175,16 +175,16 @@
       "platform": "Win32",
       "screenHeight": 1080,
       "screenWidth": 1920,
-      "timezone": "Europe/Berlin",
-      "timezoneOffset": -120,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+      "timezone": "America/New_York",
+      "timezoneOffset": 240,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
       "webdriver": false,
-      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)"
     },
     "iframe:srcdoc": {
       "availHeight": 1032,
       "calendar": "gregory",
-      "canvasHash": "2a81d71f",
+      "canvasHash": "2e3c382e",
       "deviceMemory": 16,
       "devicePixelRatio": 1,
       "hardwareConcurrency": 12,
@@ -197,16 +197,16 @@
       "platform": "Win32",
       "screenHeight": 1080,
       "screenWidth": 1920,
-      "timezone": "Europe/Berlin",
-      "timezoneOffset": -120,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+      "timezone": "America/New_York",
+      "timezoneOffset": 240,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
       "webdriver": false,
-      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)"
     },
     "main": {
       "availHeight": 1032,
       "calendar": "gregory",
-      "canvasHash": "2a81d71f",
+      "canvasHash": "2e3c382e",
       "deviceMemory": 16,
       "devicePixelRatio": 1,
       "hardwareConcurrency": 12,
@@ -219,15 +219,15 @@
       "platform": "Win32",
       "screenHeight": 1080,
       "screenWidth": 1920,
-      "timezone": "Europe/Berlin",
-      "timezoneOffset": -120,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+      "timezone": "America/New_York",
+      "timezoneOffset": 240,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
       "webdriver": false,
-      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)"
     },
     "serviceWorker": {
       "calendar": "gregory",
-      "canvasHash": "c4a38db6",
+      "canvasHash": "61200ed0",
       "deviceMemory": 16,
       "hardwareConcurrency": 12,
       "language": "en-US",
@@ -235,18 +235,18 @@
       "locale": "en-US",
       "numberFormat": "123,456.789",
       "platform": "Win32",
-      "timezone": "Europe/Berlin",
-      "timezoneOffset": -120,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+      "timezone": "America/New_York",
+      "timezoneOffset": 240,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
       "userAgentDataMobile": false,
       "userAgentDataPlatform": "Windows",
       "webdriver": null,
       "webglMaxTextureSize": 16384,
-      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)"
     },
     "sharedWorker": {
       "calendar": "gregory",
-      "canvasHash": "2a81d71f",
+      "canvasHash": "2e3c382e",
       "deviceMemory": 16,
       "hardwareConcurrency": 12,
       "language": "en-US",
@@ -254,18 +254,18 @@
       "locale": "en-US",
       "numberFormat": "123,456.789",
       "platform": "Win32",
-      "timezone": "Europe/Berlin",
-      "timezoneOffset": -120,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+      "timezone": "America/New_York",
+      "timezoneOffset": 240,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
       "userAgentDataMobile": false,
       "userAgentDataPlatform": "Windows",
       "webdriver": null,
       "webglMaxTextureSize": 16384,
-      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)"
     },
     "worker": {
       "calendar": "gregory",
-      "canvasHash": "2a81d71f",
+      "canvasHash": "2e3c382e",
       "deviceMemory": 16,
       "hardwareConcurrency": 12,
       "language": "en-US",
@@ -273,14 +273,14 @@
       "locale": "en-US",
       "numberFormat": "123,456.789",
       "platform": "Win32",
-      "timezone": "Europe/Berlin",
-      "timezoneOffset": -120,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+      "timezone": "America/New_York",
+      "timezoneOffset": 240,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
       "userAgentDataMobile": false,
       "userAgentDataPlatform": "Windows",
       "webdriver": null,
       "webglMaxTextureSize": 16384,
-      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+      "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)"
     }
   },
   "crossContext": {
@@ -365,7 +365,7 @@
       "webdriver": false
     },
     "errorMessage": "Cannot read properties of null (reading 'f')",
-    "errorStackShape": "TypeError: Cannot read properties of null (reading 'f') |     at http://127.0.0.1:58797/2ea39faffa557437aa40189f94ac5781/probe/probe.js:L:C",
+    "errorStackShape": "TypeError: Cannot read properties of null (reading 'f') |     at http://127.0.0.1:8731/probe.js:L:C",
     "hasCaptureStackTrace": true,
     "jsHeapSizeLimit": 4294705152,
     "mathSinh": "1.1752011936438014",
@@ -377,14 +377,16 @@
         "dischargingTime": "Infinity",
         "level": 1
       },
-      "connectionDownlink": 1.5,
-      "connectionRtt": 0,
+      "connectionDownlink": 1.65,
+      "connectionKind": null,
+      "connectionRtt": 100,
       "connectionSaveData": false,
       "connectionType": "4g",
       "hasBattery": true,
       "hasComputePressure": true,
       "hasDevicePosture": true,
       "hasNetworkInfo": true,
+      "hasTouchEvents": false,
       "keyboardLayout": {
         "hash": "c1cc6778",
         "sample": "Backquote=`,Backslash=\\,BracketLeft=[,BracketRight=],Comma=,,Digit0=0,Digit1=1,Digit2=2",
@@ -392,9 +394,9 @@
       }
     },
     "nativeToString": "hardwareConcurrency:native,userAgent:native,width:native",
-    "performanceNowPrecision": 0.09999999403953552,
+    "performanceNowPrecision": 0,
     "toStringTag": "[object Navigator]",
-    "totalJSHeapSize": 7754695
+    "totalJSHeapSize": 8508751
   },
   "fonts": {
     "baselineWidths": {
@@ -427,18 +429,18 @@
     "availableTimezones": 418,
     "calendar": "gregory",
     "collatorLocale": "en-US",
-    "dateFormatted": "Thu Jan 01 1970 01:00:00 GMT+0100 (Central European Standard Time)",
-    "dateLocaleString": "1/1/1970, 1:00:00 AM",
+    "dateFormatted": "Wed Dec 31 1969 19:00:00 GMT-0500 (Eastern Standard Time)",
+    "dateLocaleString": "12/31/1969, 7:00:00 PM",
     "displayNameRegion": "United States",
     "listFormat": "a, b, and c",
     "locale": "en-US",
     "numberFormat": "123,456.789",
     "numberingSystem": "latn",
-    "offsetJan": -60,
-    "offsetJul": -120,
+    "offsetJan": 300,
+    "offsetJul": 240,
     "relativeTime": "1 day ago",
-    "timezone": "Europe/Berlin",
-    "timezoneOffset": -120
+    "timezone": "America/New_York",
+    "timezoneOffset": 240
   },
   "mediaDevices": {
     "count": 3,
@@ -450,7 +452,7 @@
   },
   "navigator": {
     "appName": "Netscape",
-    "appVersion": "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+    "appVersion": "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
     "cookieEnabled": true,
     "deviceMemory": 16,
     "doNotTrack": null,
@@ -474,7 +476,7 @@
     "plugins": "PDF Viewer|internal-pdf-viewer|Portable Document Format~Chrome PDF Viewer|internal-pdf-viewer|Portable Document Format~Chromium PDF Viewer|internal-pdf-viewer|Portable Document Format~Microsoft Edge PDF Viewer|internal-pdf-viewer|Portable Document Format~WebKit built-in PDF|internal-pdf-viewer|Portable Document Format",
     "product": "Gecko",
     "productSub": "20030107",
-    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
     "vendor": "Google Inc.",
     "webdriver": false
   },
@@ -522,7 +524,7 @@
   },
   "speech": {
     "count": 180,
-    "defaultVoice": "Daria",
+    "defaultVoice": "Милена",
     "hash": "5079c53b",
     "names": "Daria|bg-BG|true~Eddy (английский (Великобритания))|en-GB|true~Eddy (английский (Соединенные Штаты Америки))|en-US|true~Eddy (испанский (Испания))|es-ES|true~Eddy (испанский (Мексика))|es-MX|true~Eddy (итальянский (Италия))|it-IT|true~Eddy (китайский (Китай континентальный))|zh-CN|true~Eddy (китайский (Тайвань))|zh-TW|true~Eddy (корейский (Республика Корея))|ko-KR|true~Eddy (немецкий (Германия))|de-DE|true~Eddy (португальский (Бразилия))|pt-BR|true~Eddy (финский (Финляндия))|fi-FI|true~Eddy (французский (Канада))|fr-CA|true~Eddy (французский (Франция))|fr-FR|true~Eddy (японский (Япония))|ja-JP|true~Flo (английский (Великобритания))|en-GB|true~Flo (английский (Соединенные Штаты Америки))|en-US|true~Flo (испанский (Испания))|es-ES|true~Flo (испанский (Мексика))|es-MX|true~Flo (итальянский (Италия))|it-IT|true~Flo (китайский (Китай континентальный))|zh-CN|true~Flo (китайский (Тайвань))|zh-TW|true~Flo (корейский (Республика Корея))|ko-KR|true~Flo (немецкий (Германия))|de-DE|true~Flo (португальский (Бразилия))|pt-BR|true~Flo (финский (Финляндия))|fi-FI|true~Flo (французский (Канада))|fr-CA|true~Flo (французский (Франция))|fr-FR|true~Flo (японский (Япония))|ja-JP|true~Grandma (английский (Великобритания))|en-GB|true~Grandma (английский (Соединенные Штаты Америки))|en-US|true~Grandma (испанский (Испания))|es-ES|true~Grandma (испанский (Мексика))|es-MX|true~Grandma (итальянский (Италия))|it-IT|true~Grandma (китайский (Китай континентальный))|zh-CN|true~Grandma (китайский (Тайвань))|zh-TW|true~Grandma (корейский (Республика Корея))|ko-KR|true~Grandma (немецкий (Германия))|de-DE|true~Grandma (португальский (Бразилия))|pt-BR|true~Grandma (финский (Финляндия))|fi-FI|true~Grandma (французский (Канада))|fr-CA|true~Grandma (французский (Франция))|fr-FR|true~Grandma (японский (Япония))|ja-JP|true~Grandpa (английский (Великобритания))|en-GB|true~Grandpa (английский (Соединенные Штаты Америки))|en-US|true~Grandpa (испанский (Испания))|es-ES|true~Grandpa (испанский (Мексика))|es-MX|true~Grandpa (итальянский (Италия))|it-IT|true~Grandpa (китайский (Китай континентальный))|zh-CN|true~Grandpa (китайский (Тайвань))|zh-TW|true~Grandpa (корейский (Республика Корея))|ko-KR|true~Grandpa (немецкий (Германия))|de-DE|true~Grandpa (португальский (Бразилия))|pt-BR|true~Grandpa (финский (Финляндия))|fi-FI|true~Grandpa (французский (Канада))|fr-CA|true~Grandpa (французский (Франция))|fr-FR|true~Grandpa (японский (Япония))|ja-JP|true~Jacques|fr-FR|true~Reed (английский (Великобритания))|en-GB|true~Reed (английский (Соединенные Штаты Америки))|en-US|true~Reed (испанский (Испания))|es-ES|true~Reed (испанский (Мексика))|es-MX|true~Reed (итальянский (Италия))|it-IT|true~Reed (китайский (Китай континентальный))|zh-CN|true~Reed (китайский (Тайвань))|zh-TW|true~Reed (корейский (Республика Корея))|ko-KR|true~Reed (немецкий (Германия))|de-DE|true~Reed (португальский (Бразилия))|pt-BR|true~Reed (финский (Финляндия))|fi-FI|true~Reed (французский (Канада))|fr-CA|true~Reed (японский (Япония))|ja-JP|true~Rocko (английский (Великобритания))|en-GB|true~Rocko (английский (Соединенные Штаты Америки))|en-US|true~Rocko (испанский (Испания))|es-ES|true~Rocko (испанский (Мексика))|es-MX|true~Rocko (итальянский (Италия))|it-IT|true~Rocko (китайский (Китай континентальный))|zh-CN|true~Rocko (китайский (Тайвань))|zh-TW|true~Rocko (корейский (Республика Корея))|ko-KR|true~Rocko (немецкий (Германия))|de-DE|true~Rocko (португальский (Бразилия))|pt-BR|true~Rocko (финский (Финляндия))|fi-FI|true~Rocko (французский (Канада))|fr-CA|true~Rocko (французский (Франция))|fr-FR|true~Rocko (японский (Япония))|ja-JP|true~Sandy (английский (Великобритания))|en-GB|true~Sandy (английский (Соединенные Штаты Америки))|en-US|true~Sandy (испанский (Испания))|es-ES|true~Sandy (испанский (Мексика))|es-MX|true~Sandy (итальянский (Италия))|it-IT|true~Sandy (китайский (Китай континентальный))|zh-CN|true~Sandy (китайский (Тайвань))|zh-TW|true~Sandy (корейский (Республика Корея))|ko-KR|true~Sandy (немецкий (Германия))|de-DE|true~Sandy (португальский (Бразилия))|pt-BR|true~Sandy (финский (Финляндия))|fi-FI|true~Sandy (французский (Канада))|fr-CA|true~Sandy (французский (Франция))|fr-FR|true~Sandy (японский (Япония))|ja-JP|true~Shelley (английский (Великобритания))|en-GB|true~Shelley (английский (Соединенные Штаты Америки))|en-US|true~Shelley (испанский (Испания))|es-ES|true~Shelley (испанский (Мексика))|es-MX|true~Shelley (итальянский (Италия))|it-IT|true~Shelley (китайский (Китай континентальный))|zh-CN|true~Shelley (китайский (Тайвань))|zh-TW|true~Shelley (корейский (Республика Корея))|ko-KR|true~Shelley (немецкий (Германия))|de-DE|true~Shelley (португальский (Бразилия))|pt-BR|true~Shelley (финский (Финляндия))|fi-FI|true~Shelley (французский (Канада))|fr-CA|true~Shelley (французский (Франция))|fr-FR|true~Shelley (японский (Япония))|ja-JP|true~Zosia|pl-PL|true~Алва|sv-SE|true~Альберт|en-US|true~Амели|fr-CA|true~Амира|ms-MY|true~Анна|de-DE|true~Бах|en-US|true~Вани|ta-IN|true~Виолончель|en-US|true~Воббл|en-US|true~Гита|te-IN|true~Дамаянти|id-ID|true~Джуниор|en-US|true~Дэниэл|en-GB|true~Жуана|pt-PT|true~Зарвокс|en-US|true~Зузана|cs-CZ|true~Иоана|ro-RO|true~Канья|th-TH|true~Карен|en-AU|true~Кармит|he-IL|true~Колокольчик|en-US|true~Ксандер|nl-NL|true~Кэти|en-US|true~Кёко|ja-JP|true~Лана|hr-HR|true~Лаура|sk-SK|true~Леся|uk-UA|true~Леха|hi-IN|true~Линь|vi-VN|true~Лучана|pt-BR|true~Маджед|ar-001|true~Мелина|el-GR|true~Милена|ru-RU|true~Мойра|en-IE|true~Моника|es-ES|true~Монсе|ca-ES|true~Мэй-Цзя|zh-TW|true~Нора|nb-NO|true~Орган|en-US|true~Паулина|es-MX|true~Пия|bn-IN|true~Плохие новости|en-US|true~Прыг-скок|en-US|true~Пузырьки|en-US|true~Ральф|en-US|true~Риши|en-IN|true~Саманта|en-US|true~Сара|da-DK|true~Сату|fi-FI|true~Син-Чжи|yue-HK|true~Соумья|kn-IN|true~Суперзвезда|en-US|true~Тесса|en-ZA|true~Тин-Тин|zh-CN|true~Тина|sl-SI|true~Томас|fr-FR|true~Триноид|en-US|true~Тюнде|hu-HU|true~Фред|en-US|true~Хорошие новости|en-US|true~Шепот|en-US|true~Шутник|en-US|true~Элис|it-IT|true~Эллен|nl-BE|true~Юна|ko-KR|true~Ялда|tr-TR|true"
   },
@@ -608,11 +610,11 @@
         "VERTEX_SHADER.MEDIUM_FLOAT": "127,127,23"
       },
       "render": {
-        "readPixels": "eb0657a5",
+        "readPixels": "762ba40e",
         "stableAcrossCalls": true
       },
       "unmasked": {
-        "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)",
         "vendor": "Google Inc. (NVIDIA)"
       }
     },
@@ -734,11 +736,11 @@
         "VERTEX_SHADER.MEDIUM_FLOAT": "127,127,23"
       },
       "render": {
-        "readPixels": "eb0657a5",
+        "readPixels": "762ba40e",
         "stableAcrossCalls": true
       },
       "unmasked": {
-        "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)",
         "vendor": "Google Inc. (NVIDIA)"
       }
     }
