@@ -949,7 +949,9 @@ const en = {
   "pp.why.empty": "Empty line.",
 
   // Many profiles at once, and copying one.
-  "bp.title": "New profiles",
+  "bp.title": "Several profiles",
+  "bp.button": "Several profiles…",
+  "bp.what": "Makes a batch at once from one template: how many and how to name them. Each gets its own device and fingerprint, and a pasted list of proxies is shared out between them. For one profile with all its settings, use New profile on the left.",
   "bp.cloneTitle": "Copy {name}",
   "bp.count": "How many",
   "bp.countRange": "Between 1 and 500.",
@@ -1943,7 +1945,9 @@ const ru: Record<Key, string> = {
   "pp.why.zeroPort": "Порт 0 — не тот порт, на котором может слушать прокси.",
   "pp.why.empty": "Пустая строка.",
 
-  "bp.title": "Новые профили",
+  "bp.title": "Несколько профилей",
+  "bp.button": "Несколько профилей…",
+  "bp.what": "Создаёт сразу пачку по одному шаблону: сколько штук и как их назвать. Каждый получает своё устройство и свой отпечаток, а вставленный список прокси раздаётся между ними. Для одного профиля со всеми настройками есть кнопка «Новый профиль» слева.",
   "bp.cloneTitle": "Копия «{name}»",
   "bp.count": "Сколько",
   "bp.countRange": "От 1 до 500.",

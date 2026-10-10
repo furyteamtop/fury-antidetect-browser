@@ -1046,7 +1046,7 @@ export function App() {
                 Making MANY is a different decision and does belong here: it is
                 the one people reach for after the first few profiles, and it
                 acts on the project this toolbar is already filtering. */}
-            <button onClick={() => setBulk(null)}>{t("bp.title")}</button>
+            <button onClick={() => setBulk(null)}>{t("bp.button")}</button>
             {/* Into this computer only: a team profile's proxy carries sealed
                 credentials on the server -- see CsvImport. Shown whenever the
                 profiles would land here: local mode, a local project, or no

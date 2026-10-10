@@ -133,6 +133,10 @@ export function BulkProfiles({
         </div>
 
         <div className="form" style={{ paddingTop: "var(--s-5)", overflowY: "auto" }}>
+          {/* "Why are there two different windows for a profile?" (a user,
+              10.10.2026): the batch window says what it is for, and that the
+              single one is the button on the left. */}
+          {!made && !cloning && <p className="hint" style={{ marginTop: 0 }}>{t("bp.what")}</p>}
           {!made && (
             <>
               {!cloning && (templates.length > 0 || saving) && (
