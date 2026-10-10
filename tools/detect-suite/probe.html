@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fury detect-suite — probe</title>
 <style>
   :root { color-scheme: dark; }
@@ -19,6 +20,15 @@
   }
   button.ghost { background: #1c2028; color: #d6dae1; }
   button:disabled { opacity: .45; cursor: default; }
+  /* A phone opens this to be captured (docs/18): big enough to press. */
+  @media (max-width: 640px) {
+    body { padding: 16px; font-size: 16px; }
+    .sub { font-size: 15px; }
+    .bar button { flex: 1 1 100%; padding: 14px 16px; font-size: 17px; }
+    #phoneHow { font-size: 16px; line-height: 1.5; }
+  }
+  #phoneHow { background: #14171d; border: 1px solid #1c2028; border-radius: 8px; padding: 14px 16px; margin-bottom: 20px; }
+  #phoneHow ol { margin: 8px 0 0; padding-left: 22px; }
   .checks { display: grid; gap: 1px; background: #1c2028; border-radius: 8px; overflow: hidden; margin-bottom: 20px; }
   .check { display: grid; grid-template-columns: 28px 1fr auto; gap: 12px; align-items: baseline;
            padding: 11px 14px; background: #14171d; }
@@ -48,6 +58,16 @@
 <div class="sub">
   Снимает полный отпечаток и сравнивает значения между контекстами исполнения.
   Открой эту страницу в браузере, который проверяешь: настоящем Chrome, AdsPower, Fury.
+</div>
+
+<div id="phoneHow" hidden>
+  <b>Снимок телефона для Fury</b>
+  <ol>
+    <li>Откройте эту страницу в Chrome на телефоне с Android.</li>
+    <li>Держите телефон в руке, как обычно, и нажмите «Снять отпечаток». Это около 10 секунд, не кладите телефон.</li>
+    <li>Нажмите «Скачать JSON» и пришлите файл тому, кто дал ссылку.</li>
+  </ol>
+  <div class="sub" style="margin:8px 0 0">Страница ничего не отправляет сама. Ваш IP-адрес из файла вырезается. В файле модель телефона, экран, видеочип, шрифты и показания датчиков движения, без личных данных.</div>
 </div>
 
 <div class="note" id="fileWarn" hidden>
@@ -94,6 +114,8 @@
       + '<a href="https://github.com/furyteamtop/fury-antidetect-browser/issues/new?template=persona.yml" target="_blank" rel="noopener" style="color:#60a5fa">форму</a>. '
       + 'Страница ничего не отправляет сама.';
     $('posted').after(c);
+    // A phone came here to be captured: say how, in its own words, first.
+    if (/Android/.test(navigator.userAgent) || navigator.maxTouchPoints > 0) $('phoneHow').hidden = false;
   }
 
   /* The checks that decide whether a build ships. Each returns

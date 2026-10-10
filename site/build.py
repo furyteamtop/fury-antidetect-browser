@@ -218,7 +218,16 @@ def main() -> int:
         if shutil.which("sips"):
             subprocess.run(["sips", "-Z", str(px), str(dst)],
                            capture_output=True, check=False)
-    total = sum(f.stat().st_size for f in DIST.iterdir())
+    # The capture page, at /probe/: what a phone opens to become a persona
+    # (docs/18). The same files GitHub Pages serves; on our own name it is a
+    # link a person sending their phone's capture is more willing to open.
+    probe = DIST / "probe"
+    probe.mkdir(exist_ok=True)
+    suite = ROOT / "tools" / "detect-suite"
+    shutil.copy(suite / "probe.html", probe / "index.html")
+    for name in ("probe.js", "sw-probe.js"):
+        shutil.copy(suite / name, probe / name)
+    total = sum(f.stat().st_size for f in DIST.rglob("*") if f.is_file())
     print(f"wrote {out} ({len(page):,} bytes); dist is {total/1024:.0f} KB in {len(list(DIST.iterdir()))} files")
     return 0
 

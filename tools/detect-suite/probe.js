@@ -984,6 +984,92 @@
     );
   }
 
+  /* Motion sensors, for a phone (docs/18). A phone in a hand reports
+   * devicemotion about every 16 ms: gravity tilted by how it is held, a hand
+   * tremor of a few hundredths of m/s^2, rotation in fractions of a degree. A
+   * desktop reports nothing. These are the numbers an emulated phone has to
+   * resemble, so the capture keeps their shape: rate, mean, spread, and a few
+   * raw samples. Four seconds; no permission prompt on Android Chrome. */
+  async function collectMotion(ms = 4000) {
+    const stats = () => ({ n: 0, sum: 0, sq: 0 });
+    const add = (st, v) => { if (typeof v === 'number' && Number.isFinite(v)) { st.n++; st.sum += v; st.sq += v * v; } };
+    const done = (st) => st.n ? {
+      mean: +(st.sum / st.n).toFixed(4),
+      sd: +Math.sqrt(Math.max(0, st.sq / st.n - (st.sum / st.n) ** 2)).toFixed(4),
+    } : null;
+    const axes = () => ({ x: stats(), y: stats(), z: stats() });
+    const out = {
+      hasDeviceMotionEvent: 'DeviceMotionEvent' in window,
+      hasDeviceOrientationEvent: 'DeviceOrientationEvent' in window,
+      genericSensors: ['Accelerometer', 'LinearAccelerationSensor', 'GravitySensor', 'Gyroscope',
+        'Magnetometer', 'AbsoluteOrientationSensor', 'RelativeOrientationSensor', 'AmbientLightSensor']
+        .filter((n) => n in window),
+      seconds: ms / 1000,
+    };
+    const m = { count: 0, intervals: [], gravity: axes(), linear: axes(), rotation: { alpha: stats(), beta: stats(), gamma: stats() },
+      accelerationNull: 0, samples: [] };
+    const o = { count: 0, absolute: null, alpha: stats(), beta: stats(), gamma: stats(), samples: [] };
+    const onMotion = (e) => {
+      m.count++;
+      if (typeof e.interval === 'number') m.intervals.push(e.interval);
+      const g = e.accelerationIncludingGravity, a = e.acceleration, r = e.rotationRate;
+      if (g) { add(m.gravity.x, g.x); add(m.gravity.y, g.y); add(m.gravity.z, g.z); }
+      if (a && a.x !== null) { add(m.linear.x, a.x); add(m.linear.y, a.y); add(m.linear.z, a.z); } else m.accelerationNull++;
+      if (r) { add(m.rotation.alpha, r.alpha); add(m.rotation.beta, r.beta); add(m.rotation.gamma, r.gamma); }
+      if (m.count % 10 === 1 && m.samples.length < 24) {
+        const f = (v) => (typeof v === 'number' ? +v.toFixed(4) : v);
+        m.samples.push({
+          t: Math.round(e.timeStamp), i: e.interval,
+          g: g && [f(g.x), f(g.y), f(g.z)], a: a && [f(a.x), f(a.y), f(a.z)], r: r && [f(r.alpha), f(r.beta), f(r.gamma)],
+        });
+      }
+    };
+    const onOrient = (e) => {
+      o.count++; o.absolute = e.absolute;
+      add(o.alpha, e.alpha); add(o.beta, e.beta); add(o.gamma, e.gamma);
+      if (o.count % 10 === 1 && o.samples.length < 12) o.samples.push([e.alpha, e.beta, e.gamma].map((v) => (typeof v === 'number' ? +v.toFixed(3) : v)));
+    };
+    let accel = null;
+    const sensor = { started: false, error: null, readings: 0, x: stats(), y: stats(), z: stats() };
+    try {
+      if ('Accelerometer' in window) {
+        accel = new Accelerometer({ frequency: 60 });
+        accel.addEventListener('reading', () => { sensor.readings++; add(sensor.x, accel.x); add(sensor.y, accel.y); add(sensor.z, accel.z); });
+        accel.addEventListener('error', (e) => { sensor.error = (e.error && e.error.name) || 'error'; });
+        accel.addEventListener('activate', () => { sensor.started = true; });
+        accel.start();
+      }
+    } catch (e) { sensor.error = String(e && e.name || e); }
+    window.addEventListener('devicemotion', onMotion);
+    window.addEventListener('deviceorientation', onOrient);
+    await new Promise((r) => setTimeout(r, ms));
+    window.removeEventListener('devicemotion', onMotion);
+    window.removeEventListener('deviceorientation', onOrient);
+    try { accel && accel.stop(); } catch (e) { /* stopped */ }
+    const iv = m.intervals.sort((a, b) => a - b);
+    return {
+      ...out,
+      devicemotion: {
+        count: m.count,
+        perSecond: +(m.count / (ms / 1000)).toFixed(1),
+        intervalMedian: iv.length ? iv[iv.length >> 1] : null,
+        accelerationIncludingGravity: { x: done(m.gravity.x), y: done(m.gravity.y), z: done(m.gravity.z) },
+        acceleration: { x: done(m.linear.x), y: done(m.linear.y), z: done(m.linear.z) },
+        accelerationNull: m.accelerationNull,
+        rotationRate: { alpha: done(m.rotation.alpha), beta: done(m.rotation.beta), gamma: done(m.rotation.gamma) },
+        samples: m.samples,
+      },
+      deviceorientation: {
+        count: o.count, absolute: o.absolute,
+        alpha: done(o.alpha), beta: done(o.beta), gamma: done(o.gamma), samples: o.samples,
+      },
+      accelerometer: accel ? {
+        started: sensor.started, error: sensor.error, readings: sensor.readings,
+        x: done(sensor.x), y: done(sensor.y), z: done(sensor.z),
+      } : null,
+    };
+  }
+
   async function collectKeyboard() {
     if (!navigator.keyboard || !navigator.keyboard.getLayoutMap) return { __absent: true };
     return await safeAsync(async () => {
@@ -1505,7 +1591,7 @@
 
     const [
       clientHints, webgpu, audio, mediaDevices, drm, webrtc,
-      permissions, speech, keyboard, battery, storage,
+      permissions, speech, keyboard, battery, storage, motion,
       worker, sharedWorker, serviceWorker, audioWorklet,
       iframeSameOrigin, iframeBlank, iframeSrcdoc, iframeCrossOrigin,
     ] = await Promise.all([
@@ -1520,6 +1606,7 @@
       collectKeyboard(),
       collectBattery(),
       collectStorage(),
+      collectMotion(),
       collectFromWorker(),
       collectFromSharedWorker(),
       collectFromServiceWorker(),
@@ -1548,11 +1635,12 @@
 
     return {
       __schema: SCHEMA,
-      __probeVersion: '0.2.0',
+      __probeVersion: '0.3.0',
       __collectedInMs: Date.now() - started,
 
       navigator: collectNavigator(),
       clientHints,
+      motion,
       screen: collectScreen(),
       canvas2d: collectCanvas2d(),
       clientRects: collectClientRects(),
