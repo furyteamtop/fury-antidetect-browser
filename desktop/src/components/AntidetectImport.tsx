@@ -116,13 +116,13 @@ export function AntidetectImport({
 
           let proxy_id: string | null = null;
           if (d.proxy_line) {
-            const imported = await api.importProxies(d.proxy_line, spec.name);
+            const imported = await api.importProxies(d.proxy_line, spec.name, "local");
             const s = imported.saved[0];
             if (s) {
               const key = `${s.host}:${s.port}`;
               const existing = byAddr.get(key);
               if (existing && existing !== s.id) {
-                await api.deleteProxy(s.id).catch(() => {});
+                await api.deleteProxy(s.id, "local").catch(() => {});
                 proxy_id = existing;
               } else {
                 byAddr.set(key, s.id);
@@ -155,7 +155,7 @@ export function AntidetectImport({
             languages: null,
             start_urls: d.start_url ? [d.start_url] : [],
             blocklists: [],
-          });
+          }, "local");
           created++;
           row.ok = true;
 

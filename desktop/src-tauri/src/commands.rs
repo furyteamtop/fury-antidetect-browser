@@ -2386,8 +2386,12 @@ pub async fn rotate_proxy(state: State<'_, AppState>, id: String) -> R<serde_jso
 }
 
 #[tauri::command]
-pub async fn delete_proxy(state: State<'_, AppState>, id: String) -> R<serde_json::Value> {
-    if mode_of(&state) == "local" {
+pub async fn delete_proxy(
+    state: State<'_, AppState>,
+    id: String,
+    origin: Option<String>,
+) -> R<serde_json::Value> {
+    if local_for(&state, origin.as_deref()) {
         return Ok(crate::agent::call("proxies.delete", serde_json::json!({ "id": id })).await?);
     }
     state
@@ -2922,8 +2926,11 @@ pub async fn import_proxies(
     state: State<'_, AppState>,
     text: String,
     name_prefix: String,
+    origin: Option<String>,
 ) -> R<serde_json::Value> {
-    if mode_of(&state) == "local" {
+    // `origin` as for `proxies`: the CSV and anti-detect imports are local
+    // only and say so, so a connected shell still files them on this machine.
+    if local_for(&state, origin.as_deref()) {
         return Ok(crate::agent::call(
             "proxies.importMany",
             serde_json::json!({ "text": text, "name_prefix": name_prefix }),

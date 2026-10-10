@@ -215,6 +215,8 @@ export function App() {
   const newOrigin: "local" | "team" =
     active?.origin === "local" || active?.origin === "team" ? active.origin : local ? "local" : "team";
   const canChooseOrigin = !local && !active;
+  // The CSV and anti-detect imports file profiles on this computer.
+  const importsHere = local || !active || active.origin === "local";
   // Local mode has nobody to sign in as. Team mode does, and until it happens
   // there is nothing to show.
   const ready = shell !== null && (local || shell.signed_in);
@@ -1045,10 +1047,14 @@ export function App() {
                 the one people reach for after the first few profiles, and it
                 acts on the project this toolbar is already filtering. */}
             <button onClick={() => setBulk(null)}>{t("bp.title")}</button>
-            {/* Local mode only: a team profile's proxy carries sealed
-                credentials on the server — see CsvImport. */}
-            {local && <button className="ghost" onClick={() => setCsv(true)}>{t("csv.button")}</button>}
-            {local && <button className="ghost" onClick={() => setGologin(true)}>{t("gl.button")}</button>}
+            {/* Into this computer only: a team profile's proxy carries sealed
+                credentials on the server -- see CsvImport. Shown whenever the
+                profiles would land here: local mode, a local project, or no
+                project on a connected shell. It used to follow the shell's
+                mode alone, so a connected shell never showed it, even inside
+                a local project (reported 10.10.2026: "where is the import"). */}
+            {importsHere && <button className="ghost" onClick={() => setCsv(true)}>{t("csv.button")}</button>}
+            {importsHere && <button className="ghost" onClick={() => setGologin(true)}>{t("gl.button")}</button>}
             <input
               className="search"
               placeholder={t("bar.search")}

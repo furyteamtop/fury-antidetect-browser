@@ -18,6 +18,13 @@ import { useI18n } from "../i18n";
  *  Only the current holders of the FIRST profile are listed. Showing a merged
  *  list for five would invite revoking from a person who holds three of them
  *  and thinking all three were withdrawn. */
+const ROLE_LABEL: Record<string, "role.owner" | "role.admin" | "role.manager" | "role.member"> = {
+  owner: "role.owner",
+  admin: "role.admin",
+  manager: "role.manager",
+  member: "role.member",
+};
+
 export function ShareDialog({
   profiles,
   onClose,
@@ -38,6 +45,23 @@ export function ShareDialog({
   >([]);
 
   const one = profiles.length === 1 ? profiles[0] : null;
+
+  // The team, to pick from instead of typing an address from memory (asked
+  // for 10.10.2026). Any member may read this list on the server; the person
+  // giving it away and the ones who already have it are left out.
+  const [team, setTeam] = useState<{ email: string; role: string }[]>([]);
+  useEffect(() => {
+    api.orgMembers().then(
+      (r) => setTeam(r.members.filter((m) => !m.is_you).map((m) => ({ email: m.email, role: m.role }))),
+      () => setTeam([]),
+    );
+  }, []);
+  const typed = email.trim().toLowerCase();
+  const pickable = team.filter(
+    (m) =>
+      !holders.some((h) => h.email.toLowerCase() === m.email.toLowerCase()) &&
+      (typed === "" || m.email.toLowerCase().includes(typed)),
+  );
 
   const loadHolders = async () => {
     if (!one) return;
@@ -200,7 +224,22 @@ export function ShareDialog({
                   spellCheck={false}
                   onChange={(e) => setEmail(e.target.value)}
                 />
-                <p className="hint">{t("share.whoHint")}</p>
+                {pickable.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--s-1)", marginTop: "var(--s-2)" }}>
+                    {pickable.slice(0, 12).map((m) => (
+                      <button
+                        key={m.email}
+                        type="button"
+                        className={m.email === email ? "primary" : "ghost"}
+                        onClick={() => setEmail(m.email)}
+                        title={ROLE_LABEL[m.role] ? t(ROLE_LABEL[m.role]) : m.role}
+                      >
+                        {m.email}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <p className="hint">{team.length > 0 ? t("share.whoHintTeam") : t("share.whoHint")}</p>
                 {profiles.some((p) => p.origin === "local") && (
                   <p className="hint">{t("share.willCopy")}</p>
                 )}

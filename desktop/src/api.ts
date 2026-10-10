@@ -948,7 +948,8 @@ export const api = {
 
   saveProxy: (proxy: Partial<LocalProxy>, origin?: Origin): Promise<{ id: string }> =>
     cmd<{ id: string }>("save_proxy", { proxy, origin: origin ?? null }),
-  deleteProxy: (id: string): Promise<unknown> => cmd("delete_proxy", { id }),
+  deleteProxy: (id: string, origin?: Origin): Promise<unknown> =>
+    cmd("delete_proxy", { id, origin: origin ?? null }),
   checkProxy: (url: string, checkerUrl?: string | null, proxyId?: string | null): Promise<{
     ok: boolean; error?: string; ip?: string; country?: string;
     city?: string; timezone?: string; org?: string; ms?: number;
@@ -1043,10 +1044,11 @@ export const api = {
   importProxies: (
     text: string,
     namePrefix: string,
+    origin?: Origin,
   ): Promise<{
     saved: { id: string; line: number; host: string; port: number; shape: string }[];
     rejected: { line: number; error: string; code?: string }[];
-  }> => cmd("import_proxies", { text, namePrefix }),
+  }> => cmd("import_proxies", { text, namePrefix, origin: origin ?? null }),
 
   exportCookies: (id: string): Promise<{ cookies: unknown[] }> =>
     cmd("export_cookies", { id }),

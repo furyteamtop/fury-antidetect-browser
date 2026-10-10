@@ -71,13 +71,13 @@ export function CsvImport({
       const lineToId = new Map<string, string>();
       const lineError = new Map<string, string>();
       if (unknown.length > 0) {
-        const imported = await api.importProxies(unknown.join("\n"), t("csv.proxyPrefix"));
+        const imported = await api.importProxies(unknown.join("\n"), t("csv.proxyPrefix"), "local");
         for (const s of imported.saved) {
           const line = unknown[s.line - 1];
           // The same address under a different spelling is the proxy already
           // here: use it, and drop the copy the import just made.
           const existing = byAddr.get(`${s.host}:${s.port}`);
-          if (existing) await api.deleteProxy(s.id).catch(() => {});
+          if (existing) await api.deleteProxy(s.id, "local").catch(() => {});
           lineToId.set(line, existing?.id ?? s.id);
         }
         for (const r of imported.rejected) lineError.set(unknown[r.line - 1], r.error);
@@ -130,7 +130,7 @@ export function CsvImport({
             languages: languages.length > 0 ? languages : null,
             start_urls: splitMulti(get(row, "start_urls")),
             blocklists: [],
-          });
+          }, "local");
           created++;
         } catch (e) {
           failed.push({ row: rowNo, error: say(e) });
