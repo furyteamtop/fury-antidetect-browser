@@ -171,6 +171,7 @@ pub fn stage(dest_root: &Path) -> Result<Staged, StageError> {
 /// Copy the CDM into a profile, as `<user_data_dir>/WidevineCdm/<version>/`:
 /// the component updater's own layout, which it registers at startup. See the
 /// module notes for why macOS uses this instead of the core bundle.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn stage_into_profile(user_data_dir: &Path) -> Result<Staged, StageError> {
     let (chrome, from) = chrome_cdm()?;
     let version = from
