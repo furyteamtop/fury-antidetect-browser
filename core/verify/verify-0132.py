@@ -53,7 +53,8 @@ for (const t of ['touchstart','touchmove','touchend','mousedown','mouseup','mous
 
 class Pages(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        data = PAGE.encode() if self.path == "/" else TAPS.encode() if self.path == "/taps" else b""
+        data = (PAGE if self.path == "/" else TAPS if self.path == "/taps"
+                else PINCH if self.path == "/pinch" else "").encode()
         self.send_response(200 if data else 404)
         self.send_header("content-type", "text/html")
         self.send_header("content-length", str(len(data)))
@@ -182,6 +183,44 @@ addEventListener('touchstart', e => { const t = e.touches[0];
 </script>"""
 
 
+PINCH = """<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pinch</title><style>body{margin:0;height:3000px}</style><p>pinch</p>
+<script>
+window.maxTouches = 0; window.wheels = 0;
+addEventListener('touchstart', e => maxTouches = Math.max(maxTouches, e.touches.length), {passive: true});
+addEventListener('touchmove', e => maxTouches = Math.max(maxTouches, e.touches.length), {passive: true});
+addEventListener('wheel', () => wheels++, {passive: true});
+</script>"""
+
+
+def measure_pinch(config):
+    """A touchpad pinch, then ctrl + wheel, each on a fresh page."""
+    p, ws, d = launch(config)
+    out = {}
+    try:
+        for how in ("touchpad", "ctrl-wheel"):
+            t = ws.call("Target.createTarget", {"url": URL + "pinch"})["targetId"]
+            s = ws.call("Target.attachToTarget", {"targetId": t, "flatten": True})["sessionId"]
+            ws.call("Runtime.enable", session=s)
+            time.sleep(2.5)
+            if how == "touchpad":
+                ws.call("Input.synthesizePinchGesture", {"x": 190, "y": 300, "scaleFactor": 2.0,
+                                                         "gestureSourceType": "mouse"}, session=s)
+            else:
+                ws.call("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": 190, "y": 300}, session=s)
+                for _ in range(4):
+                    ws.call("Input.dispatchMouseEvent", {"type": "mouseWheel", "x": 190, "y": 300,
+                                                         "deltaX": 0, "deltaY": -120, "modifiers": 2},
+                            session=s)
+                    time.sleep(0.05)
+            time.sleep(1.5)
+            out[how] = ws.call("Runtime.evaluate", {"expression": "({maxTouches, wheels, scale: visualViewport.scale})",
+                                                   "returnByValue": True}, session=s)["result"]["value"]
+        return out
+    finally:
+        stop(p, d)
+
+
 def measure_taps(config, n=20):
     """n taps at the centre of a 10x10 button at (200, 300)."""
     p, ws, d = launch(config)
@@ -263,6 +302,21 @@ check(abs(m1[0] - m2[0]) < 1.2 and abs(m1[1] - m2[1]) < 1.2,
 check(abs(m1[0] - m3[0]) + abs(m1[1] - m3[1]) > 0.8,
       f"and another profile's lands its own way")
 check(hits == 20, f"a 10x10 button still takes all 20 taps ({hits}): Blink adjusts a tap with a contact area")
+
+print("\n--- pinch ---")
+d_pinch = measure_pinch(DESKTOP)
+pinch = measure_pinch(PHONE)
+print(f"  desktop {d_pinch}\n  phone   {pinch}")
+check(d_pinch["ctrl-wheel"]["wheels"] > 0,
+      "desktop: ctrl + wheel reaches the page as wheel events, so what follows is the patch")
+# The zoom is the gesture's: a 2x touchpad pinch, and four ctrl + wheel
+# notches of exp(120/540) each, 2.43x. A first version zoomed 1.2x for the
+# 2x pinch, losing the detector's span slop.
+for how, want in (("touchpad", 2.0), ("ctrl-wheel", 2.43)):
+    got = pinch[how]
+    check(got["maxTouches"] == 2 and got["wheels"] == 0 and abs(got["scale"] - want) < 0.25,
+          f"phone, {how}: two fingers on the page, no wheel event, and the page zoomed "
+          f"{got['scale']:.2f}x for a {want}x gesture (touches {got['maxTouches']}, wheel {got['wheels']})")
 
 server.shutdown()
 bad = [t for ok, t in results if not ok]

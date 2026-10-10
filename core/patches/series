@@ -489,7 +489,9 @@
 # nothing, since a phone cannot hover. CDP's Input.dispatchMouseEvent goes
 # through the same path, so the agent's clicks become touches too. Off on the
 # browser's own pages and DevTools. The wheel is a finger too: a phone has no
-# wheel, and a page listening for `wheel` on one has found a desktop.
+# wheel, and a page listening for `wheel` on one has found a desktop. A
+# touchpad pinch and ctrl + wheel are two fingers pinching. Each profile's
+# finger has its own habits (mobile.touchSeed) and each touch its own scatter.
 0132-mobile-touch.patch
 
 # MOBILE WINDOW (docs/18, step 3, the window itself). A phone persona's

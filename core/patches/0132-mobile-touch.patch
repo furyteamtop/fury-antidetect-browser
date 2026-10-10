@@ -1,3 +1,53 @@
+diff --git a/components/input/render_widget_host_input_event_router.cc b/components/input/render_widget_host_input_event_router.cc
+index 3c5366eb38..bc1aab4051 100644
+--- a/components/input/render_widget_host_input_event_router.cc
++++ b/components/input/render_widget_host_input_event_router.cc
+@@ -842,6 +842,14 @@ void RenderWidgetHostInputEventRouter::DispatchMouseWheelEvent(
+   }
+ }
+ 
++// Fury patch 0132: the interface's default, out of line as Chromium's style
++// requires of a virtual with a body. TouchEmulatorImpl is the one override.
++bool TouchEmulator::HandleTouchpadZoomEvent(
++    const blink::WebGestureEvent& event,
++    RenderWidgetHostViewInput* target_view) {
++  return false;
++}
++
+ void RenderWidgetHostInputEventRouter::RouteGestureEvent(
+     RenderWidgetHostViewInput* root_view,
+     const blink::WebGestureEvent* event,
+@@ -849,6 +857,14 @@ void RenderWidgetHostInputEventRouter::RouteGestureEvent(
+   if (!IsViewInMap(root_view)) {
+     return;
+   }
++  // Fury patch 0132: a touchpad pinch on a phone persona is two fingers.
++  if (event->IsTouchpadZoomEvent()) {
++    if (TouchEmulator* emulator =
++            GetTouchEmulator(/*create_if_necessary=*/false);
++        emulator && emulator->HandleTouchpadZoomEvent(*event, root_view)) {
++      return;
++    }
++  }
+   if (event->IsTargetViewport()) {
+     root_view->ProcessGestureEvent(*event, latency);
+     return;
+diff --git a/components/input/touch_emulator.h b/components/input/touch_emulator.h
+index 781396b6b0..28122fa8ce 100644
+--- a/components/input/touch_emulator.h
++++ b/components/input/touch_emulator.h
+@@ -42,6 +42,11 @@ class COMPONENT_EXPORT(INPUT) TouchEmulator : public ui::GestureProviderClient {
+ 
+   virtual bool HandleTouchEvent(const blink::WebTouchEvent& event) = 0;
+ 
++  // Fury patch 0132: a touchpad pinch on a phone persona becomes two fingers.
++  // Returns whether the event was taken; the default takes nothing.
++  virtual bool HandleTouchpadZoomEvent(const blink::WebGestureEvent& event,
++                                       RenderWidgetHostViewInput* target_view);
++
+   virtual void OnGestureEventAck(
+       const blink::WebGestureEvent& event,
+       RenderWidgetHostViewInput* target_view) = 0;
 diff --git a/content/browser/devtools/protocol/input_handler.cc b/content/browser/devtools/protocol/input_handler.cc
 index 411d7835ac..f98a99f11e 100644
 --- a/content/browser/devtools/protocol/input_handler.cc
@@ -73,7 +123,7 @@ index 411d7835ac..f98a99f11e 100644
    base::circular_deque<std::unique_ptr<DispatchKeyEventCallback>>
        pending_key_callbacks_;
 diff --git a/content/browser/renderer_host/input/touch_emulator_impl.cc b/content/browser/renderer_host/input/touch_emulator_impl.cc
-index 9db810a30d..73d3d3fc16 100644
+index 9db810a30d..e5fe66b3fc 100644
 --- a/content/browser/renderer_host/input/touch_emulator_impl.cc
 +++ b/content/browser/renderer_host/input/touch_emulator_impl.cc
 @@ -4,12 +4,17 @@
@@ -94,7 +144,25 @@ index 9db810a30d..73d3d3fc16 100644
  #include "components/input/events_helper.h"
  #include "components/input/render_widget_host_view_input.h"
  #include "components/input/web_touch_event_traits.h"
-@@ -209,6 +214,11 @@ bool TouchEmulatorImpl::HandleMouseEvent(
+@@ -120,8 +125,16 @@ void TouchEmulatorImpl::Enable(Mode mode,
+         GetEmulatorGestureProviderConfig(config_type, mode), this);
+     gesture_provider_->SetDoubleTapSupportForPageEnabled(double_tap_enabled_);
+     // TODO(dgozman): Use synthetic secondary touch to support multi-touch.
++    //
++    // Patch 0132 does exactly that on a phone persona (two fingers from a
++    // touchpad pinch or ctrl + wheel), so there the provider has to recognise
++    // two fingers spreading as a pinch; left off, the page saw both fingers
++    // and nothing zoomed (verify-0132, scale 1.00).
++    const fury::FuryConfig* fury_config = fury::FuryConfig::Get();
++    const bool fury_phone =
++        fury_config && fury_config->GetBool("mobile.enabled").value_or(false);
+     gesture_provider_->SetMultiTouchZoomSupportEnabled(
+-        mode != Mode::kEmulatingTouchFromMouse);
++        mode != Mode::kEmulatingTouchFromMouse || fury_phone);
+ 
+     // Disable scroll update compensation for emulated touch events since it is
+     // unreasonable to expect automation to react in realtime to manipulation of
+@@ -209,6 +222,11 @@ bool TouchEmulatorImpl::HandleMouseEvent(
    if (!IsEnabled() || mode_ != Mode::kEmulatingTouchFromMouse)
      return false;
  
@@ -106,7 +174,7 @@ index 9db810a30d..73d3d3fc16 100644
    UpdateCursor();
  
    if (mouse_event.button == WebMouseEvent::Button::kRight &&
-@@ -262,10 +272,89 @@ bool TouchEmulatorImpl::HandleMouseWheelEvent(const WebMouseWheelEvent& event) {
+@@ -262,10 +280,223 @@ bool TouchEmulatorImpl::HandleMouseWheelEvent(const WebMouseWheelEvent& event) {
    if (!IsEnabled() || mode_ != Mode::kEmulatingTouchFromMouse)
      return false;
  
@@ -132,6 +200,22 @@ index 9db810a30d..73d3d3fc16 100644
 +    if (!fury_wheel_view_) {
 +      return false;
 +    }
++    // Ctrl with the wheel is how a desktop zooms; on a phone that is two
++    // fingers pinching. One notch (120) is a factor of about 1.25.
++    if (event.GetModifiers() & WebInputEvent::kControlKey) {
++      if (!fury_wheel_down_) {
++        FuryPinchBy(std::exp(event.delta_y / 540.f), event.PositionInWidget(),
++                    fury_wheel_view_.get());
++        fury_pinch_lift_timer_.Start(
++            FROM_HERE, base::Milliseconds(200),
++            base::BindOnce(
++                [](TouchEmulatorImpl* self) {
++                  self->FuryPinchEnd(self->fury_wheel_view_.get());
++                },
++                base::Unretained(this)));
++      }
++      return true;
++    }
 +    FuryWheelFinger(event);
 +    return true;
 +  }
@@ -140,6 +224,124 @@ index 9db810a30d..73d3d3fc16 100644
    return emulated_stream_active_sequence_count_ > 0;
  }
  
++// Patch 0132: a touchpad pinch on a phone persona is two fingers.
++//
++// A trackpad pinch reaches a desktop page as ctrl+wheel events and zooms the
++// page from the touchpad; a phone has neither. Here it is two fingers put
++// down either side of the pointer, moved apart or together by the gesture's
++// scale, and lifted at its end, through the same gesture provider as every
++// other emulated touch: the page sees touchstart with two touches and
++// touchmoves, and the zoom is Blink's own pinch of the visual viewport.
++bool TouchEmulatorImpl::HandleTouchpadZoomEvent(
++    const blink::WebGestureEvent& event,
++    input::RenderWidgetHostViewInput* target_view) {
++  if (!IsEnabled() || mode_ != Mode::kEmulatingTouchFromMouse) {
++    return false;
++  }
++  if (!fury_finger_ready_) {
++    FuryInitFinger();
++  }
++  if (!fury_finger_ || !target_view) {
++    return false;
++  }
++  switch (event.GetType()) {
++    case WebInputEvent::Type::kGesturePinchBegin:
++      if (mouse_pressed_ || fury_wheel_down_) {
++        return true;  // a finger is already down; a second gesture waits
++      }
++      FuryPinchBy(1.f, event.PositionInWidget(), target_view);
++      return true;
++    case WebInputEvent::Type::kGesturePinchUpdate:
++      FuryPinchBy(event.data.pinch_update.scale, event.PositionInWidget(),
++                  target_view);
++      return true;
++    case WebInputEvent::Type::kGesturePinchEnd:
++      FuryPinchEnd(target_view);
++      return true;
++    default:
++      // The touchpad's double-tap zoom: a phone double-taps with a finger,
++      // which the mouse already is.
++      return true;
++  }
++}
++
++void TouchEmulatorImpl::FuryPinchBy(float scale,
++                                    const gfx::PointF& at,
++                                    input::RenderWidgetHostViewInput* view) {
++  // The scale detector starts only once the fingers' span has changed by
++  // span_slop, and does not count that first part; below min_scaling_span it
++  // does not scale at all. Measured: a 2x touchpad pinch zoomed the page
++  // 1.2x. So the fingers go down wide enough and are spread past the slop
++  // straight away, and from there the page's zoom is the gesture's.
++  const ui::ScaleGestureDetector::Config& detector =
++      ui::GetGestureProviderConfig(gesture_provider_config_type_)
++          .scale_gesture_detector_config;
++  const float min_half = detector.min_scaling_span / 2.f + 2.f;
++  if (!fury_pinching_) {
++    fury_pinch_centre_ = at;
++    fury_pinch_half_ = std::max(60.f, min_half + 8.f);
++    fury_pinching_ = true;
++    FuryPinchFingers(WebInputEvent::Type::kTouchStart, 0, view);
++    FuryPinchFingers(WebInputEvent::Type::kTouchStart, 1, view);
++    fury_pinch_half_ += detector.span_slop / 2.f + 2.f;
++    FuryPinchFingers(WebInputEvent::Type::kTouchMove, -1, view);
++    if (scale == 1.f) {
++      return;
++    }
++  }
++  fury_pinch_half_ = std::clamp(fury_pinch_half_ * scale, min_half, 600.f);
++  FuryPinchFingers(WebInputEvent::Type::kTouchMove, -1, view);
++}
++
++void TouchEmulatorImpl::FuryPinchEnd(input::RenderWidgetHostViewInput* view) {
++  fury_pinch_lift_timer_.Stop();
++  if (!fury_pinching_ || !view) {
++    fury_pinching_ = false;
++    return;
++  }
++  FuryPinchFingers(WebInputEvent::Type::kTouchEnd, 1, view);
++  FuryPinchFingers(WebInputEvent::Type::kTouchEnd, 0, view);
++  fury_pinching_ = false;
++}
++
++// Two fingers either side of the pinch's centre, horizontally. `changed` is
++// the finger that went down or up; -1 for a move of both. A finger already
++// gone is not in the event, as on a real screen.
++void TouchEmulatorImpl::FuryPinchFingers(WebInputEvent::Type type,
++                                         int changed,
++                                         input::RenderWidgetHostViewInput* view) {
++  WebTouchEvent touch(type, WebInputEvent::kNoModifiers, base::TimeTicks::Now());
++  const bool second_present =
++      !(type == WebInputEvent::Type::kTouchStart && changed == 0) &&
++      !(type == WebInputEvent::Type::kTouchEnd && changed == 0);
++  touch.touches_length = second_present ? 2 : 1;
++  for (unsigned i = 0; i < touch.touches_length; ++i) {
++    WebTouchPoint& p = touch.touches[i];
++    p.id = static_cast<int>(i);
++    const float dx = (i == 0 ? -1.f : 1.f) * fury_pinch_half_;
++    const gfx::PointF at = fury_pinch_centre_ + gfx::Vector2dF(dx, 0) + fury_bias_;
++    gfx::PointF in_root = view->TransformPointToRootCoordSpaceF(at);
++    p.SetPositionInWidget(in_root);
++    p.SetPositionInScreen(at);
++    p.radius_x = fury_radius_base_;
++    p.radius_y = fury_radius_base_;
++    p.force = type == WebInputEvent::Type::kTouchEnd && static_cast<int>(i) == changed
++                  ? 0.f
++                  : fury_force_base_;
++    p.pointer_type = blink::WebPointerProperties::PointerType::kTouch;
++    if (type == WebInputEvent::Type::kTouchMove) {
++      p.state = WebTouchPoint::State::kStateMoved;
++    } else if (static_cast<int>(i) == changed) {
++      p.state = type == WebInputEvent::Type::kTouchStart
++                    ? WebTouchPoint::State::kStatePressed
++                    : WebTouchPoint::State::kStateReleased;
++    } else {
++      p.state = WebTouchPoint::State::kStateStationary;
++    }
++  }
++  HandleEmulatedTouchEvent(touch, view);
++}
++
 +// Patch 0132: one step of the wheel's finger. See HandleMouseWheelEvent.
 +void TouchEmulatorImpl::FuryWheelFinger(const WebMouseWheelEvent& event) {
 +  constexpr float kLiftAfter = 250.f;
@@ -196,7 +398,7 @@ index 9db810a30d..73d3d3fc16 100644
  bool TouchEmulatorImpl::HandleKeyboardEvent(const WebKeyboardEvent& event) {
    if (!IsEnabled() || mode_ != Mode::kEmulatingTouchFromMouse)
      return false;
-@@ -393,6 +482,11 @@ void TouchEmulatorImpl::OnGestureEventAck(const WebGestureEvent& event,
+@@ -393,6 +624,11 @@ void TouchEmulatorImpl::OnGestureEventAck(const WebGestureEvent& event,
  
  void TouchEmulatorImpl::OnViewDestroyed(
      input::RenderWidgetHostViewInput* destroyed_view) {
@@ -208,7 +410,7 @@ index 9db810a30d..73d3d3fc16 100644
    if (destroyed_view != last_emulated_start_target_)
      return;
  
-@@ -595,6 +689,76 @@ WebGestureEvent TouchEmulatorImpl::GetPinchGestureEvent(
+@@ -595,6 +831,76 @@ WebGestureEvent TouchEmulatorImpl::GetPinchGestureEvent(
    return event;
  }
  
@@ -285,7 +487,7 @@ index 9db810a30d..73d3d3fc16 100644
  void TouchEmulatorImpl::FillTouchEventAndPoint(const WebMouseEvent& mouse_event,
                                                 const gfx::PointF& pos_in_root) {
    WebInputEvent::Type eventType;
-@@ -632,6 +796,28 @@ void TouchEmulatorImpl::FillTouchEventAndPoint(const WebMouseEvent& mouse_event,
+@@ -632,6 +938,28 @@ void TouchEmulatorImpl::FillTouchEventAndPoint(const WebMouseEvent& mouse_event,
    point.tilt_x = 0;
    point.tilt_y = 0;
    point.pointer_type = blink::WebPointerProperties::PointerType::kTouch;
@@ -315,7 +517,7 @@ index 9db810a30d..73d3d3fc16 100644
  
  bool TouchEmulatorImpl::InPinchGestureMode() const {
 diff --git a/content/browser/renderer_host/input/touch_emulator_impl.h b/content/browser/renderer_host/input/touch_emulator_impl.h
-index a295b34992..170dc495e5 100644
+index a295b34992..32054f75ad 100644
 --- a/content/browser/renderer_host/input/touch_emulator_impl.h
 +++ b/content/browser/renderer_host/input/touch_emulator_impl.h
 @@ -10,6 +10,9 @@
@@ -328,7 +530,17 @@ index a295b34992..170dc495e5 100644
  #include "components/input/touch_emulator.h"
  #include "components/input/touch_emulator_client.h"
  #include "content/common/content_export.h"
-@@ -118,6 +121,28 @@ class CONTENT_EXPORT TouchEmulatorImpl : public input::TouchEmulator {
+@@ -46,6 +49,9 @@ class CONTENT_EXPORT TouchEmulatorImpl : public input::TouchEmulator {
+   void SetDoubleTapSupportForPageEnabled(bool enabled) override;
+   bool IsEnabled() const override;
+   bool HandleTouchEvent(const blink::WebTouchEvent& event) override;
++  bool HandleTouchpadZoomEvent(
++      const blink::WebGestureEvent& event,
++      input::RenderWidgetHostViewInput* target_view) override;
+   void OnGestureEventAck(
+       const blink::WebGestureEvent& event,
+       input::RenderWidgetHostViewInput* target_view) override;
+@@ -118,6 +124,40 @@ class CONTENT_EXPORT TouchEmulatorImpl : public input::TouchEmulator {
    // Called when ack for injected touch has been received.
    void OnInjectedTouchCompleted();
  
@@ -346,6 +558,18 @@ index a295b34992..170dc495e5 100644
 +  float fury_force_ = 0.f;
 +  float fury_rotation_ = 0.f;
 +
++  // Patch 0132: a pinch as two fingers on a phone persona.
++  void FuryPinchFingers(blink::WebInputEvent::Type type,
++                        int changed,
++                        input::RenderWidgetHostViewInput* view);
++  void FuryPinchBy(float scale, const gfx::PointF& at,
++                   input::RenderWidgetHostViewInput* view);
++  void FuryPinchEnd(input::RenderWidgetHostViewInput* view);
++  bool fury_pinching_ = false;
++  gfx::PointF fury_pinch_centre_;
++  float fury_pinch_half_ = 0.f;
++  base::OneShotTimer fury_pinch_lift_timer_;
++
 +  // Patch 0132: the wheel as a finger on a phone persona.
 +  void FuryWheelFinger(const blink::WebMouseWheelEvent& event);
 +  raw_ptr<input::RenderWidgetHostViewInput> fury_wheel_view_ = nullptr;
@@ -357,6 +581,25 @@ index a295b34992..170dc495e5 100644
    const raw_ptr<input::TouchEmulatorClient> client_;
  
    // Emulator is enabled iff gesture provider is created.
+diff --git a/content/browser/renderer_host/render_widget_host_impl.cc b/content/browser/renderer_host/render_widget_host_impl.cc
+index 043cc52282..bfdd28e523 100644
+--- a/content/browser/renderer_host/render_widget_host_impl.cc
++++ b/content/browser/renderer_host/render_widget_host_impl.cc
+@@ -1761,6 +1761,14 @@ void RenderWidgetHostImpl::WaitForInputProcessed(base::OnceClosure callback) {
+ 
+ void RenderWidgetHostImpl::ForwardGestureEvent(
+     const WebGestureEvent& gesture_event) {
++  // Fury patch 0132: a touchpad pinch on a phone persona is two fingers, on
++  // the path that does not go through the input event router.
++  if (gesture_event.IsTouchpadZoomEvent()) {
++    if (auto* emulator = GetTouchEmulator(/*create_if_necessary=*/false);
++        emulator && emulator->HandleTouchpadZoomEvent(gesture_event, GetView())) {
++      return;
++    }
++  }
+   GetRenderInputRouter()->ForwardGestureEventWithLatencyInfo(gesture_event,
+                                                              ui::LatencyInfo());
+ }
 diff --git a/content/browser/web_contents/web_contents_impl.cc b/content/browser/web_contents/web_contents_impl.cc
 index 6d6d0947fa..88a963d6f4 100644
 --- a/content/browser/web_contents/web_contents_impl.cc
