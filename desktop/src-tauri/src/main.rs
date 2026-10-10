@@ -211,6 +211,29 @@ fn main() {
             commands::delete_project,
             commands::create_project,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Fury");
+        .build(tauri::generate_context!())
+        .expect("error while running Fury")
+        .run(|_app, event| {
+            // The agent this shell started outlives it on purpose: open
+            // profiles keep their locks and relays. With nothing open it had
+            // no reason to, and on macOS a live child kept Fury in the Dock
+            // as "running in background" after the person had quit
+            // (lsappinfo: exited-with-subordinates; reported 10.10.2026).
+            // So on the way out the agent is told to go once it is idle:
+            // now if nothing is open, after the last profile otherwise.
+            // An agent older than 0.3.3 does not know the parameter and
+            // refuses while profiles are open, which is the old behaviour.
+            if let tauri::RunEvent::Exit = event {
+                tauri::async_runtime::block_on(async {
+                    let _ = tokio::time::timeout(
+                        Duration::from_millis(1500),
+                        agent::call::<serde_json::Value>(
+                            "agent.shutdown",
+                            serde_json::json!({ "when_idle": true }),
+                        ),
+                    )
+                    .await;
+                });
+            }
+        });
 }

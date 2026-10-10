@@ -129,6 +129,9 @@ pub struct Agent {
     /// that outlives the IPC call that started it — a warm-up closing its
     /// browser through `stop`, so a team profile still pushes its bundle.
     me: std::sync::OnceLock<std::sync::Weak<Agent>>,
+    /// The shell quit while profiles were open: go once the last one has
+    /// closed (and pushed its bundle). See `agent.shutdown`.
+    exit_when_idle: std::sync::atomic::AtomicBool,
 }
 
 /// What the exit checker can tell us about where a proxy comes out.
@@ -237,6 +240,7 @@ impl Agent {
             core_download: Default::default(),
             mirror: crate::mirror::Hub::new(),
             warmer: crate::warm::Warmer::new(),
+            exit_when_idle: std::sync::atomic::AtomicBool::new(false),
             me: std::sync::OnceLock::new(),
         });
         let _ = agent.me.set(Arc::downgrade(&agent));
@@ -265,6 +269,16 @@ impl Agent {
     /// The core to launch: found, and the Chrome this agent claims to be.
     fn core(&self) -> Option<std::path::PathBuf> {
         crate::core_binary().filter(|exe| crate::core_outdated(exe).is_none())
+    }
+
+    /// Nothing open and nothing in flight that this process has to finish:
+    /// no browser alive, no core download half done.
+    async fn idle(&self) -> bool {
+        let none_open = {
+            let mut running = self.running.lock().await;
+            running.iter_mut().all(|(_, e)| matches!(e.child.try_wait(), Ok(Some(_))))
+        };
+        none_open && !self.core_download.lock().await.running
     }
 
     /// Notice browsers the operator closed from their own window.
@@ -302,6 +316,12 @@ impl Agent {
                     if let Err(e) = agent.stop(&id).await {
                         tracing::warn!(profile = %id, error = format!("{e:#}"), "could not tidy up after it");
                     }
+                }
+                // After the stops above, so a team profile's bundle has been
+                // pushed before the process that pushes it goes.
+                if agent.exit_when_idle.load(std::sync::atomic::Ordering::SeqCst) && agent.idle().await {
+                    tracing::info!("the last profile closed after the shell quit; exiting");
+                    std::process::exit(0);
                 }
             }
         });
@@ -412,6 +432,9 @@ impl Agent {
     ) -> anyhow::Result<serde_json::Value> {
         use serde_json::json;
 
+        if matches!(method, "status" | "profile.launch") {
+            self.exit_when_idle.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
         match method {
             // The shell's in-app update stops the agent before it replaces the
             // files: on macOS the bundle is swapped under a running agent,
@@ -421,6 +444,27 @@ impl Agent {
             // Refused while a profile is open. The agent holds its lock and
             // relays, and the shell asks the person to close them first; this
             // is the same rule, kept here too so no caller can skip it.
+            // `when_idle`: the shell is quitting (macOS kept showing Fury as
+            // "running in background" for as long as the agent it started was
+            // alive, 10.10.2026). Nothing open: exit now. Profiles open: they
+            // keep their agent, which exits once the last of them has closed
+            // and pushed its bundle (start_reaper). Anything that uses the
+            // agent again in the meantime -- the shell reopening, a launch,
+            // MCP -- calls `status` or `profile.launch` and cancels that.
+            "agent.shutdown" if params.get("when_idle").and_then(|v| v.as_bool()) == Some(true) => {
+                if !self.idle().await {
+                    self.exit_when_idle.store(true, std::sync::atomic::Ordering::SeqCst);
+                    tracing::info!("the shell quit with profiles open; exiting after the last one");
+                    return Ok(json!({ "stopping": false, "when_idle": true }));
+                }
+                tracing::info!("the shell quit and nothing is open; exiting");
+                tokio::spawn(async {
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                    std::process::exit(0);
+                });
+                Ok(json!({ "stopping": true }))
+            }
+
             "agent.shutdown" => {
                 let open = self.running.lock().await.len();
                 if open > 0 {
@@ -3204,6 +3248,50 @@ mod exit_check_tests {
     ///
     /// So the test is the negative one. A dead proxy must produce a failure; a
     /// check that succeeds through a port with nothing behind it went direct.
+    /// The shell quitting with a profile open must not take the profile's
+    /// agent with it: the agent waits for the browser, a shell or launch that
+    /// comes back cancels the wait, and once the browser is gone it is idle.
+    /// A `sleep` stands in for the browser; the reaper's exit is not run here.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn quitting_the_shell_waits_for_open_profiles() {
+        let _guard = crate::ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let home = std::env::temp_dir().join(format!("fury-quit-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&home).ok();
+        // SAFETY: the mutex above is what makes this single-threaded.
+        unsafe { std::env::set_var("FURY_HOME", &home) };
+        let agent = super::Agent::new().await.expect("an agent in a scratch home");
+        let child = std::process::Command::new("sleep").arg("1").spawn().unwrap();
+        agent.running.lock().await.insert(
+            "p1".into(),
+            super::Running {
+                child,
+                server: None,
+                profile_key: None,
+                lock_token: None,
+                heartbeat: None,
+                relay_port: 0,
+                ws_endpoint: None,
+                relay: tokio::spawn(async {}),
+            },
+        );
+        let flag = || agent.exit_when_idle.load(std::sync::atomic::Ordering::SeqCst);
+
+        let r = agent.dispatch("agent.shutdown", serde_json::json!({ "when_idle": true })).await.unwrap();
+        assert_eq!(r["stopping"], false, "{r}");
+        assert!(flag(), "an open profile should make the agent wait, not go");
+        assert!(!agent.idle().await);
+
+        agent.dispatch("status", serde_json::json!({})).await.unwrap();
+        assert!(!flag(), "the shell coming back must cancel the wait");
+
+        agent.dispatch("agent.shutdown", serde_json::json!({ "when_idle": true })).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        assert!(flag());
+        assert!(agent.idle().await, "the browser is gone; the reaper may let the agent go");
+        std::fs::remove_dir_all(&home).ok();
+    }
+
     #[tokio::test]
     async fn a_dead_proxy_means_no_answer_rather_than_a_direct_one() {
         // Port 9 discards. Nothing is listening for SOCKS5 there.
