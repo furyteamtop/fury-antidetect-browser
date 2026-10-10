@@ -1,24 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
-//! Is there a newer version?
+//! Is there a newer version, and installing it.
 //!
-//! Asks the release feed and reports; it does not install. Installing an update
-//! means running code the user did not choose, so it has to be verifiable — a
-//! signature they can check against a key shipped with the application — and
-//! until releases are signed, an automatic installer would be a way to push
-//! arbitrary code onto every machine running Fury. That is precisely the
-//! property an anti-detect browser must not have.
+//! The check asks the release feed and reports. The install (from 0.2.25) is
+//! Tauri's updater: it downloads the build named in `latest.json` on the
+//! newest release, checks its minisign signature against the public key in
+//! tauri.conf.json, and only then replaces the application. Installing an
+//! update is running code the person did not choose, so the signature is the
+//! whole point: the private key lives on the release machine
+//! (~/.private_keys/fury-updater.key) and nothing that reaches GitHub, the
+//! network or this process can make an unsigned build install.
 //!
-//! So: check, tell, link. The install stays a decision a person makes.
-//!
-//! # Why not the Tauri updater plugin
-//!
-//! Because it wants the same thing this file is waiting for — a signing key and
-//! a signed feed — and adds an installer on top. When the keys exist the plugin
-//! becomes the right answer and this becomes its check step.
+//! What a person sees: one button. If profiles are open it says to close them
+//! (the agent holds their locks and relays). Otherwise the agent is stopped,
+//! the build downloads with progress, installs, and the application restarts
+//! on the new version. A release without a signed build falls back to the
+//! download link, which is all the button did before.
 
 use serde::Serialize;
+use std::sync::Mutex;
+use tauri_plugin_updater::UpdaterExt;
 
 /// Where releases are published. The repository is also in Cargo.toml; here it
 /// is the API host, so a fork changes one constant.
@@ -265,4 +267,151 @@ pub async fn open_url(url: String) -> Result<(), crate::commands::ApiErr> {
     spawned
         .map(|_| ())
         .map_err(|e| crate::commands::ApiErr::local(format!("could not open a browser: {e}")))
+}
+
+/// Where an install is, for the bar to show. Polled, like the core download.
+#[derive(Clone, Default, Serialize)]
+pub struct InstallProgress {
+    /// `"idle" | "checking" | "stopping" | "downloading" | "installing" | "restarting" | "failed"`
+    pub stage: &'static str,
+    pub received: u64,
+    pub total: Option<u64>,
+    pub error: Option<String>,
+}
+
+static PROGRESS: Mutex<InstallProgress> =
+    Mutex::new(InstallProgress { stage: "idle", received: 0, total: None, error: None });
+
+fn set_stage(stage: &'static str) {
+    if let Ok(mut p) = PROGRESS.lock() {
+        p.stage = stage;
+    }
+}
+
+#[tauri::command]
+pub fn update_progress() -> InstallProgress {
+    PROGRESS.lock().map(|p| p.clone()).unwrap_or_default()
+}
+
+/// A failure the bar names in the person's language; the message is the
+/// fallback.
+fn coded(code: &str, message: impl Into<String>) -> crate::commands::ApiErr {
+    let mut e = crate::commands::ApiErr::local(message);
+    e.code = Some(code.to_string());
+    e
+}
+
+/// Download, verify, install and restart. See the module notes.
+///
+/// Errors with code `profiles_open` (nothing was touched), `no_signed_update`
+/// (the newest release has no signed build: the bar opens the download link
+/// instead) or `update_failed`.
+#[tauri::command]
+pub async fn install_update(app: tauri::AppHandle) -> Result<(), crate::commands::ApiErr> {
+    let result = install(&app).await;
+    if let Err(e) = &result {
+        if let Ok(mut p) = PROGRESS.lock() {
+            p.stage = "failed";
+            p.error = Some(e.message.clone());
+        }
+    }
+    result
+}
+
+async fn install(app: &tauri::AppHandle) -> Result<(), crate::commands::ApiErr> {
+    if let Ok(mut p) = PROGRESS.lock() {
+        *p = InstallProgress { stage: "checking", ..Default::default() };
+    }
+
+    // Open profiles first: stopping the agent under them would drop their
+    // locks and relays, and the installer on Windows kills it outright.
+    if let Ok(status) = crate::agent::call::<serde_json::Value>("status", serde_json::json!({})).await {
+        let open = status["running"].as_array().map_or(0, Vec::len);
+        if open > 0 {
+            return Err(coded("profiles_open", format!("{open} profile(s) are open; close them first")));
+        }
+    }
+
+    // FURY_UPDATE_FEED points the check at another latest.json, for testing an
+    // install end to end. It cannot weaken anything: whatever it names still
+    // has to carry a signature from the release key.
+    let mut builder = app.updater_builder();
+    if let Ok(feed) = std::env::var("FURY_UPDATE_FEED") {
+        let url = feed
+            .parse()
+            .map_err(|e| coded("update_failed", format!("FURY_UPDATE_FEED: {e}")))?;
+        builder = builder
+            .endpoints(vec![url])
+            .map_err(|e| coded("update_failed", e.to_string()))?;
+    }
+    let update = builder
+        .build()
+        .map_err(|e| coded("update_failed", e.to_string()))?
+        .check()
+        .await
+        .map_err(|e| coded("update_failed", e.to_string()))?
+        .ok_or_else(|| coded("no_signed_update", "the newest release has no signed build for this system"))?;
+
+    // Downloaded and checked against the release key before anything else is
+    // touched: a build that fails here leaves the agent running and the
+    // application as it was. Measured on a test bundle offered a tampered
+    // archive: refused, the bundle unchanged byte for byte.
+    set_stage("downloading");
+    let bytes = update
+        .download(
+            |chunk, total| {
+                if let Ok(mut p) = PROGRESS.lock() {
+                    p.received += chunk as u64;
+                    p.total = total;
+                }
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| coded("update_failed", e.to_string()))?;
+
+    // The agent runs from inside the application: on macOS the bundle is
+    // replaced under it, and it would go on serving the old code until the
+    // machine restarts. An agent older than 0.2.25 does not know the method;
+    // that is not a reason to stop (Windows' installer kills it anyway).
+    set_stage("stopping");
+    match crate::agent::call::<serde_json::Value>("agent.shutdown", serde_json::json!({})).await {
+        Ok(_) => {
+            for _ in 0..30 {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                if fury_platform::Stream::connect(&crate::agent::ipc_endpoint()).await.is_err() {
+                    break;
+                }
+            }
+        }
+        Err(e) => eprintln!("agent did not stop before the update: {e}"),
+    }
+
+    set_stage("installing");
+    if let Err(e) = update.install(bytes) {
+        // Nothing replaced: bring the agent back for the version still here.
+        let _ = crate::agent::ensure_running().await;
+        return Err(coded("update_failed", e.to_string()));
+    }
+
+    // On Windows the installer has already taken over and this process is on
+    // its way out; on macOS the new bundle is in place and this restarts into
+    // it, and the new shell starts the new agent.
+    set_stage("restarting");
+    app.restart();
+}
+
+/// FURY_UPDATE_INSTALL_NOW with FURY_UPDATE_FEED: install at start, for an end
+/// to end test on a machine nobody is clicking on. Same checks, same signature.
+pub fn maybe_install_on_start(app: &tauri::AppHandle) {
+    if std::env::var("FURY_UPDATE_INSTALL_NOW").is_err() || std::env::var("FURY_UPDATE_FEED").is_err() {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        if let Err(e) = install(&app).await {
+            eprintln!("install on start failed: {} ({:?})", e.message, e.code);
+        }
+    });
 }

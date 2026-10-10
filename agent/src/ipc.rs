@@ -413,6 +413,28 @@ impl Agent {
         use serde_json::json;
 
         match method {
+            // The shell's in-app update stops the agent before it replaces the
+            // files: on macOS the bundle is swapped under a running agent,
+            // which would go on serving the old code beside the new shell until
+            // the machine restarts (Windows' installer kills it, hooks.nsh).
+            //
+            // Refused while a profile is open. The agent holds its lock and
+            // relays, and the shell asks the person to close them first; this
+            // is the same rule, kept here too so no caller can skip it.
+            "agent.shutdown" => {
+                let open = self.running.lock().await.len();
+                if open > 0 {
+                    anyhow::bail!("{open} profile(s) are open; close them first");
+                }
+                tracing::info!("shutting down on request");
+                // After the answer is written, not before: the caller waits for it.
+                tokio::spawn(async {
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                    std::process::exit(0);
+                });
+                Ok(json!({ "stopping": true }))
+            }
+
             "status" => {
                 let running = self.running.lock().await;
                 Ok(json!({

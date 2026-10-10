@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "./i18n";
-import { api, ApiError, type LocalProxy, type Me, type MirrorStatus, type Profile, type Project, type Shell, type WarmProgress } from "./api";
+import { api, ApiError, type LocalProxy, type Me, type MirrorStatus, type Profile, type Project, type Shell, type UpdateProgress, type WarmProgress } from "./api";
 import { Login } from "./components/Login";
 import { ProfileDialog } from "./components/ProfileDialog";
 import { BulkProfiles } from "./components/BulkProfiles";
@@ -74,6 +74,33 @@ export function App() {
       return null;
     }
   });
+  // An in-app install under way (src-tauri/update.rs), and why one stopped.
+  const [installing, setInstalling] = useState<UpdateProgress | null>(null);
+  const [installError, setInstallError] = useState<string | null>(null);
+  const installUpdate = async () => {
+    if (!update) return;
+    setInstallError(null);
+    setInstalling({ stage: "checking", received: 0, total: null, error: null });
+    const poll = setInterval(() => {
+      api.updateProgress().then(setInstalling, () => {});
+    }, 300);
+    try {
+      await api.installUpdate();
+    } catch (e: any) {
+      const code = e instanceof ApiError ? e.code : null;
+      if (code === "no_signed_update") {
+        // A release without a signed build: the link, as before 0.2.25.
+        void api.openUrl(update.download ?? update.url ?? "");
+      } else if (code === "profiles_open") {
+        setInstallError(t("app.updateCloseProfiles"));
+      } else {
+        setInstallError(t("app.updateFailed", { message: e?.message ?? String(e) }));
+      }
+      setInstalling(null);
+    } finally {
+      clearInterval(poll);
+    }
+  };
   useEffect(() => {
     let off = false;
     try {
@@ -882,24 +909,39 @@ export function App() {
             screen, so nobody saw a release unless they went looking: the
             owner ran 0.2.10 for a week of releases and asked why the
             application never said (08.10.2026). Checked at start and every
-            six hours; dismissed per version. It links, it does not install --
-            see src-tauri/update.rs. */}
+            six hours; dismissed per version. From 0.2.25 the button installs a
+            signed build and restarts; a release without one falls back to the
+            download link. See src-tauri/update.rs. */}
         {update && update.status === "available" && update.latest !== dismissedUpdate && (
           <div className="notice" role="status">
             <div style={{ flex: 1 }}>
               <strong>{t("app.updateAvailable", { version: (update.latest ?? "").replace(/^v/, ""), current: update.current })}</strong>
-              <div className="muted" style={{ marginTop: "var(--s-1)" }}>{t("app.updateHow")}</div>
+              <div className="muted" style={{ marginTop: "var(--s-1)" }}>
+                {installing
+                  ? installing.stage === "downloading" && installing.total
+                    ? t("app.updateStage.downloading", {
+                        percent: Math.min(100, Math.round((installing.received / installing.total) * 100)),
+                      })
+                    : t(`app.updateStage.${installing.stage === "downloading" ? "downloadingNoSize" : installing.stage}`)
+                  : installError ?? t("app.updateHow")}
+              </div>
             </div>
             {update.url && (
               <button className="ghost" onClick={() => void api.openUrl(update.url!)}>
                 {t("app.updateNotes")}
               </button>
             )}
-            <button className="primary" onClick={() => void api.openUrl(update.download ?? update.url!)}>
-              {t("app.updateDownload")}
+            {installError && (update.download ?? update.url) && (
+              <button className="ghost" onClick={() => void api.openUrl(update.download ?? update.url!)}>
+                {t("app.updateDownload")}
+              </button>
+            )}
+            <button className="primary" disabled={!!installing} onClick={() => void installUpdate()}>
+              {t("app.updateInstall")}
             </button>
             <button
               className="ghost"
+              disabled={!!installing}
               onClick={() => {
                 try {
                   localStorage.setItem("fury.update.dismissed", update.latest ?? "");

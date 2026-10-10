@@ -26,6 +26,9 @@ tauri = { version = "2", features = [] }
 # Two copies of the shell would each keep a profile lock alive and each show a
 # stale view of the other's work. See the comment in main.rs.
 tauri-plugin-single-instance = "2"
+# In-app updates, verified against the key in tauri.conf.json before anything
+# is installed. See update.rs.
+tauri-plugin-updater = "2"
 
 # rustls for one TLS implementation across macOS and Windows — one set of
 # failures to explain instead of two.

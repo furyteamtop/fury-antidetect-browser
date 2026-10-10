@@ -48,7 +48,11 @@ fn main() {
                 let _ = w.set_focus();
             }
         }))
+        // Updates are checked against the public key in tauri.conf.json; the
+        // private half never leaves the release machine. See update.rs.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            update::maybe_install_on_start(app.handle());
             let config_dir = app.path().app_config_dir()?;
             let settings = Settings::load(&config_dir);
             let seen_generation = settings.ork_generation;
@@ -125,6 +129,8 @@ fn main() {
             commands::shared_with_me,
             commands::move_profiles,
             update::check_update,
+            update::install_update,
+            update::update_progress,
             assistants::assistants_state,
             assistants::assistants_connect,
             assistants::assistants_disconnect,

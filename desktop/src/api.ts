@@ -569,6 +569,13 @@ export type Invitation = {
   creates_org_key: boolean;
 };
 
+export type UpdateProgress = {
+  stage: "idle" | "checking" | "stopping" | "downloading" | "installing" | "restarting" | "failed";
+  received: number;
+  total: number | null;
+  error: string | null;
+};
+
 async function cmd<T>(name: string, args: Record<string, unknown> = {}): Promise<T> {
   try {
     return await invoke<T>(name, args);
@@ -843,8 +850,8 @@ export const api = {
   assistantsDisconnect: (client: string): Promise<Assistants> => cmd("assistants_disconnect", { client }),
   assistantsInstallSkill: (): Promise<Assistants> => cmd("assistants_install_skill"),
 
-  /** Ask the release feed whether there is a newer build. It never installs:
-   *  see src-tauri/update.rs for why that waits on signed releases. */
+  /** Ask the release feed whether there is a newer build. Installing is
+   *  installUpdate, below. */
   checkUpdate: (): Promise<{
     current: string;
     latest: string | null;
@@ -928,6 +935,13 @@ export const api = {
    *  the application window has nowhere to go — the window is not a browser —
    *  so a link that looks like one does nothing until it goes through here. */
   openUrl: (url: string): Promise<void> => cmd<void>("open_url", { url }),
+
+  /** Download, verify against the release key, install and restart (from
+   *  0.2.25; src-tauri/update.rs). Rejects with code `profiles_open`,
+   *  `no_signed_update` or `update_failed`; on success the application
+   *  restarts and the promise never settles. */
+  installUpdate: (): Promise<void> => cmd<void>("install_update"),
+  updateProgress: (): Promise<UpdateProgress> => cmd<UpdateProgress>("update_progress"),
 
   totpCode: (profileId: string, id: string): Promise<TotpCode> =>
     cmd<TotpCode>("totp_code", { profileId, id }),
