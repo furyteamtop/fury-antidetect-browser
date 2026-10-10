@@ -492,6 +492,16 @@
 # wheel, and a page listening for `wheel` on one has found a desktop.
 0132-mobile-touch.patch
 
+# MOBILE WINDOW (docs/18, step 3, the window itself). A phone persona's
+# normal browser windows open phone-sized: the page's height plus this
+# browser's toolbar, the phone's width plus a margin (clamped by the platform's
+# minimum), every time. WindowSizer answers the phone's size when the bounds
+# are chosen, and BrowserView applies it again on first show: a session
+# restored at 1000x833 came back at 1000x833 although WindowSizer had said
+# otherwise. Popups keep the size their page asked for; the person can still
+# resize the window afterwards.
+0133-mobile-window.patch
+
 # --- network ----------------------------------------------------------------
 # NOT NEEDED FOR PARITY, and removing them from the plan is a finding rather
 # than a shortcut. Verified against M150 source on 31.07.2026:

@@ -1,0 +1,146 @@
+diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/views/frame/browser_view.cc
+index 63c3090b4c..2780750e49 100644
+--- a/chrome/browser/ui/views/frame/browser_view.cc
++++ b/chrome/browser/ui/views/frame/browser_view.cc
+@@ -1650,6 +1650,20 @@ void BrowserView::Show() {
+     return;
+   }
+ 
++  // Patch 0133: a phone persona's window is phone-sized once it is on screen,
++  // after whatever restored it. Measured: a session restored at 1000x833
++  // came back at 1000x833 although WindowSizer had answered the phone's size
++  // for it, twice. The person can still resize it afterwards.
++  if (std::optional<gfx::Size> phone = WindowSizer::FuryPhoneWindowSize();
++      phone && browser()->GetType() == BrowserWindowInterface::TYPE_NORMAL &&
++      !browser_widget_->IsFullscreen() && !browser_widget_->IsMaximized()) {
++    gfx::Rect bounds = browser_widget_->GetWindowBoundsInScreen();
++    if (bounds.size() != *phone) {
++      bounds.set_size(*phone);
++      browser_widget_->SetBounds(bounds);
++    }
++  }
++
+   OnWindowDidShow();
+ 
+   // The fullscreen transition clears out focus, but there are some cases (for
+diff --git a/chrome/browser/ui/window_sizer/BUILD.gn b/chrome/browser/ui/window_sizer/BUILD.gn
+index af9d0762ff..02943b3920 100644
+--- a/chrome/browser/ui/window_sizer/BUILD.gn
++++ b/chrome/browser/ui/window_sizer/BUILD.gn
+@@ -38,6 +38,7 @@ source_set("impl") {
+     "//chrome/browser/ui/browser_window",
+     "//chrome/browser/ui/web_applications",
+     "//chrome/common:non_code_constants",
++    "//components/fury",
+     "//components/prefs",
+     "//ui/base",
+     "//ui/display",
+diff --git a/chrome/browser/ui/window_sizer/window_sizer.cc b/chrome/browser/ui/window_sizer/window_sizer.cc
+index 54369c7b79..8c5d696bb9 100644
+--- a/chrome/browser/ui/window_sizer/window_sizer.cc
++++ b/chrome/browser/ui/window_sizer/window_sizer.cc
+@@ -4,6 +4,11 @@
+ 
+ #include "chrome/browser/ui/window_sizer/window_sizer.h"
+ 
++#include <algorithm>
++#include <optional>
++
++#include "components/fury/fury_config.h"
++
+ #include <algorithm>
+ #include <utility>
+ 
+@@ -248,10 +253,61 @@ void WindowSizer::GetBrowserWindowBoundsAndShowState(
+ }
+ #endif  // !BUILDFLAG(IS_LINUX)
+ 
++// Patch 0133: the outer size of a normal browser window on a phone persona.
++//
++// Patch 0131 gives the page the phone's screen whatever the window is, and
++// draws it at the window's top-left; without this the phone sat in the
++// corner of a desktop-sized window, or ran off the bottom of a short one.
++// Width: the phone plus a margin, and the platform clamps it to its minimum
++// (500 on macOS). Height: what the page lays out in (screen less the phone's
++// own browser chrome, screen.chromeHeightDelta), plus this browser's tab strip
++// and toolbar, 87 on macOS by verify-0902, plus a margin so an infobar does not
++// push the phone's bottom out of sight.
++// static
++std::optional<gfx::Size> WindowSizer::FuryPhoneWindowSize() {
++  const fury::FuryConfig* config = fury::FuryConfig::Get();
++  if (!config || !config->GetBool("mobile.enabled").value_or(false)) {
++    return std::nullopt;
++  }
++  std::optional<int> width = config->GetInt("screen.width");
++  std::optional<int> height = config->GetInt("screen.height");
++  if (!width || !height || *width <= 0 || *height <= 0) {
++    return std::nullopt;
++  }
++  const int phone_chrome =
++      std::max(0, config->GetInt("screen.chromeHeightDelta").value_or(0));
++  constexpr int kBrowserChrome = 87;
++  constexpr int kMargin = 24;
++  return gfx::Size(*width + 2 * kMargin,
++                   std::max(1, *height - phone_chrome) + kBrowserChrome + kMargin);
++}
++
+ void WindowSizer::DetermineWindowBoundsAndShowState(
+     const gfx::Rect& specified_bounds,
+     gfx::Rect* bounds,
+     ui::mojom::WindowShowState* show_state) {
++  // Patch 0133: a phone persona's browser windows are phone-sized, every
++  // time, including a window the session restores at the size it was left:
++  // the phone's screen does not change with the window. Popups opened by a
++  // page keep the size the page asked for.
++  if (std::optional<gfx::Size> phone = FuryPhoneWindowSize();
++      phone && browser_ &&
++      browser_->GetType() == BrowserWindowInterface::TYPE_NORMAL) {
++    gfx::Rect placed = *bounds;
++    if (placed.IsEmpty() && !GetLastActiveWindowBounds(&placed, show_state) &&
++        !GetSavedWindowBounds(&placed, show_state)) {
++      placed = GetDefaultWindowBounds(GetDisplayForNewWindow());
++    }
++    placed.set_size(*phone);
++    gfx::Rect work_area =
++        display::Screen::Get()->GetDisplayMatching(placed).work_area();
++    AdjustWorkAreaForPlatform(work_area);
++    placed.AdjustToFit(work_area);
++    *bounds = placed;
++    *show_state = ui::mojom::WindowShowState::kNormal;
++    return;
++  }
++
+   if (bounds->IsEmpty()) {
+     // See if there's last active window's placement information.
+     if (GetLastActiveWindowBounds(bounds, show_state)) {
+diff --git a/chrome/browser/ui/window_sizer/window_sizer.h b/chrome/browser/ui/window_sizer/window_sizer.h
+index 180c247327..bb590aba8c 100644
+--- a/chrome/browser/ui/window_sizer/window_sizer.h
++++ b/chrome/browser/ui/window_sizer/window_sizer.h
+@@ -6,11 +6,13 @@
+ #define CHROME_BROWSER_UI_WINDOW_SIZER_WINDOW_SIZER_H_
+ 
+ #include <memory>
++#include <optional>
+ 
+ #include "base/memory/raw_ptr.h"
+ #include "ui/base/mojom/window_show_state.mojom-forward.h"
+ #include "ui/base/ui_base_types.h"
+ #include "ui/gfx/geometry/rect.h"
++#include "ui/gfx/geometry/size.h"
+ 
+ class BrowserWindowInterface;
+ 
+@@ -33,6 +35,12 @@ class Screen;
+ // TODO(crbug.com/846736): Extract the platform-specific code out of this class.
+ class WindowSizer {
+  public:
++  // Patch 0133: the outer size of a normal browser window on a phone persona,
++  // or nullopt on any other. Applied here when the window's bounds are chosen
++  // and again by BrowserView when it is first shown, because a restored
++  // session's window comes back at the size it was left whatever this says.
++  static std::optional<gfx::Size> FuryPhoneWindowSize();
++
+   // An interface implemented by an object that can retrieve state from either a
+   // persistent store or an existing window.
+   class StateProvider {
