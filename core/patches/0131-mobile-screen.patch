@@ -239,7 +239,7 @@ index 034fb7e51d..6ca250c0ad 100644
  
  void ScreenMetricsEmulator::UpdateVisualProperties(
 diff --git a/third_party/blink/renderer/core/frame/web_frame_widget_impl.cc b/third_party/blink/renderer/core/frame/web_frame_widget_impl.cc
-index f3cea4974f..7a0a63981b 100644
+index f3cea4974f..4a0e52b3e2 100644
 --- a/third_party/blink/renderer/core/frame/web_frame_widget_impl.cc
 +++ b/third_party/blink/renderer/core/frame/web_frame_widget_impl.cc
 @@ -30,6 +30,8 @@
@@ -392,7 +392,7 @@ index f3cea4974f..7a0a63981b 100644
  }
  
  void WebFrameWidgetImpl::SetIsInertForSubFrame(bool inert) {
-@@ -3754,6 +3876,29 @@ const display::ScreenInfos& WebFrameWidgetImpl::GetOriginalScreenInfos() {
+@@ -3754,6 +3876,44 @@ const display::ScreenInfos& WebFrameWidgetImpl::GetOriginalScreenInfos() {
    return widget_base_->screen_infos();
  }
  
@@ -403,6 +403,21 @@ index f3cea4974f..7a0a63981b 100644
 +// fixed: a 0.3px border in a cross-site iframe still rounded to 0.5. Under
 +// Fury's own emulation the child gets the persona's factor, the one the
 +// parent's compositor now draws it at.
++std::optional<float> WebFrameWidgetImpl::FuryLayoutScaleFactor() {
++  if (!device_emulator_) {
++    return std::nullopt;
++  }
++  const fury::FuryConfig* config = fury::FuryConfig::Get();
++  std::optional<double> dpr =
++      config ? config->GetDouble("screen.devicePixelRatio") : std::nullopt;
++  const float emulated =
++      widget_base_->screen_infos().current().device_scale_factor;
++  if (!dpr || static_cast<float>(*dpr) != emulated) {
++    return std::nullopt;
++  }
++  return emulated;
++}
++
 +display::ScreenInfos WebFrameWidgetImpl::FuryScreenInfosForRemoteFrames() {
 +  display::ScreenInfos infos = GetOriginalScreenInfos();
 +  if (!device_emulator_) {
@@ -422,7 +437,7 @@ index f3cea4974f..7a0a63981b 100644
  gfx::Rect WebFrameWidgetImpl::WindowRect() {
    return widget_base_->WindowRect();
  }
-@@ -4556,6 +4701,8 @@ void WebFrameWidgetImpl::DidNavigate() {
+@@ -4556,6 +4716,8 @@ void WebFrameWidgetImpl::DidNavigate() {
    if (RuntimeEnabledFeatures::UnboundedElementEnabled()) {
      OnDismissed();
    }
@@ -431,7 +446,7 @@ index f3cea4974f..7a0a63981b 100644
  }
  
  void WebFrameWidgetImpl::FlushInputForTesting(base::OnceClosure done_callback) {
-@@ -5320,13 +5467,15 @@ void WebFrameWidgetImpl::SetScreenMetricsEmulationParameters(
+@@ -5320,13 +5482,15 @@ void WebFrameWidgetImpl::SetScreenMetricsEmulationParameters(
  void WebFrameWidgetImpl::SetScreenInfoAndSize(
      const display::ScreenInfos& screen_infos,
      const gfx::Size& widget_size_in_dips,
@@ -449,7 +464,7 @@ index f3cea4974f..7a0a63981b 100644
  }
  
  float WebFrameWidgetImpl::GetCompositingScaleFactor() {
-@@ -5569,12 +5718,18 @@ void WebFrameWidgetImpl::DidUpdateSurfaceAndScreen(
+@@ -5569,12 +5733,18 @@ void WebFrameWidgetImpl::DidUpdateSurfaceAndScreen(
          }
        });
  
@@ -472,19 +487,23 @@ index f3cea4974f..7a0a63981b 100644
    }
  }
 diff --git a/third_party/blink/renderer/core/frame/web_frame_widget_impl.h b/third_party/blink/renderer/core/frame/web_frame_widget_impl.h
-index e74d8a7fd4..4aaf35ff1f 100644
+index e74d8a7fd4..33529d9700 100644
 --- a/third_party/blink/renderer/core/frame/web_frame_widget_impl.h
 +++ b/third_party/blink/renderer/core/frame/web_frame_widget_impl.h
-@@ -499,6 +499,8 @@ class CORE_EXPORT WebFrameWidgetImpl
+@@ -499,6 +499,12 @@ class CORE_EXPORT WebFrameWidgetImpl
    const display::ScreenInfos& GetScreenInfos() override;
    const display::ScreenInfo& GetOriginalScreenInfo() override;
    const display::ScreenInfos& GetOriginalScreenInfos() override;
 +  // Patch 0131: the screen infos handed to child frames in other processes.
 +  display::ScreenInfos FuryScreenInfosForRemoteFrames();
++  // Patch 0131: the persona's scale factor while Fury's emulation lays the
++  // page out at it (ChromeClientImpl::WindowToViewportScalar); nullopt
++  // otherwise, including under DevTools device mode.
++  std::optional<float> FuryLayoutScaleFactor();
    gfx::Rect WindowRect() override;
    gfx::Rect ViewRect() override;
    void SetScreenRects(const gfx::Rect& widget_screen_rect,
-@@ -769,9 +771,14 @@ class CORE_EXPORT WebFrameWidgetImpl
+@@ -769,9 +775,14 @@ class CORE_EXPORT WebFrameWidgetImpl
        const blink::DeviceEmulationParams& params,
        const mojom::blink::DeviceEmulationCacheBehavior& cache_behavior =
            mojom::blink::DeviceEmulationCacheBehavior::kClearCache);
@@ -502,7 +521,7 @@ index e74d8a7fd4..4aaf35ff1f 100644
  
    // Update the surface allocation information, compositor viewport rect and
    // screen info on the widget.
-@@ -988,6 +995,9 @@ class CORE_EXPORT WebFrameWidgetImpl
+@@ -988,6 +999,9 @@ class CORE_EXPORT WebFrameWidgetImpl
        const DeviceEmulationParams& parameters,
        const mojom::blink::DeviceEmulationCacheBehavior cache_behavior) override;
    void DisableDeviceEmulation() override;
@@ -527,6 +546,30 @@ index a645bc18a9..a089e74af7 100644
    visual_properties.visible_viewport_size =
        ancestor_widget->VisibleViewportSize();
    const std::vector<gfx::Rect>& viewport_segments =
+diff --git a/third_party/blink/renderer/core/page/chrome_client_impl.cc b/third_party/blink/renderer/core/page/chrome_client_impl.cc
+index 8a9acc6dc7..70105b052a 100644
+--- a/third_party/blink/renderer/core/page/chrome_client_impl.cc
++++ b/third_party/blink/renderer/core/page/chrome_client_impl.cc
+@@ -646,6 +646,19 @@ float ChromeClientImpl::WindowToViewportScalar(LocalFrame* frame,
+   }
+ 
+   if (auto* widget = frame->GetWidgetForLocalRoot()) {
++    // Fury patch 0131: under Fury's own emulation the page is laid out at the
++    // persona's scale factor, while DIPsToBlinkSpace stays on the host's for
++    // input, which the emulation transform maps on from there. Everything
++    // here sizes layout from DIPs: scrollbars, the caret, a <select>'s arrow
++    // and popup, the line step. Measured with a 1x Windows persona on a 2x
++    // Mac: a 15px scrollbar measured 30 (15 DIPs at the host's 2, laid out
++    // at 1).
++    // WebFrameWidgetImpl is the one FrameWidget there is (web_view_impl.cc
++    // downcasts the same way).
++    if (std::optional<float> fury =
++            static_cast<WebFrameWidgetImpl*>(widget)->FuryLayoutScaleFactor()) {
++      return scalar_value * *fury;
++    }
+     return widget->DIPsToBlinkSpace(scalar_value);
+   }
+   return scalar_value;
 diff --git a/third_party/blink/renderer/core/frame/local_dom_window.cc b/third_party/blink/renderer/core/frame/local_dom_window.cc
 index f880e3b374..eac39b0c46 100644
 --- a/third_party/blink/renderer/core/frame/local_dom_window.cc

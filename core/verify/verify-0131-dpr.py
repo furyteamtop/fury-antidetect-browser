@@ -49,6 +49,7 @@ PAGE = """<!doctype html><meta name="viewport" content="width=device-width, init
 <style>body{margin:0;background:#fff} #p{position:absolute;left:10px;top:10px;width:200px;height:20px;background:paint(dpr)}
 #b{position:absolute;left:10px;top:60px;width:50px;height:10px;border-top:0.3px solid #000} #r{position:absolute;left:10px;top:100px;width:100px;height:100px}</style>
 <div id="p"></div><div id="b"></div><div id="r"></div>
+<div id="sb" style="position:absolute;left:400px;top:10px;width:100px;height:60px;overflow:scroll"></div>
 <img id="i" srcset="/img1 1x, /img2 2x, /img3 3x" style="position:absolute;top:220px">
 <div id="corner" style="position:fixed;right:0;bottom:0;width:30px;height:30px;background:#f00"></div>
 <button id="btn" style="position:absolute;left:300px;top:300px;width:80px;height:40px" onclick="window.hits=(window.hits||0)+1">b</button>
@@ -64,6 +65,7 @@ out.border = document.getElementById('b').getBoundingClientRect().height - 10;
 new ResizeObserver(e => { const s = e[0].devicePixelContentBoxSize; out.dpcb = s ? s[0].inlineSize : null; })
   .observe(document.getElementById('r'), {box: 'device-pixel-content-box'});
 out.isExtended = screen.isExtended;
+out.scrollbar = (e => e.offsetWidth - e.clientWidth)(document.getElementById('sb'));
 Object.assign(out, {iw: innerWidth, ih: innerHeight, ow: outerWidth, oh: outerHeight, sx: screenX, sy: screenY, sw: screen.width, sh: screen.height, saw: screen.availWidth, sah: screen.availHeight, cw: document.documentElement.clientWidth, dw: matchMedia(`(device-width: ${screen.width}px)`).matches});
 out.hasScreenDetails = 'getScreenDetails' in window;
 addEventListener('message', e => (out.frames = out.frames || []).push(e.data));
@@ -192,7 +194,7 @@ PHONE = {"schema_version": 1, "navigator": {"maxTouchPoints": 5},
                     "devicePixelRatio": 2.8125, "chromeHeightDelta": 192, "colorDepth": 24},
          "mobile": {"enabled": True, "connectionType": "cellular", "touchSeed": 1}}
 
-host = run({"schema_version": 1})
+host = run({"schema_version": 1, "screen": {"scrollbarWidth": 15}})
 print(f"  host    {json.dumps(host)}")
 check(host["dpr"] == 2, "this host is a 2x screen, so a persona at another ratio can be told from it")
 # What a desktop persona must keep from the host run.
@@ -200,8 +202,8 @@ SAME = ("iw", "ih", "ow", "oh", "sw", "sh", "saw", "sah", "win", "shot", "hits")
 
 for name, cfg, ratio, img in [
         ("phone", PHONE, 2.8125, "img3"),
-        ("1x desktop", {"schema_version": 1, "screen": {"devicePixelRatio": 1.0}}, 1.0, "img1"),
-        ("1.25x desktop", {"schema_version": 1, "screen": {"devicePixelRatio": 1.25}}, 1.25, "img2")]:
+        ("1x desktop", {"schema_version": 1, "screen": {"devicePixelRatio": 1.0, "scrollbarWidth": 15}}, 1.0, "img1"),
+        ("1.25x desktop", {"schema_version": 1, "screen": {"devicePixelRatio": 1.25, "scrollbarWidth": 15}}, 1.25, "img2")]:
     o = run(cfg)
     print(f"\n--- {name} ---\n  {json.dumps(o)}")
     pixel = 1 / ratio if ratio > 1 else 1.0
@@ -235,6 +237,13 @@ for name, cfg, ratio, img in [
           f"{name}: in a 903x653 window the page is {iw}x{ih} (visual viewport {vw:.2f}x{vh:.2f}), "
           f"the host's {h_iw}x{h_ih}{'' if ratio == 1.0 else ' to within the persona pixel'}, "
           f"never wider than the window's {ow}x{oh}")
+    # A 15 DIP scrollbar is int(15 * ratio) device pixels, as Chrome's own
+    # theme rounds it: 15 at 1x, 18 / 1.25 = 14.4 at 1.25x. Before the layout
+    # scale followed the persona it was 15 at the host's 2, measured 30 and 24.
+    want = int(15 * ratio) / ratio
+    check(host["scrollbar"] == 15 and abs(o["scrollbar"] - want) <= 0.6,
+          f"{name}: a 15px scrollbar measures {o['scrollbar']} (a real {ratio}x screen: "
+          f"{want:.1f}; the host run {host['scrollbar']})")
     lost = {k: (host[k], o[k]) for k in SAME if host[k] != o[k]}
     check(not lost,
           f"{name}: window, inner and outer sizes, screen and its available area, the screenshot's "

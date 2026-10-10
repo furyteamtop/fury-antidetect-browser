@@ -23,6 +23,7 @@ So this checks both directions:
 Usage: core/verify/verify-0900.py <core binary>
 """
 
+import glob
 import json
 import os
 import plistlib
@@ -85,8 +86,14 @@ def main():
                  f"org.chromium.Chromium inside shares macOS state with a real "
                  f"Chromium install (got {plist.get('CFBundleIdentifier')!r})")
 
-    helpers = sorted(n for n in os.listdir(outdir) if n.endswith("Helper.app")
-                     or "Helper (" in n)
+    # The helpers the app runs are the ones inside its framework. A build
+    # directory also has loose copies beside the bundle; a signed bundle
+    # (signed/stable/) has only the ones inside, which this used to miss.
+    inside = glob.glob(os.path.join(app, "Contents", "Frameworks", "*.framework",
+                                    "Versions", "Current", "Helpers"))
+    where = [outdir] + inside
+    helpers = sorted({n for d in where for n in os.listdir(d)
+                      if n.endswith("Helper.app") or "Helper (" in n})
     print(f"  helpers: {helpers}")
     claims.check(helpers and all(h.startswith("Fury Helper") for h in helpers),
                  f"every helper is renamed with it — Fury.app spawning "
