@@ -502,6 +502,13 @@
 # resize the window afterwards.
 0133-mobile-window.patch
 
+# MOBILE CENTRE (docs/18, step 3). The page is a phone-wide column in the
+# middle of a phone persona's window, as DevTools places a device, instead of
+# a phone drawn at the left of a wider window (macOS will not make a Chrome
+# window narrower than 500). The view itself moves, so clicks and touches
+# need no mapping.
+0134-mobile-center.patch
+
 # --- network ----------------------------------------------------------------
 # NOT NEEDED FOR PARITY, and removing them from the plan is a finding rather
 # than a shortcut. Verified against M150 source on 31.07.2026:

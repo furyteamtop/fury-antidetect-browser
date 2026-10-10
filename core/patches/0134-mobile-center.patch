@@ -1,0 +1,49 @@
+diff --git a/chrome/browser/ui/BUILD.gn b/chrome/browser/ui/BUILD.gn
+index 82f397571f..f906667013 100644
+--- a/chrome/browser/ui/BUILD.gn
++++ b/chrome/browser/ui/BUILD.gn
+@@ -832,6 +832,7 @@ static_library("ui") {
+   ]
+ 
+   deps = [
++    "//components/fury",
+     ":browser_element_identifiers",
+     ":browser_otr_state",
+     ":browser_ui_prefs",
+diff --git a/chrome/browser/ui/views/frame/contents_container_view.cc b/chrome/browser/ui/views/frame/contents_container_view.cc
+index 099b89a24c..19aa99fdbb 100644
+--- a/chrome/browser/ui/views/frame/contents_container_view.cc
++++ b/chrome/browser/ui/views/frame/contents_container_view.cc
+@@ -9,6 +9,7 @@
+ #include <utility>
+ 
+ #include "base/i18n/rtl.h"
++#include "components/fury/fury_config.h"
+ #include "chrome/browser/actor/ui/actor_overlay_web_view.h"
+ #include "chrome/browser/devtools/devtools_contents_resizing_strategy.h"
+ #include "chrome/browser/enterprise/data_protection/data_protection_overlay_view.h"
+@@ -487,6 +488,24 @@ views::ProposedLayout ContentsContainerView::CalculateProposedLayout(
+                                         &non_devtools_contents_bounds);
+   gfx::Rect contents_view_bounds = non_devtools_contents_bounds;
+ 
++  // Patch 0134: on a phone persona the page is a phone-wide column in the
++  // middle of the window, as DevTools places a device in device mode, rather
++  // than a phone drawn at the left of a wider window (0131 gives the page the
++  // phone's screen whatever the window is, 0133 sizes the window, and macOS
++  // will not make it narrower than 500). Moving the view itself, not the
++  // drawing, keeps every click and touch where it lands with no coordinate
++  // mapping. Every page of the window gets the column, the browser's own
++  // included: in a phone-sized window that is what a page is.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get();
++      config && config->GetBool("mobile.enabled").value_or(false)) {
++    const int phone = config->GetInt("screen.width").value_or(0);
++    if (phone > 0 && phone < contents_view_bounds.width()) {
++      contents_view_bounds.set_x(contents_view_bounds.x() +
++                                 (contents_view_bounds.width() - phone) / 2);
++      contents_view_bounds.set_width(phone);
++    }
++  }
++
+   // DevTools cares about the specific position, so we have to compensate RTL
+   // layout here.
+   layouts.child_layouts.emplace_back(

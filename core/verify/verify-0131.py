@@ -181,9 +181,9 @@ check(bare["ow"] == 384 and bare["oh"] == 832,
       f"pixels ({bare['ow']}x{bare['oh']})")
 check(clicked == 1 and d_clicked == 1,
       f"a real mouse click lands on the button under emulation (phone {clicked}, desktop {d_clicked})")
-check(browser_page["iw"] >= 500 and abs(browser_page["iw"] - browser_page["vw"]) < 1,
-      f"chrome:// pages keep the desktop layout at the window's size, not "
-      f"Android's 980 zoomed out ({browser_page['iw']} wide, visual {browser_page['vw']})")
+check(browser_page["iw"] != 980 and abs(browser_page["iw"] - browser_page["vw"]) < 1,
+      f"chrome:// pages keep the desktop layout, not Android's 980 zoomed out "
+      f"({browser_page['iw']} wide, visual {browser_page['vw']}; 0134 makes the view phone-wide)")
 
 server.shutdown()
 bad = [t for ok, t in results if not ok]
