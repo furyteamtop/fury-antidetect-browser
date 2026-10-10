@@ -1,8 +1,100 @@
+diff --git a/content/browser/renderer_host/cross_process_frame_connector.cc b/content/browser/renderer_host/cross_process_frame_connector.cc
+index 4911f7177f..8a005cf53a 100644
+--- a/content/browser/renderer_host/cross_process_frame_connector.cc
++++ b/content/browser/renderer_host/cross_process_frame_connector.cc
+@@ -7,6 +7,7 @@
+ #include "base/functional/bind.h"
+ #include "base/metrics/histogram_macros.h"
+ #include "base/trace_event/optional_trace_event.h"
++#include "components/fury/fury_config.h"
+ #include "components/input/cursor_manager.h"
+ #include "components/input/render_widget_host_input_event_router.h"
+ #include "components/viz/common/features.h"
+@@ -46,10 +47,40 @@ CrossProcessFrameConnector::CrossProcessFrameConnector(
+   // GetScreenInfos() on the root RenderWidgetHost, which will be guaranteed to
+   // be on the correct display. All subsequent updates to |screen_infos_|
+   // ultimately come from the root, so it makes sense to do it here as well.
+-  screen_infos_ = current_child_frame_host()
+-                      ->GetOutermostMainFrameOrEmbedder()
+-                      ->GetRenderWidgetHost()
+-                      ->GetScreenInfos();
++  RenderFrameHostImpl* root =
++      current_child_frame_host()->GetOutermostMainFrameOrEmbedder();
++  screen_infos_ = FuryChildScreenInfos(
++      root, root->GetRenderWidgetHost()->GetScreenInfos());
++}
++
++// Fury patch 0131: the main frame's renderer lays out and draws a web page
++// at the persona's scale factor and hands it on to its cross-site frames
++// (WebFrameWidgetImpl::FuryScreenInfosForRemoteFrames), but only once the
++// child exists. Until then the child starts from the parent's real screen:
++// its view is created with it (RenderFrameHostImpl::CreateRenderFrame) and
++// the connector seeded from it, and a script in the child that measured at
++// once saw the host's factor. Measured with a 1x persona on a 2x Mac: a
++// 0.3px border in a cross-site iframe rounded to 0.5 on load and to 1 two
++// seconds later. So the child starts from the persona's factor too, except
++// under the browser's own pages, which the renderer does not emulate either.
++// static
++display::ScreenInfos CrossProcessFrameConnector::FuryChildScreenInfos(
++    RenderFrameHostImpl* root,
++    display::ScreenInfos screen_infos) {
++  const fury::FuryConfig* config = fury::FuryConfig::Get();
++  if (!config || !root) {
++    return screen_infos;
++  }
++  std::optional<double> dpr = config->GetDouble("screen.devicePixelRatio");
++  const GURL& url = root->GetLastCommittedURL();
++  const bool browser_page =
++      url.SchemeIs("chrome") || url.SchemeIs("devtools") ||
++      url.SchemeIs("chrome-untrusted") || url.SchemeIs("chrome-extension");
++  if (dpr && *dpr > 0 && !browser_page) {
++    screen_infos.mutable_current().device_scale_factor =
++        static_cast<float>(*dpr);
++  }
++  return screen_infos;
+ }
+ 
+ CrossProcessFrameConnector::~CrossProcessFrameConnector() {
+diff --git a/content/browser/renderer_host/cross_process_frame_connector.h b/content/browser/renderer_host/cross_process_frame_connector.h
+index 6a56f54cff..0bdc97b65c 100644
+--- a/content/browser/renderer_host/cross_process_frame_connector.h
++++ b/content/browser/renderer_host/cross_process_frame_connector.h
+@@ -97,6 +97,12 @@ class CONTENT_EXPORT CrossProcessFrameConnector : public FrameConnector {
+ 
+   ~CrossProcessFrameConnector() override;
+ 
++  // Fury patch 0131: |screen_infos| with the persona's scale factor, for a
++  // child frame under |root|; unchanged under the browser's own pages.
++  static display::ScreenInfos FuryChildScreenInfos(
++      RenderFrameHostImpl* root,
++      display::ScreenInfos screen_infos);
++
+   // |view| corresponds to B2's RenderWidgetHostViewChildFrame in the example
+   // above.
+   RenderWidgetHostViewChildFrame* get_view_for_testing() { return view_; }
+diff --git a/content/browser/renderer_host/render_frame_host_impl.cc b/content/browser/renderer_host/render_frame_host_impl.cc
+index 2a4625eebc..9e428d3f6d 100644
+--- a/content/browser/renderer_host/render_frame_host_impl.cc
++++ b/content/browser/renderer_host/render_frame_host_impl.cc
+@@ -4774,9 +4774,12 @@ bool RenderFrameHostImpl::CreateRenderFrame(
+   if (owned_render_widget_host_) {
+     CHECK(parent_);
+     CHECK(parent_frame_token);
++    // Fury patch 0131: the persona's scale factor from the start.
+     RenderWidgetHostView* rwhv = RenderWidgetHostViewChildFrame::Create(
+         owned_render_widget_host_.get(),
+-        parent_->GetRenderWidgetHost()->GetScreenInfos());
++        CrossProcessFrameConnector::FuryChildScreenInfos(
++            GetOutermostMainFrameOrEmbedder(),
++            parent_->GetRenderWidgetHost()->GetScreenInfos()));
+     // The child frame should be created hidden.
+     CHECK(!rwhv->IsShowing());
+   }
 diff --git a/third_party/blink/renderer/core/frame/screen_metrics_emulator.cc b/third_party/blink/renderer/core/frame/screen_metrics_emulator.cc
-index 034fb7e51d..a86708e9c4 100644
+index 034fb7e51d..6ca250c0ad 100644
 --- a/third_party/blink/renderer/core/frame/screen_metrics_emulator.cc
 +++ b/third_party/blink/renderer/core/frame/screen_metrics_emulator.cc
-@@ -5,6 +5,7 @@
+@@ -5,11 +5,29 @@
  #include "third_party/blink/renderer/core/frame/screen_metrics_emulator.h"
  
  #include "base/numerics/safe_conversions.h"
@@ -10,19 +102,40 @@ index 034fb7e51d..a86708e9c4 100644
  #include "third_party/blink/public/common/widget/visual_properties.h"
  #include "third_party/blink/renderer/core/frame/web_frame_widget_impl.h"
  
-@@ -68,16 +69,31 @@ void ScreenMetricsEmulator::Apply(
+ namespace blink {
+ 
++namespace {
++
++// Fury patch 0131: whether the emulation is the one Fury switched on from the
++// config, a phone's or a desktop persona's scale factor (WebFrameWidgetImpl::
++// MaybeApplyFuryEmulation), rather than DevTools device mode, which keeps its
++// own behaviour.
++bool FuryOwnsEmulation(const DeviceEmulationParams& params) {
++  const fury::FuryConfig* config = fury::FuryConfig::Get();
++  if (!config || params.device_scale_factor <= 0) {
++    return false;
++  }
++  std::optional<double> dpr = config->GetDouble("screen.devicePixelRatio");
++  return dpr && static_cast<float>(*dpr) == params.device_scale_factor;
++}
++
++}  // namespace
++
+ ScreenMetricsEmulator::ScreenMetricsEmulator(
+     WebFrameWidgetImpl* frame_widget,
+     const display::ScreenInfos& screen_infos,
+@@ -68,19 +86,35 @@ void ScreenMetricsEmulator::Apply(
    // though.
    gfx::Size window_size = original_window_rect().size();
  
-+  // Fury patch 0131: on a phone persona the compositor runs at the phone's
-+  // scale factor (see below), so the widget is laid out larger by phone /
-+  // host and the root scale brings it back to the phone's size on screen.
-+  // Without this the page saw 384 * 2 / 2.8125 = 273 CSS px of width.
++  // Fury patch 0131: the compositor runs at the persona's scale factor (see
++  // below), so the widget is laid out larger by persona / host and the root
++  // scale brings it back to the phone's size, or the window's, on screen.
++  // Without this a 384 phone at 2.8125 on a 2x host saw 384 * 2 / 2.8125 =
++  // 273 CSS px of width.
++  const bool fury = FuryOwnsEmulation(emulation_params_);
 +  float fury_ratio = 1.f;
-+  if (const fury::FuryConfig* config = fury::FuryConfig::Get();
-+      config && config->GetBool("mobile.enabled").value_or(false) &&
-+      emulation_params_.device_scale_factor > 0 &&
-+      original_screen_infos_.current().device_scale_factor > 0) {
++  if (fury && original_screen_infos_.current().device_scale_factor > 0) {
 +    fury_ratio = emulation_params_.device_scale_factor /
 +                 original_screen_infos_.current().device_scale_factor;
 +  }
@@ -35,7 +148,9 @@ index 034fb7e51d..a86708e9c4 100644
 +        base::ClampRound(emulation_params_.view_size.width() * fury_ratio));
    } else {
      widget_size.set_width(
-         base::ClampRound(widget_size.width() / emulation_params_.scale));
+-        base::ClampRound(widget_size.width() / emulation_params_.scale));
++        base::ClampRound(widget_size.width() / emulation_params_.scale *
++                         fury_ratio));
    }
    if (emulation_params_.view_size.height()) {
 -    widget_size.set_height(emulation_params_.view_size.height());
@@ -43,14 +158,19 @@ index 034fb7e51d..a86708e9c4 100644
 +        base::ClampRound(emulation_params_.view_size.height() * fury_ratio));
    } else {
      widget_size.set_height(
-         base::ClampRound(widget_size.height() / emulation_params_.scale));
-@@ -136,6 +152,33 @@ void ScreenMetricsEmulator::Apply(
+-        base::ClampRound(widget_size.height() / emulation_params_.scale));
++        base::ClampRound(widget_size.height() / emulation_params_.scale *
++                         fury_ratio));
+   }
+ 
+   // For mobile emulation, the window size is changed to match the widget size,
+@@ -136,6 +170,32 @@ void ScreenMetricsEmulator::Apply(
    DeviceEmulationParams modified_emulation_params = emulation_params_;
    modified_emulation_params.device_scale_factor =
        original_screen_info.device_scale_factor;
 +
-+  // Fury patch 0131: on a phone persona the compositor and layout run at the
-+  // phone's scale factor, not the host's.
++  // Fury patch 0131: the compositor and layout run at the persona's scale
++  // factor, phone or desktop, not the host's.
 +  //
 +  // Keeping the real one, as DevTools does for sharpness, leaves only the
 +  // number in window.devicePixelRatio emulated. Measured on a 2.8125 phone
@@ -59,14 +179,13 @@ index 034fb7e51d..a86708e9c4 100644
 +  // 100px box said 200 (the phone, 281), and a paint worklet read
 +  // devicePixelRatio 2. All three are the host's scale showing through.
 +  //
-+  // So the phone's factor goes to the compositor too, and the page is scaled
-+  // by host / phone at the root so it still occupies the phone's size on
-+  // screen: the same root scale DevTools applies when it zooms a device to
-+  // fit, which the input mapping already follows.
-+  if (const fury::FuryConfig* config = fury::FuryConfig::Get();
-+      config && config->GetBool("mobile.enabled").value_or(false) &&
-+      emulation_params_.device_scale_factor > 0 &&
-+      original_screen_info.device_scale_factor > 0 &&
++  // So the persona's factor goes to the compositor too, and the page is
++  // scaled by host / persona at the root so it still occupies the phone's
++  // size, or the window, on screen: the same root scale DevTools applies when
++  // it zooms a device to fit, which the input mapping already follows. A
++  // persona below the host's factor is drawn at its own resolution and
++  // enlarged, as on a real screen of that factor.
++  if (fury && original_screen_info.device_scale_factor > 0 &&
 +      emulation_params_.device_scale_factor !=
 +          original_screen_info.device_scale_factor) {
 +    modified_emulation_params.device_scale_factor =
@@ -78,8 +197,49 @@ index 034fb7e51d..a86708e9c4 100644
    frame_widget_->SetScreenMetricsEmulationParameters(
        true, std::move(modified_emulation_params), cache_behavior);
  
+@@ -159,12 +219,38 @@ void ScreenMetricsEmulator::Apply(
+       emulated_screen_infos.mutable_current();
+   emulated_screen_info.device_scale_factor = device_scale_factor;
+   emulated_screen_info.rect = screen_rect;
+-  emulated_screen_info.available_rect = screen_rect;
++  // Fury patch 0131: a desktop persona keeps the real screen, menu bar and
++  // dock included; only its scale factor is emulated.
++  if (!fury || !emulating_desktop() ||
++      !emulation_params_.screen_size.IsEmpty()) {
++    emulated_screen_info.available_rect = screen_rect;
++  }
+   emulated_screen_info.orientation_type = orientation_type;
+   emulated_screen_info.orientation_angle = orientation_angle;
++  // Fury patch 0131: the widget is laid out at the page's size in the
++  // persona's device pixels, not at widget_size, which is in whole DIPs of
++  // the host and so moves the page's size in steps of host / persona CSS
++  // px. Measured with a 1x persona on a 2x Mac: a 901 wide window gave an
++  // innerWidth of 902, wider than the window, and every innerWidth and
++  // innerHeight came out even. Floored, not ceiled: at a fractional ratio
++  // the last device pixel would make innerWidth (rounded from the 0.8 CSS px
++  // steps of 1.25x) one wider than outerWidth, which no browser reports.
++  std::optional<gfx::Size> fury_size_in_blink_space;
++  if (fury && fury_ratio != 1.f) {
++    gfx::SizeF page(
++        emulation_params_.view_size.width()
++            ? emulation_params_.view_size.width()
++            : original_widget_size_dips_.width() / emulation_params_.scale,
++        emulation_params_.view_size.height()
++            ? emulation_params_.view_size.height()
++            : original_widget_size_dips_.height() / emulation_params_.scale);
++    fury_size_in_blink_space = gfx::ToFlooredSize(
++        gfx::ScaleSize(page, emulation_params_.device_scale_factor));
++  }
+   frame_widget_->SetScreenInfoAndSize(emulated_screen_infos,
+                                       /*widget_size=*/widget_size,
+-                                      /*visible_viewport_size=*/widget_size);
++                                      /*visible_viewport_size=*/widget_size,
++                                      fury_size_in_blink_space);
+ }
+ 
+ void ScreenMetricsEmulator::UpdateVisualProperties(
 diff --git a/third_party/blink/renderer/core/frame/web_frame_widget_impl.cc b/third_party/blink/renderer/core/frame/web_frame_widget_impl.cc
-index f3cea4974f..aa919d97fa 100644
+index f3cea4974f..7a0a63981b 100644
 --- a/third_party/blink/renderer/core/frame/web_frame_widget_impl.cc
 +++ b/third_party/blink/renderer/core/frame/web_frame_widget_impl.cc
 @@ -30,6 +30,8 @@
@@ -91,7 +251,7 @@ index f3cea4974f..aa919d97fa 100644
  #include <algorithm>
  #include <memory>
  #include <optional>
-@@ -204,6 +206,57 @@ namespace blink {
+@@ -204,6 +206,88 @@ namespace blink {
  
  namespace {
  
@@ -138,6 +298,37 @@ index f3cea4974f..aa919d97fa 100644
 +  return params;
 +}
 +
++// Patch 0131, desktop personas: the compositor at the persona's scale factor.
++//
++// Patch 0020 answers devicePixelRatio, the resolution media queries and the
++// screen from the config, but the page is still laid out and drawn at the
++// host screen's factor, and that shows. Measured with a 1x and a 1.25x
++// persona on a 2x Mac: a 0.3px border rounded to 0.5 CSS px (one device
++// pixel at 2; at 1 it is 1, at 1.25 0.8), devicePixelContentBoxSize of a
++// 100px box said 200, and srcset loaded the 2x image.
++//
++// The same emulator as the phone's, with nothing else changed: the view
++// stays the window, the screen stays the real one (0020 answers for it), and
++// only the scale factor is the persona's. Switched on only when the two
++// differ, and checked again on every visual properties update, so a window
++// moved to a screen of another factor gets it then.
++std::optional<DeviceEmulationParams> FuryDesktopEmulation(float host_factor) {
++  const fury::FuryConfig* config = fury::FuryConfig::Get();
++  if (!config || config->GetBool("mobile.enabled").value_or(false)) {
++    return std::nullopt;
++  }
++  std::optional<double> dpr = config->GetDouble("screen.devicePixelRatio");
++  if (!dpr || *dpr <= 0 || host_factor <= 0 ||
++      static_cast<float>(*dpr) == host_factor) {
++    return std::nullopt;
++  }
++  DeviceEmulationParams params;
++  params.screen_type = mojom::EmulatedScreenType::kDesktop;
++  params.device_scale_factor = static_cast<float>(*dpr);
++  params.scale = 1;
++  return params;
++}
++
 +// The browser's own pages stay as they are: the new tab page, settings and
 +// DevTools are not the phone's web content, and a 384-wide settings page
 +// helps nobody.
@@ -149,33 +340,37 @@ index f3cea4974f..aa919d97fa 100644
  Element* GetElementFromDOMNodeId(DOMNodeIdType target_dom_node_id) {
    if (target_dom_node_id.is_null()) {
      return nullptr;
-@@ -2104,6 +2157,11 @@ void WebFrameWidgetImpl::UpdateVisualProperties(
+@@ -2104,6 +2188,12 @@ void WebFrameWidgetImpl::UpdateVisualProperties(
        unbounded_surface_state_->host_->UpdateBounds(bounds);
      }
    }
 +
-+  // Patch 0131: every new main-frame widget takes the phone's screen on its
-+  // first visual properties, which covers every tab, popup and process swap;
-+  // after that the emulator owns the sizing.
-+  MaybeApplyFuryMobileEmulation();
++  // Patch 0131: every new main-frame widget takes the phone's screen, or the
++  // desktop persona's scale factor, on its first visual properties, which
++  // covers every tab, popup and process swap; after that the emulator owns
++  // the sizing.
++  MaybeApplyFuryEmulation();
  }
  
  void WebFrameWidgetImpl::ApplyVisualPropertiesSizing(
-@@ -2493,6 +2551,35 @@ void WebFrameWidgetImpl::DisableDeviceEmulation() {
+@@ -2493,6 +2583,38 @@ void WebFrameWidgetImpl::DisableDeviceEmulation() {
      device_emulator_->DisableAndApply();
    }
    device_emulator_ = nullptr;
 +  // Patch 0131: DevTools clearing its own override must not take the phone
 +  // away for the rest of the page's life.
-+  MaybeApplyFuryMobileEmulation();
++  MaybeApplyFuryEmulation();
 +}
 +
-+void WebFrameWidgetImpl::MaybeApplyFuryMobileEmulation() {
++void WebFrameWidgetImpl::MaybeApplyFuryEmulation() {
 +  if (!ForTopMostMainFrame() || AutoResizeMode() || !widget_base_ ||
 +      widget_base_->WillBeDestroyed()) {
 +    return;
 +  }
 +  std::optional<DeviceEmulationParams> params = FuryMobileEmulation();
++  if (!params) {
++    params = FuryDesktopEmulation(GetOriginalScreenInfo().device_scale_factor);
++  }
 +  if (!params) {
 +    return;
 +  }
@@ -197,28 +392,141 @@ index f3cea4974f..aa919d97fa 100644
  }
  
  void WebFrameWidgetImpl::SetIsInertForSubFrame(bool inert) {
-@@ -4556,6 +4643,8 @@ void WebFrameWidgetImpl::DidNavigate() {
+@@ -3754,6 +3876,29 @@ const display::ScreenInfos& WebFrameWidgetImpl::GetOriginalScreenInfos() {
+   return widget_base_->screen_infos();
+ }
+ 
++// Patch 0131: a cross-site frame is its own widget in its own process and
++// lays itself out at the scale factor its parent hands it, which upstream is
++// the real one: DevTools emulates the ratio only in the outermost frame.
++// Measured with a 1x desktop persona on a 2x Mac after the main frame was
++// fixed: a 0.3px border in a cross-site iframe still rounded to 0.5. Under
++// Fury's own emulation the child gets the persona's factor, the one the
++// parent's compositor now draws it at.
++display::ScreenInfos WebFrameWidgetImpl::FuryScreenInfosForRemoteFrames() {
++  display::ScreenInfos infos = GetOriginalScreenInfos();
++  if (!device_emulator_) {
++    return infos;
++  }
++  const fury::FuryConfig* config = fury::FuryConfig::Get();
++  std::optional<double> dpr =
++      config ? config->GetDouble("screen.devicePixelRatio") : std::nullopt;
++  const float emulated =
++      widget_base_->screen_infos().current().device_scale_factor;
++  if (dpr && static_cast<float>(*dpr) == emulated) {
++    infos.mutable_current().device_scale_factor = emulated;
++  }
++  return infos;
++}
++
+ gfx::Rect WebFrameWidgetImpl::WindowRect() {
+   return widget_base_->WindowRect();
+ }
+@@ -4556,6 +4701,8 @@ void WebFrameWidgetImpl::DidNavigate() {
    if (RuntimeEnabledFeatures::UnboundedElementEnabled()) {
      OnDismissed();
    }
 +  // Patch 0131: a navigation to or from a browser page decides again.
-+  MaybeApplyFuryMobileEmulation();
++  MaybeApplyFuryEmulation();
  }
  
  void WebFrameWidgetImpl::FlushInputForTesting(base::OnceClosure done_callback) {
+@@ -5320,13 +5467,15 @@ void WebFrameWidgetImpl::SetScreenMetricsEmulationParameters(
+ void WebFrameWidgetImpl::SetScreenInfoAndSize(
+     const display::ScreenInfos& screen_infos,
+     const gfx::Size& widget_size_in_dips,
+-    const gfx::Size& visible_viewport_size) {
++    const gfx::Size& visible_viewport_size,
++    std::optional<gfx::Size> fury_size_in_blink_space) {
+   // Emulation happens on regular main frames which don't use auto-resize mode.
+   DCHECK(!AutoResizeMode());
+ 
+   UpdateScreenInfo(screen_infos);
+   widget_base_->SetVisibleViewportSize(visible_viewport_size);
+-  Resize(widget_base_->DIPsToCeiledBlinkSpace(widget_size_in_dips));
++  Resize(fury_size_in_blink_space.value_or(
++      widget_base_->DIPsToCeiledBlinkSpace(widget_size_in_dips)));
+ }
+ 
+ float WebFrameWidgetImpl::GetCompositingScaleFactor() {
+@@ -5569,12 +5718,18 @@ void WebFrameWidgetImpl::DidUpdateSurfaceAndScreen(
+         }
+       });
+ 
+-  if (previous_original_screen_infos != original_screen_infos) {
++  // Patch 0131: under Fury's own emulation the child frames get the
++  // persona's scale factor (FuryScreenInfosForRemoteFrames), so they are
++  // told whenever it differs; RemoteFrame sends nothing that has not changed.
++  const display::ScreenInfos remote_screen_infos =
++      FuryScreenInfosForRemoteFrames();
++  if (previous_original_screen_infos != original_screen_infos ||
++      remote_screen_infos != original_screen_infos) {
+     // Propagate changes down to child local root RenderWidgets and
+     // BrowserPlugins in other frame trees/processes.
+     ForEachRemoteFrameControlledByWidget(
+-        [&original_screen_infos](RemoteFrame* remote_frame) {
+-          remote_frame->DidChangeScreenInfos(original_screen_infos);
++        [&remote_screen_infos](RemoteFrame* remote_frame) {
++          remote_frame->DidChangeScreenInfos(remote_screen_infos);
+         });
+   }
+ }
 diff --git a/third_party/blink/renderer/core/frame/web_frame_widget_impl.h b/third_party/blink/renderer/core/frame/web_frame_widget_impl.h
-index e74d8a7fd4..053564c57a 100644
+index e74d8a7fd4..4aaf35ff1f 100644
 --- a/third_party/blink/renderer/core/frame/web_frame_widget_impl.h
 +++ b/third_party/blink/renderer/core/frame/web_frame_widget_impl.h
-@@ -988,6 +988,8 @@ class CORE_EXPORT WebFrameWidgetImpl
+@@ -499,6 +499,8 @@ class CORE_EXPORT WebFrameWidgetImpl
+   const display::ScreenInfos& GetScreenInfos() override;
+   const display::ScreenInfo& GetOriginalScreenInfo() override;
+   const display::ScreenInfos& GetOriginalScreenInfos() override;
++  // Patch 0131: the screen infos handed to child frames in other processes.
++  display::ScreenInfos FuryScreenInfosForRemoteFrames();
+   gfx::Rect WindowRect() override;
+   gfx::Rect ViewRect() override;
+   void SetScreenRects(const gfx::Rect& widget_screen_rect,
+@@ -769,9 +771,14 @@ class CORE_EXPORT WebFrameWidgetImpl
+       const blink::DeviceEmulationParams& params,
+       const mojom::blink::DeviceEmulationCacheBehavior& cache_behavior =
+           mojom::blink::DeviceEmulationCacheBehavior::kClearCache);
+-  void SetScreenInfoAndSize(const display::ScreenInfos& screen_infos,
+-                            const gfx::Size& widget_size_in_dips,
+-                            const gfx::Size& visible_viewport_size_in_dips);
++  // Fury patch 0131: |fury_size_in_blink_space|, when given, is the size
++  // the widget is laid out at, instead of |widget_size_in_dips| at the
++  // original scale factor (ScreenMetricsEmulator::Apply).
++  void SetScreenInfoAndSize(
++      const display::ScreenInfos& screen_infos,
++      const gfx::Size& widget_size_in_dips,
++      const gfx::Size& visible_viewport_size_in_dips,
++      std::optional<gfx::Size> fury_size_in_blink_space = std::nullopt);
+ 
+   // Update the surface allocation information, compositor viewport rect and
+   // screen info on the widget.
+@@ -988,6 +995,9 @@ class CORE_EXPORT WebFrameWidgetImpl
        const DeviceEmulationParams& parameters,
        const mojom::blink::DeviceEmulationCacheBehavior cache_behavior) override;
    void DisableDeviceEmulation() override;
-+  // Patch 0131: the persona's phone screen, from the Fury config.
-+  void MaybeApplyFuryMobileEmulation();
++  // Patch 0131: the persona's phone screen, or a desktop persona's scale
++  // factor, from the Fury config.
++  void MaybeApplyFuryEmulation();
    // Sets the inert bit on an out-of-process iframe, causing it to ignore
    // input.
    void SetIsInertForSubFrame(bool inert) override;
+diff --git a/third_party/blink/renderer/core/frame/web_remote_frame_impl.cc b/third_party/blink/renderer/core/frame/web_remote_frame_impl.cc
+index a645bc18a9..a089e74af7 100644
+--- a/third_party/blink/renderer/core/frame/web_remote_frame_impl.cc
++++ b/third_party/blink/renderer/core/frame/web_remote_frame_impl.cc
+@@ -362,7 +362,9 @@ void WebRemoteFrameImpl::InitializeFrameVisualProperties(
+   visual_properties.page_scale_factor = ancestor_widget->PageScaleInMainFrame();
+   visual_properties.is_pinch_gesture_active =
+       ancestor_widget->PinchGestureActiveInMainFrame();
+-  visual_properties.screen_infos = ancestor_widget->GetOriginalScreenInfos();
++  // Fury patch 0131: the persona's scale factor under Fury's emulation.
++  visual_properties.screen_infos =
++      ancestor_widget->FuryScreenInfosForRemoteFrames();
+   visual_properties.visible_viewport_size =
+       ancestor_widget->VisibleViewportSize();
+   const std::vector<gfx::Rect>& viewport_segments =
 diff --git a/third_party/blink/renderer/core/frame/local_dom_window.cc b/third_party/blink/renderer/core/frame/local_dom_window.cc
 index f880e3b374..eac39b0c46 100644
 --- a/third_party/blink/renderer/core/frame/local_dom_window.cc
