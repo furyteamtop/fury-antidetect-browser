@@ -546,6 +546,14 @@ const en = {
   "pd.noiseHint":
     "Audio and element geometry are always perturbed with a seed of this profile's own. Canvas is too, unless you choose otherwise below.",
   "pd.canvasMode": "Canvas",
+  "pd.netType": "Connection quality",
+  "pd.netReal": "Profile default",
+  "pd.netDownlink": "Downlink (Mbps)",
+  "pd.netRtt": "RTT (ms)",
+  "pd.netSave": "Data saver",
+  "pd.netHint": "Defaults: 4g, 5.5 Mbps, 150 ms, data saver off. Override with values measured at the proxy exit.",
+  "pd.fontsHidden": "Additional hidden fonts",
+  "pd.fontsHiddenHint": "One installed font family per line. Added to the persona's hidden list; generic fallback fonts still render.",
   "pd.canvasNoise": "Noise (default)",
   "pd.canvasReal": "Real, this computer's own",
   "pd.canvasHint":
@@ -1550,6 +1558,14 @@ const ru: Record<Key, string> = {
   "pd.noiseHint":
     "Звук и геометрия элементов всегда зашумляются сидом самого профиля. Canvas тоже, если ниже не выбрано иное.",
   "pd.canvasMode": "Canvas",
+  "pd.netType": "Качество соединения",
+  "pd.netReal": "По умолчанию",
+  "pd.netDownlink": "Скорость (Мбит/с)",
+  "pd.netRtt": "RTT (мс)",
+  "pd.netSave": "Экономия трафика",
+  "pd.netHint": "По умолчанию: 4g, 5.5 Мбит/с, 150 мс, экономия трафика выключена. Можно указать значения, измеренные на выходе прокси.",
+  "pd.fontsHidden": "Дополнительно скрытые шрифты",
+  "pd.fontsHiddenHint": "Одно установленное семейство шрифтов на строку. Дополняет список персоны; общие резервные шрифты продолжают работать.",
   "pd.canvasNoise": "Шум (по умолчанию)",
   "pd.canvasReal": "Реальный, как у этого компьютера",
   "pd.canvasHint":

@@ -294,6 +294,13 @@ export interface MachineOverrides {
   geolocation?: { latitude: number; longitude: number };
   /** Canvas and WebGL readback: noised (absent, the default) or this machine's own. */
   canvas?: "noise" | "real";
+  netinfo?: {
+    effectiveType?: "slow-2g" | "2g" | "3g" | "4g";
+    downlink?: number;
+    rtt?: number;
+    saveData?: boolean;
+  };
+  fonts_hidden?: string[];
 }
 
 /** What the pickers may offer for one machine, filtered by its OS. */

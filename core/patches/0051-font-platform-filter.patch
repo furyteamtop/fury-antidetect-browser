@@ -1,0 +1,65 @@
+diff --git a/third_party/blink/renderer/platform/fonts/font_cache.cc b/third_party/blink/renderer/platform/fonts/font_cache.cc
+--- a/third_party/blink/renderer/platform/fonts/font_cache.cc
++++ b/third_party/blink/renderer/platform/fonts/font_cache.cc
+@@ -80,6 +80,10 @@
+ 
+ namespace blink {
+ 
++namespace fury_internal {
++bool ShouldHideFont(const AtomicString& family, AlternateFontName alternate);
++}
++
+ const char kColorEmojiLocale[] = "und-Zsye";
+ const char kMonoEmojiLocale[] = "und-Zsym";
+ 
+@@ -157,6 +161,14 @@ const FontPlatformData* FontCache::GetFontPlatformData(
+     AlternateFontName alternate_font_name) {
+   TRACE_EVENT0("fonts", "FontCache::GetFontPlatformData");
+ 
++  // This gate precedes the platform cache, including local() / unique-name
++  // lookups and availability checks that never pass through GetFontData().
++  if (creation_params.CreationType() == kCreateFontByFamily &&
++      fury_internal::ShouldHideFont(creation_params.Family(),
++                                    alternate_font_name)) {
++    return nullptr;
++  }
++
+ #if !BUILDFLAG(IS_MAC)
+   if (creation_params.CreationType() == kCreateFontByFamily &&
+       creation_params.Family() == font_family_names::kSystemUi) {
+@@ -290,6 +302,19 @@ void ResumeFilter() {
+   --g_fury_filter_suspended;
+ }
+ 
++bool ShouldHideFont(const AtomicString& family, AlternateFontName alternate) {
++  if (alternate == AlternateFontName::kLastResort ||
++      g_fury_filter_suspended != 0) {
++    return false;
++  }
++  if (const FuryFontRule* rule = FuryFonts()) {
++    const std::string lower = FuryLower(family.Utf8());
++    const bool listed = rule->names.count(lower) > 0;
++    return !FuryIsGenericFamily(lower) && listed == rule->blocklist;
++  }
++  return false;
++}
++
+ }  // namespace fury_internal
+ 
+ const SimpleFontData* FontCache::GetFontData(
+@@ -336,15 +361,5 @@ const SimpleFontData* FontCache::GetFontData(
+   // So: a filter may narrow, never to zero. Same rule as the speech-voice
+   // filter in 0041, for the same reason.
+-  if (altername_font_name != AlternateFontName::kLastResort &&
+-      g_fury_filter_suspended == 0) {
+-    if (const FuryFontRule* rule = FuryFonts()) {
+-      const std::string lower = FuryLower(family.Utf8());
+-      const bool listed = rule->names.count(lower) > 0;
+-      if (!FuryIsGenericFamily(lower) && listed == rule->blocklist) {
+-        return nullptr;
+-      }
+-    }
+-  }
+ 
+   if (const FontPlatformData* platform_data = GetFontPlatformData(
+           font_description,

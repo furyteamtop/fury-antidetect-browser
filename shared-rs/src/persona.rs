@@ -395,6 +395,8 @@ impl Persona {
             // What the core hides; wins over "fonts" in a core that knows it.
             // See fonts.rs for why hiding, not allowing.
             "fontsHidden": crate::fonts::hidden(&self.os.name, &self.fonts),
+            // Profile defaults from issue #11; overrides replace individual fields.
+            "netinfo": crate::overrides::default_netinfo(),
             "locale": {
                 "timezone": ctx.timezone,
                 // The UI locale, not the first language tag. They differ: a
@@ -1136,6 +1138,7 @@ mod tests {
         // and this fails until the derivation supplies it.
         for name in ["macos-15-m-series-1728x1117", "windows-11-rtx4060-1920x1080"] {
             let derived = load(name).derive_core_config(1, &ctx());
+            assert_eq!(derived["netinfo"], crate::overrides::default_netinfo());
             crate::fingerprint::check_core_config(&derived)
                 .unwrap_or_else(|missing| panic!("persona {name}:\n  {}", missing.join("\n  ")));
         }

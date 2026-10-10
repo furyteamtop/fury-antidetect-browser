@@ -1005,6 +1005,51 @@ export function ProfileDialog({
             {tab === "Advanced" && (
               <>
                 <div className="field">
+                  <label htmlFor="pd-net-type">{t("pd.netType")}</label>
+                  <div>
+                    <select id="pd-net-type" disabled={machineLocked}
+                      value={overrides.netinfo?.effectiveType ?? ""}
+                      onChange={(e) => setOv({ netinfo: { ...overrides.netinfo,
+                        effectiveType: (e.target.value || undefined) as NonNullable<MachineOverrides["netinfo"]>["effectiveType"] } })}>
+                      <option value="">{t("pd.netReal")}</option>
+                      {["slow-2g", "2g", "3g", "4g"].map((v) => <option key={v} value={v}>{v}</option>)}
+                    </select>
+                    <p className="hint">{t("pd.netHint")}</p>
+                  </div>
+                </div>
+                {(["downlink", "rtt"] as const).map((key) => (
+                  <div className="field" key={key}>
+                    <label htmlFor={`pd-net-${key}`}>{t(key === "rtt" ? "pd.netRtt" : "pd.netDownlink")}</label>
+                    <input id={`pd-net-${key}`} type="number" min="0"
+                      max={key === "rtt" ? 3000 : 10} step={key === "rtt" ? 50 : 0.05}
+                      disabled={machineLocked} placeholder={String(key === "rtt" ? 150 : 5.5)}
+                      value={overrides.netinfo?.[key] ?? ""}
+                      onChange={(e) => setOv({ netinfo: { ...overrides.netinfo,
+                        [key]: e.target.value === "" ? undefined : Number(e.target.value) } })} />
+                  </div>
+                ))}
+                <div className="field">
+                  <label htmlFor="pd-net-save">{t("pd.netSave")}</label>
+                  <select id="pd-net-save" disabled={machineLocked}
+                    value={overrides.netinfo?.saveData === undefined ? "" : String(overrides.netinfo.saveData)}
+                    onChange={(e) => setOv({ netinfo: { ...overrides.netinfo,
+                      saveData: e.target.value === "" ? undefined : e.target.value === "true" } })}>
+                    <option value="">{t("pd.netReal")}</option>
+                    <option value="false">false</option>
+                    <option value="true">true</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="pd-fonts-hidden">{t("pd.fontsHidden")}</label>
+                  <div>
+                    <textarea id="pd-fonts-hidden" disabled={machineLocked}
+                      value={(overrides.fonts_hidden ?? []).join("\n")}
+                      onChange={(e) => setOv({ fonts_hidden: e.target.value ? e.target.value.split("\n") : undefined })}
+                      onBlur={() => setOv({ fonts_hidden: overrides.fonts_hidden?.map((s) => s.trim()).filter(Boolean) })} />
+                    <p className="hint">{t("pd.fontsHiddenHint")}</p>
+                  </div>
+                </div>
+                <div className="field">
                   <label>{t("pd.noise")}</label>
                   <div>
                     <div className="muted small">
