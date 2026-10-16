@@ -55,6 +55,29 @@ pub struct MachineOverrides {
     /// Canvas and WebGL readback: noised (the default) or this machine's own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub canvas: Option<CanvasMode>,
+    /// NetworkInformation values for this profile's exit, overriding defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub netinfo: Option<NetInfoOverride>,
+    /// Additional host-installed families to hide, beyond the persona's list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fonts_hidden: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetInfoOverride {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effective_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub downlink: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rtt: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub save_data: Option<bool>,
+}
+
+pub fn default_netinfo() -> serde_json::Value {
+    serde_json::json!({"effectiveType": "4g", "downlink": 5.5, "rtt": 150, "saveData": false})
 }
 
 /// What a page gets when it reads a canvas back.
@@ -198,10 +221,29 @@ impl MachineOverrides {
     }
 
     /// The pins that live in the core config itself rather than in the
-    /// persona or the context. Today only the canvas mode: real means no canvas
+    /// persona or the context. Real canvas means no canvas
     /// seed, which is how patches 0030 and 0031 are told to leave readback
     /// alone, plus a marker saying it was meant.
     pub fn apply_config(&self, config: &mut serde_json::Value) {
+        if let Some(netinfo) = &self.netinfo {
+            let mut values = default_netinfo();
+            if let Some(existing) = config["netinfo"].as_object() {
+                values.as_object_mut().unwrap().extend(existing.clone());
+            }
+            let supplied = serde_json::to_value(netinfo).expect("validated netinfo");
+            values.as_object_mut().unwrap().extend(supplied.as_object().unwrap().clone());
+            config["netinfo"] = values;
+        }
+        if let Some(hidden) = &self.fonts_hidden {
+            let mut names: Vec<String> = config["fontsHidden"].as_array()
+                .into_iter().flatten().filter_map(|v| v.as_str().map(str::to_string)).collect();
+            for name in hidden {
+                if !names.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+                    names.push(name.clone());
+                }
+            }
+            config["fontsHidden"] = serde_json::json!(names);
+        }
         if self.canvas == Some(CanvasMode::Real) {
             if let Some(noise) = config.get_mut("noise").and_then(|n| n.as_object_mut()) {
                 noise.remove("canvasSeed");
@@ -285,6 +327,22 @@ impl MachineOverrides {
                     g.latitude, g.longitude
                 ));
             }
+        }
+
+        if let Some(n) = &self.netinfo {
+            if n.effective_type.as_deref().is_some_and(|v| !["slow-2g", "2g", "3g", "4g"].contains(&v)) {
+                errs.push("netinfo.effectiveType must be slow-2g, 2g, 3g or 4g".into());
+            }
+            if n.downlink.is_some_and(|v| !v.is_finite() || !(0.0..=10.0).contains(&v)
+                || (v * 20.0 - (v * 20.0).round()).abs() > 1e-6) {
+                errs.push("netinfo.downlink must be 0–10 Mbps in 0.05 Mbps steps".into());
+            }
+            if n.rtt.is_some_and(|v| v > 3000 || v % 50 != 0) {
+                errs.push("netinfo.rtt must be 0–3000 ms in 50 ms steps".into());
+            }
+        }
+        if self.fonts_hidden.as_ref().is_some_and(|names| names.iter().any(|n| n.trim().is_empty())) {
+            errs.push("hidden font families must not be blank".into());
         }
 
         if let Err(more) = p.validate() {
@@ -436,5 +494,43 @@ mod tests {
         assert_eq!(serde_json::to_string(&MachineOverrides::default()).unwrap(), "{}");
         let back: MachineOverrides = serde_json::from_str("{}").unwrap();
         assert!(back.is_empty());
+    }
+
+    #[test]
+    fn exit_and_hidden_fonts_survive_the_profile_wire_and_reach_the_core() {
+        let wire = serde_json::json!({
+            "netinfo": {"effectiveType": "4g", "downlink": 5.5, "rtt": 150, "saveData": false},
+            "fonts_hidden": ["CustomDesign Font", "arial"]
+        });
+        let ov: MachineOverrides = serde_json::from_value(wire.clone()).unwrap();
+        let all = catalogue::all();
+        let p = &all[0];
+        ov.apply(p, &all).unwrap();
+        assert_eq!(serde_json::to_value(&ov).unwrap(), wire);
+        let mut config = serde_json::json!({"fontsHidden": ["Arial", "Papyrus"]});
+        ov.apply_config(&mut config);
+        assert_eq!(config["netinfo"], wire["netinfo"]);
+        assert_eq!(config["fontsHidden"], serde_json::json!(["Arial", "Papyrus", "CustomDesign Font"]));
+    }
+
+    #[test]
+    fn network_overrides_keep_defaults_and_preserve_zero_and_false() {
+        let ov: MachineOverrides = serde_json::from_value(serde_json::json!({
+            "netinfo": {"downlink": 0, "rtt": 0, "saveData": false}
+        })).unwrap();
+        let all = catalogue::all();
+        ov.apply(&all[0], &all).unwrap();
+        let mut config = serde_json::json!({});
+        ov.apply_config(&mut config);
+        assert_eq!(config["netinfo"]["rtt"], 0);
+        assert_eq!(config["netinfo"]["downlink"], 0.0);
+        assert_eq!(config["netinfo"]["saveData"], false);
+        assert_eq!(config["netinfo"]["effectiveType"], "4g");
+        for bad in [serde_json::json!({"rtt": 51}), serde_json::json!({"rtt": 3050}),
+                    serde_json::json!({"downlink": -1}), serde_json::json!({"downlink": 5.51}),
+                    serde_json::json!({"effectiveType": "5g"})] {
+            let ov: MachineOverrides = serde_json::from_value(serde_json::json!({"netinfo": bad})).unwrap();
+            assert!(ov.apply(&all[0], &all).is_err());
+        }
     }
 }
