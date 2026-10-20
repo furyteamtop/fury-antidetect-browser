@@ -188,6 +188,9 @@
 # made pixelscan say "Masking detected" and iphey "roadmap". shared-rs
 # fonts.rs builds the list.
 0050-font-fallback-filter.patch
+# Gate platform lookup before its cache too: local() and availability checks
+# bypass GetFontData(). Generic and last-resort exemptions remain in force.
+0051-font-platform-filter.patch
 
 # --- devices ----------------------------------------------------------------
 # Narrows the device list to the persona's counts. Narrowing only, like WebGPU
@@ -430,7 +433,16 @@
 # evidence of tampering rather than a failed disguise.
 0121-battery-status.patch
 #
-# NETWORK INFORMATION: NOT NEEDED, and this one is a finding rather than a
+# NETWORK INFORMATION: the original parity finding follows for context.
+# Issue #11 reports a mobile exit paired with the host's broadband estimates.
+# 0122 permits measured exit values, independently optional, in Window and
+# Worker. Absent fields keep Chromium's estimates and randomization. Events
+# compare the exposed values, so host-only changes do not signal fixed fields.
+# Derived profiles supply 4g / 5.5 Mbps / 150 ms / saveData=false by default,
+# with individual fields configurable in Advanced settings (issue #11).
+# Written against 155.0.8059.12; runtime verification: verify-0122.py.
+0122-network-information.patch
+# The earlier conclusion was NOT NEEDED, and this one is a finding rather than a
 # shortcut. rtt and downlink are not leaking the host — they are Chrome's own
 # designed noise. GetRandomMultiplier (network_state_notifier.cc:370-383) draws
 # a per-renderer-process salt once and multiplies both by one of 21 values in
@@ -449,7 +461,6 @@
 # patch would have to cover workers or produce exactly the cross-context
 # disagreement probe.js exists to catch — a cost battery does not carry, since
 # BatteryManager is Window-only.
-# 0122-network-information.patch
 
 # MOBILE MODE (docs/18). A phone persona lays out, takes input and answers as
 # Chrome on Android, from the config's `mobile` branch; a desktop persona has

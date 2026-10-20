@@ -1,0 +1,141 @@
+diff --git a/third_party/blink/renderer/modules/netinfo/network_information.cc b/third_party/blink/renderer/modules/netinfo/network_information.cc
+--- a/third_party/blink/renderer/modules/netinfo/network_information.cc
++++ b/third_party/blink/renderer/modules/netinfo/network_information.cc
+@@ -7,6 +7,8 @@
+ #include <algorithm>
++#include <cmath>
+ 
+ #include "base/time/time.h"
++#include "components/fury/fury_config.h"
+ #include "third_party/blink/public/mojom/devtools/console_message.mojom-blink.h"
+ #include "third_party/blink/public/platform/task_type.h"
+ #include "third_party/blink/renderer/bindings/modules/v8/v8_connection_type.h"
+@@ -27,6 +29,46 @@ namespace blink {
+ 
+ namespace {
+ 
++// Optional, measured values for the profile's exit. Invalid or missing fields
++// retain Chromium's own estimates; zero and false are valid overrides.
++std::optional<WebEffectiveConnectionType> FuryEffectiveType() {
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<std::string> value =
++            config->GetString("netinfo.effectiveType")) {
++      if (*value == "slow-2g")
++        return WebEffectiveConnectionType::kTypeSlow2G;
++      if (*value == "2g")
++        return WebEffectiveConnectionType::kType2G;
++      if (*value == "3g")
++        return WebEffectiveConnectionType::kType3G;
++      if (*value == "4g")
++        return WebEffectiveConnectionType::kType4G;
++    }
++  }
++  return std::nullopt;
++}
++
++std::optional<uint32_t> FuryRtt() {
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<int> value = config->GetInt("netinfo.rtt")) {
++      if (*value >= 0 && *value <= 3000 && *value % 50 == 0)
++        return static_cast<uint32_t>(*value);
++    }
++  }
++  return std::nullopt;
++}
++
++std::optional<double> FuryDownlink() {
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<double> value = config->GetDouble("netinfo.downlink")) {
++      if (*value >= 0 && *value <= 10 &&
++          std::abs(*value * 20 - std::round(*value * 20)) < 1e-6)
++        return *value;
++    }
++  }
++  return std::nullopt;
++}
++
+ V8ConnectionType::Enum ConnectionTypeToEnum(WebConnectionType type) {
+   switch (type) {
+     case kWebConnectionTypeCellular2G:
+@@ -117,6 +159,10 @@ double NetworkInformation::downlinkMax() const {
+ }
+ 
+ V8EffectiveConnectionType NetworkInformation::effectiveType() {
++  if (auto value = FuryEffectiveType()) {
++    return V8EffectiveConnectionType(EffectiveConnectionTypeToEnum(*value));
++  }
++
+   MaybeShowWebHoldbackConsoleMsg();
+   std::optional<WebEffectiveConnectionType> override_ect =
+       GetNetworkStateNotifier().GetWebHoldbackEffectiveType();
+@@ -141,6 +187,9 @@ V8EffectiveConnectionType NetworkInformation::effectiveType() {
+ }
+ 
+ uint32_t NetworkInformation::rtt() {
++  if (auto value = FuryRtt())
++    return *value;
++
+   MaybeShowWebHoldbackConsoleMsg();
+   std::optional<base::TimeDelta> override_rtt =
+       GetNetworkStateNotifier().GetWebHoldbackHttpRtt();
+@@ -157,6 +206,9 @@ uint32_t NetworkInformation::rtt() {
+ }
+ 
+ double NetworkInformation::downlink() {
++  if (auto value = FuryDownlink())
++    return *value;
++
+   MaybeShowWebHoldbackConsoleMsg();
+   std::optional<double> override_downlink_mbps =
+       GetNetworkStateNotifier().GetWebHoldbackDownlinkThroughputMbps();
+@@ -174,6 +226,12 @@ double NetworkInformation::downlink() {
+ }
+ 
+ bool NetworkInformation::saveData() const {
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<bool> value = config->GetBool("netinfo.saveData")) {
++      return *value;
++    }
++  }
++
+   bool save_data =
+       IsObserving() ? save_data_ : GetNetworkStateNotifier().SaveDataEnabled();
+ 
+@@ -199,6 +257,19 @@ void NetworkInformation::ConnectionChange(
+   double new_downlink_mbps =
+       GetNetworkStateNotifier().RoundMbps(host, downlink_mbps);
+ 
++  // Compare the values the page can read, not hidden host estimates. Otherwise
++  // a fixed profile tuple still emits change events when only the host moves.
++  if (auto value = FuryEffectiveType())
++    effective_type = *value;
++  if (auto value = FuryRtt())
++    new_http_rtt_msec = *value;
++  if (auto value = FuryDownlink())
++    new_downlink_mbps = *value;
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (auto value = config->GetBool("netinfo.saveData"))
++      save_data = *value;
++  }
++
+   bool network_quality_estimate_changed = false;
+   // Allow setting |network_quality_estimate_changed| to true only if the
+   // network quality holdback experiment is not enabled.
+@@ -346,6 +417,17 @@ NetworkInformation::NetworkInformation(NavigatorBase& navigator)
+   http_rtt_msec_ = GetNetworkStateNotifier().RoundRtt(Host(), http_rtt);
+   downlink_mbps_ = GetNetworkStateNotifier().RoundMbps(Host(), downlink_mbps);
+ 
++  if (auto value = FuryEffectiveType())
++    effective_type_ = *value;
++  if (auto value = FuryRtt())
++    http_rtt_msec_ = *value;
++  if (auto value = FuryDownlink())
++    downlink_mbps_ = *value;
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (auto value = config->GetBool("netinfo.saveData"))
++      save_data_ = *value;
++  }
++
+   DCHECK_LE(1u, GetNetworkStateNotifier().RandomizationSalt());
+   DCHECK_GE(20u, GetNetworkStateNotifier().RandomizationSalt());
+ }
