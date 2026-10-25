@@ -3,7 +3,7 @@
   "weight": 0.02,
   "source": "capture",
   "contributed_by": "sametxk1",
-  "machine": "Win 11  rts 580 — built-in (laptop / iMac)",
+  "machine": "Windows 11, AMD Radeon RX 580 — desktop PC with an external 2560x1440 monitor",
   "audio": {
     "base_latency": 0.01,
     "output_latency": 0.0,
