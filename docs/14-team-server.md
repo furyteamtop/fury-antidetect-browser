@@ -86,7 +86,7 @@ Postgres, он сломает соседей. Так было у тестера 
 ```bash
 git clone https://github.com/furyteamtop/fury-antidetect-browser fury && cd fury
 cp .env.example .env
-# в .env: FURY_DB_PASSWORD=свой пароль, FURY_VERSION=0.4.16 (последняя версия со страницы релизов)
+# в .env: FURY_DB_PASSWORD=свой пароль, FURY_VERSION=0.4.17 (последняя версия со страницы релизов)
 docker compose up -d
 curl -s http://127.0.0.1:8901/v1/me  # должно быть {"error":"unauthenticated"}
 ```
@@ -143,10 +143,10 @@ docker run --rm -v fury_fury-bundles:/b -v "$HOME":/out debian:bookworm-slim \
 
 # 2. Свежий docker-compose.yml и нужная версия
 git fetch --tags
-git checkout v0.4.16
+git checkout v0.4.17
 ```
 
-**3А. Готовый образ.** Поставьте в `.env` строку `FURY_VERSION=0.4.16` и:
+**3А. Готовый образ.** Поставьте в `.env` строку `FURY_VERSION=0.4.17` и:
 
 ```bash
 docker compose pull server
