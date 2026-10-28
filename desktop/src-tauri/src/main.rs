@@ -248,17 +248,31 @@ fn main() {
             // now if nothing is open, after the last profile otherwise.
             // An agent older than 0.3.3 does not know the parameter and
             // refuses while profiles are open, which is the old behaviour.
+            //
+            // On a thread of its own with a runtime of its own, and waited for
+            // with a deadline the main thread keeps itself. block_on on the
+            // shared runtime needs a worker to drive its socket and its timer,
+            // and a worker stuck in a task means none may: the 0.4.17 update
+            // hung here for good (see update.rs, request_restart). Whatever
+            // happens to the call, the exit goes on after 1.5 s.
             if let tauri::RunEvent::Exit = event {
-                tauri::async_runtime::block_on(async {
-                    let _ = tokio::time::timeout(
-                        Duration::from_millis(1500),
-                        agent::call::<serde_json::Value>(
-                            "agent.shutdown",
-                            serde_json::json!({ "when_idle": true }),
-                        ),
-                    )
-                    .await;
+                let (done, wait) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    if let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                        rt.block_on(async {
+                            let _ = tokio::time::timeout(
+                                Duration::from_millis(1500),
+                                agent::call::<serde_json::Value>(
+                                    "agent.shutdown",
+                                    serde_json::json!({ "when_idle": true }),
+                                ),
+                            )
+                            .await;
+                        });
+                    }
+                    let _ = done.send(());
                 });
+                let _ = wait.recv_timeout(Duration::from_millis(1600));
             }
         });
 }

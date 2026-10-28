@@ -213,7 +213,14 @@ pub async fn call<T: DeserializeOwned>(method: &str, params: Value) -> Result<T,
 /// reason it is a separate process.
 pub async fn ensure_running() -> Result<(), AgentError> {
     if fury_platform::Stream::connect(&ipc_endpoint()).await.is_ok() {
-        return Ok(());
+        if !retire_other_version().await {
+            return Ok(());
+        }
+    }
+    // Mid-update the agent is stopped on purpose, and the binary beside this
+    // one may be the old bundle on its way out. See update::installing.
+    if crate::update::installing() {
+        return Err(AgentError::NotRunning);
     }
 
     let binary = agent_binary().ok_or(AgentError::NotRunning)?;
@@ -260,6 +267,43 @@ pub async fn ensure_running() -> Result<(), AgentError> {
         }
     }
     Err(AgentError::NotRunning)
+}
+
+/// Whether the agent that answered is another version's, and has been asked
+/// to go so this shell's own can start. Asked once per shell.
+///
+/// An agent outlives the shell that started it, so a new shell can find the
+/// old one still serving: after a crash, a force quit, or an update whose
+/// restart hung (28.10.2026, 0.4.16 -> 0.4.17: the old agent was started again
+/// mid-install from the bundle the updater had moved aside, and the new shell
+/// would have used it). With profiles open it stays: stopping it would drop
+/// their locks and relays, and it is replaced the next time nothing is open.
+async fn retire_other_version() -> bool {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static CHECKED: AtomicBool = AtomicBool::new(false);
+    if CHECKED.load(Ordering::SeqCst) {
+        return false;
+    }
+    let Ok(status) = call::<Value>("status", serde_json::json!({})).await else {
+        return false;
+    };
+    CHECKED.store(true, Ordering::SeqCst);
+    let theirs = status["version"].as_str().unwrap_or("");
+    let open = status["running"].as_array().map_or(0, Vec::len);
+    if theirs == env!("CARGO_PKG_VERSION") || open > 0 {
+        return false;
+    }
+    eprintln!("agent {theirs} answered a {} shell; asking it to go", env!("CARGO_PKG_VERSION"));
+    if call::<Value>("agent.shutdown", serde_json::json!({})).await.is_err() {
+        return false;
+    }
+    for _ in 0..30 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        if fury_platform::Stream::connect(&ipc_endpoint()).await.is_err() {
+            return true;
+        }
+    }
+    false
 }
 
 pub(crate) fn agent_binary() -> Option<PathBuf> {

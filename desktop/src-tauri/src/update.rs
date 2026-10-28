@@ -19,6 +19,7 @@
 //! download link, which is all the button did before.
 
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri_plugin_updater::UpdaterExt;
 
@@ -285,6 +286,18 @@ pub struct InstallProgress {
 static PROGRESS: Mutex<InstallProgress> =
     Mutex::new(InstallProgress { stage: "idle", received: 0, total: None, error: None });
 
+/// Set from the moment the agent is asked to stop until this process restarts
+/// (or the install fails). While it is set `agent::ensure_running` starts
+/// nothing: the window goes on polling during an install, and on 28.10.2026 a
+/// poll 0.4 s after the agent stopped started it again, from the old bundle the
+/// updater had just moved to a temporary folder. The new version would then
+/// have talked to the old agent, the one thing stopping it was for.
+static INSTALLING: AtomicBool = AtomicBool::new(false);
+
+pub fn installing() -> bool {
+    INSTALLING.load(Ordering::SeqCst)
+}
+
 fn set_stage(stage: &'static str) {
     if let Ok(mut p) = PROGRESS.lock() {
         p.stage = stage;
@@ -378,6 +391,7 @@ async fn install(app: &tauri::AppHandle) -> Result<(), crate::commands::ApiErr> 
     // machine restarts. An agent older than 0.3.0 does not know the method;
     // that is not a reason to stop (Windows' installer kills it anyway).
     set_stage("stopping");
+    INSTALLING.store(true, Ordering::SeqCst);
     match crate::agent::call::<serde_json::Value>("agent.shutdown", serde_json::json!({})).await {
         Ok(_) => {
             for _ in 0..30 {
@@ -393,6 +407,7 @@ async fn install(app: &tauri::AppHandle) -> Result<(), crate::commands::ApiErr> 
     set_stage("installing");
     if let Err(e) = update.install(bytes) {
         // Nothing replaced: bring the agent back for the version still here.
+        INSTALLING.store(false, Ordering::SeqCst);
         let _ = crate::agent::ensure_running().await;
         return Err(coded("update_failed", e.to_string()));
     }
@@ -400,8 +415,18 @@ async fn install(app: &tauri::AppHandle) -> Result<(), crate::commands::ApiErr> 
     // On Windows the installer has already taken over and this process is on
     // its way out; on macOS the new bundle is in place and this restarts into
     // it, and the new shell starts the new agent.
+    //
+    // request_restart, not restart. Called off the main thread, restart()
+    // asks for the exit and then sleeps forever in this tokio worker. On
+    // 28.10.2026 (0.4.16 -> 0.4.17) that worker was the last one to have held
+    // the runtime's I/O and timer driver: the other nine were parked on a
+    // condvar, none on the driver, and the exit handler's block_on on the main
+    // thread waited for a socket and a 1.5 s timeout that nothing would ever
+    // drive. The bar sat on "stopping" with the new bundle already installed.
+    // request_restart returns, and this worker goes back to the runtime.
     set_stage("restarting");
-    app.restart();
+    app.request_restart();
+    Ok(())
 }
 
 /// FURY_UPDATE_INSTALL_NOW with FURY_UPDATE_FEED: install at start, for an end
