@@ -1660,6 +1660,7 @@ export function App() {
         {editing !== undefined && (
           <ProfileDialog
             projectId={active?.id ?? null}
+            teamProjects={projects.filter((p) => p.origin === "team")}
             editing={editing}
             origin={newOrigin}
             canChoose={canChooseOrigin}

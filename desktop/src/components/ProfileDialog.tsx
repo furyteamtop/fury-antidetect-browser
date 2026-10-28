@@ -7,7 +7,7 @@ import { spreadPastedProxy } from "../proxyLine";
 import { proxyUrl, wgEndpoint } from "../proxyUrl";
 import { WireGuardConf } from "./WireGuardConf";
 import { SUGGESTED } from "../status";
-import { api, type DomainList, type LocalProxy, type MachineOverrides, type Persona, type Preview, type Profile } from "../api";
+import { api, type DomainList, type LocalProxy, type MachineOverrides, type Persona, type Preview, type Profile, type Project } from "../api";
 import { Logins } from "./Logins";
 import { Select } from "./Select";
 import { SuggestInput } from "./SuggestInput";
@@ -149,15 +149,19 @@ function pickWeighted(list: Persona[]): string | undefined {
 
 export function ProfileDialog({
   projectId,
+  teamProjects,
   editing,
   origin,
   canChoose,
   onClose,
   onSaved,
 }: {
-  /** Null when Profiles is unfiltered: a new profile then belongs to no
-   *  project, which is a place it can live. It can be filed later. */
+  /** Null when Profiles is unfiltered: a new local profile then belongs to
+   *  no project, which is a place it can live. It can be filed later. */
   projectId: string | null;
+  /** The server's projects this person can see, offered when a new team
+   *  profile is made with none open. */
+  teamProjects: Project[];
   editing: Profile | null;
   /** Where a NEW profile is made: the open project's world, or the shell's
    *  when no project is open. A team profile has to have a proxy, so the
@@ -179,6 +183,17 @@ export function ProfileDialog({
   const [where, setWhere] = useState<"local" | "team">(origin);
   // The world this profile lives in, or will: an existing one keeps its own.
   const target = editing ? editing.origin : where;
+  // A team profile has to be filed in a project: the server gives access by
+  // project and there is no "no project" there. With none open, Profiles
+  // unfiltered, the dialog asks for one. Until 28.10.2026 it sent none and
+  // the agent refused it after Create, by which point the proxy typed on the
+  // Proxy tab had already been saved to the team; a tester met it right after
+  // being made admin, with the whole form filled in.
+  const [pickedProject, setPickedProject] = useState(
+    teamProjects.length === 1 ? teamProjects[0].id : "",
+  );
+  const needsProject = !editing && target === "team" && !projectId;
+  const fileIn = editing ? editing.project_id : (projectId ?? (needsProject ? pickedProject || null : null));
   const [personas, setPersonas] = useState<Persona[]>([]);
   // The picked machine is chosen at random from twenty-six, so it is usually
   // NOT the one on screen. Selecting a card nobody can see reads as selecting
@@ -345,7 +360,7 @@ export function ProfileDialog({
         // An existing profile keeps where it is filed; only a new one takes
         // the project currently being viewed. Editing a profile from the flat
         // list would otherwise move it out of its project.
-        project_id: editing ? editing.project_id : projectId,
+        project_id: fileIn,
         name: name.trim() || "Untitled",
         notes,
         status: status.trim(),
@@ -473,6 +488,22 @@ export function ProfileDialog({
                         </button>
                       </div>
                       <p className="hint">{where === "local" ? t("pd.whereLocalHint") : t("pd.whereTeamHint")}</p>
+                    </div>
+                  </div>
+                )}
+                {needsProject && (
+                  <div className="field">
+                    <label>{t("pd.project")}</label>
+                    <div>
+                      {teamProjects.length > 0 ? (
+                        <Select value={pickedProject} onChange={(e) => setPickedProject(e.target.value)}>
+                          <option value="" disabled>{t("pd.projectPick")}</option>
+                          {teamProjects.map((p) => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                        </Select>
+                      ) : null}
+                      <p className="hint">{teamProjects.length > 0 ? t("pd.projectHint") : t("pd.noTeamProjects")}</p>
                     </div>
                   </div>
                 )}
@@ -1202,13 +1233,14 @@ export function ProfileDialog({
 
         <div className="modalFoot">
           {error && <span className="error">{error}</span>}
+          {!error && needsProject && !pickedProject && <span className="hint">{t("pd.needProject")}</span>}
           <div className="spacer" />
           <button className="ghost" onClick={onClose}>
             {t("ui.cancel")}
           </button>
           <button
             className="primary"
-            disabled={busy || !personaId || problems.length > 0 || geoBad || (needsProxy && !hasProxy)}
+            disabled={busy || !personaId || problems.length > 0 || geoBad || (needsProxy && !hasProxy) || (needsProject && !pickedProject)}
             onClick={save}
           >
             {busy ? t("ui.saving") : editing ? t("ui.save") : t("ui.create")}
