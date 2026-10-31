@@ -1,0 +1,87 @@
+diff --git a/extensions/renderer/BUILD.gn b/extensions/renderer/BUILD.gn
+index 254e3a7e7b..9cac6681e2 100644
+--- a/extensions/renderer/BUILD.gn
++++ b/extensions/renderer/BUILD.gn
+@@ -258,6 +258,7 @@ source_set("renderer") {
+     "//build:chromeos_buildflags",
+     "//chrome:resources",
+     "//components/crx_file",
++    "//components/fury",
+     "//components/guest_view/buildflags",
+     "//components/url_formatter",
+     "//components/version_info",
+diff --git a/extensions/renderer/DEPS b/extensions/renderer/DEPS
+index 1026bdab6e..b8c2b94450 100644
+--- a/extensions/renderer/DEPS
++++ b/extensions/renderer/DEPS
+@@ -1,4 +1,5 @@
+ include_rules = [
++  "+components/fury/fury_config.h",
+   "+components/pdf/common/pdf_util.h",
+   "+components/translate/core/language_detection",
+   "+content/public/renderer",
+diff --git a/extensions/renderer/native_extension_bindings_system.cc b/extensions/renderer/native_extension_bindings_system.cc
+index 651e7d7175..1b5e4b147a 100644
+--- a/extensions/renderer/native_extension_bindings_system.cc
++++ b/extensions/renderer/native_extension_bindings_system.cc
+@@ -19,6 +19,7 @@
+ #include "base/trace_event/typed_macros.h"
+ #include "base/tracing/protos/chrome_track_event.pbzero.h"
+ #include "components/crx_file/id_util.h"
++#include "components/fury/fury_config.h"
+ #include "content/public/common/content_switches.h"
+ #include "content/public/common/url_constants.h"
+ #include "content/public/renderer/render_thread.h"
+@@ -696,7 +697,17 @@ void NativeExtensionBindingsSystem::UpdateBindingsForContext(
+     // context types, especially on a given platform. Something to think about
+     // for when we generate features.
+     bool is_any_feature_available_to_page = false;
++    // Fury: Chrome on Android has no extensions system, so a page there finds
++    // window.chrome with csi and loadTimes and no chrome.app. Every desktop
++    // Chrome has chrome.app on every page; a phone persona carrying it says
++    // which kind of machine it really is.
++    const fury::FuryConfig* fury_config = fury::FuryConfig::Get();
++    const bool fury_phone =
++        fury_config && fury_config->GetBool("mobile.enabled").value_or(false);
+     for (std::string_view feature_name : kWebAvailableFeatures) {
++      if (fury_phone && feature_name == "app") {
++        continue;
++      }
+       if (context->GetAvailability(feature_name).is_available()) {
+         // chrome.app is exposed to all webpages, we ignore it for this check.
+         if (feature_name != "app") {
+diff --git a/third_party/blink/renderer/modules/keyboard/keyboard_layout.cc b/third_party/blink/renderer/modules/keyboard/keyboard_layout.cc
+index e2b697b768..511b35efaa 100644
+--- a/third_party/blink/renderer/modules/keyboard/keyboard_layout.cc
++++ b/third_party/blink/renderer/modules/keyboard/keyboard_layout.cc
+@@ -4,6 +4,7 @@
+ 
+ #include "third_party/blink/renderer/modules/keyboard/keyboard_layout.h"
+ 
++#include "components/fury/fury_config.h"
+ #include "third_party/blink/public/platform/browser_interface_broker_proxy.h"
+ #include "third_party/blink/public/platform/platform.h"
+ #include "third_party/blink/public/platform/task_type.h"
+@@ -92,10 +93,21 @@ void KeyboardLayout::GotKeyboardLayoutMap(
+   is_request_pending_ = false;
+ 
+   switch (result->status) {
+-    case mojom::blink::GetKeyboardLayoutMapStatus::kSuccess:
++    case mojom::blink::GetKeyboardLayoutMapStatus::kSuccess: {
++      // Fury: Chrome on Android answers with an empty map -- no physical
++      // keyboard to describe -- while a desktop answers with the host's
++      // layout, 48 keys of it, Cyrillic on a Russian Mac. A phone persona
++      // gets the phone's answer.
++      const fury::FuryConfig* config = fury::FuryConfig::Get();
++      if (config && config->GetBool("mobile.enabled").value_or(false)) {
++        layout_map_property_->Resolve(MakeGarbageCollected<KeyboardLayoutMap>(
++            HashMap<String, String>()));
++        break;
++      }
+       layout_map_property_->Resolve(
+           MakeGarbageCollected<KeyboardLayoutMap>(result->layout_map));
+       break;
++    }
+     case mojom::blink::GetKeyboardLayoutMapStatus::kFail:
+       layout_map_property_->Reject(MakeGarbageCollected<DOMException>(
+           DOMExceptionCode::kInvalidStateError,

@@ -103,6 +103,36 @@ def main():
                      f"captured elsewhere will legitimately match none "
                      f"({len(none)} of {len(bare)})")
 
+    # A phone persona: the voices are the phone's, built from its locales and
+    # named in the profile's language, as Chrome on Android names them; the
+    # host's are not narrowed, since a Mac has none of them. Locales from the
+    # Huawei P30 capture (28.10.2026), in the order Chrome lists them.
+    phone_locales = ["as_IN", "bs_BA_#Cyrl", "bs_BA_#Latn", "en_US", "in_ID", "ru_RU", "zh_HK_#Hant"]
+    for ui, expect_first, expect_ru in (("ru", "ассамский Индия", "русский Россия"),
+                                        ("en-US", "Assamese India", "Russian Russia")):
+        config = {"mobile": {"enabled": True},
+                  "locale": {"locale": ui},
+                  "speech": {"voices": keep, "androidVoices": phone_locales}}
+        with launch(CORE, config) as s:
+            phone = json.loads(s.js(READ))
+            print(f"  phone, UI {ui}: {[(v['name'], v['lang']) for v in phone]}")
+            by_lang = {v["lang"]: v for v in phone}
+            claims.check(
+                [v["lang"] for v in phone] == phone_locales
+                and phone[0]["name"] == expect_first and phone[0]["def"]
+                and not any(v["def"] for v in phone[1:])
+                and by_lang.get("ru_RU", {}).get("name") == expect_ru
+                and all(v["local"] for v in phone)
+                and not set(v["name"] for v in phone) & set(names),
+                f"phone, UI {ui}: one voice per locale in the persona's order, the "
+                f"first the default, named in the profile's language "
+                f"({phone[0]['name'] if phone else None!r}, "
+                f"{by_lang.get('ru_RU', {}).get('name')!r}), all local, none of the host's")
+            claims.check(by_lang.get("in_ID", {}).get("name", "").lower().startswith(
+                             "индонез" if ui == "ru" else "indonesian"),
+                         f"phone, UI {ui}: Java's withdrawn code in_ID is still named "
+                         f"({by_lang.get('in_ID', {}).get('name')!r})")
+
     return claims.done()
 
 

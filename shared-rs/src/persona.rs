@@ -90,6 +90,14 @@ pub struct PersonaMobile {
     /// `navigator.connection.type`: "cellular" | "wifi". Desktop Chrome does
     /// not expose the attribute at all; Android always does.
     pub connection: String,
+    /// The locales the phone's speech engine speaks, as Java writes them
+    /// ("ru_RU", "bs_BA_#Cyrl"), in the order Chrome lists them: the first
+    /// is the default voice. Chrome on Android names each voice after its
+    /// locale in the device's language, so the core builds the names from
+    /// these in the profile's (patch 0041); the host's voices cannot be
+    /// narrowed to an Android list. Empty for a persona made before 28.10.2026.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub voices: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -176,8 +184,30 @@ pub struct PersonaGpu {
     /// Numbers and comma-joined ranges, keyed by the GL constant name.
     #[serde(default)]
     pub webgl_params: BTreeMap<String, serde_json::Value>,
+    /// The list both kinds of context fall back to when the persona does not
+    /// say per context. Older personas carry one context's list here: the
+    /// WebGL1 one for the two bases, the WebGL2 one for a converted capture.
     #[serde(default)]
     pub webgl_extensions: Vec<String>,
+    /// What a WebGL1 context and a WebGL2 context list, each as the machine
+    /// reported it. They are not one list narrowed two ways: a WebGL2 context
+    /// has its own extensions (EXT_color_buffer_float, OES_draw_buffers_indexed)
+    /// and drops the ones WebGL2 made core. With one list for both, the core
+    /// answered a WebGL2 context with the 18 names the two happened to share
+    /// (ctx-fury baseline, Windows persona); a real Chrome on the same machine
+    /// lists 32.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub webgl1_extensions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub webgl2_extensions: Vec<String>,
+    /// getShaderPrecisionFormat, "rangeMin,rangeMax,precision", keyed
+    /// "VERTEX_SHADER.LOW_FLOAT" and so on. Empty means the host's, which is
+    /// right for a desktop: every desktop GPU answers 127,127,23 and 31,30,0.
+    /// A phone GPU does not, and differs by family: Adreno 722 answers lowp
+    /// and mediump vertex floats with 127,127,23 and ints with 31,31,0, Mali-G76
+    /// with 15,15,10 and 31,30,0 (captures of 14.10 and 28.10.2026).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub shader_precision: BTreeMap<String, String>,
     #[serde(default)]
     pub webgpu: Option<PersonaWebGpu>,
 }
@@ -207,6 +237,12 @@ pub struct PersonaScreen {
     pub avail_height: u32,
     pub color_depth: u32,
     pub device_pixel_ratio: f64,
+    /// screen.availTop as the machine reported it. Unset means the platform's
+    /// usual one (33 on macOS, 0 elsewhere). A phone is the case that needs
+    /// it: the status bar is reserved on one handset (Realme RMX5131, 40) and
+    /// not on another (Huawei P30, 0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avail_top: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -430,7 +466,7 @@ impl Persona {
                 // a macOS one reporting none, is a free contradiction against
                 // the platform it just claimed.
                 "availLeft": 0,
-                "availTop": if self.os.name == "macOS" { 33 } else { 0 },
+                "availTop": self.screen.avail_top.unwrap_or(if self.os.name == "macOS" { 33 } else { 0 }),
                 "colorDepth": self.screen.color_depth,
                 "devicePixelRatio": self.screen.device_pixel_ratio,
                 "chromeHeightDelta": self.chrome_metrics.outer_minus_inner_height,
@@ -479,6 +515,29 @@ impl Persona {
                 "deviceIdSalt": sub_seed(seed, "deviceId"),
             },
         });
+
+        // Per context when the persona knows both lists, so neither kind of
+        // context answers with the other's.
+        if !self.gpu.webgl1_extensions.is_empty() {
+            config["gpu"]["webgl1Extensions"] = self.gpu.webgl1_extensions.clone().into();
+        }
+        if !self.gpu.webgl2_extensions.is_empty() {
+            config["gpu"]["webgl2Extensions"] = self.gpu.webgl2_extensions.clone().into();
+        }
+        // Nested, "VERTEX_SHADER.LOW_FLOAT" becoming two levels, because the
+        // core looks a path up by its dots.
+        if !self.gpu.shader_precision.is_empty() {
+            let mut precision = serde_json::Map::new();
+            for (key, value) in &self.gpu.shader_precision {
+                if let Some((shader, kind)) = key.split_once('.') {
+                    let entry = precision
+                        .entry(shader.to_string())
+                        .or_insert_with(|| serde_json::json!({}));
+                    entry[kind] = value.clone().into();
+                }
+            }
+            config["gpu"]["shaderPrecision"] = precision.into();
+        }
 
         // WebGL params, with the vendor/renderer strings folded into the same
         // map the core reads so there is exactly one place to look.
@@ -659,6 +718,9 @@ impl Persona {
                 // shifts nothing else.
                 "touchSeed": sub_seed(seed, "touch"),
             });
+            if !m.voices.is_empty() {
+                config["speech"]["androidVoices"] = m.voices.clone().into();
+            }
         }
 
         if let Some(webgpu) = &self.gpu.webgpu {
@@ -1114,6 +1176,7 @@ mod tests {
             avail_height: 832,
             color_depth: 24,
             device_pixel_ratio: 2.8125,
+            avail_top: None,
         };
         p.chrome_metrics.scrollbar_width = 0;
         p.cpu.cores = 8;
@@ -1124,6 +1187,7 @@ mod tests {
             model: "SM-A546B".into(),
             form_factor: "phone".into(),
             connection: "cellular".into(),
+            voices: Vec::new(),
         });
         p
     }

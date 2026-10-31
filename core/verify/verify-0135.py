@@ -192,8 +192,7 @@ check(m["g"] and abs(m["g"]["mean"] - 9.81) < 0.25,
       f"phone: the acceleration it reports includes gravity, |g| = {m['g'] and round(m['g']['mean'], 3)} m/s^2")
 beta_g, gamma_g = held(a)
 ob, og = a["orient"]["beta"], a["orient"]["gamma"]
-check(a["orient"]["n"] >= 100 and ob and og
-      and abs(ob["mean"] - beta_g) < 3 and abs(og["mean"] - gamma_g) < 3,
+check(ob and og and abs(ob["mean"] - beta_g) < 3 and abs(og["mean"] - gamma_g) < 3,
       f"phone: deviceorientation agrees with that gravity: beta {ob and round(ob['mean'], 1)} "
       f"vs {round(beta_g, 1)}, gamma {og and round(og['mean'], 1)} vs {round(gamma_g, 1)} "
       f"({a['orient']['n']} events)")
@@ -202,9 +201,19 @@ check(20 <= beta_g <= 85,
 lin = [m[k]["sd"] for k in ("lx", "ly", "lz") if m[k]]
 check(len(lin) == 3 and all(0.004 < x < 0.4 for x in lin),
       f"phone: the hand moves a little: linear acceleration spread {[round(x, 3) for x in lin]} m/s^2")
+# The bands are two real phones held still on the probe (Realme RMX5131
+# 14.10.2026, Huawei P30 28.10.2026), widened: rotation rate 0.5-0.84 deg/s
+# per axis, angles moving 0.16-1.0 degree, 58-60 deviceorientation events in
+# 4 s. Before 0135 was retuned (31.10.2026) the rate was 7-10 deg/s and the
+# events ~200, which no hand held still produces.
 rot = [m[k]["sd"] for k in ("ra", "rb", "rg") if m[k]]
-check(len(rot) == 3 and max(rot) > 0.2 and max(rot) < 30,
-      f"phone: and turns a little: rotation rate spread {[round(x, 2) for x in rot]} deg/s")
+check(len(rot) == 3 and all(0.1 < x < 1.6 for x in rot),
+      f"phone: and turns a little, like a phone held still: rotation rate spread "
+      f"{[round(x, 2) for x in rot]} deg/s")
+ang = [a["orient"][k]["sd"] for k in ("alpha", "beta", "gamma") if a["orient"][k]]
+check(len(ang) == 3 and all(x < 1.5 for x in ang) and 30 <= a["orient"]["n"] <= 90,
+      f"phone: its angles wander by under a degree and deviceorientation fires as a "
+      f"phone's does: spread {[round(x, 2) for x in ang]} deg, {a['orient']['n']} events in 3 s")
 acc = a["accel"]
 check(acc["started"] and acc["readings"] >= 100 and acc["g"] and abs(acc["g"]["mean"] - 9.81) < 0.25,
       f"phone: the Generic Sensor Accelerometer reads the same ({acc['readings']} readings, "

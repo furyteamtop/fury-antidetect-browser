@@ -733,8 +733,10 @@ mod tests {
     #[test]
     fn a_screen_never_claims_more_usable_space_than_it_has() {
         for p in all() {
+            // A phone may leave its whole screen to the page: the Huawei P30
+            // reported availHeight equal to height (28.10.2026).
             assert!(
-                p.screen.avail_height < p.screen.height,
+                p.is_android() || p.screen.avail_height < p.screen.height,
                 "{}: a window area equal to the screen means no taskbar and no menu bar, \
                  which is a configuration almost nobody runs",
                 p.id

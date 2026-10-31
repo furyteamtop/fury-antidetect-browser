@@ -174,6 +174,37 @@ def main():
             f"numbers above came from the seed (got {bare['one']['sum']!r})",
         )
 
+    # baseLatency is the host's buffer (256 frames on a Mac, 0.0053 s) unless
+    # the persona says otherwise, and the persona's answers only the default
+    # "interactive" context: "playback" asks for a bigger buffer on every real
+    # machine.
+    hints = """
+    (() => {
+      const r = {};
+      for (const h of ['interactive', 'playback']) {
+        const c = new AudioContext({latencyHint: h});
+        r[h] = c.baseLatency;
+        c.close();
+      }
+      const d = new AudioContext();
+      r.default = d.baseLatency;
+      d.close();
+      return JSON.stringify(r);
+    })()
+    """
+    with launch(CORE, None) as s:
+        host = json.loads(s.js(hints))
+    with launch(CORE, {"audio": {"baseLatency": 0.02}}) as s:
+        phone = json.loads(s.js(hints))
+    print(f"  baseLatency host {host}, persona 0.02 {phone}")
+    claims.check(phone["default"] == 0.02 and phone["interactive"] == 0.02
+                 and host["default"] != 0.02,
+                 f"the default context's baseLatency is the persona's "
+                 f"({phone['default']}; the host's is {host['default']})")
+    claims.check(phone["playback"] == host["playback"],
+                 f"and a context asking for playback latency keeps the host's "
+                 f"larger buffer ({phone['playback']})")
+
     return claims.done()
 
 

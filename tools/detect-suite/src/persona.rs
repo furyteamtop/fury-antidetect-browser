@@ -52,9 +52,12 @@ pub fn cmd_persona(args: &[String]) -> Result<()> {
             let words: Vec<&str> = flat.split_whitespace().filter(|w| *w != "TM").collect();
             let at = words.iter().position(|w| {
                 ["RTX", "GTX", "Radeon", "Iris", "UHD", "Adreno", "Mali", "PowerVR"].contains(w)
+                    // "Mali-G76": family and model in one word.
+                    || w.starts_with("Mali-")
                     || (*w == "M5" || *w == "M4" || *w == "M3" || *w == "M2" || *w == "M1")
             });
             match at {
+                Some(i) if words[i].starts_with("Mali-") => words[i].to_lowercase(),
                 Some(i) => {
                     // The model plus what follows it, up to two words: "RTX 4060",
                     // "Apple M5", "Iris Xe".

@@ -206,13 +206,35 @@ pub fn from_capture(dump: &Value, id: &str, weight: f64) -> Result<Value, String
                 .collect()
         })
         .unwrap_or_default();
-    let webgl_extensions: Vec<String> = dump
-        .get("webgl")
-        .and_then(|w| w.get("webgl2"))
-        .and_then(|w| w.get("extensions"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.split(',').map(str::to_string).collect())
-        .unwrap_or_default();
+    let extensions_of = |ctx: &str| -> Vec<String> {
+        dump.get("webgl")
+            .and_then(|w| w.get(ctx))
+            .and_then(|w| w.get("extensions"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.split(',').filter(|e| !e.is_empty()).map(str::to_string).collect())
+            .unwrap_or_default()
+    };
+    // Each context's own list, and the WebGL2 one again as the fallback an
+    // older core reads for both.
+    let webgl1_extensions = extensions_of("webgl1");
+    let webgl2_extensions = extensions_of("webgl2");
+    let webgl_extensions =
+        if webgl2_extensions.is_empty() { webgl1_extensions.clone() } else { webgl2_extensions.clone() };
+
+    // A phone GPU's shader precision is its own (persona.rs, shader_precision);
+    // a desktop's is the one every desktop answers, so the host's is right and
+    // nothing is carried. The WebGL1 block: both captured phones answer the
+    // same in WebGL2.
+    let shader_precision: serde_json::Map<String, Value> = if android {
+        dump.get("webgl")
+            .and_then(|w| w.get("webgl1"))
+            .and_then(|w| w.get("precision"))
+            .and_then(|p| p.as_object())
+            .map(|p| p.iter().filter(|(_, v)| v.is_string()).map(|(k, v)| (k.clone(), v.clone())).collect())
+            .unwrap_or_default()
+    } else {
+        Default::default()
+    };
 
     // The WebGPU adapter as the machine reported it. Without this block the
     // core answers with the HOST's adapter: an Android persona on a Mac said
@@ -254,6 +276,7 @@ pub fn from_capture(dump: &Value, id: &str, weight: f64) -> Result<Value, String
             "connection": s(dump, "engine.misc.connectionKind")
                 .filter(|k| k == "wifi" || k == "cellular")
                 .unwrap_or_else(|| "cellular".into()),
+            "voices": android_voice_locales(dump),
         })
     });
     let (arch_default, bitness_default) = if android { ("", "") } else { ("x86", "64") };
@@ -287,6 +310,9 @@ pub fn from_capture(dump: &Value, id: &str, weight: f64) -> Result<Value, String
             "webgl_renderer": renderer,
             "webgl_params": webgl_params,
             "webgl_extensions": webgl_extensions,
+            "webgl1_extensions": webgl1_extensions,
+            "webgl2_extensions": webgl2_extensions,
+            "shader_precision": shader_precision,
         },
         "screen": {
             "width": n(dump, "screen.width").unwrap_or(0.0) as u32,
@@ -317,13 +343,68 @@ pub fn from_capture(dump: &Value, id: &str, weight: f64) -> Result<Value, String
         "voices": voices,
         "media_devices": media_devices,
     });
+    // Absent rather than empty, as the persona itself writes them.
+    if let Some(gpu) = persona["gpu"].as_object_mut() {
+        gpu.retain(|k, v| {
+            !matches!(k.as_str(), "webgl1_extensions" | "webgl2_extensions" | "shader_precision")
+                || v.as_array().is_some_and(|a| !a.is_empty())
+                || v.as_object().is_some_and(|o| !o.is_empty())
+        });
+    }
     if let Some(g) = webgpu {
         persona["gpu"]["webgpu"] = g;
     }
     if let Some(m) = mobile {
         persona["mobile"] = m;
+        // The status bar, reserved on some handsets and not on others.
+        if let Some(top) = n(dump, "screen.availTop") {
+            persona["screen"]["avail_top"] = json!(top as u32);
+        }
     }
     Ok(persona)
+}
+
+/// A phone's voice locales, in the order Chrome on Android lists them.
+///
+/// The probe sorts voices by name; Chrome lists one per locale in the order
+/// `Locale.getAvailableLocales()` returns them, which is ICU's, sorted by the
+/// locale id: language, then script, then country, with the current ISO codes
+/// where Java still writes the withdrawn ones (in, iw, ji). The first is the
+/// default voice, and on both captured phones that is "as_IN", which this
+/// order puts first.
+fn android_voice_locales(dump: &Value) -> Vec<String> {
+    let mut locales: Vec<String> = s(dump, "speech.names")
+        .map(|joined| {
+            joined
+                .split('~')
+                .filter_map(|entry| entry.split('|').nth(1).map(str::to_string))
+                .filter(|l| !l.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    let icu_id = |java: &str| -> String {
+        let mut parts = java.split('_');
+        let language = match parts.next().unwrap_or_default() {
+            "in" => "id",
+            "iw" => "he",
+            "ji" => "yi",
+            other => other,
+        }
+        .to_string();
+        let mut country = String::new();
+        let mut script = String::new();
+        for part in parts {
+            if let Some(sc) = part.strip_prefix('#') {
+                script = sc.to_string();
+            } else if country.is_empty() {
+                country = part.to_string();
+            }
+        }
+        [language, script, country].into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>().join("_")
+    };
+    locales.sort_by_key(|l| icu_id(l));
+    locales.dedup();
+    locales
 }
 
 #[cfg(test)]

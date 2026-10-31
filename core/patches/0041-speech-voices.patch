@@ -1,19 +1,108 @@
+diff --git a/third_party/blink/renderer/modules/speech/DEPS b/third_party/blink/renderer/modules/speech/DEPS
+index a57af57b0a..43716384d8 100644
+--- a/third_party/blink/renderer/modules/speech/DEPS
++++ b/third_party/blink/renderer/modules/speech/DEPS
+@@ -1,4 +1,5 @@
+ include_rules = [
++    "+third_party/icu/source/common/unicode/locid.h",
+     "+media",
+     "-third_party/blink/renderer/modules",
+     "+third_party/blink/renderer/modules/event_modules.h",
 diff --git a/third_party/blink/renderer/modules/speech/speech_synthesis.cc b/third_party/blink/renderer/modules/speech/speech_synthesis.cc
-index 891a81543b..64fd0cf807 100644
+index 891a81543b..986ff657ea 100644
 --- a/third_party/blink/renderer/modules/speech/speech_synthesis.cc
 +++ b/third_party/blink/renderer/modules/speech/speech_synthesis.cc
-@@ -25,6 +25,10 @@
+@@ -25,6 +25,11 @@
  
  #include "third_party/blink/renderer/modules/speech/speech_synthesis.h"
  
 +#include <algorithm>
 +
++#include "base/strings/string_split.h"
 +#include "components/fury/fury_config.h"
 +
  #include <tuple>
  
  #include "build/build_config.h"
-@@ -95,6 +99,52 @@ void SpeechSynthesis::OnSetVoiceList(
+@@ -45,6 +50,8 @@
+ #include "third_party/blink/renderer/modules/speech/speech_synthesis_voice.h"
+ #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
+ 
++#include "third_party/icu/source/common/unicode/locid.h"
++
+ namespace blink {
+ 
+ const char SpeechSynthesis::kSupplementName[] = "SpeechSynthesis";
+@@ -85,6 +92,68 @@ SpeechSynthesis::SpeechSynthesis(LocalDOMWindow& window)
+ void SpeechSynthesis::OnSetVoiceList(
+     Vector<mojom::blink::SpeechSynthesisVoicePtr> mojom_voices) {
+   voice_list_.clear();
++  // Fury: a phone persona's voices are the phone's. The host's cannot be
++  // narrowed to them -- a Mac has no voice called "русский Россия" -- so the
++  // narrowing below found nothing, gave up, and handed an Android profile
++  // the Mac's own voices. Built here instead, the way Chrome on Android
++  // builds them (TtsPlatformImpl.java): one voice per locale the phone's TTS
++  // speaks, named by the locale's display language and country in the
++  // device's language, lang as Java's Locale.toString(), all local, the first
++  // the default. The names follow this profile's UI locale, as they follow
++  // the phone's. speak() still reaches the host's engine, which picks its own
++  // voice for the language when it does not know the name.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get();
++      config && config->GetBool("mobile.enabled").value_or(false)) {
++    if (std::optional<std::vector<std::string>> locales =
++            config->GetStringList("speech.androidVoices");
++        locales && !locales->empty()) {
++      const icu::Locale display(
++          config->GetString("locale.locale").value_or("en-US").c_str());
++      bool first = true;
++      for (const std::string& java_locale : *locales) {
++        // "bs_BA_#Cyrl": language, country, then Java's script marker.
++        std::vector<std::string> parts = base::SplitString(
++            java_locale, "_", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
++        if (parts.empty() || parts[0].empty()) {
++          continue;
++        }
++        std::string language = parts[0];
++        // Java keeps the withdrawn ISO codes ICU no longer resolves.
++        if (language == "in") {
++          language = "id";
++        } else if (language == "iw") {
++          language = "he";
++        } else if (language == "ji") {
++          language = "yi";
++        }
++        const std::string country =
++            parts.size() > 1 && !parts[1].starts_with("#") ? parts[1] : "";
++        const icu::Locale locale(language.c_str(), country.c_str());
++        icu::UnicodeString display_name;
++        locale.getDisplayLanguage(display, display_name);
++        if (!country.empty()) {
++          icu::UnicodeString display_country;
++          locale.getDisplayCountry(display, display_country);
++          display_name += " ";
++          display_name += display_country;
++        }
++        std::string name;
++        display_name.toUTF8String(name);
++        auto voice = mojom::blink::SpeechSynthesisVoice::New();
++        voice->voice_uri = String::FromUtf8(name);
++        voice->name = String::FromUtf8(name);
++        voice->lang = String::FromUtf8(java_locale);
++        voice->is_local_service = true;
++        voice->is_default = first;
++        first = false;
++        voice_list_.push_back(
++            MakeGarbageCollected<SpeechSynthesisVoice>(std::move(voice)));
++      }
++      fury_voices_filtered_ = true;
++      VoicesDidChange();
++      return;
++    }
++  }
+   for (auto& mojom_voice : mojom_voices) {
+     voice_list_.push_back(
+         MakeGarbageCollected<SpeechSynthesisVoice>(std::move(mojom_voice)));
+@@ -95,6 +164,52 @@ void SpeechSynthesis::OnSetVoiceList(
  const HeapVector<Member<SpeechSynthesisVoice>>& SpeechSynthesis::getVoices() {
    // Kick off initialization here to ensure voice list gets populated.
    std::ignore = TryEnsureMojomSynthesis();

@@ -1,113 +1,30 @@
-diff --git a/content/browser/generic_sensor/fury_phone_motion.h b/content/browser/generic_sensor/fury_phone_motion.h
-new file mode 100644
-index 0000000000..d5abb596a3
---- /dev/null
-+++ b/content/browser/generic_sensor/fury_phone_motion.h
-@@ -0,0 +1,98 @@
-+// SPDX-License-Identifier: AGPL-3.0-or-later
-+// Copyright 2026 Bogdan Shapovalov and the Fury authors
-+
-+#ifndef CONTENT_BROWSER_GENERIC_SENSOR_FURY_PHONE_MOTION_H_
-+#define CONTENT_BROWSER_GENERIC_SENSOR_FURY_PHONE_MOTION_H_
-+
-+#include <array>
-+#include <memory>
-+#include <random>
-+#include <vector>
-+
-+#include "base/time/time.h"
-+#include "base/timer/timer.h"
-+#include "content/public/browser/web_contents_observer.h"
-+#include "content/public/browser/web_contents_user_data.h"
-+
-+class GURL;
-+
-+namespace content {
-+
-+class ScopedVirtualSensorForDevTools;
-+class WebContents;
-+
-+// Fury patch 0135: a phone persona's motion sensors (docs/18).
-+//
-+// A phone in a hand reports devicemotion about every 16 ms: gravity tilted
-+// by how it is held, a hand tremor of a few hundredths of m/s^2, rotation of
-+// a few degrees per second. A desktop has no such sensors and reports
-+// nothing, which on a phone persona is a contradiction any page can read in
-+// four seconds. This gives the tab the virtual sensors DevTools' sensor
-+// emulation uses (accelerometer, linear acceleration, gravity, gyroscope,
-+// relative and absolute orientation; the device service derives the
-+// DeviceOrientation angles from the last two) and feeds them from one model
-+// of a hand holding a phone, so every reading agrees with every other:
-+// gravity is the orientation's, the rotation rate is the orientation's rate
-+// of change.
-+//
-+// How the hand holds it (tilt, roll, sway, tremor) comes from the profile's
-+// mobile.touchSeed, so a profile handles its phone the same way on every
-+// launch and another profile its own way. The noise on top is new each time.
-+class FuryPhoneMotion : public WebContentsObserver,
-+                        public WebContentsUserData<FuryPhoneMotion> {
-+ public:
-+  ~FuryPhoneMotion() override;
-+
-+  // Attach to a phone persona's tab, or detach on the browser's own pages.
-+  static void UpdateForNavigation(WebContents* web_contents, const GURL& url);
-+
-+ private:
-+  friend class WebContentsUserData<FuryPhoneMotion>;
-+  FuryPhoneMotion(WebContents* web_contents, uint64_t seed);
-+
-+  struct Orientation {
-+    double alpha;  // degrees
-+    double beta;
-+    double gamma;
-+  };
-+
-+  // The virtual sensors call into WebContentsSensorProviderProxy when they
-+  // go, and that proxy is user data of the same WebContents, torn down in no
-+  // particular order: released here, before any user data is. Measured: the
-+  // core crashed on quit (EXC_BAD_ACCESS) whenever the proxy went first.
-+  void WebContentsDestroyed() override;
-+
-+  Orientation OrientationAt(double t);
-+  void Tick();
-+
-+  std::vector<std::unique_ptr<ScopedVirtualSensorForDevTools>> sensors_;
-+  base::RepeatingTimer timer_;
-+  base::TimeTicks start_;
-+  double last_t_ = -1;
-+  std::array<double, 9> last_rotation_{};
-+
-+  // From the seed: how this hand holds this phone.
-+  double base_alpha_, base_beta_, base_gamma_;
-+  // Per angle (alpha, beta, gamma), three sines each.
-+  std::array<std::array<double, 3>, 3> sway_amp_;  // degrees
-+  std::array<std::array<double, 3>, 3> sway_freq_;  // Hz
-+  std::array<std::array<double, 3>, 3> sway_phase_;
-+  double tremor_amp_;       // degrees
-+  double tremor_freq_;      // Hz
-+  double tremor_accel_;     // m/s^2
-+  double sway_accel_;       // m/s^2
-+  double sway_accel_freq_;  // Hz
-+  double accel_noise_;      // m/s^2
-+  double gyro_noise_;       // rad/s
-+
-+  // Slow wander on top of the sines (Ornstein-Uhlenbeck), and the noise.
-+  std::array<double, 3> drift_{};
-+  std::mt19937_64 rng_;
-+  std::normal_distribution<double> normal_{0.0, 1.0};
-+
-+  WEB_CONTENTS_USER_DATA_KEY_DECL();
-+};
-+
-+}  // namespace content
-+
-+#endif  // CONTENT_BROWSER_GENERIC_SENSOR_FURY_PHONE_MOTION_H_
+diff --git a/content/browser/BUILD.gn b/content/browser/BUILD.gn
+index 53dd562d46..a783e0b4e3 100644
+--- a/content/browser/BUILD.gn
++++ b/content/browser/BUILD.gn
+@@ -192,6 +192,7 @@ source_set("browser") {
+     "//components/ukm/debug:util",
+     "//components/url_formatter",
+     "//components/url_matcher",
++    "//components/fury",
+     "//components/variations",
+     "//components/variations/net",
+     "//components/version_info",
+@@ -1069,6 +1070,8 @@ source_set("browser") {
+     "font_list_async.cc",
+     "generic_sensor/frame_sensor_provider_proxy.cc",
+     "generic_sensor/frame_sensor_provider_proxy.h",
++    "generic_sensor/fury_phone_motion.cc",
++    "generic_sensor/fury_phone_motion.h",
+     "generic_sensor/web_contents_sensor_provider_proxy.cc",
+     "generic_sensor/web_contents_sensor_provider_proxy.h",
+     "geolocation/geolocation_service_impl.cc",
 diff --git a/content/browser/generic_sensor/fury_phone_motion.cc b/content/browser/generic_sensor/fury_phone_motion.cc
 new file mode 100644
-index 0000000000..cbe850f289
+index 0000000000..61be2450e4
 --- /dev/null
 +++ b/content/browser/generic_sensor/fury_phone_motion.cc
-@@ -0,0 +1,311 @@
+@@ -0,0 +1,334 @@
 +// SPDX-License-Identifier: AGPL-3.0-or-later
 +// Copyright 2026 Bogdan Shapovalov and the Fury authors
 +
@@ -242,21 +159,32 @@ index 0000000000..cbe850f289
 +  base_gamma_ = d.Between(-7, 7);
 +  for (int angle = 0; angle < 3; ++angle) {
 +    for (int k = 0; k < 3; ++k) {
-+      // Slow sway: the arm and wrist, a fraction of a hertz, a degree or two.
-+      sway_amp_[angle][k] = d.Between(0.3, angle == 0 ? 1.6 : 2.2) / (k + 1);
++      // Slow sway: the arm and wrist, a fraction of a hertz, under a degree
++      // except around the vertical. Two phones held still (Realme RMX5131,
++      // Huawei P30) moved their angles by 0.16-0.33 degrees (sd over 4 s),
++      // alpha up to 1.0; this was 0.3-2.2 and read as a walking hand.
++      sway_amp_[angle][k] = d.Between(0.1, angle == 0 ? 1.2 : 0.6) / (k + 1);
 +      sway_freq_[angle][k] = d.Between(0.04, 0.25) * (k + 1);
 +      sway_phase_[angle][k] = d.Between(0, 2 * std::numbers::pi);
 +    }
 +  }
-+  // Physiological tremor, 8 to 12 Hz.
++  // Physiological tremor, 8 to 12 Hz. Small in angle: at 10 Hz every
++  // hundredth of a degree is 0.6 deg/s of rotation rate, and both phones held
++  // still read 0.5-0.8 deg/s on each axis all told.
 +  tremor_freq_ = d.Between(8.0, 11.5);
-+  tremor_amp_ = d.Between(0.015, 0.045);
++  tremor_amp_ = d.Between(0.004, 0.012);
 +  tremor_accel_ = d.Between(0.012, 0.035);
 +  sway_accel_ = d.Between(0.03, 0.09);
 +  sway_accel_freq_ = d.Between(0.4, 1.3);
 +  // MEMS sensor noise floors, as phones report them.
 +  accel_noise_ = d.Between(0.008, 0.02);
 +  gyro_noise_ = d.Between(0.0008, 0.003);
++  // The phone's sensor fusion leaves the angles a few hundredths of a degree
++  // of jitter, and that is what makes deviceorientation fire: Blink sends an
++  // event only when an angle moves by 0.1 degree, and both phones sent 58-60
++  // in 4 s. Without it a still hand sent ~30, with the old drift ~200.
++  // Drawn last so the draws above keep their values for a given seed.
++  orientation_jitter_ = d.Between(0.035, 0.045);
 +
 +  auto* proxy = WebContentsSensorProviderProxy::GetOrCreate(web_contents);
 +  for (SensorType type : kTypes) {
@@ -314,7 +242,7 @@ index 0000000000..cbe850f289
 +                  std::sin(2 * std::numbers::pi * sway_freq_[a][k] * t +
 +                           sway_phase_[a][k]);
 +    }
-+    angle[a] += drift_[a];
++    angle[a] += drift_smooth_[a];
 +  }
 +  // The tremor is in the wrist: beta and gamma, a little out of phase.
 +  const double tremor = 2 * std::numbers::pi * tremor_freq_ * t;
@@ -332,12 +260,18 @@ index 0000000000..cbe850f289
 +  const double t = (base::TimeTicks::Now() - start_).InSecondsF();
 +  const double dt = last_t_ < 0 ? kPeriod.InSecondsF() : t - last_t_;
 +
-+  // Slow wander: an Ornstein-Uhlenbeck step per angle, about a degree.
++  // Slow wander: an Ornstein-Uhlenbeck step per angle, half a degree or so,
++  // then low-passed. Unsmoothed, its white-noise steps were the whole of the
++  // rotation rate: differentiated at 120 Hz they came to 7-10 deg/s on a hand
++  // that moved its angles by under a degree, three times a real phone's ratio
++  // (measured on the probe 14.10.2026; a still phone reads 0.5-0.8 deg/s).
++  constexpr double kDriftSmoothing = 0.6;  // seconds
 +  for (int a = 0; a < 3; ++a) {
 +    const double tau = a == 0 ? 6.0 : 2.5;
-+    const double sigma = a == 0 ? 1.2 : 0.8;
++    const double sigma = a == 0 ? 0.6 : 0.4;
 +    drift_[a] += -drift_[a] * dt / tau +
 +                 sigma * std::sqrt(2 * dt / tau) * normal_(rng_);
++    drift_smooth_[a] += (drift_[a] - drift_smooth_[a]) * dt / kDriftSmoothing;
 +  }
 +
 +  const Orientation o = OrientationAt(t);
@@ -374,11 +308,17 @@ index 0000000000..cbe850f289
 +
 +  auto noise = [&](double sd) { return sd * normal_(rng_); };
 +  const double ts = (base::TimeTicks::Now() - base::TimeTicks()).InSecondsF();
-+  const std::array<double, 4> q = Quaternion(r);
++  // The fused orientation, with its jitter. Gravity and the gyroscope above
++  // come from the true motion; a phone's fusion filter is a separate,
++  // noisier estimate of it.
++  const double ja = noise(orientation_jitter_), jb = noise(orientation_jitter_),
++               jg = noise(orientation_jitter_);
++  const std::array<double, 4> q =
++      Quaternion(Rotation(o.alpha + ja, o.beta + jb, o.gamma + jg));
 +  // Absolute orientation: the same rotation turned to magnetic north.
-+  const std::array<double, 4> qa =
-+      Quaternion(Rotation(std::fmod(o.alpha + base_alpha_ * 0.37 + 360.0, 360.0),
-+                          o.beta, o.gamma));
++  const std::array<double, 4> qa = Quaternion(
++      Rotation(std::fmod(o.alpha + ja + base_alpha_ * 0.37 + 360.0, 360.0),
++               o.beta + jb, o.gamma + jg));
 +
 +  for (size_t i = 0; i < sensors_.size(); ++i) {
 +    device::SensorReading reading;
@@ -419,38 +359,187 @@ index 0000000000..cbe850f289
 +WEB_CONTENTS_USER_DATA_KEY_IMPL(FuryPhoneMotion);
 +
 +}  // namespace content
-diff --git a/content/browser/BUILD.gn b/content/browser/BUILD.gn
-index 2e50e36420..a783e0b4e3 100644
---- a/content/browser/BUILD.gn
-+++ b/content/browser/BUILD.gn
-@@ -1070,6 +1070,8 @@ source_set("browser") {
-     "font_list_async.cc",
-     "generic_sensor/frame_sensor_provider_proxy.cc",
-     "generic_sensor/frame_sensor_provider_proxy.h",
-+    "generic_sensor/fury_phone_motion.cc",
-+    "generic_sensor/fury_phone_motion.h",
-     "generic_sensor/web_contents_sensor_provider_proxy.cc",
-     "generic_sensor/web_contents_sensor_provider_proxy.h",
-     "geolocation/geolocation_service_impl.cc",
+diff --git a/content/browser/generic_sensor/fury_phone_motion.h b/content/browser/generic_sensor/fury_phone_motion.h
+new file mode 100644
+index 0000000000..c807de89a0
+--- /dev/null
++++ b/content/browser/generic_sensor/fury_phone_motion.h
+@@ -0,0 +1,101 @@
++// SPDX-License-Identifier: AGPL-3.0-or-later
++// Copyright 2026 Bogdan Shapovalov and the Fury authors
++
++#ifndef CONTENT_BROWSER_GENERIC_SENSOR_FURY_PHONE_MOTION_H_
++#define CONTENT_BROWSER_GENERIC_SENSOR_FURY_PHONE_MOTION_H_
++
++#include <array>
++#include <memory>
++#include <random>
++#include <vector>
++
++#include "base/time/time.h"
++#include "base/timer/timer.h"
++#include "content/public/browser/web_contents_observer.h"
++#include "content/public/browser/web_contents_user_data.h"
++
++class GURL;
++
++namespace content {
++
++class ScopedVirtualSensorForDevTools;
++class WebContents;
++
++// Fury patch 0135: a phone persona's motion sensors (docs/18).
++//
++// A phone in a hand reports devicemotion about every 16 ms: gravity tilted
++// by how it is held, a hand tremor of a few hundredths of m/s^2, rotation of
++// a few degrees per second. A desktop has no such sensors and reports
++// nothing, which on a phone persona is a contradiction any page can read in
++// four seconds. This gives the tab the virtual sensors DevTools' sensor
++// emulation uses (accelerometer, linear acceleration, gravity, gyroscope,
++// relative and absolute orientation; the device service derives the
++// DeviceOrientation angles from the last two) and feeds them from one model
++// of a hand holding a phone, so every reading agrees with every other:
++// gravity is the orientation's, the rotation rate is the orientation's rate
++// of change.
++//
++// How the hand holds it (tilt, roll, sway, tremor) comes from the profile's
++// mobile.touchSeed, so a profile handles its phone the same way on every
++// launch and another profile its own way. The noise on top is new each time.
++class FuryPhoneMotion : public WebContentsObserver,
++                        public WebContentsUserData<FuryPhoneMotion> {
++ public:
++  ~FuryPhoneMotion() override;
++
++  // Attach to a phone persona's tab, or detach on the browser's own pages.
++  static void UpdateForNavigation(WebContents* web_contents, const GURL& url);
++
++ private:
++  friend class WebContentsUserData<FuryPhoneMotion>;
++  FuryPhoneMotion(WebContents* web_contents, uint64_t seed);
++
++  struct Orientation {
++    double alpha;  // degrees
++    double beta;
++    double gamma;
++  };
++
++  // The virtual sensors call into WebContentsSensorProviderProxy when they
++  // go, and that proxy is user data of the same WebContents, torn down in no
++  // particular order: released here, before any user data is. Measured: the
++  // core crashed on quit (EXC_BAD_ACCESS) whenever the proxy went first.
++  void WebContentsDestroyed() override;
++
++  Orientation OrientationAt(double t);
++  void Tick();
++
++  std::vector<std::unique_ptr<ScopedVirtualSensorForDevTools>> sensors_;
++  base::RepeatingTimer timer_;
++  base::TimeTicks start_;
++  double last_t_ = -1;
++  std::array<double, 9> last_rotation_{};
++
++  // From the seed: how this hand holds this phone.
++  double base_alpha_, base_beta_, base_gamma_;
++  // Per angle (alpha, beta, gamma), three sines each.
++  std::array<std::array<double, 3>, 3> sway_amp_;  // degrees
++  std::array<std::array<double, 3>, 3> sway_freq_;  // Hz
++  std::array<std::array<double, 3>, 3> sway_phase_;
++  double tremor_amp_;       // degrees
++  double tremor_freq_;      // Hz
++  double tremor_accel_;     // m/s^2
++  double sway_accel_;       // m/s^2
++  double sway_accel_freq_;  // Hz
++  double accel_noise_;      // m/s^2
++  double gyro_noise_;       // rad/s
++  double orientation_jitter_;  // degrees, what the fused angles carry
++
++  // Slow wander on top of the sines (Ornstein-Uhlenbeck), smoothed, and the
++  // noise.
++  std::array<double, 3> drift_{};
++  std::array<double, 3> drift_smooth_{};
++  std::mt19937_64 rng_;
++  std::normal_distribution<double> normal_{0.0, 1.0};
++
++  WEB_CONTENTS_USER_DATA_KEY_DECL();
++};
++
++}  // namespace content
++
++#endif  // CONTENT_BROWSER_GENERIC_SENSOR_FURY_PHONE_MOTION_H_
 diff --git a/content/browser/web_contents/web_contents_impl.cc b/content/browser/web_contents/web_contents_impl.cc
-index 88a963d6f4..f72d3bb021 100644
+index 6d6d0947fa..f72d3bb021 100644
 --- a/content/browser/web_contents/web_contents_impl.cc
 +++ b/content/browser/web_contents/web_contents_impl.cc
-@@ -109,6 +109,7 @@
+@@ -108,6 +108,8 @@
+ #include "content/browser/renderer_host/frame_token_message_queue.h"
  #include "content/browser/renderer_host/frame_tree_node.h"
  #include "content/browser/renderer_host/input/touch_emulator_impl.h"
- #include "components/fury/fury_config.h"
++#include "components/fury/fury_config.h"
 +#include "content/browser/generic_sensor/fury_phone_motion.h"
  #include "content/browser/renderer_host/media/media_stream_manager.h"
  #include "content/browser/renderer_host/navigation_entry_impl.h"
  #include "content/browser/renderer_host/navigation_request.h"
-@@ -8555,6 +8556,9 @@ void WebContentsImpl::DidNavigateMainFramePostCommit(
-   // Patch 0132: a phone persona is driven by a finger (docs/18, step 4).
-   if (is_primary_main_frame && !GetOuterWebContents()) {
-     FuryUpdateTouchFromMouse(render_frame_host->GetLastCommittedURL());
-+    // Patch 0135: and it has the motion sensors a phone in a hand has.
-+    FuryPhoneMotion::UpdateForNavigation(
-+        this, render_frame_host->GetLastCommittedURL());
+@@ -8460,6 +8462,48 @@ void WebContentsImpl::DidNavigateAnyFramePreCommit(
    }
  }
  
++// Patch 0132: on a phone persona, the mouse becomes a finger.
++//
++// DevTools' "emit touch events for mouse", the browser-side TouchEmulator,
++// switched on from the config instead of over CDP: a click reaches the page
++// as touchstart/touchend and a tap, a drag as a touch scroll, and a mouse
++// moving with no button pressed reaches the page as nothing at all, because
++// a phone cannot hover. Pointer events report pointerType "touch". Patch 0130
++// already makes the page expect this (touch events, coarse pointer, no hover);
++// without it the page would see a touchscreen that only ever sends mouse
++// events, which no phone does.
++//
++// Per WebContents, after each committed main-frame navigation, because the
++// browser's own pages and DevTools are not the phone's content and are
++// operated with a mouse. The wheel still arrives as a wheel when no touch is
++// active (TouchEmulatorImpl::HandleMouseWheelEvent); turning it into a finger
++// drag is not done here.
++void WebContentsImpl::FuryUpdateTouchFromMouse(const GURL& url) {
++  const fury::FuryConfig* config = fury::FuryConfig::Get();
++  if (!config || !config->GetBool("mobile.enabled").value_or(false)) {
++    return;
++  }
++  const bool browser_page = url.SchemeIs(kChromeUIScheme) ||
++                            url.SchemeIs(kChromeDevToolsScheme) ||
++                            url.SchemeIs(kChromeUIUntrustedScheme);
++  // The router owns what the emulator talks to; make sure it exists.
++  if (!GetInputEventRouter()) {
++    return;
++  }
++  auto* emulator = static_cast<TouchEmulatorImpl*>(GetTouchEmulator(/*create_if_necessary=*/true));
++  if (!emulator) {
++    return;
++  }
++  if (browser_page) {
++    emulator->Disable();
++    SetForceDisableOverscrollContent(false);
++  } else if (!emulator->IsEnabled()) {
++    emulator->Enable(input::TouchEmulator::Mode::kEmulatingTouchFromMouse,
++                     ui::GestureProviderConfigType::GENERIC_MOBILE);
++    SetForceDisableOverscrollContent(true);
++  }
++}
++
+ void WebContentsImpl::DidNavigateMainFramePostCommit(
+     RenderFrameHostImpl* render_frame_host,
+     const LoadCommittedDetails& details) {
+@@ -8508,6 +8552,14 @@ void WebContentsImpl::DidNavigateMainFramePostCommit(
+     TRACE_EVENT_END("content", tracing_track_->track());
+     EmitTracingSlice(base::UTF16ToUTF8(GetTitle()));
+   }
++
++  // Patch 0132: a phone persona is driven by a finger (docs/18, step 4).
++  if (is_primary_main_frame && !GetOuterWebContents()) {
++    FuryUpdateTouchFromMouse(render_frame_host->GetLastCommittedURL());
++    // Patch 0135: and it has the motion sensors a phone in a hand has.
++    FuryPhoneMotion::UpdateForNavigation(
++        this, render_frame_host->GetLastCommittedURL());
++  }
+ }
+ 
+ void WebContentsImpl::DidNavigateAnyFramePostCommit(

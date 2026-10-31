@@ -284,7 +284,19 @@ impl MachineOverrides {
         }
 
         if let Some(s) = self.screen {
-            if !(640..=7680).contains(&s.width) || !(480..=4320).contains(&s.height) {
+            // A handset's screen is its model (options_for offers only that
+            // one), so the phone's own is accepted as it stands and anything
+            // else refused, rather than measured against monitor sizes.
+            if base.is_android() {
+                if (s.width, s.height) != (base.screen.width, base.screen.height)
+                    || (s.device_pixel_ratio - base.screen.device_pixel_ratio).abs() > 1e-9
+                {
+                    errs.push(format!(
+                        "{} has a {}×{} screen; a phone's screen comes with the phone",
+                        base.id, base.screen.width, base.screen.height
+                    ));
+                }
+            } else if !(640..=7680).contains(&s.width) || !(480..=4320).contains(&s.height) {
                 errs.push(format!("screen {}×{} is not a monitor", s.width, s.height));
             } else {
                 // The persona's own taskbar or menu bar, carried over rather

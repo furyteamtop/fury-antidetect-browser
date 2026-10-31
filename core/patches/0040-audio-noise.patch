@@ -1,5 +1,5 @@
 diff --git a/third_party/blink/renderer/modules/webaudio/audio_context.cc b/third_party/blink/renderer/modules/webaudio/audio_context.cc
-index 9136c6e6c1..54e611055e 100644
+index f1cbc1392c..70de90a395 100644
 --- a/third_party/blink/renderer/modules/webaudio/audio_context.cc
 +++ b/third_party/blink/renderer/modules/webaudio/audio_context.cc
 @@ -14,6 +14,7 @@
@@ -10,7 +10,29 @@ index 9136c6e6c1..54e611055e 100644
  #include "media/audio/audio_device_description.h"
  #include "media/base/output_device_info.h"
  #include "services/metrics/public/cpp/ukm_builders.h"
-@@ -1251,6 +1252,18 @@ double AudioContext::outputLatency() const {
+@@ -677,6 +678,21 @@ AudioContext::AudioContext(LocalDOMWindow& window,
+                                        .GetFramesPerBuffer()),
+                static_cast<size_t>(renderQuantumSize()));
+   base_latency_ = base_latency_frames / static_cast<double>(sampleRate());
++  // Fury: the buffer size is the host audio stack's -- 256 frames on a Mac,
++  // 480 on Windows, anything from 128 to 960 on a phone -- so the default
++  // context's latency names the machine under the persona. Only the default
++  // ("interactive") hint: a page asking for "playback" or a number gets a
++  // bigger buffer on every real machine, and a constant answer to all of
++  // them would be the stranger thing.
++  if (latency_hint.Category() == WebAudioLatencyHint::kCategoryInteractive) {
++    if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++      if (std::optional<double> latency =
++              config->GetDouble("audio.baseLatency");
++          latency && *latency > 0) {
++        base_latency_ = *latency;
++      }
++    }
++  }
+   SendLogMessage(__func__,
+                  Format("=> (base latency={:.3f} seconds))", base_latency_));
+ 
+@@ -1251,6 +1267,18 @@ double AudioContext::outputLatency() const {
  
    DeferredTaskHandler::GraphAutoLocker locker(GetDeferredTaskHandler());
  

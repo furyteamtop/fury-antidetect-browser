@@ -506,6 +506,7 @@ pub mod samples {
 /// runtime (`GetInt(std::string("mediaDevices.") + key)`), so what has to exist
 /// is a non-empty object there, not one named key.
 pub const CORE_CONFIG_KEYS: &[&str] = &[
+    "audio.baseLatency",
     "audio.outputLatency",
     "automation.hideTraces",
     "battery.charging",
@@ -521,6 +522,9 @@ pub const CORE_CONFIG_KEYS: &[&str] = &[
     "geolocation.accuracy",
     "geolocation.latitude",
     "geolocation.longitude",
+    "gpu.shaderPrecision.",
+    "gpu.webgl1Extensions",
+    "gpu.webgl2Extensions",
     "gpu.webglExtensions",
     "gpu.webglParams.",
     "gpu.webgpu.architecture",
@@ -555,6 +559,7 @@ pub const CORE_CONFIG_KEYS: &[&str] = &[
     "screen.height",
     "screen.scrollbarWidth",
     "screen.width",
+    "speech.androidVoices",
     "speech.voices",
     "webrtc.ipHandlingPolicy",
     "window.profileName",
@@ -593,6 +598,14 @@ const OPTIONAL_BRANCHES: &[(&str, &[&str])] = &[
         ],
     ),
     ("speech", &["speech.voices"]),
+    // Per-context extension lists and shader precision come from a capture
+    // that recorded them; absent, the core falls back to gpu.webglExtensions
+    // and to the host's precision (patch 0031).
+    ("gpu.webgl1Extensions", &["gpu.webgl1Extensions"]),
+    ("gpu.webgl2Extensions", &["gpu.webgl2Extensions"]),
+    ("gpu.shaderPrecision", &["gpu.shaderPrecision."]),
+    // A phone persona converted before its voice locales were kept.
+    ("speech.androidVoices", &["speech.androidVoices"]),
     // A desktop persona has no handset, and its absence is what leaves
     // patch 0130 out of the way (persona.rs, derive_core_config).
     ("mobile", &["mobile.connectionType", "mobile.enabled", "mobile.touchSeed"]),

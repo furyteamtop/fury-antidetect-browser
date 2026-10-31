@@ -537,6 +537,13 @@
 # content/browser/BUILD.gn with 0001.
 0135-mobile-sensors.patch
 
+# What Chrome on Android lacks and a phone persona still had: chrome.app on
+# window.chrome (no extensions system on Android, so csi and loadTimes only)
+# and the host's keyboard layout in navigator.keyboard.getLayoutMap() (an
+# empty map on a phone). Both off on a phone persona only; measured against
+# two captured phones, 14.10 and 28.10.2026.
+0136-mobile-apis.patch
+
 # --- network ----------------------------------------------------------------
 # NOT NEEDED FOR PARITY, and removing them from the plan is a finding rather
 # than a shortcut. Verified against M150 source on 31.07.2026:

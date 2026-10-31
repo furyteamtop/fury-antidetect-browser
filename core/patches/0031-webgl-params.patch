@@ -1,13 +1,14 @@
 diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
-index b452298c24..de93111e0d 100644
+index b452298c24..f9bafb42bd 100644
 --- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 +++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
-@@ -25,8 +25,16 @@
+@@ -25,8 +25,17 @@
  
  #include "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h"
  
 +#include "base/strings/string_number_conversions.h"
 +#include "base/strings/string_split.h"
++#include "base/strings/string_util.h"
 +#include "components/fury/fury_config.h"
 +#include "third_party/blink/renderer/platform/graphics/fury_flat.h"
 +#include "components/fury/fury_noise.h"
@@ -19,7 +20,62 @@ index b452298c24..de93111e0d 100644
  #include <memory>
  #include <utility>
  
-@@ -4003,10 +4011,149 @@ void WebGLRenderingContextBase::RecordANGLEImplementation() {
+@@ -3888,6 +3897,29 @@ bool WebGLRenderingContextBase::TimerQueryExtensionsEnabled() {
+               .IsWorkaroundEnabled(gpu::ENABLE_WEBGL_TIMER_QUERY_EXTENSIONS));
+ }
+ 
++namespace {
++
++// The persona's extension list for this kind of context. A WebGL1 and a
++// WebGL2 context list different extensions on the same machine -- WebGL2 has
++// its own (EXT_color_buffer_float, OES_draw_buffers_indexed) and drops the
++// ones it made core -- so one list for both left a WebGL2 context with only
++// the names the two shared: 18 where Chrome on the same Windows machine lists
++// 32 (ctx-fury baseline). gpu.webglExtensions is what a persona without
++// per-context lists carries, and what an older agent sends.
++std::optional<std::vector<std::string>> FuryExtensionList(
++    const fury::FuryConfig& config,
++    bool webgl2) {
++  std::optional<std::vector<std::string>> list =
++      webgl2 ? config.GetStringList("gpu.webgl2Extensions")
++             : config.GetStringList("gpu.webgl1Extensions");
++  if (!list) {
++    list = config.GetStringList("gpu.webglExtensions");
++  }
++  return list;
++}
++
++}  // namespace
++
+ ScriptObject WebGLRenderingContextBase::getExtension(ScriptState* script_state,
+                                                      const String& name) {
+   ExecutionContext* context = ExecutionContext::From(script_state);
+@@ -3896,6 +3928,24 @@ ScriptObject WebGLRenderingContextBase::getExtension(ScriptState* script_state,
+     UseCounter::Count(context, WebFeature::kWebGLDebugRendererInfo);
+   }
+ 
++  // Fury: an extension the persona does not list is not there, whatever the
++  // host's driver offers. Otherwise getSupportedExtensions() and
++  // getExtension() disagree, which no real browser does. Names compare
++  // without case, as getExtension() itself does.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<std::vector<std::string>> extensions =
++            FuryExtensionList(*config, IsWebGL2())) {
++      const std::string wanted = name.Utf8();
++      if (std::none_of(extensions->begin(), extensions->end(),
++                       [&](const std::string& listed) {
++                         return base::EqualsCaseInsensitiveASCII(listed,
++                                                                 wanted);
++                       })) {
++        return ScriptObject::CreateNull(script_state->GetIsolate());
++      }
++    }
++  }
++
+   WebGLExtension* extension = EnableExtensionIfSupported(name, context);
+   return ScriptObject(
+       script_state->GetIsolate(),
+@@ -4003,10 +4053,149 @@ void WebGLRenderingContextBase::RecordANGLEImplementation() {
                              webgl_angle_implementation);
  }
  
@@ -169,7 +225,63 @@ index b452298c24..de93111e0d 100644
    const int kIntZero = 0;
    switch (pname) {
      case GL_ACTIVE_TEXTURE:
-@@ -4549,6 +4696,29 @@ WebGLRenderingContextBase::getSupportedExtensions() {
+@@ -4526,6 +4715,55 @@ WebGLShaderPrecisionFormat* WebGLRenderingContextBase::getShaderPrecisionFormat(
+   GLint precision = 0;
+   ContextGL()->GetShaderPrecisionFormat(shader_type, precision_type, range,
+                                         &precision);
++
++  // Fury: a phone GPU answers here differently from a desktop one, and phone
++  // families from each other. Every desktop says 127,127,23 for all floats;
++  // a Mali-G76 says 15,15,10 for lowp and mediump, and an Adreno 722 says
++  // 127,127,23 for vertex lowp but 15,15,10 for fragment lowp. A phone persona
++  // answering with the host's was one call from being found out. Only what
++  // the persona states; the rest stays the host's.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    const char* shader =
++        shader_type == GL_VERTEX_SHADER ? "VERTEX_SHADER" : "FRAGMENT_SHADER";
++    const char* kind = nullptr;
++    switch (precision_type) {
++      case GL_LOW_FLOAT:
++        kind = "LOW_FLOAT";
++        break;
++      case GL_MEDIUM_FLOAT:
++        kind = "MEDIUM_FLOAT";
++        break;
++      case GL_HIGH_FLOAT:
++        kind = "HIGH_FLOAT";
++        break;
++      case GL_LOW_INT:
++        kind = "LOW_INT";
++        break;
++      case GL_MEDIUM_INT:
++        kind = "MEDIUM_INT";
++        break;
++      case GL_HIGH_INT:
++        kind = "HIGH_INT";
++        break;
++    }
++    if (std::optional<std::string> value =
++            config->GetString(std::string("gpu.shaderPrecision.") + shader +
++                              "." + kind)) {
++      std::vector<int> parts;
++      for (const auto& token : base::SplitStringPiece(
++               *value, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY)) {
++        int parsed = 0;
++        if (base::StringToInt(token, &parsed)) {
++          parts.push_back(parsed);
++        }
++      }
++      if (parts.size() == 3) {
++        range[0] = parts[0];
++        range[1] = parts[1];
++        precision = parts[2];
++      }
++    }
++  }
+   return MakeGarbageCollected<WebGLShaderPrecisionFormat>(range[0], range[1],
+                                                           precision);
+ }
+@@ -4549,6 +4787,29 @@ WebGLRenderingContextBase::getSupportedExtensions() {
      }
    }
  
@@ -185,7 +297,7 @@ index b452298c24..de93111e0d 100644
 +  // ANGLE_instanced_arrays is core in WebGL 2, and no WebGL 2 context lists it.
 +  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
 +    if (std::optional<std::vector<std::string>> extensions =
-+            config->GetStringList("gpu.webglExtensions")) {
++            FuryExtensionList(*config, IsWebGL2())) {
 +      result.clear();
 +      for (ExtensionTracker* tracker : extensions_) {
 +        if (std::find(extensions->begin(), extensions->end(),
@@ -199,7 +311,7 @@ index b452298c24..de93111e0d 100644
    return result;
  }
  
-@@ -5372,6 +5542,42 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
+@@ -5372,6 +5633,42 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
      }
      ContextGL()->ReadPixels(x, y, width, height, format, type, data);
    }
