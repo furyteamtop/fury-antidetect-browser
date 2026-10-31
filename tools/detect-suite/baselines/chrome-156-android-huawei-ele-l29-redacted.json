@@ -1,0 +1,1262 @@
+{
+  "__collectedInMs": 12199,
+  "__probeVersion": "0.3.0",
+  "__redacted": true,
+  "__schema": 1,
+  "audio": {
+    "context": {
+      "baseLatency": 0.02,
+      "channelCount": 2,
+      "channelCountMode": "explicit",
+      "channelInterpretation": "speakers",
+      "maxChannelCount": 2,
+      "numberOfInputs": 1,
+      "numberOfOutputs": 0,
+      "outputLatency": 0,
+      "sampleRate": 48000
+    },
+    "offline": {
+      "hash": "03ce8041",
+      "sum": 124.08075415677013
+    },
+    "stableAcrossCalls": true
+  },
+  "canvas2d": {
+    "getImageData": "1e0d8c3b",
+    "getImageDataBytes": 67200,
+    "isPointInPath": true,
+    "stableAcrossCalls": true,
+    "textMetrics": "217.67112731933594|10|3|-1|217.29713439941406|12|4",
+    "toDataURL": "7634bf57",
+    "winding": false
+  },
+  "clientHints": {
+    "architecture": "",
+    "bitness": "",
+    "brands": "Not:A-Brand/8,Chromium/156,Google Chrome/156",
+    "formFactors": "Mobile",
+    "fullVersionList": "Not:A-Brand/8.0.0.0,Chromium/156.0.8078.47,Google Chrome/156.0.8078.47",
+    "mobile": true,
+    "model": "ELE-L29",
+    "platform": "Android",
+    "platformVersion": "10.0.0",
+    "uaFullVersion": "156.0.8078.47",
+    "wow64": false
+  },
+  "clientRects": {
+    "hash": "5cef530a",
+    "rect": "12.26953125|7.566731929779053|852.9354248046875|-9999.2705078125|-9987.0009765625|860.5021567344666|-9999.2705078125|852.9354248046875"
+  },
+  "codecs": {
+    "hasProprietaryCodecs": true,
+    "recorderTypes": "video/webm;codecs=vp9,video/webm;codecs=vp8,video/mp4",
+    "support": {
+      "audio/flac": {
+        "canPlayType": "probably",
+        "mseSupported": false
+      },
+      "audio/mp4; codecs=\"mp4a.40.2\"": {
+        "canPlayType": "probably",
+        "mseSupported": true
+      },
+      "audio/mpeg": {
+        "canPlayType": "probably",
+        "mseSupported": true
+      },
+      "audio/ogg; codecs=\"vorbis\"": {
+        "canPlayType": "probably",
+        "mseSupported": false
+      },
+      "audio/wav; codecs=\"1\"": {
+        "canPlayType": "probably",
+        "mseSupported": false
+      },
+      "audio/webm; codecs=\"opus\"": {
+        "canPlayType": "probably",
+        "mseSupported": true
+      },
+      "video/mp4; codecs=\"av01.0.05M.08\"": {
+        "canPlayType": "probably",
+        "mseSupported": true
+      },
+      "video/mp4; codecs=\"avc1.42E01E\"": {
+        "canPlayType": "probably",
+        "mseSupported": true
+      },
+      "video/mp4; codecs=\"avc1.640028\"": {
+        "canPlayType": "probably",
+        "mseSupported": true
+      },
+      "video/mp4; codecs=\"hev1.1.6.L93.B0\"": {
+        "canPlayType": "probably",
+        "mseSupported": true
+      },
+      "video/ogg; codecs=\"theora\"": {
+        "canPlayType": "",
+        "mseSupported": false
+      },
+      "video/webm; codecs=\"vp8\"": {
+        "canPlayType": "probably",
+        "mseSupported": true
+      },
+      "video/webm; codecs=\"vp9\"": {
+        "canPlayType": "probably",
+        "mseSupported": true
+      }
+    }
+  },
+  "contexts": {
+    "audioWorklet": {
+      "calendar": "gregory",
+      "hasNavigator": false,
+      "locale": "ru",
+      "numberFormat": "123 456,789",
+      "sampleRate": 48000,
+      "timezone": "Asia/Yerevan",
+      "userAgent": null
+    },
+    "iframe:about:blank": {
+      "availHeight": 780,
+      "calendar": "gregory",
+      "canvasHash": "2a5c7406",
+      "deviceMemory": 4,
+      "devicePixelRatio": 3,
+      "hardwareConcurrency": 8,
+      "language": "ru-DE",
+      "languages": "ru-DE,en-DE,ru-RU,ru,en-US,en",
+      "locale": "ru",
+      "maxTouchPoints": 5,
+      "nativeToString": "native",
+      "numberFormat": "123 456,789",
+      "platform": "Linux armv81",
+      "screenHeight": 780,
+      "screenWidth": 360,
+      "timezone": "Asia/Yerevan",
+      "timezoneOffset": -240,
+      "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Mobile Safari/537.36",
+      "webdriver": false,
+      "webglUnmasked": "Google Inc. (ARM) :: ANGLE (ARM, Mali-G76, OpenGL ES 3.2)"
+    },
+    "iframe:cross-origin": {
+      "__absent": true,
+      "why": "no second origin for furybrowser.dev"
+    },
+    "iframe:same-origin": {
+      "availHeight": 780,
+      "calendar": "gregory",
+      "canvasHash": "2a5c7406",
+      "deviceMemory": 4,
+      "devicePixelRatio": 3,
+      "hardwareConcurrency": 8,
+      "language": "ru-DE",
+      "languages": "ru-DE,en-DE,ru-RU,ru,en-US,en",
+      "locale": "ru",
+      "maxTouchPoints": 5,
+      "nativeToString": "native",
+      "numberFormat": "123 456,789",
+      "platform": "Linux armv81",
+      "screenHeight": 780,
+      "screenWidth": 360,
+      "timezone": "Asia/Yerevan",
+      "timezoneOffset": -240,
+      "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Mobile Safari/537.36",
+      "webdriver": false,
+      "webglUnmasked": "Google Inc. (ARM) :: ANGLE (ARM, Mali-G76, OpenGL ES 3.2)"
+    },
+    "iframe:srcdoc": {
+      "availHeight": 780,
+      "calendar": "gregory",
+      "canvasHash": "2a5c7406",
+      "deviceMemory": 4,
+      "devicePixelRatio": 3,
+      "hardwareConcurrency": 8,
+      "language": "ru-DE",
+      "languages": "ru-DE,en-DE,ru-RU,ru,en-US,en",
+      "locale": "ru",
+      "maxTouchPoints": 5,
+      "nativeToString": "native",
+      "numberFormat": "123 456,789",
+      "platform": "Linux armv81",
+      "screenHeight": 780,
+      "screenWidth": 360,
+      "timezone": "Asia/Yerevan",
+      "timezoneOffset": -240,
+      "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Mobile Safari/537.36",
+      "webdriver": false,
+      "webglUnmasked": "Google Inc. (ARM) :: ANGLE (ARM, Mali-G76, OpenGL ES 3.2)"
+    },
+    "main": {
+      "availHeight": 780,
+      "calendar": "gregory",
+      "canvasHash": "2a5c7406",
+      "deviceMemory": 4,
+      "devicePixelRatio": 3,
+      "hardwareConcurrency": 8,
+      "language": "ru-DE",
+      "languages": "ru-DE,en-DE,ru-RU,ru,en-US,en",
+      "locale": "ru",
+      "maxTouchPoints": 5,
+      "nativeToString": "native",
+      "numberFormat": "123 456,789",
+      "platform": "Linux armv81",
+      "screenHeight": 780,
+      "screenWidth": 360,
+      "timezone": "Asia/Yerevan",
+      "timezoneOffset": -240,
+      "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Mobile Safari/537.36",
+      "webdriver": false,
+      "webglUnmasked": "Google Inc. (ARM) :: ANGLE (ARM, Mali-G76, OpenGL ES 3.2)"
+    },
+    "serviceWorker": {
+      "calendar": "gregory",
+      "canvasHash": "1c2f22a4",
+      "deviceMemory": 4,
+      "hardwareConcurrency": 8,
+      "language": "ru-DE",
+      "languages": "ru-DE,en-DE,ru-RU,ru,en-US,en",
+      "locale": "ru",
+      "numberFormat": "123 456,789",
+      "platform": "Linux armv81",
+      "timezone": "Asia/Yerevan",
+      "timezoneOffset": -240,
+      "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Mobile Safari/537.36",
+      "userAgentDataMobile": true,
+      "userAgentDataPlatform": "Android",
+      "webdriver": null,
+      "webglMaxTextureSize": 4096,
+      "webglUnmasked": "Google Inc. (ARM) :: ANGLE (ARM, Mali-G76, OpenGL ES 3.2)"
+    },
+    "sharedWorker": {
+      "calendar": "gregory",
+      "canvasHash": "2a5c7406",
+      "deviceMemory": 4,
+      "hardwareConcurrency": 8,
+      "language": "ru-DE",
+      "languages": "ru-DE,en-DE,ru-RU,ru,en-US,en",
+      "locale": "ru",
+      "numberFormat": "123 456,789",
+      "platform": "Linux armv81",
+      "timezone": "Asia/Yerevan",
+      "timezoneOffset": -240,
+      "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Mobile Safari/537.36",
+      "userAgentDataMobile": true,
+      "userAgentDataPlatform": "Android",
+      "webdriver": null,
+      "webglMaxTextureSize": 4096,
+      "webglUnmasked": "Google Inc. (ARM) :: ANGLE (ARM, Mali-G76, OpenGL ES 3.2)"
+    },
+    "worker": {
+      "calendar": "gregory",
+      "canvasHash": "2a5c7406",
+      "deviceMemory": 4,
+      "hardwareConcurrency": 8,
+      "language": "ru-DE",
+      "languages": "ru-DE,en-DE,ru-RU,ru,en-US,en",
+      "locale": "ru",
+      "numberFormat": "123 456,789",
+      "platform": "Linux armv81",
+      "timezone": "Asia/Yerevan",
+      "timezoneOffset": -240,
+      "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Mobile Safari/537.36",
+      "userAgentDataMobile": true,
+      "userAgentDataPlatform": "Android",
+      "webdriver": null,
+      "webglMaxTextureSize": 4096,
+      "webglUnmasked": "Google Inc. (ARM) :: ANGLE (ARM, Mali-G76, OpenGL ES 3.2)"
+    }
+  },
+  "crossContext": {
+    "absences": [
+      {
+        "absentIn": [
+          "audioWorklet"
+        ],
+        "field": "userAgent"
+      },
+      {
+        "absentIn": [
+          "worker",
+          "sharedWorker",
+          "serviceWorker"
+        ],
+        "field": "webdriver"
+      }
+    ],
+    "consistent": true,
+    "contextsProbed": [
+      "main",
+      "worker",
+      "sharedWorker",
+      "serviceWorker",
+      "audioWorklet",
+      "iframe:same-origin",
+      "iframe:about:blank",
+      "iframe:srcdoc"
+    ],
+    "disagreementCount": 0,
+    "disagreements": []
+  },
+  "css": {
+    "__monochrome": false,
+    "__systemFontStack": "Arial",
+    "any-hover: hover": false,
+    "any-pointer: coarse": true,
+    "any-pointer: fine": false,
+    "color-gamut: p3": false,
+    "color-gamut: rec2020": false,
+    "color-gamut: srgb": true,
+    "display-mode: browser": true,
+    "dynamic-range: high": false,
+    "forced-colors: active": false,
+    "hover: hover": false,
+    "inverted-colors: inverted": false,
+    "overflow-block: scroll": true,
+    "pointer: coarse": true,
+    "pointer: fine": false,
+    "prefers-color-scheme: dark": false,
+    "prefers-color-scheme: light": true,
+    "prefers-contrast: more": false,
+    "prefers-reduced-motion: reduce": false,
+    "prefers-reduced-transparency: reduce": false,
+    "scripting: enabled": true,
+    "update: fast": true
+  },
+  "drm": {
+    "com.microsoft.playready": {
+      "__error": "NotSupportedError"
+    },
+    "com.widevine.alpha": {
+      "available": true,
+      "keySystem": "com.widevine.alpha"
+    },
+    "org.w3.clearkey": {
+      "available": true,
+      "keySystem": "org.w3.clearkey"
+    }
+  },
+  "engine": {
+    "automation": {
+      "cdcVars": "",
+      "chromeKeys": "csi,loadTimes",
+      "chromeRuntime": false,
+      "documentCdc": "",
+      "hasChromeLoadTimes": true,
+      "hasChromeObject": true,
+      "permissionsQueryNative": true,
+      "webdriver": false
+    },
+    "errorMessage": "Cannot read properties of null (reading 'f')",
+    "errorStackShape": "TypeError: Cannot read properties of null (reading 'f') |     at https://furybrowser.dev/probe/probe.js:L:C",
+    "hasCaptureStackTrace": true,
+    "jsHeapSizeLimit": 1530000000,
+    "mathSinh": "1.1752011936438014",
+    "mathTan": "-1.4214488238747245",
+    "misc": {
+      "battery": {
+        "charging": false,
+        "chargingTime": "Infinity",
+        "dischargingTime": 0,
+        "level": 0.8
+      },
+      "connectionDownlink": 9.5,
+      "connectionKind": "wifi",
+      "connectionRtt": 50,
+      "connectionSaveData": false,
+      "connectionType": "4g",
+      "hasBattery": true,
+      "hasComputePressure": false,
+      "hasDevicePosture": true,
+      "hasNetworkInfo": true,
+      "hasTouchEvents": true,
+      "keyboardLayout": {
+        "hash": "811c9dc5",
+        "sample": "",
+        "size": 0
+      }
+    },
+    "nativeToString": "hardwareConcurrency:native,userAgent:native,width:native",
+    "performanceNowPrecision": 0.09999999403953552,
+    "toStringTag": "[object Navigator]",
+    "totalJSHeapSize": 10000000
+  },
+  "fonts": {
+    "baselineWidths": {
+      "monospace": 950.5546875,
+      "sans-serif": 1206.864501953125,
+      "serif": 1304.015625
+    },
+    "countByMeasurement": 8,
+    "detectedByMeasurement": [
+      "Arial",
+      "Baskerville",
+      "Courier New",
+      "Georgia",
+      "Monaco",
+      "Tahoma",
+      "Times New Roman",
+      "Verdana"
+    ],
+    "fontsCheckDiscriminates": false,
+    "hasQueryLocalFonts": false,
+    "localFontsPermission": null,
+    "widthsHash": "1d4bd977"
+  },
+  "locale": {
+    "availableCalendars": 18,
+    "availableTimezones": 418,
+    "calendar": "gregory",
+    "collatorLocale": "ru",
+    "dateFormatted": "Thu Jan 01 1970 04:00:00 GMT+0400 (Армения, стандартное время)",
+    "dateLocaleString": "01.01.1970, 04:00:00",
+    "displayNameRegion": "Соединенные Штаты",
+    "listFormat": "a, b и c",
+    "locale": "ru",
+    "numberFormat": "123 456,789",
+    "numberingSystem": "latn",
+    "offsetJan": -240,
+    "offsetJul": -240,
+    "relativeTime": "1 день назад",
+    "timezone": "Asia/Yerevan",
+    "timezoneOffset": -240
+  },
+  "mediaDevices": {
+    "count": 3,
+    "deviceIdsHash": "85cffaa5",
+    "groupIdsHash": "85cffaa5",
+    "kinds": "audioinput,audiooutput,videoinput",
+    "labelsEmpty": true,
+    "supportedConstraints": "aspectRatio,autoGainControl,brightness,channelCount,colorTemperature,contrast,deviceId,displaySurface,echoCancellation,exposureCompensation,exposureMode,exposureTime,facingMode,focusDistance,focusMode,frameRate,groupId,height,iso,latency,noiseSuppression,pan,pointsOfInterest,resizeMode,restrictOwnAudio,sampleRate,sampleSize,saturation,sharpness,suppressLocalAudioPlayback,tilt,torch,voiceIsolation,whiteBalanceMode,width,zoom"
+  },
+  "motion": {
+    "accelerometer": {
+      "error": null,
+      "readings": 217,
+      "started": true,
+      "x": {
+        "mean": -0.2023,
+        "sd": 0.031
+      },
+      "y": {
+        "mean": 7.0535,
+        "sd": 0.0499
+      },
+      "z": {
+        "mean": 6.718,
+        "sd": 0.0864
+      }
+    },
+    "devicemotion": {
+      "acceleration": {
+        "x": {
+          "mean": -0.0014,
+          "sd": 0.025
+        },
+        "y": {
+          "mean": -0.0643,
+          "sd": 0.0479
+        },
+        "z": {
+          "mean": -0.0585,
+          "sd": 0.0805
+        }
+      },
+      "accelerationIncludingGravity": {
+        "x": {
+          "mean": -0.2029,
+          "sd": 0.0309
+        },
+        "y": {
+          "mean": 7.0536,
+          "sd": 0.0499
+        },
+        "z": {
+          "mean": 6.7203,
+          "sd": 0.0815
+        }
+      },
+      "accelerationNull": 0,
+      "count": 207,
+      "intervalMedian": 16,
+      "perSecond": 51.8,
+      "rotationRate": {
+        "alpha": {
+          "mean": 0.0435,
+          "sd": 0.8381
+        },
+        "beta": {
+          "mean": 0.0271,
+          "sd": 2.0849
+        },
+        "gamma": {
+          "mean": -0.1048,
+          "sd": 0.7674
+        }
+      },
+      "samples": [
+        {
+          "a": [
+            0,
+            0,
+            0
+          ],
+          "g": [
+            -0.2,
+            7.1,
+            6.8
+          ],
+          "i": 16,
+          "r": [
+            -6.2,
+            -28.1,
+            -9.9
+          ],
+          "t": 3279
+        },
+        {
+          "a": [
+            0,
+            -0.1,
+            -0.1
+          ],
+          "g": [
+            -0.2,
+            7,
+            6.7
+          ],
+          "i": 16,
+          "r": [
+            1.3,
+            0.5,
+            -0.4
+          ],
+          "t": 3446
+        },
+        {
+          "a": [
+            0,
+            -0.1,
+            0.1
+          ],
+          "g": [
+            -0.2,
+            7.1,
+            6.8
+          ],
+          "i": 16,
+          "r": [
+            -0.4,
+            -1.1,
+            -0.6
+          ],
+          "t": 3613
+        },
+        {
+          "a": [
+            0,
+            -0.1,
+            -0.1
+          ],
+          "g": [
+            -0.2,
+            7,
+            6.6
+          ],
+          "i": 16,
+          "r": [
+            0.5,
+            -0.1,
+            0.6
+          ],
+          "t": 3779
+        },
+        {
+          "a": [
+            0.1,
+            -0.1,
+            -0.2
+          ],
+          "g": [
+            -0.1,
+            7,
+            6.6
+          ],
+          "i": 16,
+          "r": [
+            1.1,
+            0.6,
+            -0.1
+          ],
+          "t": 3946
+        },
+        {
+          "a": [
+            0,
+            -0.1,
+            -0.2
+          ],
+          "g": [
+            -0.2,
+            7.1,
+            6.6
+          ],
+          "i": 16,
+          "r": [
+            -0.3,
+            -0.8,
+            0.3
+          ],
+          "t": 4113
+        },
+        {
+          "a": [
+            0.1,
+            -0.1,
+            -0.1
+          ],
+          "g": [
+            -0.1,
+            7,
+            6.7
+          ],
+          "i": 16,
+          "r": [
+            0.5,
+            -0.3,
+            -0.9
+          ],
+          "t": 4279
+        },
+        {
+          "a": [
+            0,
+            -0.1,
+            -0.2
+          ],
+          "g": [
+            -0.2,
+            7,
+            6.6
+          ],
+          "i": 16,
+          "r": [
+            -0.4,
+            -0.9,
+            -0.8
+          ],
+          "t": 4446
+        },
+        {
+          "a": [
+            0,
+            -0.1,
+            0
+          ],
+          "g": [
+            -0.2,
+            7,
+            6.8
+          ],
+          "i": 16,
+          "r": [
+            -0.4,
+            1.2,
+            0.4
+          ],
+          "t": 4613
+        },
+        {
+          "a": [
+            0,
+            -0.1,
+            0
+          ],
+          "g": [
+            -0.2,
+            7,
+            6.8
+          ],
+          "i": 16,
+          "r": [
+            -0.2,
+            -0.3,
+            -0.3
+          ],
+          "t": 4779
+        },
+        {
+          "a": [
+            0,
+            -0.1,
+            -0.1
+          ],
+          "g": [
+            -0.2,
+            7,
+            6.7
+          ],
+          "i": 16,
+          "r": [
+            -0.3,
+            -0.6,
+            -0.1
+          ],
+          "t": 4946
+        },
+        {
+          "a": [
+            0,
+            0,
+            0.1
+          ],
+          "g": [
+            -0.2,
+            7.1,
+            6.9
+          ],
+          "i": 16,
+          "r": [
+            0.1,
+            0,
+            0.1
+          ],
+          "t": 5113
+        },
+        {
+          "a": [
+            0,
+            -0.1,
+            0
+          ],
+          "g": [
+            -0.2,
+            7,
+            6.7
+          ],
+          "i": 16,
+          "r": [
+            0.2,
+            0.7,
+            0
+          ],
+          "t": 5279
+        },
+        {
+          "a": [
+            0,
+            -0.1,
+            0
+          ],
+          "g": [
+            -0.2,
+            7,
+            6.8
+          ],
+          "i": 16,
+          "r": [
+            -0.9,
+            0.8,
+            0
+          ],
+          "t": 5446
+        },
+        {
+          "a": [
+            0,
+            0,
+            0
+          ],
+          "g": [
+            -0.2,
+            7,
+            6.8
+          ],
+          "i": 16,
+          "r": [
+            1,
+            0.8,
+            0.1
+          ],
+          "t": 5613
+        },
+        {
+          "a": [
+            0,
+            0,
+            0.1
+          ],
+          "g": [
+            -0.2,
+            7.1,
+            6.7
+          ],
+          "i": 16,
+          "r": [
+            1.8,
+            0.6,
+            -0.1
+          ],
+          "t": 5779
+        },
+        {
+          "a": [
+            0,
+            0,
+            -0.1
+          ],
+          "g": [
+            -0.2,
+            7.1,
+            6.7
+          ],
+          "i": 16,
+          "r": [
+            1.6,
+            0.5,
+            -0.3
+          ],
+          "t": 5946
+        },
+        {
+          "a": [
+            0,
+            0,
+            -0.1
+          ],
+          "g": [
+            -0.2,
+            7.1,
+            6.7
+          ],
+          "i": 16,
+          "r": [
+            0.8,
+            -0.1,
+            0.1
+          ],
+          "t": 6113
+        },
+        {
+          "a": [
+            0,
+            0,
+            0
+          ],
+          "g": [
+            -0.2,
+            7.1,
+            6.7
+          ],
+          "i": 16,
+          "r": [
+            0.6,
+            0.2,
+            -0.1
+          ],
+          "t": 6279
+        },
+        {
+          "a": [
+            0,
+            -0.1,
+            -0.2
+          ],
+          "g": [
+            -0.2,
+            7.1,
+            6.6
+          ],
+          "i": 16,
+          "r": [
+            1.1,
+            0.3,
+            -0.3
+          ],
+          "t": 6446
+        },
+        {
+          "a": [
+            0,
+            -0.1,
+            -0.1
+          ],
+          "g": [
+            -0.2,
+            7.1,
+            6.6
+          ],
+          "i": 16,
+          "r": [
+            0.7,
+            1.2,
+            0.4
+          ],
+          "t": 6613
+        }
+      ]
+    },
+    "deviceorientation": {
+      "absolute": false,
+      "alpha": {
+        "mean": 355.4533,
+        "sd": 0.9997
+      },
+      "beta": {
+        "mean": 46.1883,
+        "sd": 0.3337
+      },
+      "count": 60,
+      "gamma": {
+        "mean": 1.4667,
+        "sd": 0.2797
+      },
+      "samples": [
+        [
+          358.8,
+          46.2,
+          1.4
+        ],
+        [
+          355.7,
+          45.6,
+          0.8
+        ],
+        [
+          355.1,
+          46.4,
+          1.5
+        ],
+        [
+          355,
+          46.4,
+          1.6
+        ],
+        [
+          354.9,
+          46.2,
+          1.6
+        ],
+        [
+          354.9,
+          46.3,
+          1.7
+        ]
+      ]
+    },
+    "genericSensors": [
+      "Accelerometer",
+      "LinearAccelerationSensor",
+      "GravitySensor",
+      "Gyroscope",
+      "AbsoluteOrientationSensor",
+      "RelativeOrientationSensor"
+    ],
+    "hasDeviceMotionEvent": true,
+    "hasDeviceOrientationEvent": true,
+    "seconds": 4
+  },
+  "navigator": {
+    "appName": "Netscape",
+    "appVersion": "5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Mobile Safari/537.36",
+    "cookieEnabled": true,
+    "deviceMemory": 4,
+    "doNotTrack": "1",
+    "hardwareConcurrency": 8,
+    "hasBluetooth": true,
+    "hasCredentials": true,
+    "hasGpu": true,
+    "hasHid": false,
+    "hasInk": true,
+    "hasSerial": true,
+    "hasUsb": true,
+    "language": "ru-DE",
+    "languages": "ru-DE,en-DE,ru-RU,ru,en-US,en",
+    "maxTouchPoints": 5,
+    "mimeTypes": "",
+    "onLine": true,
+    "oscpu": "<absent>",
+    "pdfViewerEnabled": false,
+    "platform": "Linux armv81",
+    "pluginCount": 0,
+    "plugins": "",
+    "product": "Gecko",
+    "productSub": "20030107",
+    "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Mobile Safari/537.36",
+    "vendor": "Google Inc.",
+    "webdriver": false
+  },
+  "permissions": {
+    "__consistent": true,
+    "__notificationApi": "default",
+    "accelerometer": "granted",
+    "camera": "prompt",
+    "clipboard-read": "prompt",
+    "clipboard-write": "granted",
+    "geolocation": "prompt",
+    "gyroscope": "granted",
+    "local-fonts": {
+      "__error": "TypeError"
+    },
+    "microphone": "prompt",
+    "midi": "prompt",
+    "notifications": "prompt",
+    "persistent-storage": "prompt",
+    "push": {
+      "__error": "NotSupportedError"
+    }
+  },
+  "screen": {
+    "availHeight": 780,
+    "availLeft": 0,
+    "availTop": 0,
+    "availWidth": 360,
+    "chromeHeight": 0,
+    "chromeWidth": 0,
+    "colorDepth": 24,
+    "devicePixelRatio": 3,
+    "height": 780,
+    "innerHeight": 713,
+    "innerWidth": 360,
+    "orientationAngle": 0,
+    "orientationType": "portrait-primary",
+    "outerHeight": 713,
+    "outerWidth": 360,
+    "pixelDepth": 24,
+    "screenX": 0,
+    "screenY": 0,
+    "scrollbarWidth": 0,
+    "visualViewportScale": 1,
+    "visualViewportWidth": 360,
+    "width": 360
+  },
+  "speech": {
+    "count": 82,
+    "defaultVoice": "ассамский Индия",
+    "hash": "cd2646c4",
+    "names": "албанский Албания|sq_AL|true~английский Австралия|en_AU|true~английский Великобритания|en_GB|true~английский Индия|en_IN|true~английский Нигерия|en_NG|true~английский Соединенные Штаты|en_US|true~ассамский Индия|as_IN|true~бенгальский Бангладеш|bn_BD|true~бенгальский Индия|bn_IN|true~бодо Индия|brx_IN|true~болгарский Болгария|bg_BG|true~боснийский Босния и Герцеговина|bs_BA_#Cyrl|true~боснийский Босния и Герцеговина|bs_BA_#Latn|true~валлийский Великобритания|cy_GB|true~венгерский Венгрия|hu_HU|true~вьетнамский Вьетнам|vi_VN|true~греческий Греция|el_GR|true~гуджарати Индия|gu_IN|true~датский Дания|da_DK|true~иврит Израиль|iw_IL|true~индонезийский Индонезия|in_ID|true~исландский Исландия|is_IS|true~испанский Испания|es_ES|true~испанский Соединенные Штаты|es_US|true~итальянский Италия|it_IT|true~каннада Индия|kn_IN|true~кантонский Гонконг (САР)|yue_HK_#Hant|true~каталанский Испания|ca_ES|true~кашмири Индия|ks_IN|true~китайский Гонконг (САР)|zh_HK_#Hans|true~китайский Гонконг (САР)|zh_HK_#Hant|true~китайский Китай|zh_CN_#Hans|true~китайский Макао (САР)|zh_MO_#Hans|true~китайский Макао (САР)|zh_MO_#Hant|true~китайский Сингапур|zh_SG_#Hans|true~китайский Тайвань|zh_TW_#Hant|true~конкани Индия|kok_IN|true~корейский Республика Корея|ko_KR|true~кхмерский Камбоджа|km_KH|true~латышский Латвия|lv_LV|true~литовский Литва|lt_LT|true~майтхили Индия|mai_IN_#Deva|true~майтхили Индия|mai_IN|true~малайский Малайзия|ms_MY|true~малаялам Индия|ml_IN|true~маратхи Индия|mr_IN|true~немецкий Германия|de_DE|true~непальский Непал|ne_NP|true~нидерландский Бельгия|nl_BE|true~нидерландский Нидерланды|nl_NL|true~норвежский букмол Норвегия|nb_NO|true~ория Индия|or_IN|true~панджаби Индия|pa_IN_#Guru|true~польский Польша|pl_PL|true~португальский Бразилия|pt_BR|true~португальский Португалия|pt_PT|true~румынский Румыния|ro_RO|true~русский Россия|ru_RU|true~сербский Сербия|sr_RS_#Cyrl|true~сербский Сербия|sr_RS_#Latn|true~сингальский Шри-Ланка|si_LK|true~словацкий Словакия|sk_SK|true~словенский Словения|sl_SI|true~суахили Кения|sw_KE|true~тайский Таиланд|th_TH|true~тамильский Индия|ta_IN|true~телугу Индия|te_IN|true~турецкий Турция|tr_TR|true~украинский Украина|uk_UA|true~урду Индия|ur_IN|true~урду Пакистан|ur_PK|true~филиппинский Филиппины|fil_PH|true~финский Финляндия|fi_FI|true~французский Канада|fr_CA|true~французский Франция|fr_FR|true~хинди Индия|hi_IN|true~хорватский Хорватия|hr_HR|true~чешский Чехия|cs_CZ|true~шведский Швеция|sv_SE|true~эстонский Эстония|et_EE|true~яванский Индонезия|jv_ID|true~японский Япония|ja_JP|true"
+  },
+  "storage": {
+    "cookieEnabled": true,
+    "hasIndexedDB": true,
+    "hasLocalStorage": true,
+    "quota": {
+      "quota": 10737418240,
+      "usage": 0
+    }
+  },
+  "webgl": {
+    "webgl1": {
+      "contextAttributes": "{\"alpha\":true,\"antialias\":true,\"depth\":true,\"desynchronized\":false,\"failIfMajorPerformanceCaveat\":false,\"powerPreference\":\"default\",\"premultipliedAlpha\":true,\"preserveDrawingBuffer\":false,\"stencil\":false,\"xrCompatible\":false}",
+      "extensions": "ANGLE_instanced_arrays,EXT_blend_minmax,EXT_color_buffer_half_float,EXT_float_blend,EXT_sRGB,EXT_texture_filter_anisotropic,OES_element_index_uint,OES_fbo_render_mipmap,OES_standard_derivatives,OES_texture_float,OES_texture_half_float,OES_texture_half_float_linear,OES_vertex_array_object,WEBGL_color_buffer_float,WEBGL_compressed_texture_astc,WEBGL_compressed_texture_etc,WEBGL_compressed_texture_etc1,WEBGL_debug_renderer_info,WEBGL_debug_shaders,WEBGL_depth_texture,WEBGL_lose_context,WEBGL_multi_draw",
+      "paramTypes": {
+        "ALIASED_LINE_WIDTH_RANGE": "Float32Array",
+        "ALIASED_POINT_SIZE_RANGE": "Float32Array",
+        "ALPHA_BITS": "Number",
+        "BLUE_BITS": "Number",
+        "DEPTH_BITS": "Number",
+        "GREEN_BITS": "Number",
+        "MAX_COMBINED_TEXTURE_IMAGE_UNITS": "Number",
+        "MAX_CUBE_MAP_TEXTURE_SIZE": "Number",
+        "MAX_FRAGMENT_UNIFORM_VECTORS": "Number",
+        "MAX_RENDERBUFFER_SIZE": "Number",
+        "MAX_TEXTURE_IMAGE_UNITS": "Number",
+        "MAX_TEXTURE_MAX_ANISOTROPY_EXT": "null",
+        "MAX_TEXTURE_SIZE": "Number",
+        "MAX_VARYING_VECTORS": "Number",
+        "MAX_VERTEX_ATTRIBS": "Number",
+        "MAX_VERTEX_TEXTURE_IMAGE_UNITS": "Number",
+        "MAX_VERTEX_UNIFORM_VECTORS": "Number",
+        "MAX_VIEWPORT_DIMS": "Int32Array",
+        "RED_BITS": "Number",
+        "RENDERER": "String",
+        "SAMPLES": "Number",
+        "SAMPLE_BUFFERS": "Number",
+        "SHADING_LANGUAGE_VERSION": "String",
+        "STENCIL_BITS": "Number",
+        "SUBPIXEL_BITS": "Number",
+        "VENDOR": "String",
+        "VERSION": "String"
+      },
+      "params": {
+        "ALIASED_LINE_WIDTH_RANGE": "1,4095.9375",
+        "ALIASED_POINT_SIZE_RANGE": "1,1024",
+        "ALPHA_BITS": 8,
+        "BLUE_BITS": 8,
+        "DEPTH_BITS": 24,
+        "GREEN_BITS": 8,
+        "MAX_COMBINED_TEXTURE_IMAGE_UNITS": 48,
+        "MAX_CUBE_MAP_TEXTURE_SIZE": 4096,
+        "MAX_FRAGMENT_UNIFORM_VECTORS": 1024,
+        "MAX_RENDERBUFFER_SIZE": 8192,
+        "MAX_TEXTURE_IMAGE_UNITS": 16,
+        "MAX_TEXTURE_MAX_ANISOTROPY_EXT": null,
+        "MAX_TEXTURE_SIZE": 4096,
+        "MAX_VARYING_VECTORS": 15,
+        "MAX_VERTEX_ATTRIBS": 16,
+        "MAX_VERTEX_TEXTURE_IMAGE_UNITS": 16,
+        "MAX_VERTEX_UNIFORM_VECTORS": 1024,
+        "MAX_VIEWPORT_DIMS": "8192,8192",
+        "RED_BITS": 8,
+        "RENDERER": "WebKit WebGL",
+        "SAMPLES": 4,
+        "SAMPLE_BUFFERS": 1,
+        "SHADING_LANGUAGE_VERSION": "WebGL GLSL ES 1.0 (OpenGL ES GLSL ES 1.0 Chromium)",
+        "STENCIL_BITS": 0,
+        "SUBPIXEL_BITS": 4,
+        "VENDOR": "WebKit",
+        "VERSION": "WebGL 1.0 (OpenGL ES 2.0 Chromium)"
+      },
+      "precision": {
+        "FRAGMENT_SHADER.HIGH_FLOAT": "127,127,23",
+        "FRAGMENT_SHADER.HIGH_INT": "31,30,0",
+        "FRAGMENT_SHADER.LOW_FLOAT": "15,15,10",
+        "FRAGMENT_SHADER.MEDIUM_FLOAT": "15,15,10",
+        "VERTEX_SHADER.HIGH_FLOAT": "127,127,23",
+        "VERTEX_SHADER.HIGH_INT": "31,30,0",
+        "VERTEX_SHADER.LOW_FLOAT": "15,15,10",
+        "VERTEX_SHADER.MEDIUM_FLOAT": "15,15,10"
+      },
+      "render": {
+        "readPixels": "fc129e29",
+        "stableAcrossCalls": true
+      },
+      "unmasked": {
+        "renderer": "ANGLE (ARM, Mali-G76, OpenGL ES 3.2)",
+        "vendor": "Google Inc. (ARM)"
+      }
+    },
+    "webgl2": {
+      "contextAttributes": "{\"alpha\":true,\"antialias\":true,\"depth\":true,\"desynchronized\":false,\"failIfMajorPerformanceCaveat\":false,\"powerPreference\":\"default\",\"premultipliedAlpha\":true,\"preserveDrawingBuffer\":false,\"stencil\":false,\"xrCompatible\":false}",
+      "extensions": "EXT_color_buffer_float,EXT_color_buffer_half_float,EXT_float_blend,EXT_texture_filter_anisotropic,OES_draw_buffers_indexed,OES_sample_variables,OES_shader_multisample_interpolation,WEBGL_compressed_texture_astc,WEBGL_compressed_texture_etc,WEBGL_compressed_texture_etc1,WEBGL_debug_renderer_info,WEBGL_debug_shaders,WEBGL_lose_context,WEBGL_multi_draw,WEBGL_stencil_texturing",
+      "paramTypes": {
+        "ALIASED_LINE_WIDTH_RANGE": "Float32Array",
+        "ALIASED_POINT_SIZE_RANGE": "Float32Array",
+        "ALPHA_BITS": "Number",
+        "BLUE_BITS": "Number",
+        "DEPTH_BITS": "Number",
+        "GREEN_BITS": "Number",
+        "MAX_3D_TEXTURE_SIZE": "Number",
+        "MAX_ARRAY_TEXTURE_LAYERS": "Number",
+        "MAX_COLOR_ATTACHMENTS": "Number",
+        "MAX_COMBINED_TEXTURE_IMAGE_UNITS": "Number",
+        "MAX_CUBE_MAP_TEXTURE_SIZE": "Number",
+        "MAX_DRAW_BUFFERS": "Number",
+        "MAX_ELEMENTS_INDICES": "Number",
+        "MAX_ELEMENTS_VERTICES": "Number",
+        "MAX_ELEMENT_INDEX": "Number",
+        "MAX_FRAGMENT_INPUT_COMPONENTS": "Number",
+        "MAX_FRAGMENT_UNIFORM_BLOCKS": "Number",
+        "MAX_FRAGMENT_UNIFORM_COMPONENTS": "Number",
+        "MAX_FRAGMENT_UNIFORM_VECTORS": "Number",
+        "MAX_PROGRAM_TEXEL_OFFSET": "Number",
+        "MAX_RENDERBUFFER_SIZE": "Number",
+        "MAX_SAMPLES": "Number",
+        "MAX_SERVER_WAIT_TIMEOUT": "Number",
+        "MAX_TEXTURE_IMAGE_UNITS": "Number",
+        "MAX_TEXTURE_LOD_BIAS": "Number",
+        "MAX_TEXTURE_MAX_ANISOTROPY_EXT": "null",
+        "MAX_TEXTURE_SIZE": "Number",
+        "MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS": "Number",
+        "MAX_UNIFORM_BLOCK_SIZE": "Number",
+        "MAX_UNIFORM_BUFFER_BINDINGS": "Number",
+        "MAX_VARYING_COMPONENTS": "Number",
+        "MAX_VARYING_VECTORS": "Number",
+        "MAX_VERTEX_ATTRIBS": "Number",
+        "MAX_VERTEX_OUTPUT_COMPONENTS": "Number",
+        "MAX_VERTEX_TEXTURE_IMAGE_UNITS": "Number",
+        "MAX_VERTEX_UNIFORM_BLOCKS": "Number",
+        "MAX_VERTEX_UNIFORM_COMPONENTS": "Number",
+        "MAX_VERTEX_UNIFORM_VECTORS": "Number",
+        "MAX_VIEWPORT_DIMS": "Int32Array",
+        "MIN_PROGRAM_TEXEL_OFFSET": "Number",
+        "RED_BITS": "Number",
+        "RENDERER": "String",
+        "SAMPLES": "Number",
+        "SAMPLE_BUFFERS": "Number",
+        "SHADING_LANGUAGE_VERSION": "String",
+        "STENCIL_BITS": "Number",
+        "SUBPIXEL_BITS": "Number",
+        "UNIFORM_BUFFER_OFFSET_ALIGNMENT": "Number",
+        "VENDOR": "String",
+        "VERSION": "String"
+      },
+      "params": {
+        "ALIASED_LINE_WIDTH_RANGE": "1,4095.9375",
+        "ALIASED_POINT_SIZE_RANGE": "1,1024",
+        "ALPHA_BITS": 8,
+        "BLUE_BITS": 8,
+        "DEPTH_BITS": 24,
+        "GREEN_BITS": 8,
+        "MAX_3D_TEXTURE_SIZE": 4096,
+        "MAX_ARRAY_TEXTURE_LAYERS": 256,
+        "MAX_COLOR_ATTACHMENTS": 4,
+        "MAX_COMBINED_TEXTURE_IMAGE_UNITS": 48,
+        "MAX_CUBE_MAP_TEXTURE_SIZE": 4096,
+        "MAX_DRAW_BUFFERS": 4,
+        "MAX_ELEMENTS_INDICES": 16777216,
+        "MAX_ELEMENTS_VERTICES": 16777216,
+        "MAX_ELEMENT_INDEX": 2147483647,
+        "MAX_FRAGMENT_INPUT_COMPONENTS": 60,
+        "MAX_FRAGMENT_UNIFORM_BLOCKS": 12,
+        "MAX_FRAGMENT_UNIFORM_COMPONENTS": 4096,
+        "MAX_FRAGMENT_UNIFORM_VECTORS": 1024,
+        "MAX_PROGRAM_TEXEL_OFFSET": 7,
+        "MAX_RENDERBUFFER_SIZE": 8192,
+        "MAX_SAMPLES": 4,
+        "MAX_SERVER_WAIT_TIMEOUT": 0,
+        "MAX_TEXTURE_IMAGE_UNITS": 16,
+        "MAX_TEXTURE_LOD_BIAS": 255.99609375,
+        "MAX_TEXTURE_MAX_ANISOTROPY_EXT": null,
+        "MAX_TEXTURE_SIZE": 4096,
+        "MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS": 4,
+        "MAX_UNIFORM_BLOCK_SIZE": 16384,
+        "MAX_UNIFORM_BUFFER_BINDINGS": 72,
+        "MAX_VARYING_COMPONENTS": 60,
+        "MAX_VARYING_VECTORS": 15,
+        "MAX_VERTEX_ATTRIBS": 16,
+        "MAX_VERTEX_OUTPUT_COMPONENTS": 64,
+        "MAX_VERTEX_TEXTURE_IMAGE_UNITS": 16,
+        "MAX_VERTEX_UNIFORM_BLOCKS": 12,
+        "MAX_VERTEX_UNIFORM_COMPONENTS": 4096,
+        "MAX_VERTEX_UNIFORM_VECTORS": 1024,
+        "MAX_VIEWPORT_DIMS": "8192,8192",
+        "MIN_PROGRAM_TEXEL_OFFSET": -8,
+        "RED_BITS": 8,
+        "RENDERER": "WebKit WebGL",
+        "SAMPLES": 4,
+        "SAMPLE_BUFFERS": 1,
+        "SHADING_LANGUAGE_VERSION": "WebGL GLSL ES 3.00 (OpenGL ES GLSL ES 3.0 Chromium)",
+        "STENCIL_BITS": 0,
+        "SUBPIXEL_BITS": 4,
+        "UNIFORM_BUFFER_OFFSET_ALIGNMENT": 16,
+        "VENDOR": "WebKit",
+        "VERSION": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+      },
+      "precision": {
+        "FRAGMENT_SHADER.HIGH_FLOAT": "127,127,23",
+        "FRAGMENT_SHADER.HIGH_INT": "31,30,0",
+        "FRAGMENT_SHADER.LOW_FLOAT": "15,15,10",
+        "FRAGMENT_SHADER.MEDIUM_FLOAT": "15,15,10",
+        "VERTEX_SHADER.HIGH_FLOAT": "127,127,23",
+        "VERTEX_SHADER.HIGH_INT": "31,30,0",
+        "VERTEX_SHADER.LOW_FLOAT": "15,15,10",
+        "VERTEX_SHADER.MEDIUM_FLOAT": "15,15,10"
+      },
+      "render": {
+        "readPixels": "fc129e29",
+        "stableAcrossCalls": true
+      },
+      "unmasked": {
+        "renderer": "ANGLE (ARM, Mali-G76, OpenGL ES 3.2)",
+        "vendor": "Google Inc. (ARM)"
+      }
+    }
+  },
+  "webgpu": {
+    "__noAdapter": true
+  },
+  "webrtc": {
+    "__redacted": true,
+    "__timeout": "webrtc",
+    "redacted": true
+  }
+}

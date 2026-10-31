@@ -29,7 +29,7 @@ weight="${4:-0.01}"
 # WebRTC section (the hosted page redacts before download). The converter never
 # reads it, but a file on your disk should not either: redact in place first.
 tmp="$(mktemp -t capture).json"
-cargo run -q -p fury-detect -- redact "$capture" > "$tmp" 2>/dev/null || cp "$capture" "$tmp"
+cargo run -q -p fury-detect -- redact "$capture" "$tmp" >/dev/null 2>&1 || cp "$capture" "$tmp"
 
 persona="$(mktemp -t persona).json"
 if ! cargo run -q -p fury-detect -- persona "$tmp" --weight "$weight" > "$persona"; then
