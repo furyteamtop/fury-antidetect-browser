@@ -250,6 +250,8 @@ pub struct Agent {
     mirror: Arc<crate::mirror::Hub>,
     /// Profiles being warmed — visiting a list of sites. See warm.rs.
     warmer: Arc<crate::warm::Warmer>,
+    /// Farming plans: warm-ups on a schedule, over days. See farm.rs.
+    farms: Arc<Mutex<crate::farm::Farms>>,
     /// A handle back to the Arc this agent lives in, for background work
     /// that outlives the IPC call that started it — a warm-up closing its
     /// browser through `stop`, so a team profile still pushes its bundle.
@@ -365,11 +367,97 @@ impl Agent {
             core_download: Default::default(),
             mirror: crate::mirror::Hub::new(),
             warmer: crate::warm::Warmer::new(),
+            farms: Arc::new(Mutex::new(crate::farm::Farms::load(paths::farms_file()))),
             exit_when_idle: std::sync::atomic::AtomicBool::new(false),
             me: std::sync::OnceLock::new(),
         });
         let _ = agent.me.set(Arc::downgrade(&agent));
         Ok(agent)
+    }
+
+    /// Start a warm-up on a browser that is running with its debugging port.
+    ///
+    /// Closing afterwards goes through the same path the Close button takes,
+    /// so a team profile still pushes its bundle — the cookies it just
+    /// collected are the point. A farming session closes even after an error:
+    /// nobody is there to close it, and an open profile is one the next
+    /// session leaves alone. One the operator stopped stays open; they stopped
+    /// it to look.
+    async fn start_warm(&self, id: &str, name: &str, ws: &str, plan: crate::warm::Plan) -> anyhow::Result<()> {
+        let agent = self.me.get().and_then(|w| w.upgrade());
+        let farms = Arc::clone(&self.farms);
+        let pid = id.to_string();
+        let close = plan.close_after;
+        let farm_id = plan.farm_id.clone();
+        self.warmer
+            .start(id, name, ws, plan, move |last| {
+                Box::pin(async move {
+                    if let Some(fid) = &farm_id {
+                        farms.lock().await.report(fid, &pid, &last);
+                    }
+                    let close = close && !last.stopped && (last.error.is_none() || farm_id.is_some());
+                    if let (true, Some(agent)) = (close, agent) {
+                        let _ = agent.stop(&pid).await;
+                    }
+                })
+            })
+            .await
+    }
+
+    /// Profiles with a browser open on this machine right now.
+    async fn open_ids(&self) -> std::collections::HashSet<String> {
+        self.running.lock().await.keys().cloned().collect()
+    }
+
+    /// The farming loop: every half minute, close days that are over, plan
+    /// the next ones, and start the local sessions that are due. Team sessions
+    /// wait for the shell (`farm.due`). See farm.rs.
+    pub fn start_farming(self: &Arc<Self>) {
+        let me = Arc::downgrade(self);
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(30));
+            loop {
+                tick.tick().await;
+                let Some(agent) = me.upgrade() else { return };
+                let open = agent.open_ids().await;
+                let starts = {
+                    let mut rng = <rand::rngs::StdRng as rand::SeedableRng>::from_entropy();
+                    agent.farms.lock().await.step(chrono::Utc::now(), &open, &mut rng)
+                };
+                for s in starts {
+                    let fid = s.plan.farm_id.clone().unwrap_or_default();
+                    if let Err(e) = agent.farm_local(&s).await {
+                        tracing::warn!(profile = %s.profile_id, error = %e, "a farming session did not start");
+                        agent.farms.lock().await.fail(&fid, &s.profile_id, &e.to_string());
+                    }
+                }
+            }
+        });
+    }
+
+    /// Open a local profile with its debugging port and warm it.
+    async fn farm_local(&self, s: &crate::farm::Start) -> anyhow::Result<()> {
+        self.launch(&s.profile_id, None, None, None, None, true).await?;
+        let ws = self
+            .running
+            .lock()
+            .await
+            .get(&s.profile_id)
+            .and_then(|r| r.ws_endpoint.clone())
+            .ok_or_else(|| anyhow::anyhow!("no debugging port after launch"))?;
+        let name = self
+            .store
+            .profiles(None)
+            .await?
+            .into_iter()
+            .find(|p| p.id == s.profile_id)
+            .map(|p| p.name)
+            .unwrap_or_else(|| s.name.clone());
+        if let Err(e) = self.start_warm(&s.profile_id, &name, &ws, s.plan.clone()).await {
+            let _ = self.stop(&s.profile_id).await;
+            return Err(e);
+        }
+        Ok(())
     }
 
     /// Where the browser is, looked up now rather than remembered.
@@ -1822,19 +1910,7 @@ impl Agent {
                         refused.push(json!({ "id": id, "reason": "no debugging port after launch" }));
                         continue;
                     };
-                    // Closing afterwards goes through the same path the
-                    // Close button takes, so a team profile still pushes its
-                    // bundle — the cookies it just collected are the point.
-                    let agent = self.me.get().and_then(|w| w.upgrade());
-                    let pid = id.clone();
-                    let r = self.warmer.start(&id, &name, &ws, plan.clone(), move |close| {
-                        Box::pin(async move {
-                            if let (true, Some(agent)) = (close, agent) {
-                                let _ = agent.stop(&pid).await;
-                            }
-                        })
-                    }).await;
-                    match r {
+                    match self.start_warm(&id, &name, &ws, plan.clone()).await {
                         Ok(()) => started.push(id),
                         Err(e) => refused.push(refusal(&id, &e)),
                     }
@@ -1855,6 +1931,62 @@ impl Agent {
             }
 
             "warm.defaults" => Ok(json!({ "urls": crate::warm::DEFAULT_URLS })),
+
+            // Farming: warm-ups on a schedule, over days. See farm.rs.
+            "farm.list" => {
+                let farms = self.farms.lock().await;
+                Ok(json!({ "now_ms": chrono::Utc::now().timestamp_millis(), "farms": farms.list }))
+            }
+            "farm.create" => {
+                let spec: crate::farm::Spec = serde_json::from_value(params.get("spec").cloned().unwrap_or_default())
+                    .map_err(|e| anyhow::anyhow!("plan: {e}"))?;
+                let mut targets: Vec<crate::farm::Target> =
+                    serde_json::from_value(params.get("targets").cloned().unwrap_or_default())
+                        .map_err(|e| anyhow::anyhow!("profiles: {e}"))?;
+                // A local profile's clock is known here, and may have changed
+                // since the shell's list was drawn.
+                let local = self.store.profiles(None).await?;
+                let proxies = self.store.proxies().await?;
+                for t in targets.iter_mut().filter(|t| t.is_local()) {
+                    if let Some(p) = local.iter().find(|p| p.id == t.id) {
+                        t.name = p.name.clone();
+                        let exit = p.proxy.as_ref().and_then(|x| proxies.iter().find(|q| q.id == x.id)).and_then(|q| q.last_timezone.clone());
+                        t.timezone = p.timezone.clone().or(exit).or(t.timezone.take());
+                    }
+                }
+                let id = self.farms.lock().await.create(spec, targets, chrono::Utc::now().timestamp_millis().max(0) as u64)?;
+                Ok(json!({ "id": id }))
+            }
+            "farm.delete" => {
+                let id = str_param(&params, "id")?;
+                Ok(json!({ "deleted": self.farms.lock().await.delete(&id) }))
+            }
+            "farm.pause" => {
+                let id = str_param(&params, "id")?;
+                let paused = params.get("paused").and_then(|v| v.as_bool()).unwrap_or(true);
+                Ok(json!({ "found": self.farms.lock().await.pause(&id, paused) }))
+            }
+            "farm.due" => {
+                let open = self.open_ids().await;
+                Ok(serde_json::to_value(self.farms.lock().await.due(chrono::Utc::now(), &open))?)
+            }
+            "farm.claim" => {
+                let (farm, profile) = (str_param(&params, "farm_id")?, str_param(&params, "profile_id")?);
+                let open = self.open_ids().await;
+                let plan = self.farms.lock().await.claim(&farm, &profile, chrono::Utc::now(), &open)?;
+                Ok(serde_json::to_value(plan)?)
+            }
+            "farm.fail" => {
+                let (farm, profile) = (str_param(&params, "farm_id")?, str_param(&params, "profile_id")?);
+                let error = params.get("error").and_then(|v| v.as_str()).unwrap_or("could not start");
+                self.farms.lock().await.fail(&farm, &profile, error);
+                Ok(json!({ "ok": true }))
+            }
+            "farm.stage_applied" => {
+                let (farm, profile) = (str_param(&params, "farm_id")?, str_param(&params, "profile_id")?);
+                self.farms.lock().await.stage_applied(&farm, &profile);
+                Ok(json!({ "ok": true }))
+            }
 
             "mirror.stop" => {
                 self.mirror.stop().await;

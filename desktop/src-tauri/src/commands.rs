@@ -3928,6 +3928,46 @@ pub async fn warm_defaults() -> R<serde_json::Value> {
     Ok(crate::agent::call("warm.defaults", serde_json::json!({})).await?)
 }
 
+// ---- farming: warm-ups on a schedule (agent/src/farm.rs) ----------------------
+//
+// The agent keeps the plans and starts local sessions itself. A team session
+// it cannot open -- the lock, the bundle and the keys are here -- so the window
+// asks for due ones (`farm_due`), claims each and starts it through
+// `warm_start` above with the plan the claim returns.
+
+#[tauri::command]
+pub async fn farm_list() -> R<serde_json::Value> {
+    Ok(crate::agent::call("farm.list", serde_json::json!({})).await?)
+}
+#[tauri::command]
+pub async fn farm_create(spec: serde_json::Value, targets: serde_json::Value) -> R<serde_json::Value> {
+    Ok(crate::agent::call("farm.create", serde_json::json!({ "spec": spec, "targets": targets })).await?)
+}
+#[tauri::command]
+pub async fn farm_delete(id: String) -> R<serde_json::Value> {
+    Ok(crate::agent::call("farm.delete", serde_json::json!({ "id": id })).await?)
+}
+#[tauri::command]
+pub async fn farm_pause(id: String, paused: bool) -> R<serde_json::Value> {
+    Ok(crate::agent::call("farm.pause", serde_json::json!({ "id": id, "paused": paused })).await?)
+}
+#[tauri::command]
+pub async fn farm_due() -> R<serde_json::Value> {
+    Ok(crate::agent::call("farm.due", serde_json::json!({})).await?)
+}
+#[tauri::command]
+pub async fn farm_claim(farm_id: String, profile_id: String) -> R<serde_json::Value> {
+    Ok(crate::agent::call("farm.claim", serde_json::json!({ "farm_id": farm_id, "profile_id": profile_id })).await?)
+}
+#[tauri::command]
+pub async fn farm_fail(farm_id: String, profile_id: String, error: String) -> R<serde_json::Value> {
+    Ok(crate::agent::call("farm.fail", serde_json::json!({ "farm_id": farm_id, "profile_id": profile_id, "error": error })).await?)
+}
+#[tauri::command]
+pub async fn farm_stage_applied(farm_id: String, profile_id: String) -> R<serde_json::Value> {
+    Ok(crate::agent::call("farm.stage_applied", serde_json::json!({ "farm_id": farm_id, "profile_id": profile_id })).await?)
+}
+
 /// Write the server kit out to a directory the operator picks.
 ///
 /// The other half of the self-hosting instructions. They said "from a clone of

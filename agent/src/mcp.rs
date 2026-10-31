@@ -209,6 +209,28 @@ const TOOLS: &[Tool] = &[
         description: "Progress of warm-ups: which site each profile is on, cookies collected, finished or failed.",
         schema: || json!({ "type": "object", "properties": {} }),
     },
+    Tool {
+        name: "fury_farm_plan",
+        description: "Farm profiles on a schedule: every day for a number of days, each opens a few of the sites at \
+                      random times within the given hours (in the profile's own timezone), reads them like a warm-up \
+                      and closes. Runs while Fury's agent runs; see fury_farm_status.",
+        schema: || json!({ "type": "object", "properties": {
+            "profiles": { "type": "array", "items": { "type": "string" }, "description": "Ids or exact names" },
+            "days": { "type": "integer", "description": "How many days (1-90)" },
+            "sites_min": { "type": "integer", "description": "Fewest sites a day (default 5)" },
+            "sites_max": { "type": "integer", "description": "Most sites a day (default 12)" },
+            "hour_from": { "type": "integer", "description": "Earliest local hour (default 10)" },
+            "hour_to": { "type": "integer", "description": "Local hour to stop by (default 22)" },
+            "urls": { "type": "array", "items": { "type": "string" }, "description": "Sites to draw from; default is Fury's list" },
+            "name": { "type": "string", "description": "A name for the plan" },
+        }, "required": ["profiles", "days"] }),
+    },
+    Tool {
+        name: "fury_farm_status",
+        description: "Farming plans: for each profile, days done of days, sites read, cookies, when the next session is, \
+                      and the last error.",
+        schema: || json!({ "type": "object", "properties": {} }),
+    },
 ];
 
 pub async fn serve() -> anyhow::Result<()> {
@@ -502,8 +524,82 @@ async fn call_tool(backend: &Backend, name: &str, args: &Value) -> anyhow::Resul
             Ok(text(&backend("warm.start", json!({ "profile_ids": ids, "plan": plan })).await?))
         }
         "fury_warm_status" => Ok(text(&backend("warm.status", json!({})).await?)),
+        "fury_farm_plan" => {
+            let names: Vec<String> = args
+                .get("profiles")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                .unwrap_or_default();
+            if names.is_empty() {
+                anyhow::bail!("profiles: name at least one");
+            }
+            let mut targets = Vec::new();
+            for n in &names {
+                let (id, name) = resolve(backend, &json!({ "profile": n })).await?;
+                targets.push(json!({ "id": id, "name": name, "origin": "local" }));
+            }
+            let urls: Vec<String> = match args.get("urls").and_then(Value::as_array) {
+                Some(a) if !a.is_empty() => a.iter().filter_map(Value::as_str).map(str::to_string).collect(),
+                _ => backend("warm.defaults", json!({}))
+                    .await?
+                    .get("urls")
+                    .and_then(Value::as_array)
+                    .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                    .unwrap_or_default(),
+            };
+            let int = |k: &str, d: u64| args.get(k).and_then(Value::as_u64).unwrap_or(d);
+            let spec = json!({
+                "name": s(args, "name").unwrap_or_default(),
+                "urls": urls,
+                "days": int("days", 7),
+                "sites_per_day": [int("sites_min", 5), int("sites_max", 12)],
+                "hours": [int("hour_from", 10), int("hour_to", 22)],
+                "follow_link": true,
+                "set_stage": true,
+            });
+            Ok(text(&backend("farm.create", json!({ "spec": spec, "targets": targets })).await?))
+        }
+        "fury_farm_status" => Ok(text(&farm_summary(&backend("farm.list", json!({})).await?))),
         other => anyhow::bail!("no tool {other:?}"),
     }
+}
+
+/// The plans as a model needs them: per profile, where it is and what is
+/// next, rather than every session of every day.
+fn farm_summary(list: &Value) -> Value {
+    let farms = list.get("farms").and_then(Value::as_array).cloned().unwrap_or_default();
+    let out: Vec<Value> = farms
+        .iter()
+        .map(|f| {
+            let days = f.pointer("/spec/days").cloned().unwrap_or(Value::Null);
+            let profiles: Vec<Value> = f
+                .get("targets")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .map(|t| {
+                    let id = t.get("id").and_then(Value::as_str).unwrap_or_default();
+                    let tr = f.pointer(&format!("/tracks/{id}")).cloned().unwrap_or_else(|| json!({}));
+                    let next = tr
+                        .get("sessions")
+                        .and_then(Value::as_array)
+                        .and_then(|a| a.iter().find(|s| s.get("started_ms").is_none_or(Value::is_null) && s.get("ended").is_none_or(Value::is_null)))
+                        .and_then(|s| s.get("at_ms").cloned());
+                    json!({
+                        "name": t.get("name"),
+                        "days_done": tr.get("days_done").cloned().unwrap_or(json!(0)),
+                        "days": days,
+                        "sites_read": tr.get("sites").cloned().unwrap_or(json!(0)),
+                        "cookies": tr.get("cookies"),
+                        "next_session_unix_ms": next,
+                        "last_error": tr.get("last_error"),
+                    })
+                })
+                .collect();
+            json!({ "id": f.get("id"), "name": f.pointer("/spec/name"), "paused": f.get("paused"), "profiles": profiles })
+        })
+        .collect();
+    json!({ "now_unix_ms": list.get("now_ms"), "plans": out })
 }
 
 /// "Windows 11", "windows", "macOS 15", "mac" -> "windows" | "macos".

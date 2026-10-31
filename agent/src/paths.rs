@@ -103,6 +103,12 @@ pub fn templates_file() -> PathBuf {
     data_dir().join("templates.json")
 }
 
+/// Farming plans and where each profile is in them (farm.rs): one JSON file,
+/// rewritten when it changes.
+pub fn farms_file() -> PathBuf {
+    data_dir().join("farms.json")
+}
+
 /// Where this profile's unpacked extensions sit.
 ///
 /// INSIDE the profile directory, which means the team bundle carries them

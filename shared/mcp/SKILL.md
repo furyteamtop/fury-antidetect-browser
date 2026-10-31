@@ -30,6 +30,8 @@ New profiles are created on this machine. To share one with a team, the person s
 
 `fury_warm_up` visits ordinary sites in each profile with human-like pauses so it collects normal cookies before it is used for an account. It runs in the background and closes each profile at the end by default. Check progress with `fury_warm_status`. Use Fury's default site list unless the person gives one.
 
+For warming over days, `fury_farm_plan` makes a schedule: each day, for the number of days given, every profile opens a few of the sites at random times within the hours (the profile's own timezone) and closes again. Sessions run while Fury's agent runs; a day the computer was off is skipped, not made up. `fury_farm_status` shows days done, sites read and the next session. A profile can be in one plan at a time; plans are paused or removed from the Fury window.
+
 ## Rules
 
 - **The proxy is the identity.** Never suggest opening an account profile without its proxy, and never move a profile to another country's proxy on your own: a sudden change of address is what platforms flag.

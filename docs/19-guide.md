@@ -94,6 +94,13 @@ this computer open or with none. Import first, then give profiles to the team.
 - Tick several and the bar above acts on all of them: **Open**, **Close**,
   **Proxy →** (one each or one for all), **Warm up…** (visit a list of sites
   so cookies build up), **Move to project…**, **Delete**.
+- **Warm up…** runs now, once, or **on a schedule**: for a number of days,
+  each profile reads a few of the sites every day at random times within the
+  hours you set, in its own timezone (its proxy's if it has none), and closes
+  again. Fury has to be running and the computer awake; a day it slept
+  through is skipped, not made up. A profile you have open is left alone, and
+  team profiles farm only while the Fury window is open. Plans show above the
+  list, with **Pause** and **Remove plan**.
 - Search matches name, tag and proxy; tag and stage filters sit beside it.
 - A profile's **cookies** can be exported and imported as JSON.
 

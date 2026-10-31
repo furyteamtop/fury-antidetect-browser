@@ -188,6 +188,67 @@ export interface WarmPlan {
   dwell_seconds: [number, number];
   follow_link: boolean;
   close_after: boolean;
+  /** Set on a farming session: the run reports back to its plan. */
+  farm_id?: string;
+}
+
+/** A warm-up on a schedule, over days. See agent/src/farm.rs. */
+export interface FarmSpec {
+  name: string;
+  urls: string[];
+  days: number;
+  sites_per_day: [number, number];
+  /** Local hours, [from, to), in each profile's own timezone. */
+  hours: [number, number];
+  dwell_seconds: [number, number];
+  follow_link: boolean;
+  at_once: number;
+  set_stage: boolean;
+}
+
+export interface FarmTarget {
+  id: string;
+  name: string;
+  origin: Origin;
+  timezone: string | null;
+}
+
+export type FarmOutcome =
+  | { kind: "done"; sites: number; cookies: number }
+  | { kind: "failed"; error: string }
+  | { kind: "skipped"; why: string };
+
+export interface FarmSession {
+  at_ms: number;
+  urls: string[];
+  started_ms?: number | null;
+  ended?: FarmOutcome | null;
+}
+
+export interface FarmTrack {
+  days_done: number;
+  day?: string | null;
+  sessions: FarmSession[];
+  sites: number;
+  cookies?: number | null;
+  last_error?: string | null;
+  stage_pending?: string | null;
+}
+
+export interface Farm {
+  id: string;
+  created_ms: number;
+  spec: FarmSpec;
+  targets: FarmTarget[];
+  tracks: Record<string, FarmTrack>;
+  paused: boolean;
+}
+
+export interface FarmDue {
+  farm_id: string;
+  profile_id: string;
+  name: string;
+  origin: Origin;
 }
 
 export interface WarmProgress {
@@ -1177,6 +1238,18 @@ export const api = {
   warmStop: (id: string): Promise<unknown> => cmd("warm_stop", { id }),
   warmClear: (): Promise<unknown> => cmd("warm_clear"),
   warmDefaults: (): Promise<{ urls: string[] }> => cmd("warm_defaults"),
+
+  // ---- farming: warm-ups on a schedule -----------------------------------
+
+  farmList: (): Promise<{ now_ms: number; farms: Farm[] }> => cmd("farm_list"),
+  farmCreate: (spec: FarmSpec, targets: FarmTarget[]): Promise<{ id: string }> => cmd("farm_create", { spec, targets }),
+  farmDelete: (id: string): Promise<unknown> => cmd("farm_delete", { id }),
+  farmPause: (id: string, paused: boolean): Promise<unknown> => cmd("farm_pause", { id, paused }),
+  farmDue: (): Promise<FarmDue[]> => cmd<FarmDue[]>("farm_due"),
+  /** Marks the session started and returns the warm-up plan to run it with. */
+  farmClaim: (farmId: string, profileId: string): Promise<WarmPlan> => cmd<WarmPlan>("farm_claim", { farmId, profileId }),
+  farmFail: (farmId: string, profileId: string, error: string): Promise<unknown> => cmd("farm_fail", { farmId, profileId, error }),
+  farmStageApplied: (farmId: string, profileId: string): Promise<unknown> => cmd("farm_stage_applied", { farmId, profileId }),
 
   // ---- this machine as a persona ----------------------------------------
 

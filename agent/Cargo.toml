@@ -86,6 +86,12 @@ base64 = "0.22"
 maxminddb = "0.28"
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["handshake", "connect"] }
 futures-util = { version = "0.3.33", default-features = false, features = ["sink"] }
+# A farming plan's hours are the profile's hours, not this machine's: a Berlin
+# account browsing at 3 a.m. Berlin time because its operator is in Novosibirsk
+# is the odd one out. `time` has no IANA database; chrono-tz carries one, so
+# Windows, which has no /usr/share/zoneinfo, gets the same answer. See farm.rs.
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+chrono-tz = "0.10.4"
 
 [dev-dependencies]
 # `start_paused`, for the relay's handshake timeout. The bound is eight seconds

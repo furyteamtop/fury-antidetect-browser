@@ -37,7 +37,7 @@ use tokio::sync::Mutex;
 
 use crate::cookies::Cdp;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Plan {
     pub urls: Vec<String>,
     /// Seconds on each page, as a range; the actual dwell is drawn from it.
@@ -49,6 +49,10 @@ pub struct Plan {
     /// Close the browser when the list is done.
     #[serde(default)]
     pub close_after: bool,
+    /// The farming plan this run is a session of, if any. The run reports
+    /// back to it when it ends. See farm.rs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub farm_id: Option<String>,
 }
 
 fn default_dwell() -> (u64, u64) {
@@ -110,15 +114,16 @@ impl Warmer {
     }
 
     /// Start warming one profile. `ws_endpoint` is the browser's debugging
-    /// endpoint from the launch; `on_done` is called when the list is through
-    /// so the caller can close the browser if the plan says so.
+    /// endpoint from the launch; `on_done` is called with the final progress
+    /// when the run ends, so the caller can close the browser if the plan says
+    /// so and a farming plan can count the session.
     pub async fn start(
         self: &Arc<Self>,
         profile_id: &str,
         name: &str,
         ws_endpoint: &str,
         plan: Plan,
-        on_done: impl FnOnce(bool) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + 'static,
+        on_done: impl FnOnce(Progress) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + 'static,
     ) -> anyhow::Result<()> {
         if plan.urls.is_empty() {
             anyhow::bail!("nothing to visit: the list is empty");
@@ -155,19 +160,21 @@ impl Warmer {
         let ws = ws_endpoint.to_string();
         tokio::spawn(async move {
             let result = me.run(&pid, &ws, &plan, &stop).await;
-            let completed = result.is_ok() && !stop.load(std::sync::atomic::Ordering::Relaxed);
-            {
+            let last = {
                 let mut jobs = me.jobs.lock().await;
-                if let Some(j) = jobs.get_mut(&pid) {
+                jobs.get_mut(&pid).map(|j| {
                     j.progress.finished = true;
                     j.progress.stopped = stop.load(std::sync::atomic::Ordering::Relaxed);
                     j.progress.current = None;
                     if let Err(e) = &result {
                         j.progress.error = Some(e.to_string());
                     }
-                }
+                    j.progress.clone()
+                })
+            };
+            if let Some(last) = last {
+                on_done(last).await;
             }
-            on_done(completed && plan.close_after).await;
         });
         Ok(())
     }
@@ -380,7 +387,7 @@ mod tests {
     async fn an_empty_list_is_refused_before_anything_opens() {
         let w = Warmer::new();
         let r = w
-            .start("p", "n", "ws://127.0.0.1:1/x", Plan { urls: vec![], dwell_seconds: (1, 1), follow_link: false, close_after: false }, |_| Box::pin(async {}))
+            .start("p", "n", "ws://127.0.0.1:1/x", Plan { urls: vec![], dwell_seconds: (1, 1), follow_link: false, close_after: false, farm_id: None }, |_| Box::pin(async {}))
             .await;
         assert!(r.is_err());
         assert!(w.status().await.is_empty());

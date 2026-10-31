@@ -44,6 +44,7 @@ mod transfer;
 mod usage;
 mod vault;
 mod warm;
+mod farm;
 mod webstore;
 mod widevine;
 mod wg_stack;
@@ -89,6 +90,8 @@ async fn main() -> anyhow::Result<()> {
                 tracing::info!(before, after, "open-file limit");
             }
             let agent = ipc::Agent::new().await?;
+            // Farming plans run whether or not a window is open. See farm.rs.
+            agent.start_farming();
 
             // Only when asked for. See http.rs: a loopback port is reachable
             // from a page the browser itself opens, and the defences are worth

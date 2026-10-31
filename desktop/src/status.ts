@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
+import { api, type Profile } from "./api";
+
 /** The account's stage (docs/16 5.5): free text with a suggested vocabulary.
  *
  *  Free text because an agency's stages are its own — one runs "farm → warm →
@@ -28,4 +30,15 @@ export function statusHue(status: string): number | null {
 
 export function isSuggested(s: string): s is Suggested {
   return (SUGGESTED as readonly string[]).includes(s.trim().toLowerCase());
+}
+
+/** Set one profile's stage, keeping the rest as the list has it. The agent
+ *  takes the proxy by id and refuses a partial proxy object; the server reads
+ *  `proxy.id` — the same split as the bulk proxy action in App.tsx. Used by
+ *  farming, which marks profiles "warming" and, at the end, "ready". */
+export async function setStage(p: Profile, status: string): Promise<void> {
+  await api.saveProfile(
+    p.origin === "local" ? { ...p, proxy_id: p.proxy?.id ?? "", proxy: null, status } : { ...p, status },
+    p.origin,
+  );
 }

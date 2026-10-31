@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n, type Key } from "./i18n";
-import { api, ApiError, type LocalProxy, type Me, type MirrorStatus, type Profile, type Project, type Shell, type UpdateProgress, type WarmProgress } from "./api";
+import { api, ApiError, type LocalProxy, type Me, type MirrorStatus, type Profile, type Project, type Shell, type UpdateProgress, type WarmProgress, type Farm } from "./api";
 import { Login } from "./components/Login";
 import { ProfileDialog } from "./components/ProfileDialog";
 import { BulkProfiles } from "./components/BulkProfiles";
@@ -30,7 +30,7 @@ import { AntidetectImport } from "./components/AntidetectImport";
 import { IconButton } from "./components/Icon";
 import { useTheme } from "./theme";
 import { exitSharing } from "./consistency";
-import { isSuggested } from "./status";
+import { isSuggested, setStage as saveStage } from "./status";
 import { Select } from "./components/Select";
 import { OUR_SERVERS, versionNewer } from "./defaults";
 
@@ -179,6 +179,67 @@ export function App() {
       clearInterval(h);
     };
   }, [shell?.agent_ready]);
+  // Farming plans (agent/src/farm.rs). The agent starts local sessions on
+  // its own; a team one needs this window -- the lock and the keys are here --
+  // so while it is open it claims the due ones and starts them the way the
+  // Warm button does. It also sets the stage a finished profile asked for.
+  const [farms, setFarms] = useState<{ now_ms: number; farms: Farm[] } | null>(null);
+  const profilesNow = useRef<Profile[]>([]);
+  profilesNow.current = profiles;
+  useEffect(() => {
+    if (!shell?.agent_ready) return;
+    let stop = false;
+    const tick = async () => {
+      try {
+        for (const d of await api.farmDue()) {
+          let plan;
+          try {
+            plan = await api.farmClaim(d.farm_id, d.profile_id);
+          } catch {
+            continue; // no longer due: another window, or the hours ran out
+          }
+          try {
+            const r = await api.warmStart([{ id: d.profile_id, origin: d.origin }], plan);
+            const refused = r.refused.find((x) => x.id === d.profile_id);
+            if (refused) await api.farmFail(d.farm_id, d.profile_id, say({ code: refused.code, message: refused.reason }));
+          } catch (e) {
+            await api.farmFail(d.farm_id, d.profile_id, say(e));
+          }
+        }
+        const list = await api.farmList();
+        for (const f of list.farms) {
+          for (const [pid, tr] of Object.entries(f.tracks)) {
+            if (!tr.stage_pending) continue;
+            const p = profilesNow.current.find((x) => x.id === pid);
+            if (!p) continue; // not in the list being shown; next time
+            // Only over the stage the plan set: one the operator changed by
+            // hand since ("banned") is theirs.
+            if ((p.status ?? "") === "warming") {
+              try {
+                await saveStage(p, tr.stage_pending);
+              } catch {
+                continue;
+              }
+            }
+            await api.farmStageApplied(f.id, pid);
+          }
+        }
+        if (!stop) setFarms(list.farms.length > 0 ? list : null);
+      } catch {
+        if (!stop) setFarms(null);
+      }
+    };
+    void tick();
+    const h = setInterval(() => void tick(), 20_000);
+    return () => {
+      stop = true;
+      clearInterval(h);
+    };
+  }, [shell?.agent_ready]);
+  const refreshFarms = async () => {
+    const list = await api.farmList();
+    setFarms(list.farms.length > 0 ? list : null);
+  };
   useEffect(() => {
     if (!shell?.agent_ready) return;
     let stop = false;
@@ -827,6 +888,74 @@ export function App() {
             ))}
             {warm.every((w) => w.finished) && (
               <button className="linky" onClick={async () => { await api.warmClear(); setWarm([]); }}>{t("warm.dismiss")}</button>
+            )}
+          </div>
+        )}
+
+        {farms && (
+          <div className="notice" role="status" style={{ display: "block" }}>
+            {farms.farms.map((f) => {
+              const tracks = f.targets.map((x) => f.tracks[x.id]);
+              const daysDone = Math.min(...tracks.map((tr) => tr?.days_done ?? 0));
+              const finished = tracks.every((tr) => (tr?.days_done ?? 0) >= f.spec.days);
+              const sites = tracks.reduce((n, tr) => n + (tr?.sites ?? 0), 0);
+              const running = tracks.some((tr) => tr?.sessions.some((s) => s.started_ms && !s.ended));
+              const next = Math.min(
+                ...tracks.flatMap((tr) => (tr?.sessions ?? []).filter((s) => !s.started_ms && !s.ended).map((s) => s.at_ms)),
+              );
+              const errors = f.targets
+                .map((x) => ({ name: x.name, err: f.tracks[x.id]?.last_error }))
+                .filter((x) => x.err);
+              const when = (ms: number) => {
+                const d = new Date(ms);
+                const hm = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                return d.toDateString() === new Date().toDateString() ? hm : `${d.toLocaleDateString([], { day: "numeric", month: "short" })} ${hm}`;
+              };
+              return (
+                <div key={f.id} style={{ marginBottom: "var(--s-1)" }}>
+                  <div className="row" style={{ alignItems: "baseline" }}>
+                    <strong style={{ flexShrink: 0 }}>{f.spec.name || t("farm.untitled")}</strong>
+                    <span className="muted small" style={{ flex: 1, minWidth: 0 }}>
+                      {t("farm.profiles", { n: f.targets.length })}
+                      {" · "}
+                      {finished ? t("farm.finished") : t("farm.dayOf", { done: daysDone, days: f.spec.days })}
+                      {" · "}
+                      {t("farm.sitesRead", { n: sites })}
+                      {!finished && (f.paused
+                        ? ` · ${t("farm.paused")}`
+                        : running
+                          ? ` · ${t("farm.running")}`
+                          : Number.isFinite(next)
+                            ? ` · ${t("farm.next", { at: when(next) })}`
+                            : "")}
+                    </span>
+                    {!finished && (
+                      <button className="ghost" onClick={async () => { await api.farmPause(f.id, !f.paused); await refreshFarms(); }}>
+                        {f.paused ? t("farm.resume") : t("farm.pause")}
+                      </button>
+                    )}
+                    <button
+                      className="ghost"
+                      onClick={async () => {
+                        if (!finished && (await ask({ title: t("farm.deleteAsk"), detail: t("farm.deleteBody"), confirmLabel: t("farm.delete"), danger: true })) === null) return;
+                        await api.farmDelete(f.id);
+                        await refreshFarms();
+                      }}
+                    >
+                      {finished ? t("warm.dismiss") : t("farm.delete")}
+                    </button>
+                  </div>
+                  {errors.length > 0 && (
+                    <div className="hint" title={errors.map((x) => `${x.name}: ${x.err}`).join("\n")}>
+                      {t("farm.lastError", { name: errors[0].name, err: errors[0].err ?? "" })}
+                      {errors.length > 1 ? ` (+${errors.length - 1})` : ""}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {farms.farms.some((f) => f.targets.some((x) => x.origin !== "local")) && (
+              <div className="hint">{t("farm.teamNeedsWindow")}</div>
             )}
           </div>
         )}
