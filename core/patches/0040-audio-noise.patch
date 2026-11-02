@@ -1,5 +1,5 @@
 diff --git a/third_party/blink/renderer/modules/webaudio/audio_context.cc b/third_party/blink/renderer/modules/webaudio/audio_context.cc
-index f1cbc1392c..70de90a395 100644
+index 1b7598ba43..64d8ac5d4b 100644
 --- a/third_party/blink/renderer/modules/webaudio/audio_context.cc
 +++ b/third_party/blink/renderer/modules/webaudio/audio_context.cc
 @@ -14,6 +14,7 @@
@@ -10,7 +10,7 @@ index f1cbc1392c..70de90a395 100644
  #include "media/audio/audio_device_description.h"
  #include "media/base/output_device_info.h"
  #include "services/metrics/public/cpp/ukm_builders.h"
-@@ -677,6 +678,21 @@ AudioContext::AudioContext(LocalDOMWindow& window,
+@@ -685,6 +686,21 @@ AudioContext::AudioContext(LocalDOMWindow& window,
                                         .GetFramesPerBuffer()),
                 static_cast<size_t>(renderQuantumSize()));
    base_latency_ = base_latency_frames / static_cast<double>(sampleRate());
@@ -32,7 +32,7 @@ index f1cbc1392c..70de90a395 100644
    SendLogMessage(__func__,
                   Format("=> (base latency={:.3f} seconds))", base_latency_));
  
-@@ -1251,6 +1267,18 @@ double AudioContext::outputLatency() const {
+@@ -1316,6 +1332,18 @@ double AudioContext::outputLatency() const {
  
    DeferredTaskHandler::GraphAutoLocker locker(GetDeferredTaskHandler());
  
@@ -52,82 +52,89 @@ index f1cbc1392c..70de90a395 100644
    return std::round(output_position_.hardware_output_latency / factor) * factor;
  }
 diff --git a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
-index 4604be68ad..497612857f 100644
+index 7ae88d3b2d..5d6a732b2e 100644
 --- a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
 +++ b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
-@@ -25,6 +25,8 @@
+@@ -27,6 +27,8 @@
  
- #include "third_party/blink/renderer/modules/webaudio/offline_audio_context.h"
+ #include <optional>
  
 +#include "components/fury/fury_config.h"
 +
  #include "base/metrics/histogram_functions.h"
  #include "base/metrics/histogram_macros.h"
- #include "media/base/audio_glitch_info.h"
-@@ -437,6 +439,66 @@ void OfflineAudioContext::FireCompletionEvent() {
-       return;
-     }
+ #include "base/numerics/safe_conversions.h"
+@@ -583,6 +585,73 @@ void OfflineAudioContext::OnChunkRendered() {
+   Member<AudioBuffer> rendered_buffer = pending_render_targets_.TakeFirst();
  
-+    // The classic audio fingerprint is an OfflineAudioContext rendering an
-+    // oscillator through a DynamicsCompressor and summing the output — the
-+    // result differs by a few ULPs between audio stacks, and every
-+    // fingerprinting library reads it.
-+    //
-+    // Perturbed here, once, on the finished buffer: the graph itself renders
-+    // untouched, so audio a page actually plays is unaffected.
-+    //
-+    // Deterministic from (seed, channel, sample index), same rule as canvas: a
-+    // detector renders the same graph twice and compares, and a value that
-+    // moves between runs is a stronger signal than one that never moves.
-+    // Amplitude is ~1e-7, far below anything audible and below the noise floor
-+    // of any real converter, but it changes the sum every library computes.
-+    if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
-+      if (std::optional<int> seed = config->GetInt("noise.audioSeed")) {
-+        const uint32_t audio_seed = static_cast<uint32_t>(*seed);
-+        for (unsigned channel = 0; channel < rendered_buffer->numberOfChannels();
-+             ++channel) {
-+          NotShared<DOMFloat32Array> data =
-+              rendered_buffer->getChannelData(channel);
-+          base::span<float> samples = data->AsSpan();
-+          // The ORIGINAL value of the previous sample; samples[i - 1] has been
-+          // perturbed by the time i is reached.
-+          float previous = 0.0f;
-+          for (size_t i = 0; i < samples.size(); ++i) {
-+            const float original = samples[i];
-+            const bool flat =
-+                original == 0.0f ||
-+                (i > 0 && original == previous) ||
-+                (i + 1 < samples.size() && original == samples[i + 1]);
-+            previous = original;
-+            // Silence and flat runs stay exact. A graph that renders nothing
-+            // — fv.pro's unconnected 0 Hz oscillator, 100 samples — comes out
-+            // as exact zeros on every machine, and so does a constant source;
-+            // noise there hides nothing and is detectable by comparing with
-+            // 0. Measured 27.09.2026: fv.pro called our audio "not real" for
-+            // exactly this and passes a real Chrome. What varies between
-+            // machines is the shape of a moving signal through the compressor,
-+            // and every sample of that is still perturbed.
-+            if (flat) {
-+              continue;
-+            }
-+            uint64_t h = audio_seed;
-+            h = (h ^ (channel * 0x9e3779b9u)) * 0x100000001b3ULL;
-+            h = (h ^ i) * 0x100000001b3ULL;
-+            h ^= h >> 29;
-+            // Sign from the hash, magnitude from the next eight bits: up to
-+            // 255 parts in ten million, so 2.55e-5 at the extreme. That is
-+            // about one least-significant bit of 16-bit audio (-92 dBFS) and
-+            // roughly eight bits above the float32 floor — inaudible, below the
-+            // noise of any real converter, and still enough to move the sum
-+            // every fingerprinting library computes. verify-0040.py measures
-+            // the largest per-sample move and holds it under 3e-5.
-+            const float delta = (h & 1) ? 1.0e-7f : -1.0e-7f;
-+            samples[i] += delta * static_cast<float>((h >> 1) & 0xff);
+   CHECK(rendered_buffer);
++
++  // Patch 0040, here since 157: the buffer is handed to the page by this
++  // promise first and, on the last chunk only, by the complete event.
++  // Perturbing before Resolve() covers both, and every chunk of an
++  // incremental render (OfflineAudioContextIncrementalRendering), not
++  // just the last one FireCompletionEvent sees.
++  //
++  // The classic audio fingerprint is an OfflineAudioContext rendering an
++  // oscillator through a DynamicsCompressor and summing the output — the
++  // result differs by a few ULPs between audio stacks, and every
++  // fingerprinting library reads it.
++  //
++  // Perturbed once, on the finished buffer: the graph itself renders
++  // untouched, so audio a page actually plays is unaffected.
++  //
++  // Deterministic from (seed, channel, sample index), same rule as canvas: a
++  // detector renders the same graph twice and compares, and a value that
++  // moves between runs is a stronger signal than one that never moves.
++  // Amplitude is ~1e-7, far below anything audible and below the noise floor
++  // of any real converter, but it changes the sum every library computes.
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get()) {
++    if (std::optional<int> seed = config->GetInt("noise.audioSeed")) {
++      const uint32_t audio_seed = static_cast<uint32_t>(*seed);
++      for (unsigned channel = 0; channel < rendered_buffer->numberOfChannels();
++           ++channel) {
++        NotShared<DOMFloat32Array> data =
++            rendered_buffer->getChannelData(channel);
++        base::span<float> samples = data->AsSpan();
++        // The ORIGINAL value of the previous sample; samples[i - 1] has been
++        // perturbed by the time i is reached.
++        float previous = 0.0f;
++        for (size_t i = 0; i < samples.size(); ++i) {
++          const float original = samples[i];
++          const bool flat =
++              original == 0.0f ||
++              (i > 0 && original == previous) ||
++              (i + 1 < samples.size() && original == samples[i + 1]);
++          previous = original;
++          // Silence and flat runs stay exact. A graph that renders nothing
++          // — fv.pro's unconnected 0 Hz oscillator, 100 samples — comes out
++          // as exact zeros on every machine, and so does a constant source;
++          // noise there hides nothing and is detectable by comparing with
++          // 0. Measured 27.09.2026: fv.pro called our audio "not real" for
++          // exactly this and passes a real Chrome. What varies between
++          // machines is the shape of a moving signal through the compressor,
++          // and every sample of that is still perturbed.
++          if (flat) {
++            continue;
 +          }
++          uint64_t h = audio_seed;
++          h = (h ^ (channel * 0x9e3779b9u)) * 0x100000001b3ULL;
++          h = (h ^ i) * 0x100000001b3ULL;
++          h ^= h >> 29;
++          // Sign from the hash, magnitude from the next eight bits: up to
++          // 255 parts in ten million, so 2.55e-5 at the extreme. That is
++          // about one least-significant bit of 16-bit audio (-92 dBFS) and
++          // roughly eight bits above the float32 floor — inaudible, below the
++          // noise of any real converter, and still enough to move the sum
++          // every fingerprinting library computes. verify-0040.py measures
++          // the largest per-sample move and holds it under 3e-5.
++          const float delta = (h & 1) ? 1.0e-7f : -1.0e-7f;
++          samples[i] += delta * static_cast<float>((h >> 1) & 0xff);
 +        }
 +      }
 +    }
++  }
 +
-     // Call the offline rendering completion event listener and resolve the
-     // promise too.
-     DispatchEvent(*OfflineAudioCompletionEvent::Create(rendered_buffer));
+   resolver->Resolve(rendered_buffer.Get());
+ 
+   if (IsRenderComplete()) {

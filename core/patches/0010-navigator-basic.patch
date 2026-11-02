@@ -1,8 +1,8 @@
 diff --git a/net/BUILD.gn b/net/BUILD.gn
-index 1195c4be9c..00b0c1098c 100644
+index 228a325df9..aec7f713f0 100644
 --- a/net/BUILD.gn
 +++ b/net/BUILD.gn
-@@ -1218,6 +1218,7 @@ component("net") {
+@@ -1266,6 +1266,7 @@ component("net") {
    deps = [
      ":cronet_buildflags",
      ":net_deps",
@@ -11,7 +11,7 @@ index 1195c4be9c..00b0c1098c 100644
      "//components/unexportable_keys",
      "//net/http:transport_security_state_generated_files",
 diff --git a/net/DEPS b/net/DEPS
-index 487034149f..e1d78cdc47 100644
+index 76b30ad015..2f842cd3e1 100644
 --- a/net/DEPS
 +++ b/net/DEPS
 @@ -1,4 +1,5 @@
@@ -100,7 +100,7 @@ index a57561775c..eee3a64cb5 100644
    return window ? window->GetFrame()->GetSettings()->GetMaxTouchPoints() : 0;
  }
 diff --git a/third_party/blink/renderer/core/execution_context/navigator_base.cc b/third_party/blink/renderer/core/execution_context/navigator_base.cc
-index cccfafe8f9..040c9abb5d 100644
+index 83f427c5ec..73500986b0 100644
 --- a/third_party/blink/renderer/core/execution_context/navigator_base.cc
 +++ b/third_party/blink/renderer/core/execution_context/navigator_base.cc
 @@ -4,6 +4,8 @@
@@ -112,7 +112,7 @@ index cccfafe8f9..040c9abb5d 100644
  #include "base/feature_list.h"
  #include "build/build_config.h"
  #include "third_party/blink/public/common/features.h"
-@@ -52,6 +54,16 @@ String NavigatorBase::userAgent() const {
+@@ -67,6 +69,16 @@ String NavigatorBase::userAgent() const {
  }
  
  String NavigatorBase::platform() const {
@@ -158,7 +158,7 @@ index 05fa33e456..3702998244 100644
  }
  
 diff --git a/third_party/blink/renderer/core/frame/navigator_language.cc b/third_party/blink/renderer/core/frame/navigator_language.cc
-index 75cd346131..64c88f297f 100644
+index 4bb64aa4d0..5259a71941 100644
 --- a/third_party/blink/renderer/core/frame/navigator_language.cc
 +++ b/third_party/blink/renderer/core/frame/navigator_language.cc
 @@ -4,6 +4,8 @@
@@ -167,10 +167,10 @@ index 75cd346131..64c88f297f 100644
  
 +#include "components/fury/fury_config.h"
 +
- #include "base/command_line.h"
  #include "services/network/public/cpp/features.h"
- #include "third_party/blink/public/common/switches.h"
-@@ -42,6 +44,26 @@ AtomicString NavigatorLanguage::language() {
+ #include "third_party/blink/renderer/core/probe/core_probes.h"
+ #include "third_party/blink/renderer/platform/language.h"
+@@ -39,6 +41,26 @@ AtomicString NavigatorLanguage::language() {
  
  const Vector<String>& NavigatorLanguage::languages() {
    EnsureUpdatedLanguage();

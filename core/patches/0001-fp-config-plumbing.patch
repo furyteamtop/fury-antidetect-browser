@@ -750,10 +750,10 @@ index d9b662aab3..12737e7a98 100644
             "//content/browser",
             "//content/gpu:gpu_sources",
 diff --git a/content/app/content_main_runner_impl.cc b/content/app/content_main_runner_impl.cc
-index 7a8ade5283..abebf1c2e3 100644
+index ea24446519..58d253df70 100644
 --- a/content/app/content_main_runner_impl.cc
 +++ b/content/app/content_main_runner_impl.cc
-@@ -58,6 +58,8 @@
+@@ -61,6 +61,8 @@
  #include "build/build_config.h"
  #include "components/discardable_memory/service/discardable_shared_memory_manager.h"
  #include "components/download/public/common/download_task_runner.h"
@@ -762,7 +762,7 @@ index 7a8ade5283..abebf1c2e3 100644
  #include "components/power_monitor/make_power_monitor_device_source.h"
  #include "components/tracing/common/tracing_switches.h"
  #include "components/variations/net/variations_command_line.h"
-@@ -133,6 +135,9 @@
+@@ -139,6 +141,9 @@
  #include <malloc.h>
  #include <cstring>
  
@@ -772,7 +772,7 @@ index 7a8ade5283..abebf1c2e3 100644
  #include "ui/base/l10n/l10n_util_win.h"
  #include "ui/display/win/dpi.h"
  #elif BUILDFLAG(IS_MAC)
-@@ -863,6 +868,12 @@ int ContentMainRunnerImpl::Initialize(ContentMainParams params) {
+@@ -920,6 +925,12 @@ int ContentMainRunnerImpl::Initialize(ContentMainParams params) {
    g_fds->Set(kPseudonymizationSaltDescriptor,
               kPseudonymizationSaltDescriptor +
                   base::GlobalDescriptors::kBaseDescriptor);
@@ -785,7 +785,7 @@ index 7a8ade5283..abebf1c2e3 100644
  #endif  // !BUILDFLAG(IS_ANDROID)
  
  #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_OPENBSD)
-@@ -873,6 +884,69 @@ int ContentMainRunnerImpl::Initialize(ContentMainParams params) {
+@@ -930,6 +941,69 @@ int ContentMainRunnerImpl::Initialize(ContentMainParams params) {
  
  #endif  // !BUILDFLAG(IS_WIN)
  
@@ -856,19 +856,19 @@ index 7a8ade5283..abebf1c2e3 100644
    TRACE_EVENT0("startup,benchmark,rail", "ContentMainRunnerImpl::Initialize");
  
 diff --git a/content/browser/BUILD.gn b/content/browser/BUILD.gn
-index ac8af97f18..26a7d4f035 100644
+index bee9872ba3..812f040a2d 100644
 --- a/content/browser/BUILD.gn
 +++ b/content/browser/BUILD.gn
-@@ -192,6 +192,7 @@ source_set("browser") {
-     "//components/ukm/debug:util",
+@@ -194,6 +194,7 @@ source_set("browser") {
      "//components/url_formatter",
      "//components/url_matcher",
+     "//components/url_pattern",
 +    "//components/fury",
      "//components/variations",
      "//components/variations/net",
      "//components/version_info",
 diff --git a/content/browser/child_process_launcher_helper.cc b/content/browser/child_process_launcher_helper.cc
-index 34a9ba1470..018be53d3c 100644
+index 84d009dc7c..2aadcde20d 100644
 --- a/content/browser/child_process_launcher_helper.cc
 +++ b/content/browser/child_process_launcher_helper.cc
 @@ -22,6 +22,8 @@
@@ -913,7 +913,7 @@ index 34a9ba1470..018be53d3c 100644
  void PassStartupTracingConfigSharedMemoryHandle(
      const base::ReadOnlySharedMemoryRegion* read_only_memory_region,
      base::CommandLine& command_line,
-@@ -332,6 +360,8 @@ void ChildProcessLauncherHelper::LaunchOnLauncherThread() {
+@@ -333,6 +361,8 @@ void ChildProcessLauncherHelper::LaunchOnLauncherThread() {
        *command_line(), options_ptr, files_to_register.get());
    PassFieldTrialSharedMemoryHandle(*command_line(), options_ptr,
                                     files_to_register.get());
@@ -941,10 +941,10 @@ index 9542306fd8..cdb4cded31 100644
    kContentDynamicDescriptorStart = 100,
    kContentDynamicDescriptorMax = 199,
 diff --git a/third_party/blink/renderer/core/BUILD.gn b/third_party/blink/renderer/core/BUILD.gn
-index 8969a71c82..cf87ef8e50 100644
+index e5fe811ee0..c9ac1c3cf1 100644
 --- a/third_party/blink/renderer/core/BUILD.gn
 +++ b/third_party/blink/renderer/core/BUILD.gn
-@@ -408,6 +408,7 @@ component("core") {
+@@ -411,6 +411,7 @@ component("core") {
      ":make_deprecation_info",
      ":xml_ffi",
      "//base",
@@ -966,10 +966,10 @@ index db7a924b95..25a9d335ab 100644
      "+components/performance_manager/public/mojom/web_memory.mojom-blink.h",
      "+components/viz/common/frame_timing_details.h",
 diff --git a/third_party/blink/renderer/modules/BUILD.gn b/third_party/blink/renderer/modules/BUILD.gn
-index 269ff4196e..dbc67b677f 100644
+index d09cfa2fa0..3e386f5e4c 100644
 --- a/third_party/blink/renderer/modules/BUILD.gn
 +++ b/third_party/blink/renderer/modules/BUILD.gn
-@@ -202,6 +202,7 @@ component("modules") {
+@@ -204,6 +204,7 @@ component("modules") {
    }
  
    deps = [
@@ -989,7 +989,7 @@ index 875071014b..fe8a93bcf3 100644
      "+base/memory/scoped_refptr.h",
      "+base/memory/values_equivalent.h",
 diff --git a/third_party/blink/renderer/platform/BUILD.gn b/third_party/blink/renderer/platform/BUILD.gn
-index 9bfa9565f0..145adb1bce 100644
+index 0adcb6894f..876a8d3f44 100644
 --- a/third_party/blink/renderer/platform/BUILD.gn
 +++ b/third_party/blink/renderer/platform/BUILD.gn
 @@ -153,6 +153,7 @@ executable("character_data_generator") {

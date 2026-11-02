@@ -1,8 +1,8 @@
 diff --git a/chrome/browser/devtools/BUILD.gn b/chrome/browser/devtools/BUILD.gn
-index 2e694986c7..534262430c 100644
+index 9011cb9983..64641c9a6c 100644
 --- a/chrome/browser/devtools/BUILD.gn
 +++ b/chrome/browser/devtools/BUILD.gn
-@@ -132,6 +132,7 @@ static_library("devtools") {
+@@ -148,6 +148,7 @@ static_library("devtools") {
      "//chrome/browser/ui/browser_window:create_browser_window",
      "//chrome/browser/ui/dialogs",
      "//chrome/browser/ui/select_file_policy",
@@ -11,10 +11,10 @@ index 2e694986c7..534262430c 100644
      "//components/page_load_metrics/browser/observers/ad_metrics",
  
 diff --git a/chrome/browser/devtools/devtools_availability_checker.cc b/chrome/browser/devtools/devtools_availability_checker.cc
-index 19a9f4d762..03df037c2a 100644
+index ca4087bec2..c3a6c1a4f4 100644
 --- a/chrome/browser/devtools/devtools_availability_checker.cc
 +++ b/chrome/browser/devtools/devtools_availability_checker.cc
-@@ -7,6 +7,8 @@
+@@ -8,6 +8,8 @@
  #include <string>
  
  #include "base/check.h"
@@ -23,7 +23,7 @@ index 19a9f4d762..03df037c2a 100644
  #include "base/feature_list.h"
  #include "base/notreached.h"
  #include "base/types/expected.h"
-@@ -89,8 +91,35 @@ bool IsRestrictedExtension(const extensions::Extension* extension,
+@@ -124,9 +126,39 @@ DevToolsBlockReason GetRestrictedExtensionBlockReason(
  
  }  // namespace
  
@@ -44,6 +44,9 @@ index 19a9f4d762..03df037c2a 100644
 +//
 +// So the answer is asked here, at the five entry points every caller in
 +// //chrome and //content funnels through, before any preference is consulted.
++// Since 157 those are the GetDevToolsBlockReason() overloads; the
++// IsInspectionAllowed() ones are wrappers over them, and some callers now ask
++// for the reason directly.
 +bool FuryDevToolsLocked() {
 +  return base::CommandLine::ForCurrentProcess()->HasSwitch(
 +      fury::switches::kLockDevTools);
@@ -51,49 +54,60 @@ index 19a9f4d762..03df037c2a 100644
 +
 +}  // namespace
 +
- bool IsInspectionAllowed(Profile* profile,
-                          content::DevToolsAgentHost* agent_host) {
+ DevToolsBlockReason GetDevToolsBlockReason(
+     Profile* profile,
+     content::DevToolsAgentHost* agent_host) {
 +  if (FuryDevToolsLocked()) {
-+    return false;
++    return DevToolsBlockReason::kPolicyDisallowed;
 +  }
    if (base::FeatureList::IsEnabled(features::kDevToolsTargetLevelEvaluation)) {
      GURL target_url = agent_host->GetURL();
-     if (!IsInspectionAllowed(profile, target_url)) {
-@@ -126,6 +155,9 @@ bool IsInspectionAllowed(Profile* profile,
- }
+     DevToolsBlockReason reason = GetDevToolsBlockReason(profile, target_url);
+@@ -165,6 +197,9 @@ DevToolsBlockReason GetDevToolsBlockReason(
  
- bool IsInspectionAllowed(Profile* profile, content::WebContents* web_contents) {
+ DevToolsBlockReason GetDevToolsBlockReason(Profile* profile,
+                                            content::WebContents* web_contents) {
 +  if (FuryDevToolsLocked()) {
-+    return false;
++    return DevToolsBlockReason::kPolicyDisallowed;
 +  }
    if (!web_contents) {
      // For contexts without web_contents, we can only check the general policy.
-     return IsInspectionAllowed(
-@@ -228,6 +260,9 @@ bool IsInspectionAllowed(Profile* profile, content::WebContents* web_contents) {
- 
- bool IsInspectionAllowed(Profile* profile,
-                          const extensions::Extension* extension) {
+     return GetDevToolsBlockReason(
+@@ -263,6 +298,9 @@ DevToolsBlockReason GetDevToolsBlockReason(Profile* profile,
+ DevToolsBlockReason GetDevToolsBlockReason(
+     Profile* profile,
+     const extensions::Extension* extension) {
 +  if (FuryDevToolsLocked()) {
-+    return false;
++    return DevToolsBlockReason::kPolicyDisallowed;
 +  }
  #if BUILDFLAG(ENABLE_EXTENSIONS_CORE)
-   policy::DeveloperToolsPolicyChecker* checker =
-       policy::DeveloperToolsPolicyCheckerFactory::GetForBrowserContext(profile);
-@@ -286,6 +321,9 @@ bool IsInspectionAllowed(Profile* profile,
- 
+   if (extension) {
+     if (std::optional<DevToolsBlockReason> reason =
+@@ -308,6 +346,9 @@ DevToolsBlockReason GetDevToolsBlockReason(
  #if !BUILDFLAG(IS_ANDROID)
- bool IsInspectionAllowed(Profile* profile, const web_app::WebApp* web_app) {
+ DevToolsBlockReason GetDevToolsBlockReason(Profile* profile,
+                                            const web_app::WebApp* web_app) {
 +  if (FuryDevToolsLocked()) {
-+    return false;
++    return DevToolsBlockReason::kPolicyDisallowed;
 +  }
    if (web_app) {
-     policy::DeveloperToolsPolicyChecker* checker =
-         policy::DeveloperToolsPolicyCheckerFactory::GetForBrowserContext(
+     if (std::optional<DevToolsBlockReason> reason =
+             GetUrlPoliciesBlockReason(profile, web_app->start_url())) {
+@@ -337,6 +378,9 @@ DevToolsBlockReason GetDevToolsBlockReason(Profile* profile,
+ #endif
+ 
+ DevToolsBlockReason GetDevToolsBlockReason(Profile* profile, const GURL& url) {
++  if (FuryDevToolsLocked()) {
++    return DevToolsBlockReason::kPolicyDisallowed;
++  }
+   if (url.is_empty() || url.SchemeIs(url::kAboutScheme)) {
+     return DevToolsBlockReason::kNotBlocked;
+   }
 diff --git a/chrome/browser/policy/BUILD.gn b/chrome/browser/policy/BUILD.gn
-index 717b5c19ad..e9eba0849d 100644
+index cb75fa9666..179a9ae66f 100644
 --- a/chrome/browser/policy/BUILD.gn
 +++ b/chrome/browser/policy/BUILD.gn
-@@ -1231,6 +1231,7 @@ source_set("impl") {
+@@ -1277,6 +1277,7 @@ source_set("impl") {
      ":path_parser",
      ":policy_util",
      "//chrome/browser:browser_features",

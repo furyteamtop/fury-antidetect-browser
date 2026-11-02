@@ -1,15 +1,15 @@
 diff --git a/chrome/browser/ui/views/frame/BUILD.gn b/chrome/browser/ui/views/frame/BUILD.gn
-index ee117be4ec..9e9652f932 100644
+index 0ace9d5e22..92a28dfaae 100644
 --- a/chrome/browser/ui/views/frame/BUILD.gn
 +++ b/chrome/browser/ui/views/frame/BUILD.gn
-@@ -958,6 +958,7 @@ if (is_win) {
+@@ -1899,6 +1899,7 @@ if (is_win) {
        "//components/prefs",
      ]
      deps = [
 +      "//components/fury",
        "//chrome/browser:browser_process",
+       "//chrome/browser:shell_integration",
        "//chrome/browser/profiles",
-       "//chrome/browser/profiles:misc",
 diff --git a/chrome/browser/ui/views/frame/browser_window_property_manager_win.cc b/chrome/browser/ui/views/frame/browser_window_property_manager_win.cc
 index 00445dbee1..89ddd0c451 100644
 --- a/chrome/browser/ui/views/frame/browser_window_property_manager_win.cc
@@ -56,10 +56,10 @@ index 00445dbee1..89ddd0c451 100644
                                    pinned_name, hwnd_);
  }
 diff --git a/chrome/browser/ui/window_metadata/BUILD.gn b/chrome/browser/ui/window_metadata/BUILD.gn
-index d915345c05..cbc0a90d93 100644
+index 07caea7717..4a20fca28c 100644
 --- a/chrome/browser/ui/window_metadata/BUILD.gn
 +++ b/chrome/browser/ui/window_metadata/BUILD.gn
-@@ -21,6 +21,7 @@ source_set("window_metadata") {
+@@ -20,6 +20,7 @@ source_set("window_metadata") {
    ]
  
    deps = [

@@ -1,5 +1,5 @@
 diff --git a/third_party/blink/renderer/core/timing/memory_info.cc b/third_party/blink/renderer/core/timing/memory_info.cc
-index b17ada56e6..fd320f4f13 100644
+index 76a9231a94..c50fa89887 100644
 --- a/third_party/blink/renderer/core/timing/memory_info.cc
 +++ b/third_party/blink/renderer/core/timing/memory_info.cc
 @@ -30,6 +30,8 @@
@@ -10,8 +10,8 @@ index b17ada56e6..fd320f4f13 100644
 +
  #include <limits>
  
- #include "base/time/default_tick_clock.h"
-@@ -172,6 +174,19 @@ MemoryInfo::MemoryInfo(Precision precision) {
+ #include "base/memory/raw_ptr_exclusion.h"
+@@ -174,6 +176,19 @@ MemoryInfo::MemoryInfo(Precision precision) {
    // The values must have been computed, so totalJSHeapSize must be greater than
    // 0.
    DCHECK_GT(totalJSHeapSize(), 0u);

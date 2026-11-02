@@ -1,17 +1,17 @@
-diff --git a/chrome/browser/ui/BUILD.gn b/chrome/browser/ui/BUILD.gn
-index 82f397571f..f906667013 100644
---- a/chrome/browser/ui/BUILD.gn
-+++ b/chrome/browser/ui/BUILD.gn
-@@ -832,6 +832,7 @@ static_library("ui") {
-   ]
- 
-   deps = [
+diff --git a/chrome/browser/ui/views/frame/BUILD.gn b/chrome/browser/ui/views/frame/BUILD.gn
+index 07ff3566c1..0ace9d5e22 100644
+--- a/chrome/browser/ui/views/frame/BUILD.gn
++++ b/chrome/browser/ui/views/frame/BUILD.gn
+@@ -3271,6 +3271,7 @@ source_set("contents_container_view_impl") {
+     "//chrome/browser/ui/views/indigo",
+     "//chrome/browser/ui/views/new_tab_footer",
+     "//chrome/common:chrome_features",
 +    "//components/fury",
-     ":browser_element_identifiers",
-     ":browser_otr_state",
-     ":browser_ui_prefs",
+     "//components/search",
+     "//content/public/browser",
+     "//ui/accessibility:ax_base",
 diff --git a/chrome/browser/ui/views/frame/contents_container_view.cc b/chrome/browser/ui/views/frame/contents_container_view.cc
-index 099b89a24c..19aa99fdbb 100644
+index 5407bd717c..5f56fe8564 100644
 --- a/chrome/browser/ui/views/frame/contents_container_view.cc
 +++ b/chrome/browser/ui/views/frame/contents_container_view.cc
 @@ -9,6 +9,7 @@
@@ -22,7 +22,7 @@ index 099b89a24c..19aa99fdbb 100644
  #include "chrome/browser/actor/ui/actor_overlay_web_view.h"
  #include "chrome/browser/devtools/devtools_contents_resizing_strategy.h"
  #include "chrome/browser/enterprise/data_protection/data_protection_overlay_view.h"
-@@ -487,6 +488,24 @@ views::ProposedLayout ContentsContainerView::CalculateProposedLayout(
+@@ -490,6 +491,24 @@ views::ProposedLayout ContentsContainerView::CalculateProposedLayout(
                                          &non_devtools_contents_bounds);
    gfx::Rect contents_view_bounds = non_devtools_contents_bounds;
  

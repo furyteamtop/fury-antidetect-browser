@@ -83,10 +83,10 @@ index 625c3204a0..57433c9d50 100644
    Vector<unsigned char> encoded_image_;
    int num_rows_completed_;
 diff --git a/third_party/blink/renderer/core/html/canvas/canvas_rendering_context_host.h b/third_party/blink/renderer/core/html/canvas/canvas_rendering_context_host.h
-index fca8ae9e0e..d2d0c9a3e7 100644
+index 674d3dd157..d256877dc5 100644
 --- a/third_party/blink/renderer/core/html/canvas/canvas_rendering_context_host.h
 +++ b/third_party/blink/renderer/core/html/canvas/canvas_rendering_context_host.h
-@@ -129,6 +129,30 @@ class CORE_EXPORT CanvasRenderingContextHost
+@@ -123,6 +123,30 @@ class CORE_EXPORT CanvasRenderingContextHost : public GarbageCollectedMixin,
    bool IsRenderingContext2D() const;
    bool IsImageBitmapRenderingContext() const;
  
@@ -117,7 +117,7 @@ index fca8ae9e0e..d2d0c9a3e7 100644
    PlainTextPainter& GetPlainTextPainter();
  
    // Actual RasterMode used for rendering 2d primitives.
-@@ -190,6 +214,7 @@ class CORE_EXPORT CanvasRenderingContextHost
+@@ -187,6 +211,7 @@ class CORE_EXPORT CanvasRenderingContextHost : public GarbageCollectedMixin,
  
   private:
  
@@ -126,10 +126,10 @@ index fca8ae9e0e..d2d0c9a3e7 100644
    HostType host_type_ = HostType::kNone;
    RasterModeHint preferred_2d_raster_mode_ = RasterModeHint::kPreferCPU;
 diff --git a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
-index 4a7dbf745e..2415a38e0f 100644
+index 13c0ced1be..00490b026c 100644
 --- a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
 +++ b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
-@@ -1426,6 +1426,9 @@ String HTMLCanvasElement::ToDataURLInternal(
+@@ -1439,6 +1439,9 @@ String HTMLCanvasElement::ToDataURLInternal(
          ImageDataBuffer::Create(image_bitmap);
      if (!data_buffer)
        return String("data:,");
@@ -139,7 +139,7 @@ index 4a7dbf745e..2415a38e0f 100644
  
      String data_url = data_buffer->ToDataURL(encoding_mime_type, quality);
      base::TimeDelta elapsed_time = base::TimeTicks::Now() - start_time;
-@@ -1532,6 +1535,7 @@ void HTMLCanvasElement::toBlob(V8BlobCallback* callback,
+@@ -1545,6 +1548,7 @@ void HTMLCanvasElement::toBlob(V8BlobCallback* callback,
          image_bitmap, options,
          CanvasAsyncBlobCreator::kHTMLCanvasToBlobCallback, callback, start_time,
          GetExecutionContext());
@@ -148,10 +148,10 @@ index 4a7dbf745e..2415a38e0f 100644
  
    if (async_creator) {
 diff --git a/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc b/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
-index fab79aa8c5..e0c219b118 100644
+index 41ed6d0c21..f3987d4928 100644
 --- a/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
 +++ b/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
-@@ -573,6 +573,7 @@ ScriptPromise<Blob> OffscreenCanvas::convertToBlob(
+@@ -596,6 +596,7 @@ ScriptPromise<Blob> OffscreenCanvas::convertToBlob(
      auto* async_creator = MakeGarbageCollected<CanvasAsyncBlobCreator>(
          image_bitmap, options, function_type, start_time, execution_context,
          resolver);
@@ -160,12 +160,12 @@ index fab79aa8c5..e0c219b118 100644
      return resolver->Promise();
    }
 diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
-index 89fcf5f32b..c9aa9a6734 100644
+index ba2dcc2f2f..c1ee201f8f 100644
 --- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
 +++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
-@@ -4,6 +4,9 @@
+@@ -6,6 +6,9 @@
  
- #include "third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.h"
+ #include <inttypes.h>
  
 +#include "components/fury/fury_noise.h"
 +#include "third_party/blink/renderer/platform/graphics/fury_flat.h"
@@ -173,7 +173,7 @@ index 89fcf5f32b..c9aa9a6734 100644
  #include <cmath>
  #include <cstdint>
  #include <cstdlib>
-@@ -516,6 +519,73 @@ ImageData* BaseRenderingContext2D::getImageDataInternal(
+@@ -873,6 +876,73 @@ ImageData* BaseRenderingContext2D::getImageDataInternal(
            snapshot->PaintImageForCurrentFrame().GetSkImageInfo().bounds();
        DCHECK(!bounds.intersect(SkIRect::MakeXYWH(sx, sy, sw, sh)));
      }
@@ -248,10 +248,10 @@ index 89fcf5f32b..c9aa9a6734 100644
  
    return image_data;
 diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
-index 1d6240bf07..08fecaac74 100644
+index 0d2d48606e..670a0b81d9 100644
 --- a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
 +++ b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
-@@ -849,6 +849,61 @@ void Canvas2DRecorderContext::ResetInternal() {
+@@ -850,6 +850,61 @@ void Canvas2DRecorderContext::ResetInternal() {
  
    ValidateStateStack();
    origin_tainted_by_content_ = false;
@@ -313,7 +313,7 @@ index 1d6240bf07..08fecaac74 100644
  }
  
  void Canvas2DRecorderContext::reset() {
-@@ -2323,6 +2378,25 @@ void Canvas2DRecorderContext::drawImage(CanvasImageSource* image_source,
+@@ -2325,6 +2380,25 @@ void Canvas2DRecorderContext::drawImage(CanvasImageSource* image_source,
      SetOriginTaintedByContent();
    }
  
@@ -338,8 +338,8 @@ index 1d6240bf07..08fecaac74 100644
 +
    Draw<OverdrawOp::kDrawImage>(
        /*draw_func=*/
-       [this, image_source, image, src_rect, dst_rect](
-@@ -2342,6 +2416,7 @@ void Canvas2DRecorderContext::drawImage(CanvasImageSource* image_source,
+       [this, image_source, image, src_rect, dst_rect, respect_orientation](
+@@ -2344,6 +2418,7 @@ void Canvas2DRecorderContext::drawImage(CanvasImageSource* image_source,
        image_source->IsOpaque() ? CanvasRenderingContext2DState::kOpaqueImage
                                 : CanvasRenderingContext2DState::kNonOpaqueImage,
        CanvasPerformanceMonitor::DrawType::kImage);
@@ -348,7 +348,7 @@ index 1d6240bf07..08fecaac74 100644
  
  bool Canvas2DRecorderContext::RectContainsTransformedRect(
 diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.h b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.h
-index 91dad8914b..08b98dfdec 100644
+index d85e3d2174..08b4f73d71 100644
 --- a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.h
 +++ b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.h
 @@ -490,6 +490,17 @@ class MODULES_EXPORT Canvas2DRecorderContext : public CanvasPath {
@@ -369,7 +369,7 @@ index 91dad8914b..08b98dfdec 100644
    virtual bool HasAlpha() const = 0;
  
    virtual bool IsDesynchronized() const { NOTREACHED(); }
-@@ -804,6 +815,7 @@ void Canvas2DRecorderContext::DrawInternal(
+@@ -802,6 +813,7 @@ void Canvas2DRecorderContext::DrawInternal(
      }
    }
    const CanvasRenderingContext2DState& state = GetState();
@@ -546,7 +546,7 @@ index 0000000000..dc799e7463
 +
 +#endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_FURY_FLAT_H_
 diff --git a/third_party/blink/renderer/platform/graphics/image_data_buffer.cc b/third_party/blink/renderer/platform/graphics/image_data_buffer.cc
-index d05ea261a9..b205eb2c12 100644
+index 89f8fff042..378acb64b2 100644
 --- a/third_party/blink/renderer/platform/graphics/image_data_buffer.cc
 +++ b/third_party/blink/renderer/platform/graphics/image_data_buffer.cc
 @@ -32,6 +32,9 @@
@@ -559,7 +559,7 @@ index d05ea261a9..b205eb2c12 100644
  #include "base/compiler_specific.h"
  #include "base/logging.h"
  #include "base/memory/ptr_util.h"
-@@ -122,6 +125,48 @@ std::unique_ptr<ImageDataBuffer> ImageDataBuffer::Create(
+@@ -123,6 +126,48 @@ std::unique_ptr<ImageDataBuffer> ImageDataBuffer::Create(
    return buffer;
  }
  

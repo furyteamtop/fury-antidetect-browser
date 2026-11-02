@@ -1,8 +1,8 @@
 diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
-index afc5ffbe13..6789ff8983 100644
+index 09bc575008..12df31869b 100644
 --- a/chrome/browser/chrome_content_browser_client.cc
 +++ b/chrome/browser/chrome_content_browser_client.cc
-@@ -239,6 +239,7 @@
+@@ -247,6 +247,7 @@
  #include "chrome/common/webui_url_constants.h"
  #include "chrome/common/webui_url_utils.h"
  #include "chrome/installer/util/google_update_settings.h"
@@ -10,7 +10,7 @@ index afc5ffbe13..6789ff8983 100644
  #include "components/fury/location/fury_location_provider.h"
  #include "components/autofill/core/common/autofill_features.h"
  #include "components/autofill/core/common/autofill_switches.h"
-@@ -4588,6 +4589,62 @@ content::TtsPlatform* ChromeContentBrowserClient::GetTtsPlatform() {
+@@ -4712,6 +4713,62 @@ content::TtsPlatform* ChromeContentBrowserClient::GetTtsPlatform() {
  #endif
  }
  
@@ -73,10 +73,10 @@ index afc5ffbe13..6789ff8983 100644
  void ChromeContentBrowserClient::OverrideWebPreferences(
      WebContents* web_contents,
      content::SiteInstance& main_frame_site,
-@@ -4941,6 +4998,36 @@ void ChromeContentBrowserClient::OverrideWebPreferences(
+@@ -5072,6 +5129,36 @@ void ChromeContentBrowserClient::OverrideWebPreferences(
  
-   web_prefs->clipboard_focus_exempt = IsClipboardFocusExemptOrigin(
-       web_contents->GetPrimaryMainFrame()->GetLastCommittedOrigin());
+   web_prefs->is_xslt_deprecation_banner_suppressed =
+       prefs->GetBoolean(prefs::kXSLTDeprecationBannerSuppressed);
 +
 +  // Patch 0130: a phone persona lays out and takes input as Chrome on Android
 +  // does (docs/18). Last in this function so nothing above writes over it.
@@ -110,7 +110,7 @@ index afc5ffbe13..6789ff8983 100644
  }
  
  bool ChromeContentBrowserClientParts::OverrideWebPreferencesAfterNavigation(
-@@ -4956,6 +5043,14 @@ bool ChromeContentBrowserClient::OverrideWebPreferencesAfterNavigation(
+@@ -5087,6 +5174,14 @@ bool ChromeContentBrowserClient::OverrideWebPreferencesAfterNavigation(
      WebPreferences* web_prefs) {
    bool prefs_changed = false;
  
@@ -150,7 +150,7 @@ index 3d31969a7b..1a88c3f5ea 100644
    "+components/services/font/public",
    "+components/tracing",
 diff --git a/content/child/runtime_features.cc b/content/child/runtime_features.cc
-index c49e9cf2ba..b21be844ce 100644
+index fcf03ba0b3..619eb01c77 100644
 --- a/content/child/runtime_features.cc
 +++ b/content/child/runtime_features.cc
 @@ -20,6 +20,7 @@
@@ -161,7 +161,7 @@ index c49e9cf2ba..b21be844ce 100644
  #include "content/common/content_navigation_policy.h"
  #include "content/common/content_switches_internal.h"
  #include "content/common/features.h"
-@@ -546,6 +547,56 @@ void ResolveInvalidConfigurations() {
+@@ -558,6 +559,56 @@ void ResolveInvalidConfigurations() {
  
  namespace content {
  
@@ -218,7 +218,7 @@ index c49e9cf2ba..b21be844ce 100644
  void SetRuntimeFeaturesDefaultsAndUpdateFromArgs(
      const base::CommandLine& command_line) {
    // Sets experimental features.
-@@ -595,6 +646,8 @@ void SetRuntimeFeaturesDefaultsAndUpdateFromArgs(
+@@ -607,6 +658,8 @@ void SetRuntimeFeaturesDefaultsAndUpdateFromArgs(
      WebRuntimeFeatures::EnableXSLT(value == "true");
    }
  
@@ -228,7 +228,7 @@ index c49e9cf2ba..b21be844ce 100644
  }
  
 diff --git a/third_party/blink/renderer/modules/netinfo/network_information.cc b/third_party/blink/renderer/modules/netinfo/network_information.cc
-index 976a3c8c36..6fa868283f 100644
+index 81df80e2b5..a8ceabdc34 100644
 --- a/third_party/blink/renderer/modules/netinfo/network_information.cc
 +++ b/third_party/blink/renderer/modules/netinfo/network_information.cc
 @@ -7,6 +7,7 @@

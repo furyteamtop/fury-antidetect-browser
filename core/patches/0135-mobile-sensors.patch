@@ -1,16 +1,8 @@
 diff --git a/content/browser/BUILD.gn b/content/browser/BUILD.gn
-index 53dd562d46..a783e0b4e3 100644
+index 2e50e36420..a783e0b4e3 100644
 --- a/content/browser/BUILD.gn
 +++ b/content/browser/BUILD.gn
-@@ -192,6 +192,7 @@ source_set("browser") {
-     "//components/ukm/debug:util",
-     "//components/url_formatter",
-     "//components/url_matcher",
-+    "//components/fury",
-     "//components/variations",
-     "//components/variations/net",
-     "//components/version_info",
-@@ -1069,6 +1070,8 @@ source_set("browser") {
+@@ -1070,6 +1070,8 @@ source_set("browser") {
      "font_list_async.cc",
      "generic_sensor/frame_sensor_provider_proxy.cc",
      "generic_sensor/frame_sensor_provider_proxy.h",
@@ -467,79 +459,24 @@ index 0000000000..c807de89a0
 +
 +#endif  // CONTENT_BROWSER_GENERIC_SENSOR_FURY_PHONE_MOTION_H_
 diff --git a/content/browser/web_contents/web_contents_impl.cc b/content/browser/web_contents/web_contents_impl.cc
-index 6d6d0947fa..f72d3bb021 100644
+index 88a963d6f4..f72d3bb021 100644
 --- a/content/browser/web_contents/web_contents_impl.cc
 +++ b/content/browser/web_contents/web_contents_impl.cc
-@@ -108,6 +108,8 @@
- #include "content/browser/renderer_host/frame_token_message_queue.h"
+@@ -109,6 +109,7 @@
  #include "content/browser/renderer_host/frame_tree_node.h"
  #include "content/browser/renderer_host/input/touch_emulator_impl.h"
-+#include "components/fury/fury_config.h"
+ #include "components/fury/fury_config.h"
 +#include "content/browser/generic_sensor/fury_phone_motion.h"
  #include "content/browser/renderer_host/media/media_stream_manager.h"
  #include "content/browser/renderer_host/navigation_entry_impl.h"
  #include "content/browser/renderer_host/navigation_request.h"
-@@ -8460,6 +8462,48 @@ void WebContentsImpl::DidNavigateAnyFramePreCommit(
-   }
- }
- 
-+// Patch 0132: on a phone persona, the mouse becomes a finger.
-+//
-+// DevTools' "emit touch events for mouse", the browser-side TouchEmulator,
-+// switched on from the config instead of over CDP: a click reaches the page
-+// as touchstart/touchend and a tap, a drag as a touch scroll, and a mouse
-+// moving with no button pressed reaches the page as nothing at all, because
-+// a phone cannot hover. Pointer events report pointerType "touch". Patch 0130
-+// already makes the page expect this (touch events, coarse pointer, no hover);
-+// without it the page would see a touchscreen that only ever sends mouse
-+// events, which no phone does.
-+//
-+// Per WebContents, after each committed main-frame navigation, because the
-+// browser's own pages and DevTools are not the phone's content and are
-+// operated with a mouse. The wheel still arrives as a wheel when no touch is
-+// active (TouchEmulatorImpl::HandleMouseWheelEvent); turning it into a finger
-+// drag is not done here.
-+void WebContentsImpl::FuryUpdateTouchFromMouse(const GURL& url) {
-+  const fury::FuryConfig* config = fury::FuryConfig::Get();
-+  if (!config || !config->GetBool("mobile.enabled").value_or(false)) {
-+    return;
-+  }
-+  const bool browser_page = url.SchemeIs(kChromeUIScheme) ||
-+                            url.SchemeIs(kChromeDevToolsScheme) ||
-+                            url.SchemeIs(kChromeUIUntrustedScheme);
-+  // The router owns what the emulator talks to; make sure it exists.
-+  if (!GetInputEventRouter()) {
-+    return;
-+  }
-+  auto* emulator = static_cast<TouchEmulatorImpl*>(GetTouchEmulator(/*create_if_necessary=*/true));
-+  if (!emulator) {
-+    return;
-+  }
-+  if (browser_page) {
-+    emulator->Disable();
-+    SetForceDisableOverscrollContent(false);
-+  } else if (!emulator->IsEnabled()) {
-+    emulator->Enable(input::TouchEmulator::Mode::kEmulatingTouchFromMouse,
-+                     ui::GestureProviderConfigType::GENERIC_MOBILE);
-+    SetForceDisableOverscrollContent(true);
-+  }
-+}
-+
- void WebContentsImpl::DidNavigateMainFramePostCommit(
-     RenderFrameHostImpl* render_frame_host,
-     const LoadCommittedDetails& details) {
-@@ -8508,6 +8552,14 @@ void WebContentsImpl::DidNavigateMainFramePostCommit(
-     TRACE_EVENT_END("content", tracing_track_->track());
-     EmitTracingSlice(base::UTF16ToUTF8(GetTitle()));
-   }
-+
-+  // Patch 0132: a phone persona is driven by a finger (docs/18, step 4).
-+  if (is_primary_main_frame && !GetOuterWebContents()) {
-+    FuryUpdateTouchFromMouse(render_frame_host->GetLastCommittedURL());
+@@ -8555,6 +8556,9 @@ void WebContentsImpl::DidNavigateMainFramePostCommit(
+   // Patch 0132: a phone persona is driven by a finger (docs/18, step 4).
+   if (is_primary_main_frame && !GetOuterWebContents()) {
+     FuryUpdateTouchFromMouse(render_frame_host->GetLastCommittedURL());
 +    // Patch 0135: and it has the motion sensors a phone in a hand has.
 +    FuryPhoneMotion::UpdateForNavigation(
 +        this, render_frame_host->GetLastCommittedURL());
-+  }
+   }
  }
  
- void WebContentsImpl::DidNavigateAnyFramePostCommit(

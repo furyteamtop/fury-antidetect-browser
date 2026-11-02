@@ -1,8 +1,8 @@
 diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
-index 5270b94ada..55fdbb556b 100644
+index 404d45a356..7e0edd0714 100644
 --- a/chrome/browser/BUILD.gn
 +++ b/chrome/browser/BUILD.gn
-@@ -2380,6 +2380,7 @@ source_set("browser") {
+@@ -2592,6 +2592,7 @@ source_set("browser") {
      "//components/facilitated_payments/core/features",
      "//components/feature_engagement",
      "//components/fury",
@@ -11,10 +11,10 @@ index 5270b94ada..55fdbb556b 100644
      "//components/history_clusters/core",
      "//components/keyed_service/content",
 diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
-index 19045777b3..afc5ffbe13 100644
+index 1defcfa514..09bc575008 100644
 --- a/chrome/browser/chrome_content_browser_client.cc
 +++ b/chrome/browser/chrome_content_browser_client.cc
-@@ -239,6 +239,7 @@
+@@ -247,6 +247,7 @@
  #include "chrome/common/webui_url_constants.h"
  #include "chrome/common/webui_url_utils.h"
  #include "chrome/installer/util/google_update_settings.h"
@@ -22,7 +22,7 @@ index 19045777b3..afc5ffbe13 100644
  #include "components/autofill/core/common/autofill_features.h"
  #include "components/autofill/core/common/autofill_switches.h"
  #include "components/blocked_content/popup_blocker.h"
-@@ -3801,6 +3802,16 @@ ChromeContentBrowserClient::GetSystemNetworkContext() {
+@@ -3876,6 +3877,16 @@ ChromeContentBrowserClient::GetSystemNetworkContext() {
    return g_browser_process->system_network_context_manager()->GetContext();
  }
  
@@ -38,8 +38,8 @@ index 19045777b3..afc5ffbe13 100644
 +
  std::string ChromeContentBrowserClient::GetGeolocationApiKey() {
  #if BUILDFLAG(IS_CHROMEOS)
-   if (ash::features::IsCrosSeparateGeoApiKeyEnabled()) {
-@@ -3813,6 +3824,35 @@ std::string ChromeContentBrowserClient::GetGeolocationApiKey() {
+   return google_apis::GetCrosChromeGeoAPIKey();
+@@ -3887,6 +3898,35 @@ std::string ChromeContentBrowserClient::GetGeolocationApiKey() {
  #if BUILDFLAG(OS_LEVEL_GEOLOCATION_PERMISSION_SUPPORTED)
  device::GeolocationSystemPermissionManager*
  ChromeContentBrowserClient::GetGeolocationSystemPermissionManager() {
@@ -76,10 +76,10 @@ index 19045777b3..afc5ffbe13 100644
  }
  #endif
 diff --git a/chrome/browser/chrome_content_browser_client.h b/chrome/browser/chrome_content_browser_client.h
-index 4bd6004f72..4993558629 100644
+index 8ba370793b..fb25bf21b7 100644
 --- a/chrome/browser/chrome_content_browser_client.h
 +++ b/chrome/browser/chrome_content_browser_client.h
-@@ -444,6 +444,11 @@ class ChromeContentBrowserClient : public content::ContentBrowserClient {
+@@ -454,6 +454,11 @@ class ChromeContentBrowserClient : public content::ContentBrowserClient {
    GetSystemSharedURLLoaderFactory() override;
    network::mojom::NetworkContext* GetSystemNetworkContext() override;
    std::string GetGeolocationApiKey() override;

@@ -1,9 +1,9 @@
 diff --git a/chrome/browser/bookmarks/BUILD.gn b/chrome/browser/bookmarks/BUILD.gn
-index 47aa31c99e..6bef19a1f6 100644
+index 5c317f55c3..7d401a81eb 100644
 --- a/chrome/browser/bookmarks/BUILD.gn
 +++ b/chrome/browser/bookmarks/BUILD.gn
-@@ -63,6 +63,7 @@ source_set("impl") {
-   public_deps = [ "//chrome/browser:browser_public_dependencies" ]
+@@ -57,6 +57,7 @@ source_set("impl") {
+   ]
  
    deps = [
 +    "//components/fury",
@@ -11,7 +11,7 @@ index 47aa31c99e..6bef19a1f6 100644
      "//chrome/browser:browser_process",
      "//chrome/browser/commerce",
 diff --git a/chrome/browser/bookmarks/bookmark_html_writer.cc b/chrome/browser/bookmarks/bookmark_html_writer.cc
-index e5fb1fd803..3974083d3f 100644
+index f2f70c1664..08b499533b 100644
 --- a/chrome/browser/bookmarks/bookmark_html_writer.cc
 +++ b/chrome/browser/bookmarks/bookmark_html_writer.cc
 @@ -5,6 +5,9 @@
@@ -24,7 +24,7 @@ index e5fb1fd803..3974083d3f 100644
  #include <stddef.h>
  #include <stdint.h>
  
-@@ -655,6 +658,14 @@ namespace bookmark_html_writer {
+@@ -657,6 +660,14 @@ namespace bookmark_html_writer {
  void WriteBookmarks(Profile* profile,
                      const base::FilePath& path,
                      BookmarksExportCallback callback) {
@@ -40,10 +40,10 @@ index e5fb1fd803..3974083d3f 100644
    if (profile->GetUserData(kBookmarkFaviconFetcherKey)) {
      return;
 diff --git a/chrome/browser/extensions/BUILD.gn b/chrome/browser/extensions/BUILD.gn
-index 563383fc71..ab27d8d8df 100644
+index 8f5ae8c9a3..cd9dd6fa69 100644
 --- a/chrome/browser/extensions/BUILD.gn
 +++ b/chrome/browser/extensions/BUILD.gn
-@@ -590,6 +590,7 @@ source_set("extensions") {
+@@ -597,6 +597,7 @@ source_set("extensions") {
      "//components/enterprise/browser/identifiers",
      "//components/enterprise/browser/promotion",
      "//components/favicon/content",
@@ -52,7 +52,7 @@ index 563383fc71..ab27d8d8df 100644
      "//components/guest_view/common",
      "//components/infobars/content",
 diff --git a/chrome/browser/extensions/api/passwords_private/passwords_private_delegate_impl.cc b/chrome/browser/extensions/api/passwords_private/passwords_private_delegate_impl.cc
-index 9103a6f80a..78cd3e301b 100644
+index 364b8d87de..0c286183cd 100644
 --- a/chrome/browser/extensions/api/passwords_private/passwords_private_delegate_impl.cc
 +++ b/chrome/browser/extensions/api/passwords_private/passwords_private_delegate_impl.cc
 @@ -4,6 +4,9 @@
@@ -65,7 +65,7 @@ index 9103a6f80a..78cd3e301b 100644
  #include <memory>
  #include <optional>
  #include <string>
-@@ -580,6 +583,16 @@ void PasswordsPrivateDelegateImpl::RequestPlaintextPassword(
+@@ -545,6 +548,16 @@ void PasswordsPrivateDelegateImpl::RequestPlaintextPassword(
      int id,
      api::passwords_private::PlaintextReason reason,
      PlaintextPasswordCallback callback) {
@@ -83,7 +83,7 @@ index 9103a6f80a..78cd3e301b 100644
        kPasswordManagerAuthValidity, GetReauthPurpose(reason),
        base::BindOnce(
 diff --git a/chrome/browser/ui/passwords/settings/BUILD.gn b/chrome/browser/ui/passwords/settings/BUILD.gn
-index 444c0a4065..0b11e32554 100644
+index f47389d976..14cdd1d5e4 100644
 --- a/chrome/browser/ui/passwords/settings/BUILD.gn
 +++ b/chrome/browser/ui/passwords/settings/BUILD.gn
 @@ -28,6 +28,7 @@ source_set("impl") {
