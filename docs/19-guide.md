@@ -261,6 +261,20 @@ background service kept up for open profiles. From 0.3.3 Fury quits fully when
 no profile is open; with profiles open, the service stays until the last one
 closes.
 
+**On a Mac, Fury takes gigabytes: each profile has its own 300 MB app.** That
+size is on paper only. Each profile gets its own copy of the browser named after
+it, because the Dock shows the app's name, and without it every profile would say
+"Fury". The copy is an APFS clone: it shares the disk blocks of the installed
+browser and writes nothing. Finder and `du` count every clone at full size, so
+40 profiles show as 13 GB while the free space on the disk barely moves.
+Measured: five clones of the 326 MB core took 0 MB of free space, one ordinary
+copy took 325 MB. The clones live in
+`~/Library/Application Support/Fury/dock.noindex` and are made again on each
+launch, so with all profiles closed the folder is safe to delete. One real cost:
+after an update, a profile not opened since still holds the old browser version,
+one copy per old version, not per profile; opening those profiles releases it.
+What really takes space is the `profiles` folder: cookies, cache, history.
+
 **Forgot the team account password.** It cannot be recovered. The owner or an
 admin removes the account and invites it again.
 

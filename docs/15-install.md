@@ -213,6 +213,8 @@ each one operation:
   profiles/        each profile's browser data — cookies, tabs, bookmarks
   core.bundle/     the installed browser (a package, so search
                    shows one Fury rather than two)
+  dock.noindex/    macOS: one clone of the browser per profile, named
+                   after it for the Dock; APFS clones, so no real space
 ```
 
 On Windows the same directory is `%APPDATA%\Fury` — Roaming rather than
