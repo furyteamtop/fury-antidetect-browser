@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
-import { IconButton } from "./Icon";
+import { Icon, IconButton } from "./Icon";
 import { useCallback, useEffect, useState } from "react";
 import { api, type LocalProxy, type Profile } from "../api";
 import { useI18n } from "../i18n";
@@ -105,8 +105,8 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
         )}
         <div className="spacer" />
         {rows.length > 0 && (
-          <button className="ghost" onClick={() => setShopping((v) => !v)}>
-            {t("partner.buy")}
+          <button className="partnerBuy" aria-expanded={shopping} onClick={() => setShopping((v) => !v)}>
+            <Icon name="tag" size={14} /> {t("partner.buy")} <span className="partnerPill">{t("partner.upTo")}</span>
           </button>
         )}
         <IconButton icon="refresh" label={t("bar.refresh")} onClick={() => void load()} />

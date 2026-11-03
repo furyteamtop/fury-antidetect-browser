@@ -11,7 +11,7 @@ import { DEFAULT_SERVER } from "../defaults";
 import { Icon, type IconName } from "./Icon";
 import { PartnerCard } from "./Partner";
 
-const TABS = ["general", "team", "data", "about", "products"] as const;
+const TABS = ["general", "team", "data", "about", "products", "partners"] as const;
 type Tab = (typeof TABS)[number];
 
 /** Everything that is a preference rather than a property of a profile.
@@ -285,6 +285,13 @@ export function Settings({
 
           {tab === "about" && <About shell={shell} />}
           {tab === "products" && <Products />}
+          {tab === "partners" && (
+            <div className="settingsGroup">
+              <h2>{t("set.tab.partners")}</h2>
+              <p>{t("partner.intro")}</p>
+              <PartnerCard />
+            </div>
+          )}
         </div>
 
         <div className="modalFoot">
@@ -963,10 +970,6 @@ function Products() {
             </div>
           ))}
         </div>
-      </div>
-      <div className="settingsGroup">
-        <h2>{t("partner.heading")}</h2>
-        <PartnerCard />
       </div>
     </>
   );
