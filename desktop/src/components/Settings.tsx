@@ -9,6 +9,7 @@ import { type Theme, themes, useTheme } from "../theme";
 import { Select } from "./Select";
 import { DEFAULT_SERVER } from "../defaults";
 import { Icon, type IconName } from "./Icon";
+import { PartnerCard } from "./Partner";
 
 const TABS = ["general", "team", "data", "about", "products"] as const;
 type Tab = (typeof TABS)[number];
@@ -962,6 +963,10 @@ function Products() {
             </div>
           ))}
         </div>
+      </div>
+      <div className="settingsGroup">
+        <h2>{t("partner.heading")}</h2>
+        <PartnerCard />
       </div>
     </>
   );

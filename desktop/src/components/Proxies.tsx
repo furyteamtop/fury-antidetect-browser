@@ -8,6 +8,7 @@ import { useI18n } from "../i18n";
 import { useAsk } from "./Ask";
 import { ProxyForm, addedByMe, proxyLock } from "./ProxyForm";
 import { ProxyPaste } from "./ProxyPaste";
+import { PartnerCard } from "./Partner";
 import { proxyUrl } from "../proxyUrl";
 
 /** The proxies this machine knows about.
@@ -23,6 +24,7 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
   const [rows, setRows] = useState<LocalProxy[]>([]);
   const [editing, setEditing] = useState<LocalProxy | null | undefined>(undefined);
   const [pasting, setPasting] = useState(false);
+  const [shopping, setShopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Checking every proxy at once (5.7): per-row outcome, and how far along.
   const [checks, setChecks] = useState<Map<string, { ok: boolean; ms?: number; error?: string }>>(new Map());
@@ -102,6 +104,11 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
           </span>
         )}
         <div className="spacer" />
+        {rows.length > 0 && (
+          <button className="ghost" onClick={() => setShopping((v) => !v)}>
+            {t("partner.buy")}
+          </button>
+        )}
         <IconButton icon="refresh" label={t("bar.refresh")} onClick={() => void load()} />
       </div>
 
@@ -123,9 +130,14 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
         </div>
       )}
 
+      {shopping && rows.length > 0 && <PartnerCard onHide={() => setShopping(false)} />}
+
       <div className="tableWrap">
         {rows.length === 0 ? (
-          <p className="empty pad">{t("px.none")}</p>
+          <div className="pad">
+            <p className="empty">{t("px.none")}</p>
+            <PartnerCard />
+          </div>
         ) : (
           <table className="grid">
             <thead>

@@ -2133,3 +2133,35 @@ button.dateDay.chosen:hover {
   align-items: center;
   gap: 5px;
 }
+
+/* ---- partner: the proxy shop on the proxies page and in Products -------- */
+
+.partnerCard {
+  max-width: 620px;
+  margin: var(--s-3) 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+
+.partnerCard .productRow + .productRow {
+  border-top: 1px solid var(--line);
+}
+
+.partnerCard .productRow > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.partnerCode code {
+  flex: none;
+  min-width: 64px;
+  font-weight: 600;
+  user-select: all;
+}
+
+.partnerNote {
+  margin: 0;
+  padding: var(--s-2) var(--s-3);
+  border-top: 1px solid var(--line);
+}
