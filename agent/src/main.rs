@@ -400,6 +400,9 @@ async fn cmd_launch(args: &[String]) -> anyhow::Result<()> {
         // Opt-in: CDP is full cookie access, so it is never on by default even
         // for a local launch.
         debug_port: opt("--debug-port").and_then(|p| p.parse().ok()),
+        // MCP's background start, by hand: for checking patch 0305 on a
+        // desktop without going through a stored profile.
+        background: args.iter().any(|a| a == "--background"),
     };
 
     let mut child = launcher::spawn(&spec)?;

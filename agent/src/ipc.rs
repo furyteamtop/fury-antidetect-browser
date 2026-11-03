@@ -208,6 +208,9 @@ struct Running {
     /// starting a second one on the same directory — two Chromiums on one
     /// user-data-dir is how a cookie jar gets corrupted.
     ws_endpoint: Option<String>,
+    /// Started in the background (MCP's `background: true`). The page tools
+    /// then tell the page it has focus while they act on it; see browse.rs.
+    background: bool,
     /// Must be aborted explicitly when the profile closes.
     ///
     /// Dropping a JoinHandle does not stop the task — tokio detaches it — so
@@ -437,7 +440,7 @@ impl Agent {
 
     /// Open a local profile with its debugging port and warm it.
     async fn farm_local(&self, s: &crate::farm::Start) -> anyhow::Result<()> {
-        self.launch(&s.profile_id, None, None, None, None, true).await?;
+        self.launch(&s.profile_id, None, None, None, None, true, false).await?;
         let ws = self
             .running
             .lock()
@@ -1848,7 +1851,7 @@ impl Agent {
                     }
                     let is_running = self.running.lock().await.contains_key(&id);
                     if !is_running {
-                        if let Err(e) = self.launch(&id, None, None, None, None, true).await {
+                        if let Err(e) = self.launch(&id, None, None, None, None, true, false).await {
                             refused.push(refusal(&id, &e));
                             continue;
                         }
@@ -1894,7 +1897,7 @@ impl Agent {
                     }
                     let is_running = self.running.lock().await.contains_key(&id);
                     if !is_running {
-                        if let Err(e) = self.launch(&id, None, None, None, None, true).await {
+                        if let Err(e) = self.launch(&id, None, None, None, None, true, false).await {
                             refused.push(refusal(&id, &e));
                             continue;
                         }
@@ -2338,7 +2341,7 @@ impl Agent {
                                  CDP enabled"
                             );
                         }
-                        let out = self.launch(&id, None, None, None, None, true).await?;
+                        let out = self.launch(&id, None, None, None, None, true, false).await?;
                         let ws = out
                             .get("ws_endpoint")
                             .and_then(|v| v.as_str())
@@ -2548,6 +2551,7 @@ impl Agent {
                 // Off unless asked for. A debugging port nobody requested is a
                 // way into the browser nobody is watching.
                 let cdp = params.get("cdp").and_then(|v| v.as_bool()).unwrap_or(false);
+                let background = params.get("background").and_then(|v| v.as_bool()).unwrap_or(false);
                 self.launch(
                     &str_param(&params, "id")?,
                     server,
@@ -2555,6 +2559,7 @@ impl Agent {
                     inline,
                     team,
                     cdp,
+                    background,
                 )
                 .await
             }
@@ -2581,9 +2586,10 @@ impl Agent {
                             }
                             .into())
                         }
-                        Some(r) => r.ws_endpoint.clone(),
+                        Some(r) => (r.ws_endpoint.clone(), r.background),
                     }
                 };
+                let (ws, background) = ws;
                 let Some(ws) = ws else {
                     return Err(Coded {
                         code: "err.pageNoCdp",
@@ -2594,7 +2600,7 @@ impl Agent {
                     }
                     .into());
                 };
-                crate::browse::dispatch(method, &ws, &params).await
+                crate::browse::dispatch(method, &ws, &params, background).await
             }
 
             "credentials.list" => {
@@ -2740,6 +2746,7 @@ impl Agent {
         inline: Option<Profile>,
         team: Option<TeamKeys>,
         cdp: bool,
+        background: bool,
     ) -> anyhow::Result<serde_json::Value> {
         let profile_key = team.as_ref().map(|t| t.profile_key);
         let key_generation = team.as_ref().and_then(|t| t.key_generation);
@@ -3261,6 +3268,7 @@ impl Agent {
             // check and the exec, and the failure lands as a browser that
             // started without CDP for no visible reason.
             debug_port: wants_cdp.then_some(0),
+            background,
         })?;
 
         let pid = child.id();
@@ -3293,6 +3301,7 @@ impl Agent {
                 child,
                 relay_port,
                 ws_endpoint: cdp_endpoint.as_ref().map(|(_, ws)| ws.clone()),
+                background,
                 relay: relay_task,
                 server: server.map(|s| (s, pulled_version)),
                 profile_key,
@@ -3777,6 +3786,7 @@ mod exit_check_tests {
                 heartbeat: None,
                 relay_port: 0,
                 ws_endpoint: None,
+                background: false,
                 relay: tokio::spawn(async {}),
             },
         );

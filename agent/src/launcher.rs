@@ -55,6 +55,11 @@ pub struct LaunchSpec<'a> {
     /// Only set when the caller is allowed CDP at all; see `LaunchRestrictions`.
     pub debug_port: Option<u16>,
 
+    /// Open behind the person's work instead of on top of it: MCP's background
+    /// start, for a profile a script drives while somebody uses the machine.
+    /// See the switches in `build_args` and patch 0305.
+    pub background: bool,
+
     /// The key the core encrypts this profile's cookies with, or `None` to
     /// leave that to the machine's own keychain.
     ///
@@ -243,6 +248,29 @@ pub fn build_args(spec: &LaunchSpec) -> Vec<String> {
         args.push("--fury-lock-data-export".to_string());
     }
 
+    // A background start, and both switches are needed.
+    //
+    // The first is ours (patch 0305): every window opens inactive, at the
+    // bottom of the z-order on Windows, and will not raise itself until the
+    // person activates one. Chrome takes its first show state from
+    // STARTUPINFO, which std::process::Command cannot set on stable Rust, so
+    // there is no way to ask for this from out here without the core's help.
+    //
+    // The second is upstream's. A window under other windows is "occluded",
+    // and Chrome marks occluded pages hidden: document.visibilityState turns
+    // "hidden", requestAnimationFrame stops and timers are throttled, so the
+    // page a script is driving would stop behaving like a page on a screen.
+    // With it, an occluded window counts as visible (WebContentsImpl, where it
+    // computes visibility). A minimized one is still hidden: minimizing is the
+    // person's choice, and a page in a minimized window is hidden in real
+    // Chrome too.
+    //
+    // Neither reaches a page. Both are visible in argv, like the lock switches.
+    if spec.background {
+        args.push("--fury-background-window".to_string());
+        args.push("--disable-backgrounding-occluded-windows".to_string());
+    }
+
     // CDP is full cookie access, so it is gated by export_cookies upstream of here.
     match spec.debug_port {
         Some(p) if !spec.restrictions.deny_cdp => {
@@ -386,6 +414,7 @@ mod tests {
             restrictions,
             start_urls: &[],
             debug_port: Some(9222),
+            background: false,
             os_crypt_key: None,
             ui_locale: "de",
         }
@@ -401,6 +430,24 @@ mod tests {
         assert!(!args.iter().any(|a| a.starts_with("--remote-debugging-port")));
         assert!(args.iter().any(|a| a == "--fury-lock-devtools"));
         assert!(args.iter().any(|a| a == "--fury-lock-data-export"));
+    }
+
+    #[test]
+    fn a_background_start_asks_for_both_switches_and_a_plain_one_for_neither() {
+        // Patch 0305 reads the first, and without the second a window under
+        // other windows turns its pages hidden: the start would be quiet and
+        // the page behind it throttled. Spelled here the way the core spells
+        // it in fury_switches.cc; nothing else checks the two match.
+        let cfg = sample_config();
+        let mut spec = spec_for(LaunchRestrictions::for_perms(PermSet::full_profile_work()), &cfg);
+        let plain = build_args(&spec);
+        assert!(!plain.iter().any(|a| a == "--fury-background-window"));
+        assert!(!plain.iter().any(|a| a == "--disable-backgrounding-occluded-windows"));
+
+        spec.background = true;
+        let quiet = build_args(&spec);
+        assert!(quiet.iter().any(|a| a == "--fury-background-window"));
+        assert!(quiet.iter().any(|a| a == "--disable-backgrounding-occluded-windows"));
     }
 
     #[test]

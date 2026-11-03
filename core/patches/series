@@ -728,6 +728,13 @@
 # The file-download whitelist clause in docs/04 is NOT covered here. It is a
 # DownloadPrefs / download-target problem and belongs to its own number.
 0303-data-export-lock.patch
+# Not a fingerprint vector and not a lock: how a launch is presented on the
+# machine. MCP's background start (fury_start_profile with background: true)
+# passes --fury-background-window, and every window of that browser then opens
+# without focus, at the bottom of the z-order on Windows, and refuses to raise
+# itself until the person first activates one. Here because it lives in the
+# same argv channel as 0302/0303 and touches no file a page can read.
+0305-background-window.patch
 
 # --- branding ---------------------------------------------------------------
 # WRITTEN and measured — see the paragraph beginning "WRITTEN." below, which is

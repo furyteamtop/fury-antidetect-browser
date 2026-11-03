@@ -10,7 +10,7 @@ Fury keeps browser profiles. Each profile is a separate browser with its own fin
 ## How to work
 
 1. **Find the profile first.** Call `fury_list_profiles`; filter with `tag`, `project` or `query` when the person names a group ("the warm ones", "the DE profiles"). Refer to profiles by the `name` the person sees; pass the `id` or the exact name to other tools.
-2. **Open it.** `fury_start_profile` opens a real browser window on the person's screen, through the profile's proxy. Only profiles you opened this way can be driven: one opened from the Fury window has no automation port. If a page tool says so, close it with `fury_stop_profile` and start it again.
+2. **Open it.** `fury_start_profile` opens a real browser window on the person's screen, through the profile's proxy. Only profiles you opened this way can be driven: one opened from the Fury window has no automation port. If a page tool says so, close it with `fury_stop_profile` and start it again. Pass `background: true` when the person does not need to watch: the window then opens behind their other windows without taking focus, and the page tools work the same. It is still a real window, not headless, and they can switch to it at any time; if they ask to see it, tell them it is in the taskbar.
 3. **Look before you act.** `fury_read_page` returns the text and a numbered list of links, buttons and fields. Use those numbers with `fury_click` and `fury_type`. After a click or a submit the page changes: read it again before using numbers from the old read. Use `fury_screenshot` when the layout matters or the text is not enough.
 4. **Close what you opened** with `fury_stop_profile` when the task is done, unless the person wants to keep working in it. The profile keeps its cookies.
 

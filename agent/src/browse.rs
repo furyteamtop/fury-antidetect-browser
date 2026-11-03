@@ -42,8 +42,24 @@ const ELEMENTS: &str = r#"(() => {
   });
 })()"#;
 
-pub async fn dispatch(method: &str, ws: &str, params: &Value) -> anyhow::Result<Value> {
+/// `background`: the profile was started with MCP's background start, so its
+/// window is not the active one and the page knows it — document.hasFocus() is
+/// false and focus moved away. Clicks and keystrokes arriving at a page that
+/// has no focus are not something a person can produce, so for as long as this
+/// session is attached Chrome is told to treat the page as focused
+/// (Emulation.setFocusEmulationEnabled, upstream's own answer for driving
+/// windows that are not in front). It ends with the detach below, and the page
+/// sees a focus/blur pair around the action, as it would around somebody
+/// switching to the window, doing one thing and switching back.
+pub async fn dispatch(method: &str, ws: &str, params: &Value, background: bool) -> anyhow::Result<Value> {
     let mut page = Page::attach(ws).await?;
+    if background {
+        // Not fatal: without it the action still happens, only from a page
+        // that thinks it is unfocused.
+        if let Err(e) = page.call("Emulation.setFocusEmulationEnabled", json!({ "enabled": true })).await {
+            tracing::warn!(error = format!("{e:#}"), "could not give the background page focus");
+        }
+    }
     let out = match method {
         "page.navigate" => {
             let url = params.get("url").and_then(Value::as_str).unwrap_or_default();
@@ -330,6 +346,8 @@ impl Page {
 
     async fn screenshot(&mut self) -> anyhow::Result<Value> {
         // Bringing the tab forward first: a background tab paints nothing.
+        // In a background start this switches the tab and nothing more: patch
+        // 0305 keeps the window itself where it is (BrowserView::Activate).
         let _ = timed(&mut self.cdp, None, "Target.activateTarget", json!({ "targetId": self.target })).await;
         let r = self
             .call("Page.captureScreenshot", json!({ "format": "jpeg", "quality": 70 }))

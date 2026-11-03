@@ -1,0 +1,171 @@
+diff --git a/chrome/browser/ui/views/frame/BUILD.gn b/chrome/browser/ui/views/frame/BUILD.gn
+index 92a28dfaae..75e8f8d33b 100644
+--- a/chrome/browser/ui/views/frame/BUILD.gn
++++ b/chrome/browser/ui/views/frame/BUILD.gn
+@@ -949,6 +949,7 @@ source_set("browser_view") {
+     "//components/enterprise/buildflags",
+     "//components/feature_engagement/public",
+     "//components/feature_engagement/public:feature_constants",
++    "//components/fury",
+     "//components/infobars/content",
+     "//components/javascript_dialogs",
+     "//components/performance_manager",
+diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/views/frame/browser_view.cc
+index bb1a8609cb..9a0a62d816 100644
+--- a/chrome/browser/ui/views/frame/browser_view.cc
++++ b/chrome/browser/ui/views/frame/browser_view.cc
+@@ -18,6 +18,7 @@
+ #include "base/check_deref.h"
+ #include "base/check_op.h"
+ #include "base/command_line.h"
++#include "components/fury/fury_switches.h"
+ #include "base/containers/flat_set.h"
+ #include "base/feature_list.h"
+ #include "base/functional/bind.h"
+@@ -407,12 +408,15 @@
+ #endif
+ 
+ #if BUILDFLAG(IS_WIN)
++#include <windows.h>
++
+ #include "chrome/browser/taskbar/taskbar_decorator_win.h"
+ #include "chrome/browser/win/jumplist.h"
+ #include "chrome/browser/win/jumplist_factory.h"
+ #include "ui/gfx/color_palette.h"
+ #include "ui/gfx/win/hwnd_util.h"
+ #include "ui/native_theme/native_theme_win.h"
++#include "ui/views/win/hwnd_util.h"
+ #include "ui/views/win/scoped_fullscreen_visibility.h"
+ 
+ // To avoid conflicts with the macro from the Windows SDK...
+@@ -426,6 +430,48 @@ using web_modal::WebContentsModalDialogHost;
+ 
+ namespace {
+ 
++// Patch 0305: a profile started in the background stays there until a person
++// takes it.
++//
++// Chrome opens its first window with SW_SHOWNORMAL on Windows and then calls
++// Activate() on it (HWNDMessageHandler::Show), so a profile an MCP client
++// starts for a script lands on top of whatever the person was doing and takes
++// the keyboard. The show state cannot be handed in from outside: Chrome reads
++// it from STARTUPINFO, and the stable Rust standard library the agent spawns
++// with has no way to set wShowWindow.
++//
++// With --fury-background-window every browser window of this process is shown
++// inactive, sent to the bottom of the z-order on Windows, and refuses to
++// activate itself, which covers a page's window.focus(), a new tab opening in
++// an existing window and CDP's Target.activateTarget. Tab switches still
++// happen: BrowserWebContentsDelegate::ActivateContents activates the tab
++// first and only then asks the window, so a script can still bring a tab
++// forward inside the window. The first time the person activates any of the
++// windows themselves (taskbar, click, Alt+Tab) the switch stops mattering for
++// the rest of the process's life.
++//
++// Being covered by other windows would normally mark the pages hidden and stop
++// them painting; the agent passes --disable-backgrounding-occluded-windows with
++// this switch so they keep rendering as a window on the screen does.
++bool g_fury_window_was_active = false;
++
++bool FuryKeepInBackground() {
++  return !g_fury_window_was_active &&
++         base::CommandLine::ForCurrentProcess()->HasSwitch(
++             fury::switches::kBackgroundWindow);
++}
++
++void FurySendToBack(views::Widget* widget) {
++#if BUILDFLAG(IS_WIN)
++  ::SetWindowPos(views::HWNDForWidget(widget), HWND_BOTTOM, 0, 0, 0, 0,
++                 SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
++#endif
++}
++
++}  // namespace
++
++namespace {
++
+ // The visible height of the shadow above the tabs. Clicks in this area are
+ // treated as clicks to the frame, rather than clicks to the tab.
+ const int kTabShadowSize = 2;
+@@ -1642,7 +1688,9 @@ void BrowserView::Show() {
+ 
+   // If the window is already visible, just activate it.
+   if (browser_widget_->IsVisible()) {
+-    browser_widget_->Activate();
++    if (!FuryKeepInBackground()) {
++      browser_widget_->Activate();
++    }
+     return;
+   }
+ 
+@@ -1658,7 +1706,14 @@ void BrowserView::Show() {
+ 
+   // Guard against destruction by platform event handlers called during Show().
+   auto weak_ptr = weak_ptr_factory_.GetWeakPtr();
+-  browser_widget_->Show();
++  if (FuryKeepInBackground()) {
++    browser_widget_->ShowInactive();
++    if (weak_ptr) {
++      FurySendToBack(browser_widget_.get());
++    }
++  } else {
++    browser_widget_->Show();
++  }
+   if (!weak_ptr) {
+     return;
+   }
+@@ -1742,6 +1797,10 @@ void BrowserView::Activate() {
+     return;
+   }
+ 
++  if (FuryKeepInBackground()) {
++    return;
++  }
++
+   if (auto* manager = InitialWebUIManager::From(browser())) {
+     if (manager->RequestDeferShow(base::BindOnce(
+             &BrowserView::Activate, weak_ptr_factory_.GetWeakPtr()))) {
+@@ -4192,6 +4251,9 @@ void BrowserView::OnWidgetDestroying(views::Widget* widget) {
+ 
+ void BrowserView::OnWidgetActivationChanged(views::Widget* widget,
+                                             bool active) {
++  if (active) {
++    g_fury_window_was_active = true;
++  }
+   if (browser_->GetWindow()) {
+     if (active) {
+       if (restore_focus_on_activation_.has_value() &&
+diff --git a/components/fury/fury_switches.cc b/components/fury/fury_switches.cc
+index 32ac0fc6d0..806ecff308 100644
+--- a/components/fury/fury_switches.cc
++++ b/components/fury/fury_switches.cc
+@@ -16,6 +16,7 @@ const char kFingerprintHandle[] = "fury-fp-handle";
+ // refuses — a drifted name would otherwise fail silently and forever.
+ const char kLockDevTools[] = "fury-lock-devtools";
+ const char kLockDataExport[] = "fury-lock-data-export";
++const char kBackgroundWindow[] = "fury-background-window";
+ 
+ }  // namespace switches
+ }  // namespace fury
+diff --git a/components/fury/fury_switches.h b/components/fury/fury_switches.h
+index 9400652a6a..7cd45de1f0 100644
+--- a/components/fury/fury_switches.h
++++ b/components/fury/fury_switches.h
+@@ -65,6 +65,17 @@ COMPONENT_EXPORT(FURY) extern const char kLockDevTools[];
+ // config that every renderer can see.
+ COMPONENT_EXPORT(FURY) extern const char kLockDataExport[];
+ 
++// Browser process only. Opens the profile's windows without taking focus, and
++// on Windows underneath whatever is in front, until a person first activates
++// one of them; after that the profile behaves like any other. Set by the agent
++// when a profile is started for automation (MCP's background start) so that a
++// script driving it does not pull the window over the person's work.
++//
++// A switch for the same reason as the two above: it is about how this launch
++// is presented on this machine, not about what the profile claims to be, and
++// renderers have no business seeing it.
++COMPONENT_EXPORT(FURY) extern const char kBackgroundWindow[];
++
+ }  // namespace switches
+ }  // namespace fury
+ 

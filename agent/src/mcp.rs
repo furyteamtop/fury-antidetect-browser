@@ -145,8 +145,14 @@ const TOOLS: &[Tool] = &[
     Tool {
         name: "fury_start_profile",
         description: "Open a profile's browser window, through its proxy, ready to be driven with the page tools. \
-                      A visible window opens on the person's screen.",
-        schema: || json!({ "type": "object", "properties": { "profile": profile_arg() }, "required": ["profile"] }),
+                      A visible window opens on the person's screen; with background it opens behind their \
+                      other windows without taking focus, and stays there until they switch to it.",
+        schema: || json!({ "type": "object", "properties": {
+            "profile": profile_arg(),
+            "background": { "type": "boolean", "description": "open the window behind the person's other \
+                windows without taking focus, for work they do not need to watch. Not headless: it is an \
+                ordinary window, and they can switch to it at any time" },
+        }, "required": ["profile"] }),
     },
     Tool {
         name: "fury_stop_profile",
@@ -441,14 +447,15 @@ async fn call_tool(backend: &Backend, name: &str, args: &Value) -> anyhow::Resul
         }
         "fury_start_profile" => {
             let (id, name) = resolve(backend, args).await?;
-            let r = backend("profile.launch", json!({ "id": id, "cdp": true })).await?;
+            let background = args.get("background").and_then(Value::as_bool).unwrap_or(false);
+            let r = backend("profile.launch", json!({ "id": id, "cdp": true, "background": background })).await?;
             if r.get("ws_endpoint").is_none() {
                 // The launch worked but the core refused the debugging port: a
                 // restriction on this profile, and the page tools will say so.
                 return Ok(text(&json!({ "opened": name, "id": id, "page_tools": false,
                     "note": "the window is open, but this profile does not allow automation" })));
             }
-            Ok(text(&json!({ "opened": name, "id": id, "page_tools": true })))
+            Ok(text(&json!({ "opened": name, "id": id, "page_tools": true, "background": background })))
         }
         "fury_stop_profile" => {
             let (id, name) = resolve(backend, args).await?;
@@ -886,6 +893,32 @@ mod tests {
         assert!(r.to_string().contains("p1"));
         let r = call(&*b, "fury_start_profile", json!({ "profile": "nobody" })).await;
         assert_eq!(r["isError"], true);
+    }
+
+    #[tokio::test]
+    async fn a_background_start_reaches_the_launch_and_is_off_by_default() {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let log = seen.clone();
+        let b: Box<Backend> = Box::new(move |method, params| {
+            let log = log.clone();
+            Box::pin(async move {
+                Ok(match method {
+                    "profiles.list" => json!([{ "id": "p1", "name": "Shop DE", "tags": [], "running": false }]),
+                    "profile.launch" => {
+                        log.lock().unwrap().push(params);
+                        json!({ "pid": 1, "ws_endpoint": "ws://127.0.0.1:1/x" })
+                    }
+                    _ => json!({}),
+                })
+            })
+        });
+        let r = call(&*b, "fury_start_profile", json!({ "profile": "p1", "background": true })).await;
+        assert_eq!(r["isError"], false, "{r}");
+        call(&*b, "fury_start_profile", json!({ "profile": "p1" })).await;
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen[0]["background"], true, "{seen:?}");
+        assert_eq!(seen[1]["background"], false, "a plain start must stay in front: {seen:?}");
+        assert!(seen.iter().all(|p| p["cdp"] == true));
     }
 
     #[tokio::test]
