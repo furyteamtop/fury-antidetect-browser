@@ -271,6 +271,30 @@ pub fn build_args(spec: &LaunchSpec) -> Vec<String> {
         args.push("--disable-backgrounding-occluded-windows".to_string());
     }
 
+    // A profile moves between machines, and a session bound to one cannot.
+    //
+    // On Windows with a TPM, Chrome ties a Google login to a key that never
+    // leaves the chip: the __Secure-*PSIDTS cookies have to be renewed by signing
+    // with it. A bundle carries the cookies and the wrapped key, the chip stays
+    // behind, and the next machine has nothing to sign with. Reported 04.11.2026
+    // on a team handing profiles from Windows to a MacBook: logged out of Google
+    // and of nothing else, on and off, with a TPM ready and
+    // bound_session_credentials_bound_session_params in five profiles'
+    // Preferences. With the kill switch the service is never created
+    // (BoundSessionCookieRefreshServiceFactory), so a new login stays portable. A
+    // session already bound still has to log in once more.
+    //
+    // DeviceBoundSessions is the same idea as a web standard for any site, on by
+    // default on Windows and macOS: a session whose key will not unwrap on the
+    // next machine is deleted (DeletionReason::kFailedToUnwrapKey).
+    //
+    // Neither reaches a page. To the site this is what a machine with no TPM
+    // already looks like, and it applies to every profile: a profile that lives
+    // on one machine today can be shared or restored tomorrow, and by then its
+    // sessions would already be bound.
+    args.push("--enable-features=BoundSessionCredentialsKillSwitch".to_string());
+    args.push("--disable-features=DeviceBoundSessions".to_string());
+
     // CDP is full cookie access, so it is gated by export_cookies upstream of here.
     match spec.debug_port {
         Some(p) if !spec.restrictions.deny_cdp => {
@@ -430,6 +454,20 @@ mod tests {
         assert!(!args.iter().any(|a| a.starts_with("--remote-debugging-port")));
         assert!(args.iter().any(|a| a == "--fury-lock-devtools"));
         assert!(args.iter().any(|a| a == "--fury-lock-data-export"));
+    }
+
+    #[test]
+    fn no_session_gets_bound_to_the_machine_it_was_opened_on() {
+        // A profile travels and a TPM does not. Chromium keeps only the last
+        // --enable-features and --disable-features it is given, so a second one
+        // added anywhere would silently undo these: each appears exactly once.
+        let cfg = sample_config();
+        let spec = spec_for(LaunchRestrictions::for_perms(PermSet::full_profile_work()), &cfg);
+        let args = build_args(&spec);
+        let enable: Vec<_> = args.iter().filter(|a| a.starts_with("--enable-features=")).collect();
+        let disable: Vec<_> = args.iter().filter(|a| a.starts_with("--disable-features=")).collect();
+        assert_eq!(enable, ["--enable-features=BoundSessionCredentialsKillSwitch"]);
+        assert_eq!(disable, ["--disable-features=DeviceBoundSessions"]);
     }
 
     #[test]
