@@ -506,10 +506,15 @@ pub fn core_outdated(exe: &std::path::Path) -> Option<String> {
 /// 0.4.12 rebuilt both: what demo.fingerprint.com named tampering -- client
 /// rects off the layout grid (0033), WebGL extensions out of Chrome's order
 /// (0031) -- and Chrome's own Google voices (0042).
+///
+/// 0.5.0 moves both to Chrome 157.0.8103.39, with navigator.connection from the
+/// profile (0122), hidden fonts refused before the platform cache (0051) and a
+/// phone's orientation events at a phone's rate (0135). CHROME_MAJOR already
+/// sends every older core to the download, so this only keeps the number honest.
 #[cfg(windows)]
-pub const CORE_BUILD: &str = "0.4.14";
+pub const CORE_BUILD: &str = "0.5.0";
 #[cfg(not(windows))]
-pub const CORE_BUILD: &str = "0.4.14";
+pub const CORE_BUILD: &str = "0.5.0";
 
 /// `0.2.10` as (0, 2, 10); None for anything else.
 pub fn parse_release(s: &str) -> Option<(u32, u32, u32)> {
@@ -566,12 +571,12 @@ pub fn core_stale(exe: &std::path::Path) -> Option<Option<String>> {
 #[cfg(target_os = "macos")]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = Some((
     "../Frameworks/Fury Framework.framework/Versions/Current/Fury Framework",
-    "15bd18f402f0c2aad176670a58841d1d9cbdcac63abce1ddfd354cf6714a21fd",
+    "1fba01ebe646fe09dce5a9c4ab52dc268829c2667738ef02fd078d4c3a547804",
 ));
 #[cfg(windows)]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = Some((
     "chrome.dll",
-    "82c85a925edd140cb87ba98cb7f67ab7f7b0f312cbc62674911d41c63bfe1f50",
+    "06977faf8fd6c6b733abb282c66d89bd42622b83bac533a1227ed8d381efc150",
 ));
 #[cfg(not(any(target_os = "macos", windows)))]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = None;
@@ -816,8 +821,8 @@ fn core_leaves() -> &'static [&'static str] {
 
 /// The core this agent expects to drive. Read from core/CHROMIUM_VERSION at
 /// build time would be better; hard-coded until the two are built together.
-pub const CHROME_MAJOR: u32 = 155;
-pub const CHROME_FULL_VERSION: &str = "155.0.8059.39";
+pub const CHROME_MAJOR: u32 = 157;
+pub const CHROME_FULL_VERSION: &str = "157.0.8103.39";
 
 fn cmd_check_fingerprint(args: &[String]) -> anyhow::Result<()> {
     let path = args
