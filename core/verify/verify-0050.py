@@ -33,7 +33,8 @@ Four claims:
     that compares two of them and finds them equal has found a machine that
     does not exist.
 
-Usage: core/verify/verify-0050.py <core binary>
+Usage: core/verify/verify-0050.py <core binary> [allowed family] [hidden family]
+On Windows, for example: <core binary> Georgia Arial.
 """
 
 import json
@@ -47,11 +48,12 @@ CORE = sys.argv[1]
 
 # Present on every macOS since forever. The list allows the first and omits the
 # second, so the second is the one that proves the filter runs.
-ALLOWED = "Georgia"
-WITHHELD = "Papyrus"
+ALLOWED = sys.argv[2] if len(sys.argv) > 2 else "Georgia"
+WITHHELD = sys.argv[3] if len(sys.argv) > 3 else "Papyrus"
 NOWHERE = "Fury Nonexistent Family 9182"
 
-FONTS = ["Georgia", "Arial", "Times New Roman", "Courier New", "Verdana"]
+FONTS = [f for f in [ALLOWED, "Georgia", "Arial", "Times New Roman", "Courier New", "Verdana"]
+         if f.lower() != WITHHELD.lower()]
 
 # The width comparison every library uses.
 PROBE = """
@@ -62,7 +64,7 @@ PROBE = """
     s.style.fontFamily = family;
     s.textContent = 'mmmmmmmmmmlli WWWWWW';
     document.body.appendChild(s);
-    const w = s.getBoundingClientRect().width;
+    const w = s.offsetWidth;
     s.remove();
     return w;
   };
@@ -77,6 +79,16 @@ PROBE = """
       base,
       resolved: measure('"' + f + '", monospace') !== base,
     };
+    out[f].fallbacks = {};
+    out[f].canvas = {};
+    const canvas = document.createElement('canvas').getContext('2d');
+    for (const fallback of ['monospace', 'sans-serif', 'serif']) {
+      out[f].fallbacks[fallback] = measure('"' + f + '", ' + fallback) !== measure(fallback);
+      canvas.font = '72px ' + fallback;
+      const canvasBase = canvas.measureText('mmmmmmmmmmlllliWWW0123.').width;
+      canvas.font = '72px "' + f + '", ' + fallback;
+      out[f].canvas[fallback] = canvas.measureText('mmmmmmmmmmlllliWWW0123.').width !== canvasBase;
+    }
   }
   out['#generic'] = {
     serif: measure('serif'),
@@ -88,6 +100,11 @@ PROBE = """
 })()
 """ % {"families": json.dumps([ALLOWED, WITHHELD, NOWHERE])}
 
+LOCAL = """(async () => {
+  const face = new FontFace('FuryLocalAlias', 'local(' + %(family)s + ')');
+  try { await face.load(); return true; } catch (_) { return false; }
+})()""" % {"family": json.dumps(json.dumps(WITHHELD))}
+
 
 def main():
     claims = Claims("0050 — font fallback filter", CORE)
@@ -96,6 +113,7 @@ def main():
     # would pass on a Mac that simply lacks Papyrus.
     with launch(CORE, None) as s:
         bare = json.loads(s.js(PROBE))
+        bare_local = s.js(LOCAL)
         print(f"  unconfigured: {ALLOWED}={bare[ALLOWED]['resolved']} "
               f"{WITHHELD}={bare[WITHHELD]['resolved']} "
               f"{NOWHERE}={bare[NOWHERE]['resolved']}")
@@ -146,6 +164,27 @@ def main():
         claims.check(g == bg,
                      f"in fact they measure exactly what they do unfiltered, "
                      f"because a generic is not a family the page named")
+
+    # The profile uses fontsHidden, not the legacy allowlist above. Hiding an
+    # installed family must work even when it is also in fonts, and local()
+    # must not make it available again under an alias.
+    with launch(CORE, {"fonts": [ALLOWED, WITHHELD],
+                       "fontsHidden": [WITHHELD.swapcase()]}) as s:
+        got = json.loads(s.js(PROBE))
+        claims.check(not any(got[WITHHELD]["fallbacks"].values()),
+                     "fontsHidden makes offsetWidth match all three generic fallbacks")
+        claims.check(not any(got[WITHHELD]["canvas"].values()),
+                     "fontsHidden also blocks canvas width detection")
+        claims.check(got[ALLOWED] == bare[ALLOWED], "an unblocked family keeps its widths")
+        claims.check(got["#generic"] == bare["#generic"], "blocklist preserves generic rendering")
+        if bare_local:
+            claims.check(s.js(LOCAL) is False, "local() cannot alias the hidden installed family")
+        else:
+            print("  local() control unavailable for this family; choose a full face name to exercise it")
+
+    with launch(CORE, {"fonts": [ALLOWED], "fontsHidden": []}) as s:
+        claims.check(json.loads(s.js(PROBE)) == bare,
+                     "an empty blocklist wins over fonts and leaves installed families visible")
 
     return claims.done()
 

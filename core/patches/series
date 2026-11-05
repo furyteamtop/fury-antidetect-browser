@@ -205,6 +205,7 @@
 # made pixelscan say "Masking detected" and iphey "roadmap". shared-rs
 # fonts.rs builds the list.
 0050-font-fallback-filter.patch
+0051-font-platform-filter.patch
 
 # --- devices ----------------------------------------------------------------
 # Narrows the device list to the persona's counts. Narrowing only, like WebGPU
@@ -488,6 +489,7 @@
 # browser kills a renderer that asks for an unbound one. Nor the device scale
 # factor, the window, or mouse-to-touch input, which are docs/18 steps 3 and 4.
 0130-mobile-mode.patch
+0122-network-information.patch
 
 # MOBILE SCREEN (docs/18, step 3). A Chrome window on macOS is never narrower
 # than 500, so a 384-wide phone persona's page saw a 500-wide viewport on a
