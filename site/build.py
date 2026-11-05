@@ -42,6 +42,8 @@ ROOT = HERE.parent
 DIST = HERE / "dist"
 
 REPO = "furyteamtop/fury-antidetect-browser"
+# The partner link the application itself opens (desktop/src/components/Partner.tsx).
+PROXY_URL = "https://proxys.io/?refid=278406"
 
 
 def chromium_version() -> str:
@@ -124,11 +126,18 @@ def table_rows(rows, ours_major, lang):
     # Ours comes from core/CHROMIUM_VERSION, never from the file a person
     # edits: the 22.09 page said 153 for a week after the core moved to 155.
     rows = [dict(r, chrome=ours_major) if r.get("self") else r for r in rows]
-    lo = min(r["chrome"] for r in rows)
-    hi = max(r["chrome"] + 1 for r in rows)
+    # The scale is Chromium's. Firefox has its own numbers: Camoufox on 158 would
+    # stretch the scale and draw Firefox ahead of a Chrome it cannot be compared
+    # with, so a row with another engine prints its version and no bar.
+    chromium = [r for r in rows if not r.get("engine")]
+    lo = min(r["chrome"] for r in chromium)
+    hi = max(r["chrome"] + 1 for r in chromium)
     out = []
     for r in rows:
-        width = round(100 * (r["chrome"] - lo + 1) / (hi - lo), 1)
+        bar = ""
+        if not r.get("engine"):
+            width = round(100 * (r["chrome"] - lo + 1) / (hi - lo), 1)
+            bar = f'<span class="barv" style="width:{width}%"></span>'
         name = r["name"]
         if r.get("engine"):
             name += f' <span class="dim">({r["engine"]})</span>'
@@ -137,7 +146,7 @@ def table_rows(rows, ours_major, lang):
         cls = " class=\"ours\"" if r.get("self") else ""
         out.append(
             f'<tr{cls}><th scope="row">{name}</th>'
-            f'<td class="ver"><span class="bar" style="width:{width}%"></span>'
+            f'<td class="ver">{bar}'
             f'<span class="num">{r["chrome"]}</span></td>'
             f'<td>{words[r["teams"]]}</td>'
             f'<td>{words[r["open"]]}</td>'
@@ -162,15 +171,48 @@ def main() -> int:
         "PERSONAS": str(persona_count()),
         "GATE": str(gate_checks()),
         "REPO": REPO,
-        "MEASURED_RU": f"{d}.{m}.{y}",
-        "MEASURED_EN": datetime.date.fromisoformat(measured).strftime("%d %B %Y"),
-        "ROWS_RU": table_rows(rows, int(major), "ru"),
-        "ROWS_EN": table_rows(rows, int(major), "en"),
+        "PROXY_URL": PROXY_URL,
         "COMMIT": commit(),
         "BUILT": datetime.date.today().isoformat(),
     }
+    per_language = {
+        "ru": {"MEASURED": f"{d}.{m}.{y}", "ROWS": table_rows(rows, int(major), "ru")},
+        "en": {"MEASURED": datetime.date.fromisoformat(measured).strftime("%d %B %Y"),
+               "ROWS": table_rows(rows, int(major), "en")},
+    }
+    copy = json.loads((HERE / "copy.json").read_text())
+    if copy.keys() != per_language.keys():
+        raise SystemExit(f"copy.json has {sorted(copy)}, the build knows {sorted(per_language)}")
+    if copy["en"].keys() != copy["ru"].keys():
+        raise SystemExit(f"copy.json keys differ: {sorted(copy['en'].keys() ^ copy['ru'].keys())}")
 
+    # One piece of markup, once per language: a key missing from copy.json is a
+    # refused build rather than a double bracket in front of a reader.
     page = (HERE / "index.html").read_text()
+    m_body = re.search(r"<!-- BODY -->\n(.*?)<!-- /BODY -->\n", page, re.S)
+    if not m_body:
+        raise SystemExit("index.html has no BODY markers")
+    body = m_body.group(1)
+    blocks = []
+    # English first and visible: the first paint and the no-script page.
+    for lang in ("en", "ru"):
+        words = copy[lang]
+        def word(found, words=words):
+            if found.group(1) not in words:
+                raise SystemExit(f"index.html asks for [[{found.group(1)}]], copy.json has none")
+            return words[found.group(1)]
+        text = re.sub(r"\[\[([\w.]+)\]\]", word, body)
+        text = text.replace("{{LANG}}", lang)
+        for k, v in per_language[lang].items():
+            text = text.replace("{{" + k + "}}", v)
+        hidden = "" if lang == "en" else " hidden"
+        blocks.append(
+            f'<div class="langblock" data-block="{lang}"'
+            f' data-own-canvas="{words["bench.ownCanvas"]}" data-no-value="{words["bench.none"]}"{hidden}>\n'
+            f'{text}</div>\n')
+    page = page[:m_body.start()] + "".join(blocks) + page[m_body.end():]
+    # Every number and link, now that the words are in. Twice over nothing: copy.json
+    # uses the same placeholders, and they are all in the page by this point.
     missing = {m for m in re.findall(r"\{\{(\w+)\}\}", page)} - values.keys()
     if missing:
         raise SystemExit(f"the template asks for values nothing provides: {sorted(missing)}")
@@ -196,7 +238,7 @@ def main() -> int:
             print(f"!! read nothing for: {', '.join(bad)} — a source file moved "
                   f"or a regex in this script stopped matching", file=sys.stderr)
             return 1
-        if not values["ROWS_RU"].strip() or not values["ROWS_EN"].strip():
+        if not all(v["ROWS"].strip() for v in per_language.values()):
             print("!! the comparison table came out empty", file=sys.stderr)
             return 1
         print(f"the page builds: Chromium {values['CHROMIUM']}, "

@@ -1,453 +1,476 @@
 <!doctype html>
 <!--
-  The landing page. Built by site/build.py — every number in it is read from
-  the file that owns it, so editing this template by hand to bump a version is
-  always the wrong move. Double-brace placeholders are filled at build time.
+  The landing page. Built by site/build.py: every number in it is read from the
+  file that owns it, so editing this template by hand to bump a version is always
+  the wrong move.
+
+  One piece of markup, once per language. The words live in site/copy.json and
+  are written in as double-bracket keys; double-brace placeholders are the numbers
+  the build reads from the repository. Adding a language means adding a block to
+  copy.json and nothing here.
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fury — a free anti-detect browser</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fury: a free anti-detect browser</title>
 <meta name="description" content="An anti-detect browser with an open core: its own Chromium {{CHROME_MAJOR}} fork, {{PATCHES}} patches in the repository, teamwork and a server of your own. Free, no per-profile fee and no telemetry.">
 <link rel="icon" href="icon.png">
-<meta property="og:title" content="Fury — a free anti-detect browser">
+<meta property="og:title" content="Fury: a free anti-detect browser">
 <meta property="og:description" content="Its own Chromium {{CHROME_MAJOR}} fork. A team costs nothing. Every spoofing vector measured and published.">
 <meta property="og:image" content="https://furybrowser.dev/logo.png">
 <meta property="og:type" content="website">
 <style>
+  /* Layout concept: a measuring bench. Readouts in monospace against one dark
+     ground, hairlines rather than shadows, and the brand orange only where
+     something is being asked of the reader. The same rules the app itself keeps
+     (desktop/src/styles.css). System faces on purpose: a privacy tool's landing
+     page makes no third-party font request. */
   :root {
     color-scheme: dark;
-    --bg: #0e1013; --surface: #14171c; --raised: #1a1e24; --line: #262b33;
-    --text: #e8eaed; --dim: #9aa3b0; --faint: #6b7480;
-    --accent: #e0552f; --accent-hover: #ef6640; --accent-dim: #3a1d15;
-    --ok: #4caf7d;
+    --bg: #0d0f12; --panel: #13161b; --raised: #1a1e25; --line: #252a33; --line-2: #333a46;
+    --text: #eceef1; --dim: #a0a8b4; --faint: #6f7884;
+    --accent: #e8582f; --accent-hi: #ff6d42; --accent-tint: #2c1710;
+    --ok: #4fb985; --warn: #e3a944;
+    --sans: ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    --display: ui-sans-serif, -apple-system, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-    -webkit-font-smoothing: antialiased;
-  }
-  .wrap { max-width: 880px; margin: 0 auto; padding: 0 20px; }
-  a { color: var(--accent-hover); }
-  h1, h2, h3 { line-height: 1.25; margin: 0; }
-  h1 { font-size: clamp(30px, 6vw, 46px); letter-spacing: -0.02em; }
-  h2 { font-size: clamp(22px, 4vw, 28px); letter-spacing: -0.01em; margin-bottom: 10px; }
-  h3 { font-size: 17px; margin-bottom: 6px; }
-  p { margin: 0 0 14px; }
+  html { scroll-behavior: smooth; scroll-padding-top: 76px; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 var(--sans);
+         -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  a { color: var(--accent-hi); text-underline-offset: 3px; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 2px; border-radius: 6px; }
+  code { font-family: var(--mono); font-size: .92em; }
+  h1, h2, h3, p { margin: 0; }
+  h1, h2 { font-family: var(--display); text-wrap: balance; letter-spacing: -.028em; }
+  h1 { font-size: clamp(38px, 6.6vw, 72px); line-height: 1.02; font-weight: 700; }
+  h2 { font-size: clamp(28px, 4.2vw, 44px); line-height: 1.08; font-weight: 680; }
+  h3 { font-size: 17px; line-height: 1.3; font-weight: 620; letter-spacing: -.01em; }
+  .wrap { max-width: 1160px; margin: 0 auto; padding-left: max(20px, env(safe-area-inset-left, 0px));
+          padding-right: max(20px, env(safe-area-inset-right, 0px)); }
+  .langblock[hidden] { display: none; }
   .dim { color: var(--dim); }
   .faint { color: var(--faint); font-size: 14px; }
-  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
-  /* ---- top bar ---- */
-  .top { display: flex; align-items: center; justify-content: space-between;
-         padding: 18px 0; gap: 16px; }
-  .top img { height: 40px; width: auto; display: block; }
-  .lang { display: flex; gap: 2px; background: var(--surface); border: 1px solid var(--line);
-          border-radius: 8px; padding: 2px; }
-  .lang button { background: none; border: 0; color: var(--dim); font: inherit; font-size: 13px;
-                 padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  /* ---- header ---- */
+  body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--bg); }
+  .bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: color-mix(in srgb, var(--bg) 86%, transparent);
+         backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
+  .bar .wrap { display: flex; align-items: center; gap: 22px; height: 60px; }
+  .bar img { height: 30px; width: auto; display: block; }
+  .bar nav { display: flex; gap: 20px; margin-right: auto; }
+  .bar nav a { color: var(--dim); text-decoration: none; font-size: 14px; white-space: nowrap; }
+  .bar nav a:hover { color: var(--text); }
+  .bar .right { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+  .lang { display: flex; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+  .lang button { background: none; border: 0; color: var(--dim); font: inherit; font-size: 12.5px; padding: 3px 9px; border-radius: 6px; cursor: pointer; }
   .lang button[aria-pressed="true"] { background: var(--raised); color: var(--text); }
+  .btn { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; border-radius: 9px; padding: 12px 20px;
+         font-weight: 600; font-size: 15px; line-height: 1.2; border: 1px solid transparent; white-space: nowrap; transition: background .12s, border-color .12s; }
+  .btn.small { padding: 8px 13px; font-size: 13.5px; border-radius: 8px; }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-hi); }
+  .btn.ghost { background: var(--panel); border-color: var(--line-2); color: var(--text); }
+  .btn.ghost:hover { background: var(--raised); }
+  .btn.proxy { background: var(--accent-tint); border-color: #5a2a1a; color: #ffb49c; }
+  .btn.proxy:hover { background: #3a1e14; }
+  @media (max-width: 940px) { .bar nav { display: none; } }
+  @media (max-width: 560px) {
+    .bar .wrap { gap: 8px; }
+    .bar img { height: 22px; }
+    .bar .btn.dl { display: none; }
+    .btn.small { padding: 7px 10px; font-size: 12.5px; }
+    .lang button { padding: 3px 7px; font-size: 12px; }
+  }
 
   /* ---- hero ---- */
-  .hero { padding: 40px 0 8px; }
-  .hero p.lead { font-size: clamp(17px, 2.4vw, 19px); color: var(--dim); max-width: 44ch; margin-top: 16px; }
-  .cta { display: flex; flex-wrap: wrap; gap: 10px; margin: 26px 0 6px; }
-  .btn { display: inline-block; text-decoration: none; border-radius: 9px; padding: 11px 20px;
-         font-weight: 550; font-size: 15px; border: 1px solid transparent; }
-  .btn.primary { background: var(--accent); color: #fff; }
-  .btn.primary:hover { background: var(--accent-hover); }
-  .btn.ghost { background: var(--surface); border-color: var(--line); color: var(--text); }
-  .btn.ghost:hover { background: var(--raised); }
+  .hero { padding: clamp(44px, 7vw, 84px) 0 0; }
+  .eyebrow { font: 500 12.5px/1.4 var(--mono); color: var(--dim); display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 20px; }
+  .eyebrow b { color: var(--accent-hi); font-weight: 500; }
+  .hero .lead { font-size: clamp(17px, 2.1vw, 20px); line-height: 1.5; color: var(--dim); max-width: 58ch; margin-top: 20px; }
+  .cta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+  .hero .note { margin-top: 14px; max-width: 70ch; }
+
+  /* ---- the window in the hero ---- */
+  .window { margin-top: 44px; border: 1px solid var(--line-2); border-bottom: 0; border-radius: 14px 14px 0 0; overflow: hidden; background: var(--panel);
+            box-shadow: 0 -30px 120px -50px color-mix(in srgb, var(--accent) 45%, transparent); }
+  .chrome { display: flex; align-items: center; gap: 7px; height: 38px; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--raised); }
+  .chrome i { width: 11px; height: 11px; border-radius: 50%; background: var(--line-2); }
+  .chrome span { margin-left: 10px; font-size: 12.5px; color: var(--faint); }
+  .app { display: grid; grid-template-columns: 170px minmax(0, 1fr) 340px; min-height: 380px; font-size: 13px; }
+  .side { border-right: 1px solid var(--line); padding: 14px 10px; display: grid; align-content: start; gap: 2px; color: var(--dim); }
+  .side div { padding: 6px 10px; border-radius: 6px; }
+  .side .on { background: var(--raised); color: var(--text); }
+  .list { min-width: 0; }
+  .list table { width: 100%; border-collapse: collapse; }
+  .list th { font-weight: 500; font-size: 11.5px; color: var(--faint); text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .list td { padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; color: var(--dim); }
+  .list td:first-child { color: var(--text); }
+  .list tr.sel td { background: var(--accent-tint); }
+  .st { display: inline-flex; align-items: center; gap: 6px; }
+  .st::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+  .st.run { color: var(--ok); } .st.run::before { background: var(--ok); }
+  .claims { border-left: 1px solid var(--line); padding: 14px 16px; min-width: 0; }
+  .claims h3 { font-size: 12.5px; color: var(--dim); font-weight: 500; letter-spacing: 0; margin-bottom: 12px; }
+  .claims dl { margin: 0; display: grid; gap: 11px; }
+  .claims dt { font-size: 11.5px; color: var(--faint); }
+  .claims dd { margin: 1px 0 0; font: 12.5px/1.45 var(--mono); color: var(--text); overflow-wrap: anywhere; transition: opacity .28s; }
+  .claims.swap dd { opacity: .15; }
+  @media (max-width: 900px) { .app { grid-template-columns: minmax(0, 1fr) 300px; } .side { display: none; } .list th:nth-child(3), .list td:nth-child(3) { display: none; } }
+  @media (max-width: 680px) { .app { grid-template-columns: minmax(0, 1fr); } .claims { border-left: 0; border-top: 1px solid var(--line); } .list tr:nth-child(n+4) { display: none; } }
 
   /* ---- number strip ---- */
-  .strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-           gap: 1px; background: var(--line); border: 1px solid var(--line);
-           border-radius: 12px; overflow: hidden; margin: 34px 0; }
-  .strip div { background: var(--surface); padding: 16px 18px; }
-  .strip .n { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; }
-  .strip .l { color: var(--dim); font-size: 13px; margin-top: 2px; }
+  .strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line-2); border-radius: 0 0 14px 14px; background: var(--panel); }
+  .strip > div { padding: 18px 20px; border-left: 1px solid var(--line); min-width: 0; }
+  .strip > div:first-child { border-left: 0; }
+  .strip .n { font: 650 25px/1.2 var(--display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .strip .l { color: var(--dim); font-size: 13px; margin-top: 3px; }
+  @media (max-width: 680px) { .strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } .strip > div:nth-child(odd) { border-left: 0; } .strip > div:nth-child(n+3) { border-top: 1px solid var(--line); } }
 
-  section { padding: 30px 0; border-top: 1px solid var(--line); }
-  section:first-of-type { border-top: 0; }
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 18px; }
-  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
-  .card p:last-child { margin-bottom: 0; }
+  section.s { padding: clamp(56px, 8vw, 96px) 0 0; }
+  .head { max-width: 62ch; }
+  .head p { color: var(--dim); margin-top: 14px; font-size: 17px; line-height: 1.55; }
+
+  /* ---- the bench: this browser against a profile ---- */
+  .bench { margin-top: 28px; border: 1px solid var(--line-2); border-radius: 14px; overflow-x: auto; background: var(--panel); }
+  .bench table { width: 100%; border-collapse: collapse; min-width: 640px; }
+  .bench th, .bench td { padding: 11px 16px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  .bench tr:last-child td, .bench tr:last-child th { border-bottom: 0; }
+  .bench thead th { font-size: 12.5px; color: var(--faint); font-weight: 500; }
+  .bench thead th:last-child { color: var(--accent-hi); }
+  .bench tbody th { font-weight: 500; font-size: 13.5px; color: var(--dim); white-space: nowrap; width: 150px; }
+  .bench td { font: 13px/1.45 var(--mono); overflow-wrap: anywhere; width: 42%; }
+  .bench td.mine { color: var(--text); }
+  .bench td.them { color: #ffc9b6; }
+
+  /* ---- three things ---- */
+  .three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin-top: 30px; border-top: 1px solid var(--line-2); }
+  .three > div { padding: 22px 26px 4px 0; }
+  .three > div + div { padding-left: 26px; border-left: 1px solid var(--line); }
+  .three h3 { font-size: 20px; margin-bottom: 10px; }
+  @media (max-width: 760px) { .three { grid-template-columns: minmax(0, 1fr); } .three > div, .three > div + div { padding: 20px 0; border-left: 0; border-bottom: 1px solid var(--line); } }
+
+  /* ---- features ---- */
+  .bento { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-top: 30px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  .card.w3 { grid-column: span 3; } .card.w2 { grid-column: span 2; }
+  .card p { color: var(--dim); font-size: 15px; line-height: 1.55; }
+  .demo { margin-top: auto; padding-top: 10px; }
+  .term { background: var(--bg); border: 1px solid var(--line); border-radius: 9px; padding: 11px 13px; font: 12.5px/1.65 var(--mono); color: var(--dim); overflow-x: auto; white-space: pre; }
+  .term b { color: var(--text); font-weight: 500; }
+  .term i { color: var(--accent-hi); font-style: normal; }
+  .term u { color: var(--ok); text-decoration: none; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tags span { font: 12.5px/1 var(--mono); color: var(--dim); border: 1px solid var(--line-2); border-radius: 999px; padding: 6px 10px; }
+  .phones { display: flex; gap: 12px; align-items: flex-end; }
+  .phone { width: 92px; height: 132px; border: 1px solid var(--line-2); border-radius: 15px; background: var(--bg); padding: 12px 9px; display: flex; flex-direction: column; justify-content: flex-end; font: 10.5px/1.35 var(--mono); color: var(--dim); }
+  .phone b { color: var(--text); font-weight: 500; display: block; }
+  .partner { margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 24px; border: 1px solid #4a2517; background: var(--accent-tint); border-radius: 14px; padding: 18px 22px; }
+  .partner > div { flex: 1 1 340px; min-width: 0; }
+  .partner p { color: #d9b8ab; font-size: 14.5px; margin-top: 4px; }
+  .partner code { color: #fff; }
+  @media (max-width: 900px) { .card.w2, .card.w3 { grid-column: span 3; } }
+  @media (max-width: 640px) { .bento { grid-template-columns: minmax(0, 1fr); } .card.w2, .card.w3 { grid-column: auto; } }
+
+  /* ---- AI + team, two columns ---- */
+  .duo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 44px; align-items: start; margin-top: 30px; }
+  .duo > * { min-width: 0; }
+  .duo p + p { margin-top: 14px; }
+  .chat { background: var(--panel); border: 1px solid var(--line-2); border-radius: 14px; padding: 18px; display: grid; gap: 12px; font-size: 14.5px; }
+  .chat .me { justify-self: end; max-width: 88%; background: var(--raised); border-radius: 12px 12px 3px 12px; padding: 10px 14px; }
+  .chat .tool { font: 12.5px/1.6 var(--mono); color: var(--dim); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .chat .tool b { color: var(--ok); font-weight: 500; }
+  .roles { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+  .roles th, .roles td { padding: 10px 0; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  .roles th { width: 120px; font-weight: 600; padding-right: 14px; }
+  .roles td { color: var(--dim); }
+  @media (max-width: 820px) { .duo { grid-template-columns: minmax(0, 1fr); gap: 26px; } }
+
+  /* ---- readouts ---- */
+  .read { margin-top: 26px; border: 1px solid var(--line-2); border-radius: 14px; overflow: hidden; background: var(--panel); }
+  .read > div { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 4px 18px; padding: 13px 18px; border-bottom: 1px solid var(--line); }
+  .read > div:last-child { border-bottom: 0; }
+  .read b { font: 500 13.5px/1.5 var(--mono); }
+  .read span { color: var(--dim); font-size: 14.5px; }
+  .read .pass b::before, .read .warn b::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 9px; vertical-align: 2px; background: var(--ok); }
+  .read .warn b::before { background: var(--warn); }
+  .read .warn span { color: var(--text); }
+  .proofs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+  .proofs .card { padding: 18px; }
+  .proofs p { font-size: 14px; }
+  @media (max-width: 760px) { .read > div { grid-template-columns: minmax(0, 1fr); } .proofs { grid-template-columns: minmax(0, 1fr); } }
 
   /* ---- versions table ---- */
-  table { width: 100%; border-collapse: collapse; margin-top: 18px; font-size: 14px; }
-  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); }
-  thead th { color: var(--dim); font-weight: 500; font-size: 13px; }
-  tbody th { font-weight: 500; }
-  tr.ours { background: var(--accent-dim); }
-  tr.ours th, tr.ours .num { color: #fff; font-weight: 650; }
-  td.ver { position: relative; width: 42%; min-width: 130px; }
-  .bar { display: inline-block; height: 8px; border-radius: 4px; background: var(--raised);
-         vertical-align: middle; margin-right: 8px; max-width: calc(100% - 42px); }
-  tr.ours .bar { background: var(--accent); }
-  .num { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .tablewrap { overflow-x: auto; margin-top: 26px; border: 1px solid var(--line-2); border-radius: 14px; background: var(--panel); }
+  .market { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 620px; }
+  .market th, .market td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .market tr:last-child th, .market tr:last-child td { border-bottom: 0; }
+  .market thead th { color: var(--faint); font-weight: 500; font-size: 12.5px; }
+  .market tbody th { font-weight: 500; }
+  .market tr.ours { background: var(--accent-tint); }
+  .market tr.ours th, .market tr.ours .num { color: #fff; font-weight: 650; }
+  td.ver { width: 42%; min-width: 140px; }
+  .barv { display: inline-block; height: 7px; border-radius: 4px; background: var(--line-2); vertical-align: middle; margin-right: 8px; max-width: calc(100% - 42px); }
+  tr.ours .barv { background: var(--accent); }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
-  /* ---- donate ---- */
-  .donate { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+  /* ---- free + download ---- */
   .addr { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
-  .addr code { background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
-               padding: 9px 12px; font-size: 13px; word-break: break-all; flex: 1 1 320px; }
-  .addr button { background: var(--raised); color: var(--text); border: 1px solid var(--line);
-                 border-radius: 8px; padding: 9px 16px; font: inherit; font-size: 14px; cursor: pointer; }
+  .addr code { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; font-size: 13px; word-break: break-all; flex: 1 1 280px; }
+  .addr button { background: var(--raised); color: var(--text); border: 1px solid var(--line-2); border-radius: 8px; padding: 9px 16px; font: inherit; font-size: 14px; cursor: pointer; }
   .addr button:hover { background: var(--line); }
+  .dlgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 26px; }
+  .dlgrid .card h3 { font-size: 20px; }
+  .dlgrid .btn { align-self: flex-start; margin-top: 6px; }
+  @media (max-width: 640px) { .dlgrid { grid-template-columns: minmax(0, 1fr); } }
 
-  /* A five-column table does not fit a phone: at 375px it wanted 505 and the
-     whole PAGE scrolled sideways, which moves the text out from under the
-     reader's thumb. The table scrolls inside its own box instead, and keeps
-     all five columns — dropping the two that say "teams" and "free" would
-     drop the comparison the section exists to make. */
-  .tablewrap { overflow-x: auto; margin-top: 18px; }
-  .tablewrap table { margin-top: 0; }
-
-  ul.plain { margin: 0; padding-left: 20px; }
-  ul.plain li { margin: 6px 0; }
-
-  footer { border-top: 1px solid var(--line); padding: 26px 0 50px; color: var(--dim); font-size: 14px; }
+  footer { margin-top: clamp(56px, 8vw, 96px); border-top: 1px solid var(--line); padding-block: 30px 50px; color: var(--dim); font-size: 14px; }
+  footer p + p { margin-top: 10px; }
   footer a { color: var(--dim); }
-  /* Other things by the same author. In the footer on purpose: the page has
-     one job, and this is not it. */
-  .also { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 4px 0 20px; }
-  .also a { display: block; text-decoration: none; background: var(--surface);
-            border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .also { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 8px 0 18px; }
+  .also a { display: block; text-decoration: none; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
   .also a:hover { border-color: var(--faint); }
   .also strong { display: block; color: var(--text); font-weight: 550; font-size: 15px; }
   .also span { display: block; margin-top: 3px; color: var(--faint); font-size: 13px; line-height: 1.45; }
-  @media (max-width: 560px) { .also { grid-template-columns: 1fr; } }
-  .langblock[hidden] { display: none; }
-  @media (max-width: 560px) {
-    .hero { padding-top: 26px; }
-    th, td { padding: 9px 8px; white-space: nowrap; }
-    td.ver { width: auto; min-width: 104px; }
-    tbody th { white-space: normal; min-width: 116px; }
-  }
+  @media (max-width: 560px) { .also { grid-template-columns: minmax(0, 1fr); } }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .claims dd { transition: none; } .btn { transition: none; } }
 </style>
 </head>
-<body>
+<body id="top">
 
-<div class="wrap">
-  <div class="top">
-    <img src="logo.png" alt="Fury">
-    <div class="lang" role="group" aria-label="Language">
-      <button type="button" data-lang="en" aria-pressed="true">Eng</button>
-      <button type="button" data-lang="ru" aria-pressed="false">Рус</button>
+<!-- BODY -->
+<div class="bar">
+  <div class="wrap">
+    <a href="#top" aria-label="Fury"><img src="logo.png" alt="Fury"></a>
+    <nav aria-label="[[nav.label]]">
+      <a href="#features-{{LANG}}">[[nav.features]]</a>
+      <a href="#measured-{{LANG}}">[[nav.measured]]</a>
+      <a href="#market-{{LANG}}">[[nav.market]]</a>
+      <a href="#team-{{LANG}}">[[nav.team]]</a>
+      <a href="https://github.com/{{REPO}}">GitHub</a>
+    </nav>
+    <div class="right">
+      <a class="btn small proxy" href="{{PROXY_URL}}" rel="sponsored noopener">[[nav.buy]]</a>
+      <div class="lang" role="group" aria-label="Language">
+        <button type="button" data-lang="en">Eng</button>
+        <button type="button" data-lang="ru">Рус</button>
+      </div>
+      <a class="btn small primary dl" data-release href="https://github.com/{{REPO}}/releases">[[nav.download]]</a>
     </div>
   </div>
 </div>
 
-<!-- ======================= RUSSIAN ======================= -->
-<div class="langblock" data-block="ru" hidden>
-<div class="wrap">
-
+<main class="wrap">
   <div class="hero">
-    <h1>Антидетект-браузер,<br>который можно проверить</h1>
-    <p class="lead">Свой форк Chromium: подмена живёт в C++, патчи лежат в репозитории,
-       и каждый вектор замерен стендом, который идёт в комплекте. Бесплатно —
-       и для команды тоже.</p>
+    <div class="eyebrow"><b>Chrome {{CHROME_MAJOR}}</b><span>[[hero.patches]] {{PATCHES}}</span><span>[[hero.price]]</span></div>
+    <h1>[[hero.h1]]</h1>
+    <p class="lead">[[hero.lead]]</p>
     <div class="cta">
-      <a class="btn primary" id="dl-ru" href="https://github.com/{{REPO}}/releases">Скачать {{VERSION}}</a>
-      <a class="btn ghost" href="https://github.com/{{REPO}}">Исходники на GitHub</a>
+      <a class="btn primary" data-release data-word="[[hero.download]]" href="https://github.com/{{REPO}}/releases">[[hero.download]] {{VERSION}}</a>
+      <a class="btn ghost" href="https://github.com/{{REPO}}">[[hero.source]]</a>
     </div>
-    <p class="faint">macOS (Apple Silicon) — подписано и нотаризовано. Windows x64 — установщик без подписи,
-       SmartScreen попросит «Подробнее → Выполнить в любом случае».</p>
+    <p class="faint note">[[hero.note]]</p>
+
+    <div class="window" role="img" aria-label="[[app.alt]]">
+      <div class="chrome"><i></i><i></i><i></i><span>Fury</span></div>
+      <div class="app">
+        <div class="side">
+          <div class="on">[[app.profiles]]</div><div>[[app.proxies]]</div><div>[[app.extensions]]</div><div>[[app.team]]</div><div>[[app.ai]]</div><div>[[app.settings]]</div>
+        </div>
+        <div class="list">
+          <table>
+            <thead><tr><th>[[app.name]]</th><th>[[app.status]]</th><th>[[app.proxy]]</th></tr></thead>
+            <tbody>
+              <tr class="sel"><td data-p="name">Shop 01</td><td><span class="st run">[[app.running]]</span></td><td>DE, Berlin</td></tr>
+              <tr><td>Ads 02</td><td><span class="st run">[[app.running]]</span></td><td>US, Austin</td></tr>
+              <tr><td>Mail 03</td><td><span class="st">[[app.closed]]</span></td><td>NL, Haarlem</td></tr>
+              <tr><td>Social 04</td><td><span class="st">[[app.closed]]</span></td><td>WireGuard, PL</td></tr>
+              <tr><td>Phone 05</td><td><span class="st">[[app.closed]]</span></td><td>GB, Leeds</td></tr>
+              <tr><td>Warm 06</td><td><span class="st">[[app.closed]]</span></td><td>US, Tampa</td></tr>
+              <tr><td>Team 07</td><td><span class="st">[[app.closed]]</span></td><td>FR, Lyon</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="claims" data-claims>
+          <h3>[[app.claims]]</h3>
+          <dl>
+            <div><dt>navigator.platform</dt><dd data-c="platform">MacIntel</dd></div>
+            <div><dt>WebGL renderer</dt><dd data-c="gpu">ANGLE (Apple, ANGLE Metal Renderer: Apple M5, Unspecified Version)</dd></div>
+            <div><dt>screen</dt><dd data-c="screen">1470 × 956</dd></div>
+            <div><dt>userAgent</dt><dd data-c="ua">Macintosh; Intel Mac OS X 10_15_7 … Chrome/{{CHROME_MAJOR}}.0.0.0</dd></div>
+          </dl>
+        </div>
+      </div>
+    </div>
+    <div class="strip">
+      <div><div class="n">Chrome {{CHROME_MAJOR}}</div><div class="l">[[strip.core]]</div></div>
+      <div><div class="n">{{PATCHES}}</div><div class="l">[[strip.patches]]</div></div>
+      <div><div class="n">{{GATE}} / {{GATE}}</div><div class="l">[[strip.gate]]</div></div>
+      <div><div class="n">{{PERSONAS}}</div><div class="l">[[strip.machines]]</div></div>
+    </div>
   </div>
 
-  <div class="strip">
-    <div><div class="n">Chrome <span data-major>{{CHROME_MAJOR}}</span></div><div class="l">ядро, свежее рынка</div></div>
-    <div><div class="n">{{PATCHES}}</div><div class="l">патчей, все открыты</div></div>
-    <div><div class="n">{{GATE}} из {{GATE}}</div><div class="l">проверок релизного гейта</div></div>
-    <div><div class="n">0 ₽</div><div class="l">за команду любого размера</div></div>
-  </div>
+  <section class="s">
+    <div class="head"><h2>[[bench.h]]</h2><p>[[bench.p]]</p></div>
+    <div class="bench">
+      <table>
+        <thead><tr><th scope="col"></th><th scope="col">[[bench.mine]]</th><th scope="col" data-bench-them>[[bench.them]]</th></tr></thead>
+        <tbody data-bench></tbody>
+      </table>
+    </div>
+    <p class="faint" style="margin-top:12px">[[bench.note]]</p>
+  </section>
 
-  <section>
-    <h2>Три вещи вместе</h2>
-    <p class="dim">Порознь каждая где-то есть. Вместе — ни у кого.</p>
-    <div class="cards">
-      <div class="card">
-        <h3>Ядро, которое можно собрать</h3>
-        <p class="dim">{{PATCHES}} патчей к Chromium {{CHROMIUM}} лежат в репозитории текстом.
-           Подмена в C++, а не впрыснутым JavaScript: инъекцию видно со страницы,
-           патч — нет.</p>
+  <section class="s">
+    <div class="head"><h2>[[three.h]]</h2><p>[[three.p]]</p></div>
+    <div class="three">
+      <div><h3>[[three.a]]</h3><p class="dim">[[three.at]]</p></div>
+      <div id="team-{{LANG}}"><h3>[[three.b]]</h3><p class="dim">[[three.bt]]</p></div>
+      <div><h3>[[three.c]]</h3><p class="dim">[[three.ct]]</p></div>
+    </div>
+  </section>
+
+  <section class="s" id="features-{{LANG}}">
+    <div class="head"><h2>[[f.h]]</h2><p>[[f.p]]</p></div>
+    <div class="bento">
+      <div class="card w3">
+        <h3>[[f.phones]]</h3><p>[[f.phonest]]</p>
+        <div class="demo phones"><div class="phone"><b>Realme</b>RMX5131<br>Adreno 722</div><div class="phone"><b>Huawei</b>P30 ELE-L29<br>Mali-G76</div></div>
       </div>
-      <div class="card">
-        <h3>Команда, а не общая папка</h3>
-        <p class="dim">Проекты, роли, права на каждое действие, распределённый лок и аудит.
-           Доступ отзывается в один клик — отданный файл забрать нельзя.</p>
+      <div class="card w3">
+        <h3>[[f.import]]</h3><p>[[f.importt]]</p>
+        <div class="demo"><div class="term"><b>login</b>|<b>password</b>|<i>2FA</i>|<i>cookies</i>|token|email|…
+<u>[[f.importok]]</u></div></div>
       </div>
-      <div class="card">
-        <h3>Сервер, который вы держите сами</h3>
-        <p class="dim">Готовый бинарник или Docker-образ и Postgres на любом VPS, ставится за минуту.
-           Бандлы шифруются на вашей машине, поэтому сервер хранит то, что сам прочитать не может.</p>
+      <div class="card w2">
+        <h3>[[f.move]]</h3><p>[[f.movet]]</p>
+        <div class="demo tags"><span>GoLogin</span><span>Dolphin</span><span>AdsPower</span><span>Undetectable</span><span>Kameleo</span><span>Vision</span></div>
+      </div>
+      <div class="card w2">
+        <h3>[[f.net]]</h3><p>[[f.nett]]</p>
+      </div>
+      <div class="card w2">
+        <h3>[[f.ext]]</h3><p>[[f.extt]]</p>
+      </div>
+      <div class="card w3">
+        <h3>[[f.proxy]]</h3><p>[[f.proxyt]]</p>
+        <div class="demo tags"><span>http</span><span>socks5</span><span>wireguard</span><span>@local</span></div>
+      </div>
+      <div class="card w3">
+        <h3>[[f.match]]</h3><p>[[f.matcht]]</p>
+      </div>
+    </div>
+    <div class="partner">
+      <div><h3>[[p.h]]</h3><p>[[p.t]]</p></div>
+      <a class="btn proxy" href="{{PROXY_URL}}" rel="sponsored noopener">[[nav.buy]]</a>
+    </div>
+  </section>
+
+  <section class="s">
+    <div class="duo">
+      <div><h2>[[ai.h]]</h2><p class="dim" style="margin-top:14px">[[ai.p1]]</p><p class="dim">[[ai.p2]]</p><p class="dim">[[ai.p3]]</p></div>
+      <div class="chat" role="img" aria-label="[[ai.alt]]">
+        <div class="me">[[ai.ask]]</div>
+        <div class="tool">fury_list_profiles  tag=warm       <b>3</b>
+fury_start_profile  background=true  <b>ok</b>
+fury_open_url       mail             <b>ok</b>
+fury_read_page                       <b>ok</b>
+fury_stop_profile                    <b>ok</b></div>
+        <div>[[ai.answer]]</div>
       </div>
     </div>
   </section>
 
-  <section>
-    <h2>ИИ-агент, который ваш</h2>
-    <p class="dim">Подключите Claude Desktop, Cursor или Claude Code одной кнопкой и просите обычными словами:
-       «создай десять профилей под Windows с этими прокси», «открой профили с меткой warm, проверь почту, закрой».
-       Ассистент создаёт профили и прокси, открывает их, ходит по сайтам, кликает, вводит текст и прогревает профили.</p>
-    <p class="dim">У других это «AI-агент» за кредиты, на их модели и их сервере, с доступом к вашим профилям.
-       Здесь MCP-сервер встроен в Fury и работает на вашей машине. Ассистент, аккаунт и ключ ваши,
-       пароли прокси ему не передаются, удалить профиль насовсем он не может.</p>
+  <section class="s">
+    <div class="duo">
+      <div><h2>[[t.h]]</h2><p class="dim" style="margin-top:14px">[[t.p]]</p>
+        <div class="cta"><a class="btn ghost" href="https://github.com/{{REPO}}/blob/main/docs/13-self-hosting.md">[[t.cta]]</a></div></div>
+      <table class="roles"><tbody>
+        <tr><th scope="row">[[t.owner]]</th><td>[[t.ownert]]</td></tr>
+        <tr><th scope="row">[[t.admin]]</th><td>[[t.admint]]</td></tr>
+        <tr><th scope="row">[[t.manager]]</th><td>[[t.managert]]</td></tr>
+        <tr><th scope="row">[[t.member]]</th><td>[[t.membert]]</td></tr>
+      </tbody></table>
+    </div>
   </section>
 
-  <section>
-    <h2>Версия ядра — это тоже отпечаток</h2>
-    <p class="dim">Браузер, отставший от Chrome на три мажора, узнаётся по одному числу,
-       ещё до всякой подмены. Наша версия читается из репозитория при сборке страницы;
-       чужие — то, что мы видели сами <span data-measured>{{MEASURED_RU}}</span>
-       (<a href="https://github.com/{{REPO}}/blob/main/docs/08-competitors.md">разбор рынка</a>).</p>
+  <section class="s" id="measured-{{LANG}}">
+    <div class="head"><h2>[[m.h]]</h2><p>[[m.p]]</p></div>
+    <div class="read">
+      <div class="pass"><b>pixelscan</b><span>[[m.pixelscan]]</span></div>
+      <div class="pass"><b>iphey</b><span>[[m.iphey]]</span></div>
+      <div class="pass"><b>bot.sannysoft</b><span>[[m.sanny]]</span></div>
+      <div class="pass"><b>BrowserScan</b><span>[[m.bs]]</span></div>
+      <div class="pass"><b>fv.pro</b><span>[[m.fv]]</span></div>
+      <div class="warn"><b>demo.fingerprint.com</b><span>[[m.fp]]</span></div>
+    </div>
+    <div class="proofs">
+      <div class="card"><h3>[[m.bench]]</h3><p>[[m.bencht]]</p></div>
+      <div class="card"><h3>[[m.gate]]</h3><p>[[m.gatet]]</p></div>
+      <div class="card"><h3>[[m.report]]</h3><p>[[m.reportt]]</p></div>
+    </div>
+    <p class="faint" style="margin-top:14px">[[m.found]]</p>
+  </section>
+
+  <section class="s" id="market-{{LANG}}">
+    <div class="head"><h2>[[v.h]]</h2><p>[[v.p]]</p></div>
     <div class="tablewrap">
-    <table>
-      <thead><tr><th scope="col">Продукт</th><th scope="col">Ядро</th><th scope="col">Команды</th><th scope="col">Исходники</th><th scope="col">Цена</th></tr></thead>
-      <tbody>{{ROWS_RU}}</tbody>
-    </table>
+      <table class="market">
+        <thead><tr><th scope="col">[[v.product]]</th><th scope="col">[[v.core]]</th><th scope="col">[[v.teams]]</th><th scope="col">[[v.source]]</th><th scope="col">[[v.price]]</th></tr></thead>
+        <tbody>{{ROWS}}</tbody>
+      </table>
     </div>
-    <p class="faint" style="margin-top:14px">Camoufox — на Firefox, остальные на Chromium;
-       номер приведён к мажору Chrome. «Лончер» значит, что открыт менеджер профилей,
-       а само ядро — закрытый бинарник.</p>
+    <p class="faint" style="margin-top:12px">[[v.note]]</p>
   </section>
 
-  <section>
-    <h2>Не верьте — замерьте</h2>
-    <p class="dim">Проект держится на том, что ни одно утверждение здесь не просит
-       верить на слово.</p>
-    <ul class="plain dim">
-      <li><b>Стенд в комплекте.</b> <code>tools/detect-suite</code> снимает ~460 значений
-        отпечатка в девяти контекстах исполнения — главный фрейм, воркеры, ворклет,
-        четыре вида iframe, включая кросс-доменный в своём процессе.</li>
-      <li><b>Гейт.</b> <code>fury-detect gate</code> проверяет отпечаток на внутренние
-        противоречия и возвращает ненулевой код — его можно поставить в CI.</li>
-      <li><b>Отчёт в каждом релизе.</b> <code>REPORT.md</code> называет sha256 ядра,
-        серию патчей и коммит, из которого всё собрано.</li>
-      <li><b>Сравнение рядом.</b> <a href="https://github.com/{{REPO}}/blob/main/tools/detect-suite/status.html">status.html</a>
-        — последний замер: Fury и настоящий Chrome на одной машине, поле к полю.</li>
-      <li><b>Сайты проверки.</b> Последний полный прогон 29–30.09.2026 на версии 0.2.10:
-        pixelscan «No masking detected, consistent», iphey «Trustworthy» без сигналов,
-        fv.pro и bot.sannysoft без замечаний, BrowserScan 90% без признаков бота.
-        Что они находили до этого и как это исправлено, записано в
-        <a href="https://github.com/{{REPO}}/commits/main">истории коммитов</a> вместе с замером.</li>
-      <li><b>Нашли сами?</b> Если чекер ругается на ваш профиль,
-        <a href="https://github.com/{{REPO}}/issues">откройте issue</a> со скриншотом.
-        Так нашли и закрыли утечку имени видеокарты в WebGL (#16).</li>
-    </ul>
-  </section>
-
-  <section>
-    <h2>Почему бесплатно</h2>
-    <p>Ни мест, ни оплаты за профиль, ни припрятанного платного тарифа, ни телеметрии.
-       Это решение, а не этап: лицензия AGPL, и все замеры опубликованы именно затем,
-       чтобы никому не приходилось верить на слово.</p>
-    <p class="dim">За проектом не стоит компания, и продавать тут нечего. Расходы скучные:
-       сертификат подписи, чтобы скачанная сборка не воевала с Gatekeeper, и машина,
-       чтобы пересобирать ядро под каждый выпуск Chromium.</p>
-    <div class="donate">
-      <h3>Поддержать</h3>
-      <p class="dim" style="margin:0">USDT, сеть TRC20. За этим ничего не закрыто — ни сейчас, ни потом.</p>
-      <div class="addr">
-        <code id="wallet-ru">TBdbQDuUKHf14gvuyjSWevuL6FMS19ABzG</code>
-        <button type="button" data-copy="wallet-ru" data-done="Скопирован" data-failed="Выделен — ⌘C">Копировать</button>
+  <section class="s">
+    <div class="duo">
+      <div><h2>[[free.h]]</h2><p class="dim" style="margin-top:14px">[[free.p1]]</p><p class="dim">[[free.p2]]</p></div>
+      <div class="card">
+        <h3>[[free.support]]</h3><p>[[free.usdt]]</p>
+        <div class="addr">
+          <code id="wallet-{{LANG}}">TBdbQDuUKHf14gvuyjSWevuL6FMS19ABzG</code>
+          <button type="button" data-copy="wallet-{{LANG}}" data-done="[[free.copied]]" data-failed="[[free.selected]]">[[free.copy]]</button>
+        </div>
+        <p class="faint">[[free.persona]]</p>
       </div>
-      <p class="faint" style="margin:12px 0 0">И персона, снятая с вашего компьютера, по-прежнему
-         ценнее денег: в каталоге {{PERSONAS}} машин, и каждая — толпа, в которой кто-то прячется.
-         <a href="https://github.com/{{REPO}}/blob/main/CONTRIBUTING.md">Как прислать</a>.</p>
     </div>
   </section>
 
-  <section>
-    <h2>Установка — две загрузки</h2>
-    <p class="dim">Приложение и само ядро качаются отдельно: приложение меняется еженедельно,
-       ядро — когда выходит новый Chromium. Вместе они означали бы стомегабайтную
-       загрузку из-за сдвинутой кнопки.</p>
+  <section class="s" id="download-{{LANG}}">
+    <div class="head"><h2>[[d.h]]</h2><p>[[d.p]]</p></div>
+    <div class="dlgrid">
+      <div class="card"><h3>macOS</h3><p>[[d.mac]]</p><a class="btn primary" data-release data-word="[[hero.download]]" href="https://github.com/{{REPO}}/releases">[[hero.download]] {{VERSION}}</a></div>
+      <div class="card"><h3>Windows</h3><p>[[d.win]]</p><a class="btn primary" data-release data-word="[[hero.download]]" href="https://github.com/{{REPO}}/releases">[[hero.download]] {{VERSION}}</a></div>
+    </div>
     <div class="cta">
-      <a class="btn primary" id="dl2-ru" href="https://github.com/{{REPO}}/releases">Релизы</a>
-      <a class="btn ghost" href="https://github.com/{{REPO}}/blob/main/docs/15-install.ru.md">Инструкция по шагам</a>
-      <a class="btn ghost" href="https://github.com/{{REPO}}/blob/main/docs/13-self-hosting.md">Свой сервер</a>
+      <a class="btn ghost" href="https://github.com/{{REPO}}/blob/main/[[d.docs]]">[[d.steps]]</a>
+      <a class="btn ghost" href="https://github.com/{{REPO}}/blob/main/docs/13-self-hosting.md">[[t.cta]]</a>
+      <a class="btn ghost" href="https://github.com/{{REPO}}/releases">[[d.notes]]</a>
     </div>
   </section>
+</main>
 
-  <footer>
-    <p>Fury — инструмент приватности и управления несколькими аккаунтами: QA, проверка рекламы,
-       исследования рынка, ведение нескольких легальных бизнес-аккаунтов.
-       <a href="https://github.com/{{REPO}}/blob/main/ACCEPTABLE_USE.md">Допустимое использование</a>.</p>
-    <p>AGPL-3.0-or-later. Независимый проект, не связанный с Google; Chromium используется
-       по условиям его лицензии. Вопросы — <a href="https://t.me/shapovalovbogdan">@shapovalovbogdan</a>
-       или <a href="https://github.com/{{REPO}}/issues">issue tracker</a>.</p>
-    <p>Другое, тем же автором:</p>
+<footer>
+  <div class="wrap">
+    <p>[[foot.use]] <a href="https://github.com/{{REPO}}/blob/main/ACCEPTABLE_USE.md">[[foot.aup]]</a>.</p>
+    <p>[[foot.licence]] <a href="https://t.me/shapovalovbogdan">@shapovalovbogdan</a>, <a href="https://github.com/{{REPO}}/issues">[[foot.issues]]</a>.</p>
+    <p>[[foot.also]]</p>
     <div class="also">
-      <a href="https://seo-fury.com"><strong>SEO Fury — плагин для WordPress</strong>
-        <span>Мета-теги, карты сайта, редиректы, Schema, IndexNow. Бесплатно.</span></a>
-      <a href="https://chromewebstore.google.com/detail/omkoncaffmikgcdndbnnokjggdmkfkce"><strong>SEO Fury — расширение для Chrome</strong>
-        <span>Аудит страницы в один клик: теги, заголовки, ссылки, Core Web Vitals и план правок от ИИ.</span></a>
+      <a href="https://seo-fury.com"><strong>[[foot.wp]]</strong><span>[[foot.wpt]]</span></a>
+      <a href="https://chromewebstore.google.com/detail/omkoncaffmikgcdndbnnokjggdmkfkce"><strong>[[foot.ext]]</strong><span>[[foot.extt]]</span></a>
     </div>
-    <p class="faint">Страница собрана из коммита {{COMMIT}}, {{BUILT}}.</p>
-  </footer>
-
-</div>
-</div>
-
-<!-- ======================= ENGLISH ======================= -->
-<div class="langblock" data-block="en">
-<div class="wrap">
-
-  <div class="hero">
-    <h1>An anti-detect browser<br>you can check</h1>
-    <p class="lead">Its own Chromium fork: the spoofing lives in C++, the patches are in the
-       repository, and every vector is measured by the bench that ships alongside.
-       Free — for a team as well.</p>
-    <div class="cta">
-      <a class="btn primary" id="dl-en" href="https://github.com/{{REPO}}/releases">Download {{VERSION}}</a>
-      <a class="btn ghost" href="https://github.com/{{REPO}}">Source on GitHub</a>
-    </div>
-    <p class="faint">macOS (Apple Silicon) — signed and notarised. Windows x64 — the installer is
-       unsigned, so SmartScreen asks for “More info → Run anyway”.</p>
+    <p class="faint">[[foot.built]] {{COMMIT}}, {{BUILT}}.</p>
   </div>
-
-  <div class="strip">
-    <div><div class="n">Chrome <span data-major>{{CHROME_MAJOR}}</span></div><div class="l">core, ahead of the market</div></div>
-    <div><div class="n">{{PATCHES}}</div><div class="l">patches, all published</div></div>
-    <div><div class="n">{{GATE}} of {{GATE}}</div><div class="l">release gate checks</div></div>
-    <div><div class="n">$0</div><div class="l">for a team of any size</div></div>
-  </div>
-
-  <section>
-    <h2>Three things together</h2>
-    <p class="dim">Each exists somewhere on its own. Together, nowhere else.</p>
-    <div class="cards">
-      <div class="card">
-        <h3>A core you can build</h3>
-        <p class="dim">{{PATCHES}} patches against Chromium {{CHROMIUM}}, in the repository as
-           text. The spoofing is in C++ rather than injected JavaScript: an injection
-           is visible from the page, a patch is not.</p>
-      </div>
-      <div class="card">
-        <h3>A team, not a shared folder</h3>
-        <p class="dim">Projects, roles, a permission on every action, a distributed lock and an
-           audit trail. Access is revoked in one click — a file you handed over
-           cannot be taken back.</p>
-      </div>
-      <div class="card">
-        <h3>A server you run yourself</h3>
-        <p class="dim">A ready binary or Docker image and Postgres on any VPS, installed in a minute.
-           Bundles are encrypted on your own machine, so the server holds what it cannot itself read.</p>
-      </div>
-    </div>
-  </section>
-
-  <section>
-    <h2>An AI agent that is yours</h2>
-    <p class="dim">Connect Claude Desktop, Cursor or Claude Code with one button and ask in plain words:
-       "make ten Windows profiles with these proxies", "open the profiles tagged warm, check the inbox, close them".
-       The assistant creates profiles and proxies, opens them, goes to sites, clicks, types and warms profiles up.</p>
-    <p class="dim">Elsewhere this is an "AI agent" sold for credits, on their model and their server, with access to your profiles.
-       Here the MCP server is built into Fury and runs on your machine. The assistant, the account and the key are yours,
-       proxy passwords never reach it, and it cannot erase a profile for good.</p>
-  </section>
-
-  <section>
-    <h2>The core's version is a fingerprint too</h2>
-    <p class="dim">A browser three majors behind Chrome is identified by one number, before any
-       spoofing is looked at. Ours is read out of the repository when this page is
-       built; the others are what we measured ourselves on
-       <span data-measured>{{MEASURED_EN}}</span>
-       (<a href="https://github.com/{{REPO}}/blob/main/docs/08-competitors.md">the market review</a>).</p>
-    <div class="tablewrap">
-    <table>
-      <thead><tr><th scope="col">Product</th><th scope="col">Core</th><th scope="col">Teams</th><th scope="col">Source</th><th scope="col">Price</th></tr></thead>
-      <tbody>{{ROWS_EN}}</tbody>
-    </table>
-    </div>
-    <p class="faint" style="margin-top:14px">Camoufox is Firefox-based, the rest are Chromium; the number is
-       the Chrome major. “Launcher” means the profile manager is open and the engine
-       itself is a closed binary.</p>
-  </section>
-
-  <section>
-    <h2>Do not take it on trust — measure it</h2>
-    <p class="dim">Nothing claimed here asks to be believed.</p>
-    <ul class="plain dim">
-      <li><b>The bench ships with it.</b> <code>tools/detect-suite</code> dumps ~460 fingerprint
-        values across nine execution contexts — main frame, workers, a worklet and four
-        kinds of iframe, including a cross-origin one in its own process.</li>
-      <li><b>The gate.</b> <code>fury-detect gate</code> checks a fingerprint for internal
-        contradictions and exits non-zero, so it drops straight into CI.</li>
-      <li><b>A report in every release.</b> <code>REPORT.md</code> names the core's sha256, the
-        patch series and the commit it was all built from.</li>
-      <li><b>Side by side.</b> <a href="https://github.com/{{REPO}}/blob/main/tools/detect-suite/status.html">status.html</a>
-        is the last measurement: Fury and real Chrome on the same machine, field by field.</li>
-      <li><b>Checker sites.</b> Last full run on 29–30.09.2026, version 0.2.10: pixelscan
-        "No masking detected, consistent", iphey "Trustworthy" with no signals, fv.pro and
-        bot.sannysoft clean, BrowserScan 90% with no bot detected. What they caught before
-        that and how it was fixed is in the
-        <a href="https://github.com/{{REPO}}/commits/main">commit history</a>, each fix with its measurement.</li>
-      <li><b>Found something?</b> If a checker flags your profile,
-        <a href="https://github.com/{{REPO}}/issues">open an issue</a> with a screenshot.
-        That is how the WebGL GPU-name leak in #16 was found and closed.</li>
-    </ul>
-  </section>
-
-  <section>
-    <h2>Why it is free</h2>
-    <p>No seats, no per-profile pricing, no paid tier held back, no telemetry. That is a
-       decision rather than a stage: the licence is AGPL and every measurement is published
-       precisely so nobody has to take anyone's word for it.</p>
-    <p class="dim">There is no company behind this and nothing is sold. What it costs is ordinary
-       and dull — a code-signing certificate so the download does not fight Gatekeeper,
-       and a machine to rebuild the core against every Chromium release.</p>
-    <div class="donate">
-      <h3>Support it</h3>
-      <p class="dim" style="margin:0">USDT on TRC20. Nothing is gated behind it, now or later.</p>
-      <div class="addr">
-        <code id="wallet-en">TBdbQDuUKHf14gvuyjSWevuL6FMS19ABzG</code>
-        <button type="button" data-copy="wallet-en" data-done="Copied" data-failed="Selected — ⌘C">Copy</button>
-      </div>
-      <p class="faint" style="margin:12px 0 0">And a persona measured on your own machine is still worth
-         more than money: the catalogue holds {{PERSONAS}} machines, and each one is a crowd for
-         somebody to hide in. <a href="https://github.com/{{REPO}}/blob/main/CONTRIBUTING.md">How to send one</a>.</p>
-    </div>
-  </section>
-
-  <section>
-    <h2>Two downloads</h2>
-    <p class="dim">The application and the browser core are separate: the application changes weekly,
-       the core when Chromium does. Bundling them would mean a hundred-megabyte download
-       every time a button moved.</p>
-    <div class="cta">
-      <a class="btn primary" id="dl2-en" href="https://github.com/{{REPO}}/releases">Releases</a>
-      <a class="btn ghost" href="https://github.com/{{REPO}}/blob/main/docs/15-install.md">Step by step</a>
-      <a class="btn ghost" href="https://github.com/{{REPO}}/blob/main/docs/13-self-hosting.md">Your own server</a>
-    </div>
-  </section>
-
-  <footer>
-    <p>Fury is a privacy and multi-account management tool, built for QA, ad verification,
-       market research and running several legitimate business accounts.
-       <a href="https://github.com/{{REPO}}/blob/main/ACCEPTABLE_USE.md">Acceptable use</a>.</p>
-    <p>AGPL-3.0-or-later. An independent project, not affiliated with Google; Chromium is used
-       under its own licence. Questions — <a href="https://t.me/shapovalovbogdan">@shapovalovbogdan</a>
-       or the <a href="https://github.com/{{REPO}}/issues">issue tracker</a>.</p>
-    <p>Also by the same author:</p>
-    <div class="also">
-      <a href="https://seo-fury.com"><strong>SEO Fury — WordPress plugin</strong>
-        <span>Meta tags, sitemaps, redirects, schema, IndexNow. Free.</span></a>
-      <a href="https://chromewebstore.google.com/detail/omkoncaffmikgcdndbnnokjggdmkfkce"><strong>SEO Fury — Chrome extension</strong>
-        <span>A one-click audit of any page: tags, headings, links, Core Web Vitals and an AI fix list.</span></a>
-    </div>
-    <p class="faint">Built from commit {{COMMIT}}, {{BUILT}}.</p>
-  </footer>
-
-</div>
-</div>
+</footer>
+<!-- /BODY -->
 
 <script>
 (function () {
   'use strict';
+  var RM = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   /* ---- language -------------------------------------------------------
      English by default, for everyone, and remembered per visitor after a
@@ -455,7 +478,7 @@
      over the shoulder and linked on English forums, and a visitor who is in
      a Russian browser because that is where they live is not thereby asking
      for a Russian page. The markup ships English visible, so the no-script
-     and first-paint states are the same as the default -- nothing flips. */
+     and first-paint states are the same as the default. */
   var blocks = document.querySelectorAll('.langblock');
   var buttons = document.querySelectorAll('.lang button');
   function apply(lang) {
@@ -466,9 +489,91 @@
   }
   var stored = null;
   try { stored = localStorage.getItem('fury-lang'); } catch (e) { /* ignore */ }
-  apply(stored || 'en');
+  apply(stored === 'ru' || stored === 'en' ? stored : 'en');
   buttons.forEach(function (b) {
     b.addEventListener('click', function () { apply(b.dataset.lang); });
+  });
+
+  /* ---- the catalogue, for the two places that show a profile's claims --
+     Real entries of shared/personas, not invented strings. */
+  var MAJOR = '{{CHROME_MAJOR}}';
+  var PERSONAS = {
+    mac: { platform: 'MacIntel', gpu: 'ANGLE (Apple, ANGLE Metal Renderer: Apple M5, Unspecified Version)', screen: '1470 × 956',
+           ua: 'Macintosh; Intel Mac OS X 10_15_7 … Chrome/' + MAJOR + '.0.0.0', cores: '10', mem: '8', tz: 'Europe/Berlin', lang: 'de-DE, de, en' },
+    win: { platform: 'Win32', gpu: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)', screen: '1920 × 1080',
+           ua: 'Windows NT 10.0; Win64; x64 … Chrome/' + MAJOR + '.0.0.0', cores: '12', mem: '8', tz: 'America/Chicago', lang: 'en-US, en' },
+    phone: { platform: 'Linux armv81', gpu: 'ANGLE (Qualcomm, Adreno (TM) 722, OpenGL ES 3.2)', screen: '360 × 788',
+           ua: 'Android 10; K … Chrome/' + MAJOR + '.0.0.0 Mobile', cores: '8', mem: '8', tz: 'Europe/London', lang: 'en-GB, en' }
+  };
+
+  /* ---- one profile, three machines -------------------------------------
+     The one moving thing on the page, because it is the product: the same row
+     claiming a different machine. At rest it is a complete, readable panel;
+     with reduced motion it stays there. */
+  if (!RM) {
+    var order = ['mac', 'win', 'phone'], at = 0;
+    setInterval(function () {
+      if (document.hidden) return;
+      at = (at + 1) % order.length;
+      var p = PERSONAS[order[at]];
+      document.querySelectorAll('[data-claims]').forEach(function (box) {
+        box.classList.add('swap');
+        setTimeout(function () {
+          box.querySelectorAll('[data-c]').forEach(function (dd) { dd.textContent = p[dd.dataset.c]; });
+          box.classList.remove('swap');
+        }, 280);
+      });
+    }, 3600);
+  }
+
+  /* ---- the bench -------------------------------------------------------
+     What this tab reads about the reader's own browser, beside a profile from
+     the catalogue with the same operating system. Computed here and sent
+     nowhere: there is no request in this block. */
+  function gpu() {
+    try {
+      var g = document.createElement('canvas').getContext('webgl');
+      var e = g && g.getExtension('WEBGL_debug_renderer_info');
+      return e ? g.getParameter(e.UNMASKED_RENDERER_WEBGL) : (g ? g.getParameter(g.RENDERER) : '');
+    } catch (err) { return ''; }
+  }
+  function canvasHash() {
+    try {
+      var c = document.createElement('canvas'); c.width = 220; c.height = 40;
+      var x = c.getContext('2d'); x.font = '16px Arial'; x.fillStyle = '#f60'; x.fillRect(0, 0, 80, 20);
+      x.fillStyle = '#069'; x.fillText('Fury 0123 \u{1F50D}', 4, 26);
+      var s = c.toDataURL(), h = 0x811c9dc5;
+      for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+      return (h >>> 0).toString(16).padStart(8, '0');
+    } catch (err) { return ''; }
+  }
+  var ua = navigator.userAgent;
+  var m = /Chrome\/(\d+)/.exec(ua) || /Firefox\/(\d+)/.exec(ua) || /Version\/(\d+)/.exec(ua);
+  var kind = /Android|iPhone|iPad/.test(ua) ? 'phone' : /Mac/.test(navigator.platform) ? 'mac' : 'win';
+  var mine = {
+    platform: navigator.platform || '',
+    gpu: gpu(),
+    screen: screen.width + ' × ' + screen.height,
+    ua: ua.replace(/^Mozilla\/5\.0 \(/, '').replace(/\) AppleWebKit.*?(Chrome|Version)/, ' … $1').slice(0, 90),
+    cores: String(navigator.hardwareConcurrency || ''),
+    mem: navigator.deviceMemory ? String(navigator.deviceMemory) : '',
+    tz: (Intl.DateTimeFormat().resolvedOptions().timeZone) || '',
+    lang: (navigator.languages || []).join(', '),
+    canvas: canvasHash()
+  };
+  var rows = [['navigator.platform', 'platform'], ['WebGL renderer', 'gpu'], ['screen', 'screen'], ['userAgent', 'ua'],
+              ['hardwareConcurrency', 'cores'], ['deviceMemory', 'mem'], ['timeZone', 'tz'], ['languages', 'lang'], ['canvas', 'canvas']];
+  document.querySelectorAll('[data-bench]').forEach(function (tbody) {
+    var block = tbody.closest('.langblock');
+    var own = block.dataset.ownCanvas, nope = block.dataset.noValue;
+    rows.forEach(function (r) {
+      var tr = document.createElement('tr');
+      var th = document.createElement('th'); th.scope = 'row'; th.textContent = r[0];
+      var a = document.createElement('td'); a.className = 'mine'; a.textContent = mine[r[1]] || nope;
+      var b = document.createElement('td'); b.className = 'them';
+      b.textContent = r[1] === 'canvas' ? own : (PERSONAS[kind][r[1]] || nope);
+      tr.append(th, a, b); tbody.append(tr);
+    });
   });
 
   /* ---- copy the wallet ------------------------------------------------
@@ -478,10 +583,8 @@
      address reached their clipboard. Measured 22.09.2026: the clipboard
      permission can be denied outright (NotAllowedError), and it was.
 
-     So: try the modern API; if it refuses, select the address — a real
-     fallback, because a selected address is visibly selected and one
-     keystroke from copied — try the old execCommand on that selection, and
-     say which of the two actually happened. */
+     So: try the modern API; if it refuses, select the address, try the old
+     execCommand on that selection, and say which of the two actually happened. */
   document.querySelectorAll('[data-copy]').forEach(function (btn) {
     var node = document.getElementById(btn.dataset.copy);
     var idle = btn.textContent;
@@ -516,15 +619,10 @@
 
   /* ---- the newest release --------------------------------------------
      The version built into this page is right at deploy time and wrong the
-     moment a release goes out without one. Asked of GitHub at load, and
-     ignored on any failure: a landing page that breaks because an API is
-     slow is worse than one whose version is a day old.
-
-     The LIST, not /releases/latest. That endpoint excludes pre-releases, and
-     every release of this project is one while the version is 0.x — so it
-     answers 404, and its HTML twin redirects to the releases index rather
-     than to a release. Measured 22.09.2026, on this page. The list comes
-     back newest first and includes them, which is what a reader wants. */
+     moment a release goes out without one. Asked of GitHub at load, and ignored
+     on any failure: a landing page that breaks because an API is slow is worse
+     than one whose version is a day old. The list rather than /releases/latest,
+     which answered 404 while every release was a pre-release (22.09.2026). */
   fetch('https://api.github.com/repos/{{REPO}}/releases?per_page=1', { headers: { accept: 'application/vnd.github+json' } })
     .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
     .then(function (list) {
@@ -532,14 +630,9 @@
       if (!rel) return;
       var tag = String(rel.tag_name || '').replace(/^v/, '');
       if (!/^\d+\.\d+\.\d+/.test(tag)) return;
-      var url = rel.html_url;
-      ['dl-ru', 'dl-en', 'dl2-ru', 'dl2-en'].forEach(function (id) {
-        var a = document.getElementById(id);
-        if (!a) return;
-        a.href = url;
-        if (id.indexOf('dl-') === 0) {
-          a.textContent = (id.endsWith('ru') ? 'Скачать ' : 'Download ') + tag;
-        }
+      document.querySelectorAll('[data-release]').forEach(function (a) {
+        a.href = rel.html_url;
+        if (a.dataset.word) a.textContent = a.dataset.word + ' ' + tag;
       });
     })
     .catch(function () { /* the built-in links stay */ });

@@ -111,10 +111,10 @@ MacBook, reports:
 
 ```
 navigator.platform      Win32
-userAgent               Windows NT 10.0; Win64; x64 … Chrome/155.0.0.0
+userAgent               Windows NT 10.0; Win64; x64 … Chrome/157.0.0.0
 WebGL renderer          ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 …)
 screen                  1920×1080, availHeight 1032   ← the taskbar
-Client Hints platform   Windows        brands: … Google Chrome/155
+Client Hints platform   Windows        brands: … Google Chrome/157
 timezone                Europe/Berlin
 navigator.webdriver     false
 ```
@@ -140,7 +140,7 @@ desktop (Tauri)  ──socket──▶  agent (Rust)  ──spawn──▶  core
      └──HTTPS──▶ server (optional: teams)
 ```
 
-- **core** — Chromium 155 fork, [29 patches](core/patches/); spoofing is in C++,
+- **core** — Chromium 157 fork, [41 patches](core/patches/); spoofing is in C++,
   never injected JavaScript
 - **agent** — the only component holding decrypted secrets: proxy relays,
   launching, the local automation API
@@ -299,7 +299,7 @@ handle X" deserves the answer and not the archaeology.
 |---|---|
 | Code signing, Windows | not started. A separate certificate (EV or OV) and a separate process; until then the installer shows SmartScreen and the way through is **More info → Run anyway** |
 | Widevine on a machine with no Chrome | the agent stages the CDM out of the Chrome already installed on that machine, so nothing proprietary is redistributed and `com.widevine.alpha` is answered the way real Chrome answers it. A machine with no Chrome at all gets a working browser with no DRM, which is detectable |
-| Persona catalogue | 27 machines — the 27th arrived through the issue form on 13.09.2026, a Windows 10 desktop with a GTX 950. More personas means better crowds to hide in, and it is the most useful thing an outside contributor can add — `fury-detect persona <capture.json>` turns a probe capture from your own computer into one |
+| Persona catalogue | 32 machines, two of them Android phones captured from real devices. More personas means better crowds to hide in, and it is the most useful thing an outside contributor can add — `fury-detect persona <capture.json>` turns a probe capture from your own computer into one |
 | Speech synthesis voices | a leak, found 24.09.2026. A persona of another OS reports the host's voices: a Windows persona on a Mac answers `speechSynthesis.getVoices()` with 180 macOS voices ("Milena", "Eddy (…)"), which no Windows machine has. The built-in personas carry `voices: []`, so the filter never engages; the contributed Windows 10 one lists only Google voices, which Fury does not have, and patch 0041 discards a filter that matches nothing, because an empty list gives the spoofing away even more surely. The patch can only narrow the list. A voice the system does not have cannot be added: `speak()` on it would fail in a way no real machine fails. So on a Mac a Windows persona cannot get Windows voices at all; until this changes, the rule is a persona of the host's OS. CreepJS and the Castle checks do not catch it, they only look for an empty list |
 
 ### Decided against, with the reason
@@ -320,6 +320,7 @@ row says why the alternative is worse.
 | | |
 |---|---|
 | ~~Offline GeoIP~~ | done 09.10.2026 (0.2.23), contributed by @devrahmanbd: the checker field takes the path of a MaxMind `.mmdb` file. The exit address is still asked through the proxy, and country, city and timezone come from your file, so the only third party left is the one that reports the address. No database is bundled |
+| ~~Chromium 157~~ | done 05.11.2026 (0.5.0): both cores moved to 157.0.8103.39 |
 | ~~Chromium 155~~ | done: the Windows core moved from 153 to 155.0.8059.12 on 27.09.2026 (0.2.3), macOS on 30.09.2026 (0.2.10). A copy running an older build of the browser is told so and offered the new one (0.2.16). Both moved to the stable 155.0.8059.39, with its 247 security fixes, on 08.10.2026 (0.2.21) |
 | ~~pixelscan and iphey flagging profiles~~ | done 29.09.2026 (0.2.9), with edge noise that keeps the colour in 0.2.10: what they caught were the fonts a persona reported and the shape of the canvas and WebGL noise |
 | ~~MCP for AI assistants~~ | done 08.10.2026 (0.2.18): built into the application. It used to be a Python script that needed the HTTP API switched on by hand and was in no installer |
@@ -336,7 +337,7 @@ row says why the alternative is worse.
 ## Contributing
 
 The most useful thing you can send is a persona from your own computer —
-`fury-detect persona` turns a probe capture into one, and the catalogue is 27
+`fury-detect persona` turns a probe capture into one, and the catalogue is 32
 machines, each of which is a crowd for somebody to hide in. The second most
 useful is a site that caught a profile. [CONTRIBUTING.md](CONTRIBUTING.md) has
 both, and the rule that governs everything else: measurements are welcome,
