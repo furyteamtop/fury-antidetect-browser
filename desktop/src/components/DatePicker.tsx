@@ -3,7 +3,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import { useI18n } from "../i18n";
+import { languageNames, useI18n } from "../i18n";
 
 /** A date field with a calendar drawn by the application, in place of
  *  `<input type="date">`, whose calendar is the platform's: the last system
@@ -42,7 +42,7 @@ export function DatePicker({
   "aria-label"?: string;
 }) {
   const { t, resolved } = useI18n();
-  const locale = resolved === "ru" ? "ru-RU" : resolved === "zh" ? "zh-CN" : "en-US";
+  const locale = languageNames[resolved].tag;
   const weekStart = resolved === "en" ? 0 : 1;
   const chosen = parse(value);
   const [open, setOpen] = useState(false);

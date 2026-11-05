@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { api, type DomainList, type KeptPersona, type Shell } from "../api";
 import { SecondFactor } from "./SecondFactor";
-import { languages, useI18n, type Language } from "../i18n";
+import { languageNames, languages, useI18n, type Language } from "../i18n";
 import { type Theme, themes, useTheme } from "../theme";
 import { Select } from "./Select";
 import { DEFAULT_SERVER } from "../defaults";
@@ -108,17 +108,20 @@ export function Settings({
               <div className="settingsGroup">
                 <h2>{t("set.language")}</h2>
                 <p>{t("set.languageHint")}</p>
-                <div className="segmented">
+                {/* A list rather than the segmented control the other settings use: fifteen
+                    names do not fit in a row, and each is written in its own language so
+                    somebody who cannot read the current interface can still find theirs. */}
+                <select
+                  aria-label={t("set.language")}
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value as Language)}
+                >
                   {languages.map((l) => (
-                    <button
-                      key={l}
-                      aria-pressed={language === l}
-                      onClick={() => setLanguage(l as Language)}
-                    >
-                      {l === "system" ? t("set.langSystem") : l === "ru" ? "Русский" : l === "zh" ? "简体中文" : "English"}
-                    </button>
+                    <option key={l} value={l}>
+                      {l === "system" ? t("set.langSystem") : languageNames[l].name}
+                    </option>
                   ))}
-                </div>
+                </select>
               </div>
             </>
           )}

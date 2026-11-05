@@ -2,6 +2,18 @@
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
 import { useEffect, useState } from "react";
+import { ar } from "./locales/ar";
+import { de } from "./locales/de";
+import { es } from "./locales/es";
+import { fr } from "./locales/fr";
+import { hi } from "./locales/hi";
+import { id } from "./locales/id";
+import { ja } from "./locales/ja";
+import { ko } from "./locales/ko";
+import { pt } from "./locales/pt";
+import { tr } from "./locales/tr";
+import { uk } from "./locales/uk";
+import { vi } from "./locales/vi";
 
 /** Interface language.
  *
@@ -16,8 +28,33 @@ import { useEffect, useState } from "react";
  *  interface — an operator working in Russian on a German profile is the normal
  *  case, and tying the two would leak the operator into the fingerprint.
  */
-export const languages = ["system", "en", "ru", "zh"] as const;
+export const languages = [
+  "system", "en", "ru", "zh", "es", "pt", "fr", "de", "tr", "ar", "hi", "ja", "ko", "id", "vi", "uk",
+] as const;
 export type Language = (typeof languages)[number];
+/** A language the interface can actually be in: the choice with "system" resolved. */
+export type Resolved = Exclude<Language, "system">;
+
+/** Each language under its own name, so a person who cannot read the current
+ *  interface can still find theirs. The other part of each entry is the BCP-47
+ *  tag dates are formatted with. */
+export const languageNames: Record<Resolved, { name: string; tag: string }> = {
+  en: { name: "English", tag: "en-US" },
+  ru: { name: "Русский", tag: "ru-RU" },
+  zh: { name: "简体中文", tag: "zh-CN" },
+  es: { name: "Español", tag: "es-ES" },
+  pt: { name: "Português (Brasil)", tag: "pt-BR" },
+  fr: { name: "Français", tag: "fr-FR" },
+  de: { name: "Deutsch", tag: "de-DE" },
+  tr: { name: "Türkçe", tag: "tr-TR" },
+  ar: { name: "العربية", tag: "ar" },
+  hi: { name: "हिन्दी", tag: "hi-IN" },
+  ja: { name: "日本語", tag: "ja-JP" },
+  ko: { name: "한국어", tag: "ko-KR" },
+  id: { name: "Bahasa Indonesia", tag: "id-ID" },
+  vi: { name: "Tiếng Việt", tag: "vi-VN" },
+  uk: { name: "Українська", tag: "uk-UA" },
+};
 
 const en = {
   // shell
@@ -3761,18 +3798,21 @@ const zh: Record<Key, string> = {
 
 const KEY = "fury.language";
 
-function resolve(choice: Language): "en" | "ru" | "zh" {
+const dictionaries: Record<Resolved, Record<Key, string>> = {
+  en, ru, zh, es, pt, fr, de, tr, ar, hi, ja, ko, id, vi, uk,
+};
+
+function resolve(choice: Language): Resolved {
   if (choice !== "system") return choice;
   // navigator.language of the *shell*, which is the operator's desktop. The
   // profile's own languages are a separate thing entirely.
-  const system = (navigator.language || "en").toLowerCase();
-  if (system.startsWith("ru")) return "ru";
-  if (system.startsWith("zh")) return "zh";
-  return "en";
+  const system = (navigator.language || "en").toLowerCase().split(/[-_]/)[0];
+  return system in dictionaries ? (system as Resolved) : "en";
 }
 
 export function storedLanguage(): Language {
-  return (localStorage.getItem(KEY) as Language) || "system";
+  const stored = localStorage.getItem(KEY) as Language | null;
+  return stored && (languages as readonly string[]).includes(stored) ? stored : "system";
 }
 
 /** Interpolates {name} placeholders. Deliberately minimal: no plural rules,
@@ -3803,10 +3843,10 @@ export function useI18n(): {
   say: (e: unknown) => string;
   language: Language;
   /** The language the interface is actually in: `language` resolved, so
-   *  "system" becomes "en", "ru" or "zh". Compare against this, never against the
+   *  "system" becomes a real one. Compare against this, never against the
    *  setting -- the extension catalogue compared the setting with "ru" and
    *  showed English to everybody on "system" (08.10.2026). */
-  resolved: "en" | "ru" | "zh";
+  resolved: Resolved;
   setLanguage: (l: Language) => void;
 } {
   const [language, setStored] = useState<Language>(storedLanguage);
@@ -3821,10 +3861,11 @@ export function useI18n(): {
 
   useEffect(() => {
     document.documentElement.lang = resolve(language);
+    document.documentElement.dir = resolve(language) === "ar" ? "rtl" : "ltr";
   }, [language]);
 
   const resolved = resolve(language);
-  const dict = resolved === "ru" ? ru : resolved === "zh" ? zh : en;
+  const dict = dictionaries[resolved];
 
   const t = (key: Key, vars?: Record<string, string | number>) =>
     format(dict[key] ?? en[key], vars);
