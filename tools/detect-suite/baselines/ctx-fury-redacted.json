@@ -1,11 +1,11 @@
 {
-  "__collectedInMs": 4434,
+  "__collectedInMs": 4526,
   "__probeVersion": "0.3.0",
   "__redacted": true,
   "__schema": 1,
   "audio": {
     "context": {
-      "baseLatency": 0.005333333333333333,
+      "baseLatency": 0.01,
       "channelCount": 2,
       "channelCountMode": "explicit",
       "channelInterpretation": "speakers",
@@ -27,25 +27,25 @@
     "isPointInPath": true,
     "stableAcrossCalls": true,
     "textMetrics": "213.076171875|10.021484375|2.9462890625|-1.1484375|212.1259765625|13|3",
-    "toDataURL": "0b1c83ef",
+    "toDataURL": "8befbbed",
     "winding": false
   },
   "clientHints": {
     "architecture": "x86",
     "bitness": "64",
-    "brands": "Google Chrome/155,Chromium/155,Not(A:Brand/24",
+    "brands": "Not-A.Brand/99,Google Chrome/157,Chromium/157",
     "formFactors": "Desktop",
-    "fullVersionList": "Google Chrome/155.0.8059.39,Chromium/155.0.8059.39,Not(A:Brand/24.0.0.0",
+    "fullVersionList": "Not-A.Brand/99.0.0.0,Google Chrome/157.0.8103.39,Chromium/157.0.8103.39",
     "mobile": false,
     "model": "",
     "platform": "Windows",
     "platformVersion": "15.0.0",
-    "uaFullVersion": "155.0.8059.39",
+    "uaFullVersion": "157.0.8103.39",
     "wow64": false
   },
   "clientRects": {
-    "hash": "676f766f",
-    "rect": "12.267578125|7.56884765625|262.430419921875|-9999.2705078125|-9987.0029296875|269.999267578125|-9999.2705078125|262.430419921875"
+    "hash": "18c63d07",
+    "rect": "12.259765625|7.55950927734375|262.4311828613281|-9999.2705078125|-9987.0107421875|269.9906921386719|-9999.2705078125|262.4311828613281"
   },
   "codecs": {
     "hasProprietaryCodecs": true,
@@ -116,11 +116,11 @@
       "userAgent": null
     },
     "iframe:about:blank": {
-      "availHeight": 833,
+      "availHeight": 1032,
       "calendar": "gregory",
       "canvasHash": "2e3c382e",
       "deviceMemory": 16,
-      "devicePixelRatio": 2,
+      "devicePixelRatio": 1,
       "hardwareConcurrency": 12,
       "language": "en-US",
       "languages": "en-US,en",
@@ -129,20 +129,20 @@
       "nativeToString": "native",
       "numberFormat": "123,456.789",
       "platform": "Win32",
-      "screenHeight": 956,
-      "screenWidth": 1470,
+      "screenHeight": 1080,
+      "screenWidth": 1920,
       "timezone": "America/New_York",
-      "timezoneOffset": 240,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "timezoneOffset": 300,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
       "webdriver": false,
       "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)"
     },
     "iframe:cross-origin": {
-      "availHeight": 833,
+      "availHeight": 1032,
       "calendar": "gregory",
       "canvasHash": "2e3c382e",
       "deviceMemory": 16,
-      "devicePixelRatio": 2,
+      "devicePixelRatio": 1,
       "hardwareConcurrency": 12,
       "language": "en-US",
       "languages": "en-US,en",
@@ -151,20 +151,20 @@
       "nativeToString": "native",
       "numberFormat": "123,456.789",
       "platform": "Win32",
-      "screenHeight": 956,
-      "screenWidth": 1470,
+      "screenHeight": 1080,
+      "screenWidth": 1920,
       "timezone": "America/New_York",
-      "timezoneOffset": 240,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "timezoneOffset": 300,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
       "webdriver": false,
       "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)"
     },
     "iframe:same-origin": {
-      "availHeight": 833,
+      "availHeight": 1032,
       "calendar": "gregory",
       "canvasHash": "2e3c382e",
       "deviceMemory": 16,
-      "devicePixelRatio": 2,
+      "devicePixelRatio": 1,
       "hardwareConcurrency": 12,
       "language": "en-US",
       "languages": "en-US,en",
@@ -173,20 +173,20 @@
       "nativeToString": "native",
       "numberFormat": "123,456.789",
       "platform": "Win32",
-      "screenHeight": 956,
-      "screenWidth": 1470,
+      "screenHeight": 1080,
+      "screenWidth": 1920,
       "timezone": "America/New_York",
-      "timezoneOffset": 240,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "timezoneOffset": 300,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
       "webdriver": false,
       "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)"
     },
     "iframe:srcdoc": {
-      "availHeight": 833,
+      "availHeight": 1032,
       "calendar": "gregory",
       "canvasHash": "2e3c382e",
       "deviceMemory": 16,
-      "devicePixelRatio": 2,
+      "devicePixelRatio": 1,
       "hardwareConcurrency": 12,
       "language": "en-US",
       "languages": "en-US,en",
@@ -195,20 +195,20 @@
       "nativeToString": "native",
       "numberFormat": "123,456.789",
       "platform": "Win32",
-      "screenHeight": 956,
-      "screenWidth": 1470,
+      "screenHeight": 1080,
+      "screenWidth": 1920,
       "timezone": "America/New_York",
-      "timezoneOffset": 240,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "timezoneOffset": 300,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
       "webdriver": false,
       "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)"
     },
     "main": {
-      "availHeight": 833,
+      "availHeight": 1032,
       "calendar": "gregory",
       "canvasHash": "2e3c382e",
       "deviceMemory": 16,
-      "devicePixelRatio": 2,
+      "devicePixelRatio": 1,
       "hardwareConcurrency": 12,
       "language": "en-US",
       "languages": "en-US,en",
@@ -217,11 +217,11 @@
       "nativeToString": "native",
       "numberFormat": "123,456.789",
       "platform": "Win32",
-      "screenHeight": 956,
-      "screenWidth": 1470,
+      "screenHeight": 1080,
+      "screenWidth": 1920,
       "timezone": "America/New_York",
-      "timezoneOffset": 240,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "timezoneOffset": 300,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
       "webdriver": false,
       "webglUnmasked": "Google Inc. (NVIDIA) :: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)"
     },
@@ -236,8 +236,8 @@
       "numberFormat": "123,456.789",
       "platform": "Win32",
       "timezone": "America/New_York",
-      "timezoneOffset": 240,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "timezoneOffset": 300,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
       "userAgentDataMobile": false,
       "userAgentDataPlatform": "Windows",
       "webdriver": null,
@@ -255,8 +255,8 @@
       "numberFormat": "123,456.789",
       "platform": "Win32",
       "timezone": "America/New_York",
-      "timezoneOffset": 240,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "timezoneOffset": 300,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
       "userAgentDataMobile": false,
       "userAgentDataPlatform": "Windows",
       "webdriver": null,
@@ -274,8 +274,8 @@
       "numberFormat": "123,456.789",
       "platform": "Win32",
       "timezone": "America/New_York",
-      "timezoneOffset": 240,
-      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "timezoneOffset": 300,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
       "userAgentDataMobile": false,
       "userAgentDataPlatform": "Windows",
       "webdriver": null,
@@ -377,9 +377,9 @@
         "dischargingTime": "Infinity",
         "level": 1
       },
-      "connectionDownlink": 1.5,
+      "connectionDownlink": 5.5,
       "connectionKind": null,
-      "connectionRtt": 100,
+      "connectionRtt": 150,
       "connectionSaveData": false,
       "connectionType": "4g",
       "hasBattery": true,
@@ -396,7 +396,7 @@
     "nativeToString": "hardwareConcurrency:native,userAgent:native,width:native",
     "performanceNowPrecision": 0,
     "toStringTag": "[object Navigator]",
-    "totalJSHeapSize": 8252075
+    "totalJSHeapSize": 8270459
   },
   "fonts": {
     "baselineWidths": {
@@ -440,7 +440,7 @@
     "offsetJul": 240,
     "relativeTime": "1 day ago",
     "timezone": "America/New_York",
-    "timezoneOffset": 240
+    "timezoneOffset": 300
   },
   "mediaDevices": {
     "count": 3,
@@ -497,7 +497,7 @@
             null,
             null
           ],
-          "t": 792
+          "t": 925
         }
       ]
     },
@@ -529,7 +529,7 @@
   },
   "navigator": {
     "appName": "Netscape",
-    "appVersion": "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+    "appVersion": "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
     "cookieEnabled": true,
     "deviceMemory": 16,
     "doNotTrack": null,
@@ -553,7 +553,7 @@
     "plugins": "PDF Viewer|internal-pdf-viewer|Portable Document Format~Chrome PDF Viewer|internal-pdf-viewer|Portable Document Format~Chromium PDF Viewer|internal-pdf-viewer|Portable Document Format~Microsoft Edge PDF Viewer|internal-pdf-viewer|Portable Document Format~WebKit built-in PDF|internal-pdf-viewer|Portable Document Format",
     "product": "Gecko",
     "productSub": "20030107",
-    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
     "vendor": "Google Inc.",
     "webdriver": false
   },
@@ -576,28 +576,28 @@
     }
   },
   "screen": {
-    "availHeight": 833,
+    "availHeight": 1032,
     "availLeft": 0,
-    "availTop": 33,
-    "availWidth": 1470,
+    "availTop": 0,
+    "availWidth": 1920,
     "chromeHeight": 139,
     "chromeWidth": 0,
     "colorDepth": 24,
-    "devicePixelRatio": 2,
-    "height": 956,
-    "innerHeight": 702,
-    "innerWidth": 1200,
+    "devicePixelRatio": 1,
+    "height": 1080,
+    "innerHeight": 713,
+    "innerWidth": 1280,
     "orientationAngle": 0,
     "orientationType": "landscape-primary",
-    "outerHeight": 841,
-    "outerWidth": 1200,
+    "outerHeight": 852,
+    "outerWidth": 1280,
     "pixelDepth": 24,
-    "screenX": 22,
-    "screenY": 55,
+    "screenX": 0,
+    "screenY": 33,
     "scrollbarWidth": 15,
     "visualViewportScale": 1,
-    "visualViewportWidth": 1200,
-    "width": 1470
+    "visualViewportWidth": 1280,
+    "width": 1920
   },
   "speech": {
     "count": 19,
@@ -617,7 +617,7 @@
   "webgl": {
     "webgl1": {
       "contextAttributes": "{\"alpha\":true,\"antialias\":true,\"depth\":true,\"desynchronized\":false,\"failIfMajorPerformanceCaveat\":false,\"powerPreference\":\"default\",\"premultipliedAlpha\":true,\"preserveDrawingBuffer\":false,\"stencil\":false,\"xrCompatible\":false}",
-      "extensions": "ANGLE_instanced_arrays,EXT_blend_minmax,EXT_clip_control,EXT_color_buffer_half_float,EXT_depth_clamp,EXT_float_blend,EXT_frag_depth,EXT_polygon_offset_clamp,EXT_sRGB,EXT_shader_texture_lod,EXT_texture_compression_bptc,EXT_texture_compression_rgtc,EXT_texture_filter_anisotropic,EXT_texture_mirror_clamp_to_edge,OES_element_index_uint,OES_fbo_render_mipmap,OES_standard_derivatives,OES_texture_float,OES_texture_float_linear,OES_texture_half_float,OES_texture_half_float_linear,OES_vertex_array_object,WEBGL_blend_func_extended,WEBGL_color_buffer_float,WEBGL_compressed_texture_s3tc,WEBGL_compressed_texture_s3tc_srgb,WEBGL_debug_renderer_info,WEBGL_debug_shaders,WEBGL_depth_texture,WEBGL_draw_buffers,WEBGL_lose_context,WEBGL_multi_draw,WEBGL_polygon_mode",
+      "extensions": "ANGLE_instanced_arrays,EXT_blend_minmax,EXT_clip_control,EXT_color_buffer_half_float,EXT_depth_clamp,EXT_disjoint_timer_query,EXT_float_blend,EXT_frag_depth,EXT_polygon_offset_clamp,EXT_sRGB,EXT_shader_texture_lod,EXT_texture_compression_bptc,EXT_texture_compression_rgtc,EXT_texture_filter_anisotropic,EXT_texture_mirror_clamp_to_edge,KHR_parallel_shader_compile,OES_element_index_uint,OES_fbo_render_mipmap,OES_standard_derivatives,OES_texture_float,OES_texture_float_linear,OES_texture_half_float,OES_texture_half_float_linear,OES_vertex_array_object,WEBGL_blend_func_extended,WEBGL_color_buffer_float,WEBGL_compressed_texture_s3tc,WEBGL_compressed_texture_s3tc_srgb,WEBGL_debug_renderer_info,WEBGL_debug_shaders,WEBGL_depth_texture,WEBGL_draw_buffers,WEBGL_lose_context,WEBGL_multi_draw,WEBGL_polygon_mode",
       "paramTypes": {
         "ALIASED_LINE_WIDTH_RANGE": "Float32Array",
         "ALIASED_POINT_SIZE_RANGE": "Float32Array",
@@ -697,7 +697,7 @@
     },
     "webgl2": {
       "contextAttributes": "{\"alpha\":true,\"antialias\":true,\"depth\":true,\"desynchronized\":false,\"failIfMajorPerformanceCaveat\":false,\"powerPreference\":\"default\",\"premultipliedAlpha\":true,\"preserveDrawingBuffer\":false,\"stencil\":false,\"xrCompatible\":false}",
-      "extensions": "EXT_clip_control,EXT_color_buffer_half_float,EXT_depth_clamp,EXT_float_blend,EXT_polygon_offset_clamp,EXT_texture_compression_bptc,EXT_texture_compression_rgtc,EXT_texture_filter_anisotropic,EXT_texture_mirror_clamp_to_edge,OES_texture_float_linear,WEBGL_blend_func_extended,WEBGL_compressed_texture_s3tc,WEBGL_compressed_texture_s3tc_srgb,WEBGL_debug_renderer_info,WEBGL_debug_shaders,WEBGL_lose_context,WEBGL_multi_draw,WEBGL_polygon_mode",
+      "extensions": "EXT_clip_control,EXT_color_buffer_float,EXT_color_buffer_half_float,EXT_conservative_depth,EXT_depth_clamp,EXT_disjoint_timer_query_webgl2,EXT_float_blend,EXT_polygon_offset_clamp,EXT_render_snorm,EXT_texture_compression_bptc,EXT_texture_compression_rgtc,EXT_texture_filter_anisotropic,EXT_texture_mirror_clamp_to_edge,EXT_texture_norm16,KHR_parallel_shader_compile,NV_shader_noperspective_interpolation,OES_draw_buffers_indexed,OES_sample_variables,OES_shader_multisample_interpolation,OES_texture_float_linear,OVR_multiview2,WEBGL_blend_func_extended,WEBGL_clip_cull_distance,WEBGL_compressed_texture_s3tc,WEBGL_compressed_texture_s3tc_srgb,WEBGL_debug_renderer_info,WEBGL_debug_shaders,WEBGL_lose_context,WEBGL_multi_draw,WEBGL_polygon_mode,WEBGL_provoking_vertex,WEBGL_stencil_texturing",
       "paramTypes": {
         "ALIASED_LINE_WIDTH_RANGE": "Float32Array",
         "ALIASED_POINT_SIZE_RANGE": "Float32Array",
