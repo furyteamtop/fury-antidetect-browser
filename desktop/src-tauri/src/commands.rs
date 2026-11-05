@@ -2880,6 +2880,14 @@ pub async fn save_profile(
         let mut body = body;
         body["persona_id"] = serde_json::json!(s("persona_id"));
         body["fp_seed"] = serde_json::json!(fury_shared::persona::seed::to_hex(seed));
+        // The start a new local profile gets in the agent, for a team one: the
+        // server stores overrides and holds no opinion about them.
+        if let Some(persona) = fury_shared::catalogue::all().into_iter().find(|p| p.id == s("persona_id")) {
+            let mut overrides: fury_shared::overrides::MachineOverrides =
+                serde_json::from_value(body["overrides"].clone()).unwrap_or_default();
+            overrides.settle_for_new_profile(&persona);
+            body["overrides"] = serde_json::to_value(&overrides).unwrap_or(body["overrides"].clone());
+        }
         state
             .call(
                 reqwest::Method::POST,

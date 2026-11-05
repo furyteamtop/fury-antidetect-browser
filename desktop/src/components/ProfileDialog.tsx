@@ -309,6 +309,7 @@ export function ProfileDialog({
       .preview({
         persona_id: personaId,
         fp_seed: editing?.fp_seed ?? 0,
+        is_new: !editing,
         // An empty field follows the exit, and the preview has to say what the
         // launch will claim rather than what the field contains. When the proxy
         // has been checked, that is its zone.

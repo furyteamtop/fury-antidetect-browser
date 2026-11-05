@@ -401,10 +401,68 @@ impl MachineOverrides {
     }
 }
 
+impl MachineOverrides {
+    /// What a profile being created starts with, before anyone has touched it.
+    ///
+    /// A Windows machine with 16 GB reads 8 on a new profile. Measured on
+    /// demo.fingerprint.com on 05.11.2026, core 157, Windows build box, fresh
+    /// seeds: deviceMemory 16 scored 0.82-0.94 and was flagged 3 of 3, 8 scored
+    /// 0.09-0.12 and was flagged 0 of 6. Why their model minds 16 only on the 157
+    /// engine is not known; on 155 the same 16 scored 0.10.
+    ///
+    /// New profiles only, and that is the point of it living here rather than in
+    /// the catalogue: a profile stores a persona id and loads the persona at each
+    /// launch, so editing a persona would change the machine of every account
+    /// already warmed on it. This writes an ordinary override into the new
+    /// profile, so it stays that profile's value whatever the next release
+    /// decides. A value somebody chose is never replaced, and macOS is left
+    /// alone: the gain there is smaller and several of those machines were never
+    /// sold with 8 GB.
+    pub fn settle_for_new_profile(&mut self, persona: &Persona) {
+        if self.memory_gb.is_none() && persona.os.name == "Windows" && persona.memory_gb == 16 {
+            self.memory_gb = Some(8);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::catalogue;
+
+    #[test]
+    fn a_new_windows_profile_on_16_gb_starts_on_8_and_nothing_else_moves() {
+        let all = catalogue::all();
+        let mut windows_16 = 0;
+        for p in &all {
+            let mut o = MachineOverrides::default();
+            o.settle_for_new_profile(p);
+            if p.os.name == "Windows" && p.memory_gb == 16 {
+                windows_16 += 1;
+                assert_eq!(o.memory_gb, Some(8), "{}", p.id);
+                // The result has to be a machine that can exist.
+                let got = o.apply(p, &all).unwrap();
+                got.validate().unwrap();
+                assert_eq!(got.memory_gb, 8, "{}", p.id);
+            } else {
+                assert_eq!(o, MachineOverrides::default(), "{}", p.id);
+            }
+        }
+        assert!(windows_16 > 0, "the catalogue has no Windows machine on 16 GB any more");
+    }
+
+    #[test]
+    fn a_memory_somebody_chose_is_kept_on_a_new_profile() {
+        let p = catalogue::all()
+            .into_iter()
+            .find(|p| p.os.name == "Windows" && p.memory_gb == 16)
+            .unwrap();
+        for chosen in [2, 4, 8, 16, 32] {
+            let mut o = MachineOverrides { memory_gb: Some(chosen), ..Default::default() };
+            o.settle_for_new_profile(&p);
+            assert_eq!(o.memory_gb, Some(chosen));
+        }
+    }
 
     fn persona(id: &str) -> Persona {
         catalogue::all().into_iter().find(|p| p.id == id).unwrap()

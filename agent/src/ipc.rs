@@ -1677,7 +1677,7 @@ impl Agent {
                 Ok(serde_json::to_value(out)?)
             }
             "profiles.upsert" => {
-                let profile: Profile = serde_json::from_value(params)?;
+                let mut profile: Profile = serde_json::from_value(params)?;
 
                 // The persona is checked HERE rather than only at launch.
                 //
@@ -1702,6 +1702,11 @@ impl Agent {
                         persona.id,
                         errs.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("\n  ")
                     );
+                }
+                // An empty id is a profile being made; one with an id is being
+                // edited and keeps the machine it has.
+                if profile.id.is_empty() {
+                    profile.overrides.settle_for_new_profile(&persona);
                 }
                 // Same reasoning for the hand-set fields: a combination that
                 // cannot exist is said now, not at the first launch.
@@ -1777,6 +1782,9 @@ impl Agent {
                             fury_shared::catalogue::host_os(),
                         )
                         .id;
+                    }
+                    if let Ok(persona) = crate::personas::load(&p.persona_id) {
+                        p.overrides.settle_for_new_profile(&persona);
                     }
                     match self.store.upsert_profile(&p).await {
                         Ok(id) => made.push(id),
@@ -2045,6 +2053,11 @@ impl Agent {
                         None if count == 1 => format!("{} copy", source.name),
                         None => format!("{} copy {i}", source.name),
                     };
+                    // A copy is a new machine, so it starts the way a new one
+                    // does. A memory set on the source was copied above and stays.
+                    if let Ok(persona) = crate::personas::load(&p.persona_id) {
+                        p.overrides.settle_for_new_profile(&persona);
+                    }
                     match self.store.upsert_profile(&p).await {
                         Ok(new_id) => made.push(new_id),
                         Err(e) => failed.push(json!({ "n": i, "error": e.to_string() })),
@@ -2081,12 +2094,18 @@ impl Agent {
             "profile.preview" => {
                 let base = crate::personas::load(&str_param(&params, "persona_id")?)?;
                 let catalogue = crate::personas::all();
-                let overrides: fury_shared::overrides::MachineOverrides = params
+                let mut overrides: fury_shared::overrides::MachineOverrides = params
                     .get("overrides")
                     .filter(|v| !v.is_null())
                     .map(|v| serde_json::from_value(v.clone()))
                     .transpose()?
                     .unwrap_or_default();
+                // The dialog of a profile not saved yet has to show what saving
+                // it will store, not the persona's own value.
+                let is_new = params.get("is_new").and_then(|v| v.as_bool()).unwrap_or(false);
+                if is_new {
+                    overrides.settle_for_new_profile(&base);
+                }
                 // What the pickers may offer for this machine, answered with the
                 // preview so the dialog never lists a value for the wrong OS.
                 let options = fury_shared::overrides::options_for(&base, &catalogue);
@@ -2240,7 +2259,7 @@ impl Agent {
                         "screen": [base.screen.width, base.screen.height],
                         "device_pixel_ratio": base.screen.device_pixel_ratio,
                         "cores": base.cpu.cores,
-                        "memory_gb": base.memory_gb,
+                        "memory_gb": if is_new { overrides.memory_gb.unwrap_or(base.memory_gb) } else { base.memory_gb },
                         "gpu": base.gpu.webgl_renderer,
                     },
                 }))
@@ -3800,6 +3819,92 @@ mod exit_check_tests {
         tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
         assert!(flag());
         assert!(agent.idle().await, "the browser is gone; the reaper may let the agent go");
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// 8 GB is where a new Windows profile on a 16 GB machine starts. The other
+    /// half is the one that matters more: a profile that already exists keeps the
+    /// machine it has, because a warmed account must not change under its owner.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn only_a_new_windows_profile_starts_on_8_gb() {
+        let _guard = crate::ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let home = std::env::temp_dir().join(format!("fury-memory-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&home).ok();
+        // SAFETY: the mutex above is what makes this single-threaded.
+        unsafe { std::env::set_var("FURY_HOME", &home) };
+        let agent = super::Agent::new().await.expect("an agent in a scratch home");
+        let of = |os: &str| -> &'static str {
+            let found = crate::personas::all().into_iter().find(|p| p.os.name == os && p.memory_gb == 16);
+            Box::leak(found.expect("a machine on 16 GB").id.into_boxed_str())
+        };
+        let (windows, mac) = (of("Windows"), of("macOS"));
+        let row = |id: &str, name: &str, persona: &str, overrides: serde_json::Value| {
+            serde_json::json!({
+                "id": id, "project_id": null, "name": name, "notes": "", "tags": [], "status": "",
+                "persona_id": persona, "fp_seed": 0, "proxy": null, "proxy_id": null,
+                "timezone": null, "languages": null, "overrides": overrides,
+                "start_urls": [], "allow_no_proxy": false, "last_opened_at": null,
+            })
+        };
+        let make = |name: &'static str, persona: &'static str, overrides: serde_json::Value| {
+            let body = row("", name, persona, overrides);
+            let agent = &agent;
+            async move {
+                agent.dispatch("profiles.upsert", body).await.unwrap()["id"].as_str().unwrap().to_string()
+            }
+        };
+        let memory = |id: String| {
+            let agent = &agent;
+            async move {
+                let all = agent.dispatch("profiles.list", serde_json::json!({})).await.unwrap();
+                let found = all.as_array().unwrap().iter().find(|p| p["id"] == id.as_str()).cloned();
+                found.unwrap()["overrides"]["memory_gb"].as_u64()
+            }
+        };
+
+        let fresh = make("new", windows, serde_json::json!({})).await;
+        assert_eq!(memory(fresh.clone()).await, Some(8));
+        let chosen = make("chosen", windows, serde_json::json!({ "memory_gb": 16 })).await;
+        assert_eq!(memory(chosen).await, Some(16), "a value somebody picked stays");
+        let mac = make("mac", mac, serde_json::json!({})).await;
+        assert_eq!(memory(mac).await, None, "macOS is left alone");
+
+        // What every profile made before this looks like: no override at all.
+        let row_old = row(&fresh, "old", windows, serde_json::json!({}));
+        agent.dispatch("profiles.upsert", row_old.clone()).await.unwrap();
+        assert_eq!(memory(fresh.clone()).await, None, "an edit must not hand it a new machine");
+        agent.dispatch("profiles.upsert", row_old).await.unwrap();
+        assert_eq!(memory(fresh.clone()).await, None);
+
+        let copies = agent
+            .dispatch("profiles.clone", serde_json::json!({ "id": fresh, "count": 1 }))
+            .await
+            .unwrap();
+        let copy = copies["created"][0].as_str().unwrap().to_string();
+        assert_eq!(memory(copy).await, Some(8), "a copy is a new machine");
+        assert_eq!(memory(fresh).await, None, "and its source does not move");
+
+        let many = agent
+            .dispatch(
+                "profiles.createMany",
+                serde_json::json!({ "count": 2, "name_pattern": "m {n}", "template": row("", "m", windows, serde_json::json!({})) }),
+            )
+            .await
+            .unwrap();
+        for id in many["created"].as_array().unwrap() {
+            assert_eq!(memory(id.as_str().unwrap().to_string()).await, Some(8));
+        }
+
+        let preview = |is_new: bool| {
+            let agent = &agent;
+            async move {
+                let spec = serde_json::json!({ "persona_id": windows, "fp_seed": 1, "is_new": is_new, "overrides": {} });
+                agent.dispatch("profile.preview", spec).await.unwrap()["base"]["memory_gb"].as_u64()
+            }
+        };
+        assert_eq!(preview(true).await, Some(8), "the dialog says what saving will store");
+        assert_eq!(preview(false).await, Some(16));
         std::fs::remove_dir_all(&home).ok();
     }
 

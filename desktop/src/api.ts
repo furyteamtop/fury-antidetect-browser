@@ -1067,6 +1067,8 @@ export const api = {
     timezone: string | null;
     languages: string[] | null;
     overrides?: MachineOverrides;
+    /** Not saved yet: answer with what saving it will store. */
+    is_new?: boolean;
   }): Promise<Preview> => cmd<Preview>("preview", { spec }),
   /** `origin` picks this machine's list or the team's; absent, the shell's mode. */
   proxies: (origin?: Origin): Promise<LocalProxy[]> =>
