@@ -221,10 +221,10 @@
   .addr code { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; font-size: 13px; word-break: break-all; flex: 1 1 280px; }
   .addr button { background: var(--raised); color: var(--text); border: 1px solid var(--line-2); border-radius: 8px; padding: 9px 16px; font: inherit; font-size: 14px; cursor: pointer; }
   .addr button:hover { background: var(--line); }
-  .dlgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 26px; }
+  .dlgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 26px; }
   .dlgrid .card h3 { font-size: 20px; }
-  .dlgrid .btn { align-self: flex-start; margin-top: 6px; }
-  @media (max-width: 640px) { .dlgrid { grid-template-columns: minmax(0, 1fr); } }
+  .dlgrid .btn { align-self: flex-start; margin-top: auto; }
+  @media (max-width: 760px) { .dlgrid { grid-template-columns: minmax(0, 1fr); } }
 
   footer { margin-top: clamp(56px, 8vw, 96px); border-top: 1px solid var(--line); padding-block: 30px 50px; color: var(--dim); font-size: 14px; }
   footer p + p { margin-top: 10px; }
@@ -444,10 +444,11 @@ fury_stop_profile                    <b>ok</b></div>
     <div class="dlgrid">
       <div class="card"><h3>macOS</h3><p>[[d.mac]]</p><a class="btn primary" data-release data-word="[[hero.download]]" href="https://github.com/{{REPO}}/releases">[[hero.download]] {{VERSION}}</a></div>
       <div class="card"><h3>Windows</h3><p>[[d.win]]</p><a class="btn primary" data-release data-word="[[hero.download]]" href="https://github.com/{{REPO}}/releases">[[hero.download]] {{VERSION}}</a></div>
+      <div class="card"><h3>[[d.server]]</h3><p>[[d.servert]]</p><a class="btn ghost" href="https://github.com/{{REPO}}/blob/main/docs/13-self-hosting.md">[[t.cta]]</a></div>
     </div>
+    <p class="faint" style="margin-top:12px">[[d.linux]]</p>
     <div class="cta">
       <a class="btn ghost" href="https://github.com/{{REPO}}/blob/main/[[d.docs]]">[[d.steps]]</a>
-      <a class="btn ghost" href="https://github.com/{{REPO}}/blob/main/docs/13-self-hosting.md">[[t.cta]]</a>
       <a class="btn ghost" href="https://github.com/{{REPO}}/releases">[[d.notes]]</a>
     </div>
   </section>
