@@ -96,12 +96,13 @@ def main():
     # distinguishes them: the browser reports it through its own settings API.
     with launch(CORE, None, page="chrome://settings/security") as s:
         time.sleep(2)
+        # chrome.settingsPrivate is what the page reads its prefs through. Until
+        # 157 this asked <settings-ui>.prefs, an internal that went away.
         shown = s.js("""
-          (() => {
-            const s = document.querySelector('settings-ui');
-            if (!s) return null;
-            const p = s.prefs && s.prefs.safebrowsing;
-            return p ? JSON.stringify({enabled: p.enabled && p.enabled.value}) : null;
+          (async () => {
+            if (!globalThis.chrome || !chrome.settingsPrivate) return null;
+            const p = await chrome.settingsPrivate.getPref('safebrowsing.enabled');
+            return p ? JSON.stringify({enabled: p.value}) : null;
           })()
         """)
         print(f"  as the settings page sees it: {shown!r}")
