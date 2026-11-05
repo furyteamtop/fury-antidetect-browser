@@ -1621,14 +1621,10 @@ impl Agent {
                         anyhow::anyhow!("this proxy has no rotation link")
                     })?;
 
-                // reqwest cannot reach a WireGuard peer; a relay of our own
-                // can, and stops when `_relay` goes at the end of this arm.
-                let (route, _relay) = if proxy.kind == "wireguard" {
-                    let (addr, guard) = crate::relay::loopback(crate::parse_upstream(&proxy.url())?).await?;
-                    (addr, Some(guard))
-                } else {
-                    (proxy.url(), None)
-                };
+                // Through a relay of our own, which stops when `_relay` goes at
+                // the end of this arm: reqwest cannot reach a WireGuard peer, and
+                // reads a password holding `#` or `/` as the end of the login.
+                let (route, _relay) = crate::relay::loopback(crate::parse_upstream(&proxy.url())?).await?;
                 let client = reqwest::Client::builder()
                     .proxy(reqwest::Proxy::all(&route)?)
                     .timeout(std::time::Duration::from_secs(30))
