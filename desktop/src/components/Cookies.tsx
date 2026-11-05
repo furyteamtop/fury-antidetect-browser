@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { api, type Profile } from "../api";
 import { useI18n } from "../i18n";
+import { parseCookieCell } from "../csv";
 
 /** Cookies in and out of one profile.
  *
@@ -25,6 +26,7 @@ export function Cookies({
 }) {
   const { t, say } = useI18n();
   const [text, setText] = useState("");
+  const [site, setSite] = useState("https://www.facebook.com");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -33,18 +35,11 @@ export function Cookies({
   // as `{"cookies":[…]}` — which is also exactly what our own export looks like
   // before `JSON.stringify(cookies)` unwraps it. Accept both so a file someone
   // pasted whole imports as-is instead of failing with "not a JSON array".
-  const parsed = (): unknown[] | null => {
-    try {
-      const value = JSON.parse(text);
-      if (Array.isArray(value)) return value;
-      if (value && typeof value === "object" && Array.isArray((value as { cookies?: unknown }).cookies)) {
-        return (value as { cookies: unknown[] }).cookies;
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  };
+  //
+  // `a=1;b=2`, as a seller's line holds them, is taken too, for the site below:
+  // the import of such a line keeps them in the login when it has no proxy yet.
+  const isString = text.trim() !== "" && !/^[[{]/.test(text.trim());
+  const parsed = (): unknown[] | null => parseCookieCell(text, site, Math.floor(Date.now() / 1000));
   const ready = text.trim() !== "" && parsed() !== null;
 
   return (
@@ -72,6 +67,9 @@ export function Cookies({
                   setNote(null);
                 }}
               />
+              {isString && (
+                <input aria-label={t("csv.site")} value={site} spellCheck={false} style={{ marginTop: "var(--s-2)" }} onChange={(e) => setSite(e.target.value)} />
+              )}
               <p className="hint">{t("ck.formats")}</p>
               {text.trim() !== "" && parsed() === null && (
                 <p className="error">{t("ck.notJson")}</p>

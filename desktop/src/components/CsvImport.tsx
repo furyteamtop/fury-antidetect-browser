@@ -4,7 +4,24 @@
 import { useMemo, useRef, useState } from "react";
 import { api, type LocalProxy } from "../api";
 import { useI18n } from "../i18n";
-import { type Field, looksLikeHeader, mapHeader, parseCsv, splitMulti } from "../csv";
+import { hostOs } from "./ProfileDialog";
+import {
+  ACCOUNT_FIELDS,
+  ACCOUNT_LINE,
+  type Field,
+  emailSite,
+  isBarSeparated,
+  looksLikeHeader,
+  mapHeader,
+  parseCookieCell,
+  parseCsv,
+  SECRET_FIELDS,
+  splitMulti,
+} from "../csv";
+
+const ALL_FIELDS: Field[] = [
+  "name", "proxy", "tags", "status", "notes", "start_urls", "timezone", "languages", "persona", ...ACCOUNT_FIELDS,
+];
 
 /** Profiles from a spreadsheet (docs/16 5.7). One row, one profile.
  *
@@ -18,6 +35,12 @@ import { type Field, looksLikeHeader, mapHeader, parseCsv, splitMulti } from "..
  *  machine is, as the batch dialog does. Seeds are never in a CSV: each
  *  profile gets its own on creation, and a column for it would be a column
  *  for linking accounts.
+ *
+ *  A row can be an account too (`id|password|secret|cookies|token|email|…`, or
+ *  the same as columns). What it logs in with goes where a login typed by hand
+ *  goes, the profile's logins, and its cookies into the browser, not into
+ *  notes: importing cookies opens the browser, which needs a proxy, so a row
+ *  without one keeps them in its login and says so. Nothing is dropped.
  *
  *  Local mode only. A team profile's proxy carries sealed credentials on the
  *  server, and importing those is a different dialog with a different
@@ -36,6 +59,9 @@ export function CsvImport({
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [result, setResult] = useState<{ created: number; failed: { row: number; error: string }[] } | null>(null);
+  const [overrides, setOverrides] = useState<Record<number, Field | null>>({});
+  const [site, setSite] = useState("https://www.facebook.com");
+  const [proxyLines, setProxyLines] = useState("");
   const [error, setError] = useState<string | null>(null);
   const file = useRef<HTMLInputElement>(null);
 
@@ -43,14 +69,89 @@ export function CsvImport({
     const rows = parseCsv(text);
     if (rows.length === 0) return null;
     const hasHeader = looksLikeHeader(rows[0]);
-    const fields: (Field | null)[] = hasHeader ? mapHeader(rows[0]) : rows[0].map((_, i) => (i === 0 ? "name" : i === 1 ? "proxy" : null));
+    const bars = !hasHeader && isBarSeparated(text);
+    const read: (Field | null)[] = hasHeader
+      ? mapHeader(rows[0])
+      : rows[0].map((_, i) => (bars ? ACCOUNT_LINE[i] ?? null : i === 0 ? "name" : i === 1 ? "proxy" : null));
+    const fields = read.map((f, i) => (i in overrides ? overrides[i] : f));
     const data = hasHeader ? rows.slice(1) : rows;
-    return { hasHeader, fields, data, header: hasHeader ? rows[0] : null };
-  }, [text]);
+    return { hasHeader, bars, fields, data, header: hasHeader ? rows[0] : null };
+  }, [text, overrides]);
+
+  const accounts = !!parsed && parsed.fields.some((f) => f && ACCOUNT_FIELDS.includes(f));
+  const extraProxies = useMemo(() => proxyLines.split(/\r?\n/).map((l) => l.trim()).filter(Boolean), [proxyLines]);
 
   const get = (row: string[], f: Field) => {
     const i = parsed?.fields.indexOf(f) ?? -1;
     return i >= 0 ? (row[i] ?? "").trim() : "";
+  };
+
+  /** A row's logins and cookies, once its profile exists. A failure here is the
+   *  account's, not the profile's: it comes back as words beside a profile that
+   *  was made, and what could not go in its place stays in the login's notes. */
+  const saveAccount = async (row: string[], profileId: string, proxyId: string | null): Promise<string[]> => {
+    const warnings: string[] = [];
+    const notes: string[] = [];
+    const token = get(row, "token");
+    if (token) notes.push(`Access token: ${token}`);
+
+    const cookies = get(row, "cookies");
+    if (cookies) {
+      const list = parseCookieCell(cookies, site, Math.floor(Date.now() / 1000));
+      if (!list) {
+        notes.push(`Cookies: ${cookies}`);
+        warnings.push(t("csv.cookiesUnread"));
+      } else if (!proxyId) {
+        notes.push(`Cookies: ${cookies}`);
+        warnings.push(t("csv.cookiesNoProxy"));
+      } else {
+        try {
+          await api.importCookies(profileId, list);
+        } catch (e) {
+          notes.push(`Cookies: ${cookies}`);
+          warnings.push(t("csv.cookiesFailed", { error: say(e) }));
+        }
+      }
+    }
+
+    const login = get(row, "login");
+    const password = get(row, "password");
+    const totp = get(row, "totp");
+    if (login || password || totp || notes.length > 0) {
+      const credential = {
+        id: "",
+        profile_id: profileId,
+        label: site.trim().replace(/^https?:\/\/(www\.)?/i, "").replace(/\/.*$/, ""),
+        site: site.trim(),
+        username: login || null,
+        password: password || null,
+        totp: totp || null,
+        notes: notes.join("\n"),
+      };
+      try {
+        await api.saveCredential(credential);
+      } catch (e) {
+        // A seed that does not parse must not cost the password beside it.
+        await api.saveCredential({ ...credential, totp: null, notes: [...notes, `2FA: ${totp}`].join("\n") });
+        warnings.push(t("csv.totpFailed", { error: say(e) }));
+      }
+    }
+
+    const email = get(row, "email");
+    if (email) {
+      const backup = get(row, "backup_email");
+      await api.saveCredential({
+        id: "",
+        profile_id: profileId,
+        label: email.slice(email.lastIndexOf("@") + 1),
+        site: emailSite(email),
+        username: email,
+        password: get(row, "email_password") || null,
+        totp: null,
+        notes: backup ? `Backup email: ${backup}` : "",
+      });
+    }
+    return warnings;
   };
 
   const run = async () => {
@@ -66,7 +167,11 @@ export function CsvImport({
       // Proxy lines that are neither a known name nor a known address are
       // created first, once each, through the same parser the paste dialog
       // uses. The result maps line number back to the id.
-      const wanted = [...new Set(parsed.data.map((r) => get(r, "proxy")).filter(Boolean))];
+      // One proxy per account, in order. Never handed round: two accounts behind
+      // one exit is what gets both of them closed, so rows past the end of the
+      // list go without one and say so.
+      const proxyCell = (r: string[], i: number) => get(r, "proxy") || (accounts ? extraProxies[i] ?? "" : "");
+      const wanted = [...new Set(parsed.data.map(proxyCell).filter(Boolean))];
       const unknown = wanted.filter((w) => !byName.has(w.toLowerCase()));
       const lineToId = new Map<string, string>();
       const lineError = new Map<string, string>();
@@ -93,15 +198,23 @@ export function CsvImport({
       // Weighted pick over the catalogue for rows that name no persona —
       // the same spread the batch dialog uses, done here because the rows
       // differ from one another and the agent's batch call takes one template.
+      //
+      // Of this computer's OS, as the batch dialog's are: a machine of another
+      // OS is not hidden by the patches (agent: pick_weighted_on). This drew from
+      // the whole catalogue until 0.5.0, and with phones in it would have made a
+      // phone of a spreadsheet row.
       const known = new Set(personas.map((p) => p.id));
-      const total = personas.reduce((s, p) => s + p.weight, 0);
+      const host = hostOs();
+      const same = personas.filter((p) => p.os === host);
+      const pool = same.length > 0 ? same : personas;
+      const total = pool.reduce((s, p) => s + p.weight, 0);
       const pick = (): string => {
         let r = Math.random() * total;
-        for (const p of personas) {
+        for (const p of pool) {
           r -= p.weight;
           if (r <= 0) return p.id;
         }
-        return personas[personas.length - 1]?.id ?? "";
+        return pool[pool.length - 1]?.id ?? "";
       };
 
       let created = 0;
@@ -111,15 +224,17 @@ export function CsvImport({
         const row = parsed.data[i];
         const rowNo = i + (parsed.hasHeader ? 2 : 1);
         try {
-          const px = proxyIdFor(get(row, "proxy"));
+          const px = proxyIdFor(proxyCell(row, i));
           if (px.error) throw new Error(px.error);
           const personaCell = get(row, "persona");
           const persona_id = personaCell && known.has(personaCell) ? personaCell : pick();
           const languages = splitMulti(get(row, "languages"));
-          await api.saveProfile({
+          const login = get(row, "login");
+          const startUrls = splitMulti(get(row, "start_urls"));
+          const saved = await api.saveProfile({
             id: "",
             project_id: projectId,
-            name: get(row, "name") || t("csv.unnamed", { n: rowNo }),
+            name: get(row, "name") || login || t("csv.unnamed", { n: rowNo }),
             notes: get(row, "notes"),
             status: get(row, "status"),
             tags: splitMulti(get(row, "tags")),
@@ -128,10 +243,13 @@ export function CsvImport({
             proxy_id: px.id,
             timezone: get(row, "timezone") || null,
             languages: languages.length > 0 ? languages : null,
-            start_urls: splitMulti(get(row, "start_urls")),
+            start_urls: startUrls.length > 0 || !accounts ? startUrls : [site.trim()].filter(Boolean),
             blocklists: [],
           }, "local");
           created++;
+          if (accounts) {
+            for (const warning of await saveAccount(row, saved.id, px.id)) failed.push({ row: rowNo, error: warning });
+          }
         } catch (e) {
           failed.push({ row: rowNo, error: say(e) });
         }
@@ -167,7 +285,10 @@ export function CsvImport({
                 spellCheck={false}
                 style={{ width: "100%", fontFamily: "var(--mono)", fontSize: 12 }}
                 placeholder={"name,proxy,tags,status\nShop 1,http://user:pass@1.2.3.4:8080,de;shop,warming\nShop 2,Residential DE,de,new"}
-                onChange={(e) => setText(e.target.value)}
+                onChange={(e) => {
+                  setText(e.target.value);
+                  setOverrides({});
+                }}
               />
               <div className="row" style={{ marginTop: "var(--s-2)" }}>
                 <input
@@ -177,7 +298,10 @@ export function CsvImport({
                   style={{ display: "none" }}
                   onChange={(e) => {
                     const f = e.target.files?.[0];
-                    if (f) void f.text().then(setText);
+                    if (f) {
+                      setOverrides({});
+                      void f.text().then(setText);
+                    }
                   }}
                 />
                 <button className="ghost" disabled={busy} onClick={() => file.current?.click()}>{t("csv.chooseFile")}</button>
@@ -189,7 +313,11 @@ export function CsvImport({
               <label>{t("csv.preview")}</label>
               <div>
                 <p className="hint">
-                  {parsed.hasHeader ? t("csv.headerFound", { n: recognised, m: parsed.fields.length }) : t("csv.noHeader")}
+                  {parsed.hasHeader
+                    ? t("csv.headerFound", { n: recognised, m: parsed.fields.length })
+                    : parsed.bars
+                      ? t("csv.barsFound")
+                      : t("csv.noHeader")}
                   {" · "}
                   {t("csv.rows", { n: parsed.data.length })}
                 </p>
@@ -199,7 +327,16 @@ export function CsvImport({
                       <tr>
                         {parsed.fields.map((f, i) => (
                           <th key={i} className={f ? undefined : "dim"}>
-                            {f ? t(`csv.f.${f}` as never) : t("csv.ignored")}
+                            <select
+                              aria-label={parsed.header?.[i] ?? t("csv.column", { n: i + 1 })}
+                              value={f ?? ""}
+                              onChange={(e) => setOverrides({ ...overrides, [i]: (e.target.value || null) as Field | null })}
+                            >
+                              <option value="">{t("csv.ignored")}</option>
+                              {ALL_FIELDS.map((x) => (
+                                <option key={x} value={x}>{t(`csv.f.${x}` as never)}</option>
+                              ))}
+                            </select>
                             {parsed.header && <div className="muted small mono">{parsed.header[i]}</div>}
                           </th>
                         ))}
@@ -208,9 +345,9 @@ export function CsvImport({
                     <tbody>
                       {parsed.data.slice(0, 5).map((r, i) => (
                         <tr key={i}>
-                          {parsed.fields.map((_, j) => (
+                          {parsed.fields.map((f, j) => (
                             <td key={j} className="small" style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {r[j]}
+                              {f && SECRET_FIELDS.includes(f) && r[j] ? "••••••" : r[j]}
                             </td>
                           ))}
                         </tr>
@@ -220,6 +357,39 @@ export function CsvImport({
                 </div>
               </div>
             </div>
+          )}
+          {accounts && (
+            <>
+              <div className="field">
+                <label htmlFor="csv-site">{t("csv.site")}</label>
+                <div>
+                  <input id="csv-site" value={site} spellCheck={false} onChange={(e) => setSite(e.target.value)} />
+                  <p className="hint">{t("csv.siteHint")}</p>
+                </div>
+              </div>
+              {!parsed?.fields.includes("proxy") && (
+                <div className="field">
+                  <label htmlFor="csv-proxies">{t("csv.proxies")}</label>
+                  <div>
+                    <textarea
+                      id="csv-proxies"
+                      rows={4}
+                      value={proxyLines}
+                      spellCheck={false}
+                      style={{ width: "100%", fontFamily: "var(--mono)", fontSize: 12 }}
+                      placeholder={"host:port:user:pass"}
+                      onChange={(e) => setProxyLines(e.target.value)}
+                    />
+                    <p className="hint">
+                      {t("csv.proxiesHint")}
+                      {extraProxies.length < (parsed?.data.length ?? 0) && (
+                        <> {t("csv.proxiesShort", { n: extraProxies.length, m: parsed?.data.length ?? 0 })}</>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </>
           )}
           {progress && busy && <p className="hint">{t("csv.progress", { done: progress.done, total: progress.total })}</p>}
           {result && (
