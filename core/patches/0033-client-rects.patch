@@ -21,7 +21,7 @@ index 6816436412..98e35ed98a 100644
 +                                        const gfx::RectF& rect,
 +                                        const LayoutObject* layout_object) {
 +  const double zoom =
-+      layout_object ? layout_object->StyleRef().EffectiveZoom() : 1.0;
++      layout_object ? layout_object->Style().EffectiveZoom() : 1.0;
 +  const double left = fury::PerturbLayoutEdge(seed, rect.x(), zoom);
 +  const double top = fury::PerturbLayoutEdge(seed, rect.y(), zoom);
 +  const double right = fury::PerturbLayoutEdge(seed, rect.right(), zoom);
@@ -94,7 +94,7 @@ index fcea0d9667..506fa4aeb8 100644
 +  if (!fury::GetClientRectsNoiseSeed(&seed)) {
 +    return;
 +  }
-+  const double zoom = layout_object.StyleRef().EffectiveZoom();
++  const double zoom = layout_object.Style().EffectiveZoom();
 +  for (auto& quad : quads) {
 +    if (!quad.IsRectilinear()) {
 +      continue;
