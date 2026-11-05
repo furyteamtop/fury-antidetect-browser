@@ -719,6 +719,12 @@ impl Persona {
                 // like the rest of the fingerprint; its own stream, so it
                 // shifts nothing else.
                 "touchSeed": sub_seed(seed, "touch"),
+                // Degrees. What makes deviceorientation fire at a held phone's
+                // rate (patch 0135): two real ones sent 58-60 in 4 s. Measured
+                // on the core 05.11.2026: 0.016 sent a median 46 in 3 s, 0.008
+                // about 33 and 0.04 about 110. The core's own default is only
+                // for a config without this, which the agent never writes.
+                "orientationJitter": 0.015 + (sub_seed(seed, "orientation") % 1000) as f64 / 1000.0 * 0.005,
             });
             if !m.voices.is_empty() {
                 config["speech"]["androidVoices"] = m.voices.clone().into();
@@ -735,6 +741,9 @@ impl Persona {
                 "features": webgpu.features,
             });
         }
+        // No adapter on the real machine, and null is what its page gets (patch
+        // 0032). Without this the core would show the host's own.
+        config["gpu"]["noWebgpuAdapter"] = self.gpu.webgpu.is_none().into();
 
         config
     }

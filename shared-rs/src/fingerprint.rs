@@ -527,6 +527,7 @@ pub const CORE_CONFIG_KEYS: &[&str] = &[
     "gpu.webgl2Extensions",
     "gpu.webglExtensions",
     "gpu.webglParams.",
+    "gpu.noWebgpuAdapter",
     "gpu.webgpu.architecture",
     "gpu.webgpu.description",
     "gpu.webgpu.device",
@@ -539,6 +540,7 @@ pub const CORE_CONFIG_KEYS: &[&str] = &[
     "mobile.connectionType",
     "mobile.enabled",
     "mobile.touchSeed",
+    "mobile.orientationJitter",
     "navigator.deviceMemory",
     "navigator.hardwareConcurrency",
     "navigator.languages",
@@ -612,7 +614,7 @@ const OPTIONAL_BRANCHES: &[(&str, &[&str])] = &[
     ("speech.androidVoices", &["speech.androidVoices"]),
     // A desktop persona has no handset, and its absence is what leaves
     // patch 0130 out of the way (persona.rs, derive_core_config).
-    ("mobile", &["mobile.connectionType", "mobile.enabled", "mobile.touchSeed"]),
+    ("mobile", &["mobile.connectionType", "mobile.enabled", "mobile.orientationJitter", "mobile.touchSeed"]),
     ("mediaDevices", &["mediaDevices."]),
     (
         "geolocation",

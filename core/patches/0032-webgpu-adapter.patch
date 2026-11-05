@@ -145,3 +145,29 @@ index c6f066cce4..6573569fbf 100644
  }
  
  // static
+diff --git a/third_party/blink/renderer/modules/webgpu/gpu.cc b/third_party/blink/renderer/modules/webgpu/gpu.cc
+--- a/third_party/blink/renderer/modules/webgpu/gpu.cc
++++ b/third_party/blink/renderer/modules/webgpu/gpu.cc
+@@ -10,6 +10,7 @@
+ #include "base/metrics/histogram_macros.h"
+ #include "base/notreached.h"
+ #include "base/synchronization/waitable_event.h"
++#include "components/fury/fury_config.h"
+ #include "gpu/command_buffer/client/webgpu_interface.h"
+ #include "gpu/config/gpu_finch_features.h"
+ #include "mojo/public/cpp/bindings/remote.h"
+@@ -392,6 +393,14 @@
+       MakeGarbageCollected<ScriptPromiseResolver<IDLNullable<GPUAdapter>>>(
+           script_state);
+   auto promise = resolver->Promise();
++  // A machine with no adapter answers null, as a Huawei P30's Chrome does.
++  // Without this a persona carrying no WebGPU let the host's through: "apple",
++  // "metal-3" behind a Mali GPU (patch 0032, measured 05.11.2026).
++  if (const fury::FuryConfig* config = fury::FuryConfig::Get();
++      config && config->GetBool("gpu.noWebgpuAdapter").value_or(false)) {
++    resolver->Resolve(nullptr);
++    return promise;
++  }
+   RequestAdapterImpl(script_state, options, resolver);
+   return promise;
+ }

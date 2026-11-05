@@ -68,6 +68,12 @@ def main():
                        f"{len(bare['features'])} features, so a shorter list "
                        f"below came from the config")
 
+    # A machine with no adapter: null, and not the host's own behind its GPU.
+    with launch(CORE, {"gpu": {"noWebgpuAdapter": True}}) as s:
+        gone = s.js("navigator.gpu.requestAdapter().then((a) => a === null)")
+        print(f"  no adapter configured, requestAdapter() is null: {gone}")
+        claims.check(gone is True, f"a persona with no WebGPU adapter answers null (got {gone})")
+
     keep = bare["features"][:2]
     with launch(CORE, {"gpu": {"webgpu": {"features": keep}}}) as s:
         got = json.loads(s.js(READ))

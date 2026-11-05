@@ -884,9 +884,11 @@ fn gate_checks(flat: &std::collections::BTreeMap<String, String>) -> Vec<Check> 
     // 10. Scrollbar must match the claimed OS.
     match (get("navigator.platform"), get("screen.scrollbarWidth")) {
         (Some(platform), Some(w)) => {
-            let is_mac = platform.contains("Mac");
+            // Overlay scrollbars on a Mac and on a phone: both real phones in
+            // the baselines answer 0.
+            let overlay = platform.contains("Mac") || platform.starts_with("Linux arm");
             let width: i64 = w.parse().unwrap_or(-1);
-            let ok = if is_mac { width == 0 } else { width > 0 };
+            let ok = if overlay { width == 0 } else { width > 0 };
             let detail = format!("{width}px with platform={platform}");
             if ok {
                 add("scrollbar matches claimed OS", Verdict::Pass, detail);

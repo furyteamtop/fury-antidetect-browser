@@ -171,12 +171,12 @@ index 0000000000..61be2450e4
 +  // MEMS sensor noise floors, as phones report them.
 +  accel_noise_ = d.Between(0.008, 0.02);
 +  gyro_noise_ = d.Between(0.0008, 0.003);
-+  // The phone's sensor fusion leaves the angles a few hundredths of a degree
-+  // of jitter, and that is what makes deviceorientation fire: Blink sends an
-+  // event only when an angle moves by 0.1 degree, and both phones sent 58-60
-+  // in 4 s. Without it a still hand sent ~30, with the old drift ~200.
-+  // Drawn last so the draws above keep their values for a given seed.
-+  orientation_jitter_ = d.Between(0.035, 0.045);
++  // The phone's fusion filter leaves the angles a little jitter. Readings are
++  // rounded to 0.1 degree, so a small one already crosses a step and fires
++  // deviceorientation: both phones sent 58-60 events in 4 s, 0.035-0.045 here
++  // sent 140-151 (05.11.2026). Drawn last so the draws above keep their values.
++  orientation_jitter_ = fury::FuryConfig::Get()->GetDouble(
++      "mobile.orientationJitter").value_or(d.Between(0.007, 0.009));
 +
 +  auto* proxy = WebContentsSensorProviderProxy::GetOrCreate(web_contents);
 +  for (SensorType type : kTypes) {

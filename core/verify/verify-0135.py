@@ -80,7 +80,7 @@ window.out = null;
       g: fin(m.g), gx: fin(m.gx), gy: fin(m.gy), gz: fin(m.gz),
       lx: fin(m.lx), ly: fin(m.ly), lz: fin(m.lz), ra: fin(m.ra), rb: fin(m.rb), rg: fin(m.rg) },
     orient: { n: o.n, beta: fin(o.b), gamma: fin(o.c), alpha: fin(o.a) },
-    accel: { started: acc.started, readings: acc.readings, g: fin(acc.g), error: acc.error },
+    accel: { focused: document.hasFocus(), started: acc.started, readings: acc.readings, g: fin(acc.g), error: acc.error },
   };
 })();
 </script>"""
@@ -168,7 +168,9 @@ def phone(seed):
     return {"schema_version": 1, "navigator": {"maxTouchPoints": 5},
             "screen": {"width": 384, "height": 832, "availWidth": 384, "availHeight": 832,
                        "devicePixelRatio": 2.8125, "chromeHeightDelta": 192, "colorDepth": 24},
-            "mobile": {"enabled": True, "connectionType": "cellular", "touchSeed": seed}}
+            "mobile": {"enabled": True, "connectionType": "cellular", "touchSeed": seed,
+                       # As the agent writes it (persona.rs).
+                       "orientationJitter": 0.0175}}
 
 
 def held(o):
@@ -215,7 +217,13 @@ check(len(ang) == 3 and all(x < 1.5 for x in ang) and 30 <= a["orient"]["n"] <= 
       f"phone: its angles wander by under a degree and deviceorientation fires as a "
       f"phone's does: spread {[round(x, 2) for x in ang]} deg, {a['orient']['n']} events in 3 s")
 acc = a["accel"]
-check(acc["started"] and acc["readings"] >= 100 and acc["g"] and abs(acc["g"]["mean"] - 9.81) < 0.25,
+# Blink suspends a Generic Sensor while the page has no focus, in real Chrome too
+# (SensorProxy::ShouldSuspendUpdates): someone clicking elsewhere during a run
+# left 114-123 readings, or none. That says nothing about the patch.
+if not acc["focused"]:
+    print(f"  NOTE the window lost focus during the run, so the Accelerometer "
+          f"was suspended ({acc['readings']} readings): not judged")
+check(not acc["focused"] or (acc["started"] and acc["readings"] >= 100 and acc["g"] and abs(acc["g"]["mean"] - 9.81) < 0.25),
       f"phone: the Generic Sensor Accelerometer reads the same ({acc['readings']} readings, "
       f"|g| {acc['g'] and round(acc['g']['mean'], 3)}, error {acc['error']})")
 beta_a2, gamma_a2 = held(a2)
