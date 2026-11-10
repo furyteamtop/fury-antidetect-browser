@@ -29,6 +29,7 @@ export const tr: Record<Key, string> = {
   "cred.title": "Girişler",
   "cred.add": "Giriş ekle",
   "cred.empty": "Bu profil için kayıtlı giriş yok. Ortak bir hesabın parolası ve iki aşamalı doğrulama anahtarı bir grup sohbetinde değil burada durur: bu makinede mühürlenir, sunucu varsa kuruluş anahtarıyla da mühürlenir.",
+  "cred.hint": "Tarayıcının parola yöneticisinde değil, Fury'de tutulur: buradaki hiçbir şey sayfalara doldurulmaz. Parola veya kod buradan kopyalanır ve elle yapıştırılır.",
   "cred.label": "Ad",
   "cred.site": "Site",
   "cred.username": "Kullanıcı adı",

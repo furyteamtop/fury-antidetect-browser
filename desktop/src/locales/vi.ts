@@ -29,6 +29,7 @@ export const vi: Record<Key, string> = {
   "cred.title": "Đăng nhập",
   "cred.add": "Thêm thông tin đăng nhập",
   "cred.empty": "Hồ sơ này chưa lưu thông tin đăng nhập nào. Mật khẩu và mã 2FA của tài khoản dùng chung được lưu ở đây thay vì trong nhóm chat — được mã hóa trên máy này, và mã hóa bằng khóa của tổ chức khi có máy chủ.",
+  "cred.hint": "Được lưu trong Fury, không phải trong trình quản lý mật khẩu của trình duyệt: không có gì ở đây được tự điền vào trang. Mật khẩu hoặc mã được sao chép từ đây và dán thủ công.",
   "cred.label": "Tên",
   "cred.site": "Trang web",
   "cred.username": "Tên đăng nhập",

@@ -29,6 +29,7 @@ export const pt: Record<Key, string> = {
   "cred.title": "Logins",
   "cred.add": "Adicionar login",
   "cred.empty": "Nenhum login salvo para este perfil. A senha e a chave de dois fatores de uma conta compartilhada ficam aqui, e não num grupo de chat: protegidas neste computador e, quando há um servidor, também com a chave da organização.",
+  "cred.hint": "Fica no Fury, não no gerenciador de senhas do navegador: nada daqui é preenchido nas páginas. A senha ou o código é copiado aqui e colado à mão.",
   "cred.label": "Nome",
   "cred.site": "Site",
   "cred.username": "Usuário",

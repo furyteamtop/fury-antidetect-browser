@@ -53,16 +53,6 @@ pub struct AppState {
     /// lives exactly as long as the process and no longer. Signing out drops
     /// it; so does quitting. That is the intended cost of the design.
     pub org_key: Mutex<Option<[u8; 32]>>,
-
-    /// The highest organisation-key generation this machine has ever accepted.
-    ///
-    /// Persisted, because the attack it stops spans restarts: the wrapping of
-    /// an organisation key carries no signature, so a server that kept a
-    /// member's pre-rotation blob could serve it back and return them to a key
-    /// a removed colleague still holds. Everything they sealed afterwards would
-    /// be readable by that person and by nobody else in the team. A watermark
-    /// that only moves forward makes that a refusal instead.
-    pub ork_generation: Mutex<i32>,
 }
 
 /// A failed call, in the same shape the browser transport produces.
@@ -643,22 +633,11 @@ pub async fn login_totp(state: State<'_, AppState>, email: String, password: Str
 }
 
 async fn finish_login(state: &State<'_, AppState>, ok: LoginOk, email: &str, password: &str) -> R<Me> {
-    state.session.store(&ok.token);
-
-    // Unwrap the organisation key while the password is still in hand — it is
-    // the only moment it exists in this process. A failure here is not fatal to
-    // signing in: someone whose key has not been handed over yet still has an
-    // account, and should be able to see the team rather than a login error.
+    // Never backwards. A generation below what this machine has already seen
+    // from this server is a rollback, whatever produced it. Before the token
+    // is kept: a sign-in that is refused must not leave a session behind.
     {
-        let mut settings = state.settings.lock().unwrap();
-        settings.last_email = Some(email.to_string());
-        let _ = settings.save(&state.config_dir);
-    }
-
-    // Never backwards. A generation below what this machine has already seen is
-    // a rollback, whatever produced it.
-    {
-        let seen = *state.ork_generation.lock().unwrap();
+        let seen = state.settings.lock().unwrap().seen_generation();
         if let Some(g) = ok.ork_generation {
             if g < seen {
                 return Err(ApiErr::coded(
@@ -671,6 +650,18 @@ async fn finish_login(state: &State<'_, AppState>, ok: LoginOk, email: &str, pas
                 ));
             }
         }
+    }
+
+    state.session.store(&ok.token);
+
+    // Unwrap the organisation key while the password is still in hand — it is
+    // the only moment it exists in this process. A failure here is not fatal to
+    // signing in: someone whose key has not been handed over yet still has an
+    // account, and should be able to see the team rather than a login error.
+    {
+        let mut settings = state.settings.lock().unwrap();
+        settings.last_email = Some(email.to_string());
+        let _ = settings.save(&state.config_dir);
     }
 
     // Waiting to be let in: the one state where the verification code is
@@ -698,11 +689,10 @@ async fn finish_login(state: &State<'_, AppState>, ok: LoginOk, email: &str, pas
                 }
             }
             if let Some(g) = ok.ork_generation {
-                let mut seen = state.ork_generation.lock().unwrap();
-                *seen = (*seen).max(g);
                 let mut s = state.settings.lock().unwrap();
-                s.ork_generation = *seen;
-                let _ = s.save(&state.config_dir);
+                if s.accept_generation(g) {
+                    let _ = s.save(&state.config_dir);
+                }
             }
         }
         Err(e) => {
@@ -977,6 +967,8 @@ pub async fn signup(
         s.server_url = Some(base.clone());
         s.last_server = Some(base.clone());
         s.last_email = Some(email);
+        // A sign-up makes the organisation and its first key, here.
+        s.start_generation(&base, 1);
         s.save(&state.config_dir)
             .map_err(|err| ApiErr::local(format!("Could not save settings: {err}")))?;
     }
@@ -1059,6 +1051,9 @@ pub async fn enrol(
         let mut s = state.settings.lock().unwrap();
         s.server_url = Some(base.clone());
         s.last_server = Some(base.clone());
+        // An owner's invitation makes the organisation's first key here; a
+        // member's makes an account that holds none yet.
+        s.start_generation(&base, if e.org_key.is_some() { 1 } else { 0 });
         s.save(&state.config_dir)
             .map_err(|err| ApiErr::local(format!("Could not save settings: {err}")))?;
     }
@@ -1683,7 +1678,7 @@ async fn launch_from_spec(state: &AppState, grant: &LockGrant, cdp: bool) -> R<s
     // retired, and a browser launched on it would seal its bundle under a
     // profile key nobody else holds. Dropped, so the window asks for the
     // password that opens the new one.
-    let held_generation = *state.ork_generation.lock().unwrap();
+    let held_generation = state.settings.lock().unwrap().seen_generation();
     let credentials = match crypto::open_proxy_credentials(
         &org_key,
         &spec.proxy.credentials_enc,
@@ -1705,11 +1700,10 @@ async fn launch_from_spec(state: &AppState, grant: &LockGrant, cdp: bool) -> R<s
     // it is what this machine refuses to go back below at the next sign-in,
     // and what the agent sends with the bundle.
     if let Some(g) = spec.key_generation.filter(|g| *g > held_generation) {
-        let mut seen = state.ork_generation.lock().unwrap();
-        *seen = (*seen).max(g);
         let mut s = state.settings.lock().unwrap();
-        s.ork_generation = *seen;
-        let _ = s.save(&state.config_dir);
+        if s.accept_generation(g) {
+            let _ = s.save(&state.config_dir);
+        }
     }
 
     let seed = fury_shared::persona::seed::from_hex(&spec.fp_seed).ok_or_else(|| {
@@ -2125,11 +2119,10 @@ pub async fn remove_member(
         state.session.store_org_key(&new_key);
     }
     if let Some(g) = out.get("generation").and_then(|v| v.as_i64()) {
-        let mut seen = state.ork_generation.lock().unwrap();
-        *seen = (*seen).max(g as i32);
         let mut s = state.settings.lock().unwrap();
-        s.ork_generation = *seen;
-        let _ = s.save(&state.config_dir);
+        if s.accept_generation(g as i32) {
+            let _ = s.save(&state.config_dir);
+        }
     }
     Ok(out)
 }

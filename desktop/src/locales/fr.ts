@@ -29,6 +29,7 @@ export const fr: Record<Key, string> = {
   "cred.title": "Identifiants",
   "cred.add": "Ajouter un identifiant",
   "cred.empty": "Aucun identifiant enregistré pour ce profil. Le mot de passe et la clé d'authentification à deux facteurs d'un compte partagé sont stockés ici plutôt que dans une conversation de groupe : scellés sur cette machine, et scellés avec la clé d'organisation lorsqu'il y a un serveur.",
+  "cred.hint": "Conservé dans Fury, pas dans le gestionnaire de mots de passe du navigateur : rien n'est saisi dans les pages. Le mot de passe ou le code se copie ici et se colle à la main.",
   "cred.label": "Nom",
   "cred.site": "Site",
   "cred.username": "Nom d'utilisateur",

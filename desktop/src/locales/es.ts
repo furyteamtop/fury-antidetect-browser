@@ -29,6 +29,7 @@ export const es: Record<Key, string> = {
   "cred.title": "Accesos",
   "cred.add": "Añadir un acceso",
   "cred.empty": "No hay accesos guardados para este perfil. La contraseña y la semilla de doble factor de una cuenta compartida se guardan aquí y no en un chat de grupo: cifradas en este equipo y, si hay servidor, también con la clave de la organización.",
+  "cred.hint": "Se guarda en Fury, no en el gestor de contraseñas del navegador: nada de esto se rellena en las páginas. La contraseña o el código se copian aquí y se pegan a mano.",
   "cred.label": "Nombre",
   "cred.site": "Sitio",
   "cred.username": "Usuario",

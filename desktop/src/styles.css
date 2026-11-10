@@ -2198,3 +2198,23 @@ button.partnerBuy svg {
   padding: var(--s-2) var(--s-3);
   border-top: 1px solid var(--line);
 }
+
+
+/* Country flags. Windows draws a flag emoji as its two letters, so the glyphs
+ * come from a font limited to the regional indicators: nothing else in the
+ * interface is ever taken from it. Twemoji, CC-BY 4.0 (see NOTICE). */
+@font-face {
+  font-family: "Twemoji Country Flags";
+  src: url("./assets/TwemojiCountryFlags.woff2") format("woff2");
+  unicode-range: U+1F1E6-1F1FF;
+  font-display: swap;
+}
+.flag {
+  font-family: "Twemoji Country Flags", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 1.15em;
+  line-height: 1;
+  vertical-align: -0.1em;
+}
+.flag:empty {
+  display: none;
+}

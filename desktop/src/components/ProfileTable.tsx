@@ -2,6 +2,7 @@
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { flag } from "../flag";
 import { useI18n } from "../i18n";
 import { Icon, IconButton } from "./Icon";
 import type { Me, Profile } from "../api";
@@ -302,7 +303,13 @@ export function ProfileTable({
                         which reads as a broken value rather than a fact not yet
                         known. */}
                     <div className="muted small">
-                      {p.proxy.country ?? t("row.proxyUnchecked")}
+                      {p.proxy.country ? (
+                        <>
+                          <span className="flag">{flag(p.proxy.country)}</span> {p.proxy.country}
+                        </>
+                      ) : (
+                        t("row.proxyUnchecked")
+                      )}
                       {/* The server masks the host for anyone without
                           reveal_secrets; say so, or a masked value reads like a
                           bug rather than a boundary. */}

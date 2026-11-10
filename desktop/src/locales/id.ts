@@ -29,6 +29,7 @@ export const id: Record<Key, string> = {
   "cred.title": "Login",
   "cred.add": "Tambah login",
   "cred.empty": "Belum ada login yang disimpan untuk profil ini. Kata sandi akun bersama dan seed autentikasi dua faktor disimpan di sini, bukan di grup chat — disegel di komputer ini, dan disegel dengan kunci organisasi jika ada server.",
+  "cred.hint": "Disimpan di Fury, bukan di pengelola kata sandi browser: tidak ada yang diisikan ke halaman. Kata sandi atau kode disalin dari sini lalu ditempel sendiri.",
   "cred.label": "Nama",
   "cred.site": "Situs",
   "cred.username": "Nama pengguna",

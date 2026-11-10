@@ -102,8 +102,15 @@ export function Login({
       // password, so this message must not distinguish them either — saying
       // "no such user" here would undo that. A refusal by the organisation's
       // address list is a different thing and says so.
-      const code = (e as { code?: string } | null)?.code;
-      setError(code === "err.ipNotAllowed" ? t("err.ipNotAllowed") : challenge ? t("auth.wrongCode") : t("auth.wrong"));
+      //
+      // Only a refusal of the credentials is "wrong password", though. Until
+      // 0.5.2 everything was: a server that could not be reached, and the
+      // refusal of an organisation key older than this machine has used,
+      // both read as a mistyped password to somebody who had typed it right.
+      const err = e as { code?: string; status?: number; message?: string } | null;
+      if (err?.status === 401) setError(challenge ? t("auth.wrongCode") : t("auth.wrong"));
+      else if (err?.code === "err.ipNotAllowed" || err?.code === "err.staleOrgKey") setError(t(err.code));
+      else setError(err?.message || (challenge ? t("auth.wrongCode") : t("auth.wrong")));
     } finally {
       setBusy(false);
     }

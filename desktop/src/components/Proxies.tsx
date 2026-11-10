@@ -4,6 +4,7 @@
 import { Icon, IconButton } from "./Icon";
 import { useCallback, useEffect, useState } from "react";
 import { api, type LocalProxy, type Profile } from "../api";
+import { flag } from "../flag";
 import { useI18n } from "../i18n";
 import { useAsk } from "./Ask";
 import { ProxyForm, addedByMe, proxyLock } from "./ProxyForm";
@@ -165,7 +166,12 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
                   </td>
                   <td className="muted small">
                     {p.last_ip ?? "—"}
-                    {p.last_country ? ` · ${p.last_country}` : ""}
+                    {p.last_country && (
+                      <>
+                        {" · "}
+                        <span className="flag">{flag(p.last_country)}</span> {p.last_country}
+                      </>
+                    )}
                     {(() => {
                       const c = checks.get(p.id);
                       if (!c) return null;

@@ -29,6 +29,7 @@ export const de: Record<Key, string> = {
   "cred.title": "Zugangsdaten",
   "cred.add": "Zugangsdaten hinzufügen",
   "cred.empty": "Für dieses Profil sind keine Zugangsdaten gespeichert. Passwort und Zwei-Faktor-Seed eines gemeinsamen Kontos liegen hier statt in einem Gruppenchat: auf diesem Rechner versiegelt, und bei vorhandenem Server zusätzlich mit dem Organisationsschlüssel versiegelt.",
+  "cred.hint": "Liegt in Fury, nicht im Passwortmanager des Browsers: Nichts davon wird in Seiten eingetragen. Passwort oder Code werden hier kopiert und von Hand eingefügt.",
   "cred.label": "Name",
   "cred.site": "Website",
   "cred.username": "Benutzername",

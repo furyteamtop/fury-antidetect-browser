@@ -109,3 +109,13 @@ computer.
 
 Raw captures are not committed. See tools/detect-suite/baselines/.gitignore, and
 `cargo run -p fury-detect -- redact --check` before committing one.
+
+
+7. COUNTRY FLAGS
+-----------------
+
+desktop/src/assets/TwemojiCountryFlags.woff2 is the "Twemoji Country Flags"
+font from country-flag-emoji-polyfill 0.1.8 (Copyright (c) 2022 TalkJS, MIT).
+The flag artwork in it comes from Twemoji, Copyright Twitter, Inc and other
+contributors, used and redistributed under CC-BY 4.0:
+https://creativecommons.org/licenses/by/4.0/

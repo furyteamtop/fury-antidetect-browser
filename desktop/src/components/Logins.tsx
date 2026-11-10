@@ -86,6 +86,9 @@ export function Logins({ profileId }: { profileId: string }) {
         </div>
       )}
 
+      {/* Said always, not only while the list is empty: the section was read
+          as a view of the browser's own password manager that did not work. */}
+      <p className="muted">{t("cred.hint")}</p>
       {rows.length === 0 && !editing && <p className="muted">{t("cred.empty")}</p>}
 
       {rows.map((c) => (

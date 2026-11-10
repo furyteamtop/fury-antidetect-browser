@@ -64,10 +64,27 @@ pub struct Settings {
     #[serde(default)]
     pub own_public_key: Option<OwnPublicKey>,
 
-    /// The highest organisation-key generation this machine has accepted. Only
-    /// ever moves forward — see AppState::ork_generation.
+    /// Where the one number below lived before it was kept per server. Read
+    /// from an old file, moved into `ork_generations` by `load`, written as 0.
     #[serde(default)]
     pub ork_generation: i32,
+
+    /// The highest organisation-key generation this machine has accepted from
+    /// each server, by address. Only ever moves forward, except when this
+    /// machine itself starts over on a server (`start_generation`).
+    ///
+    /// The wrapping of an organisation key carries no signature, so a server
+    /// that kept a member's pre-rotation blob could serve it back and return
+    /// them to a key a removed colleague still holds. A watermark that only
+    /// moves forward makes that a refusal.
+    ///
+    /// Per server because generations are counted per organisation. Until
+    /// 0.5.2 it was one number for the machine: somebody who had rotated a key
+    /// on one server and then set up a second one could create its owner and
+    /// never sign in again, the new organisation being at generation 1 and the
+    /// machine remembering 2. The sign-in screen called that a wrong password.
+    #[serde(default)]
+    pub ork_generations: std::collections::BTreeMap<String, i32>,
 
     /// Whether the organisation key is remembered between launches.
     ///
@@ -99,6 +116,7 @@ impl Settings {
                 if s.machine_id.is_empty() {
                     s.machine_id = new_machine_id();
                 }
+                s.adopt_legacy_generation();
                 s
             }
             None => Settings {
@@ -106,6 +124,7 @@ impl Settings {
                 last_server: None,
                 own_public_key: None,
                 ork_generation: 0,
+                ork_generations: Default::default(),
                 remember_org_key: true,
                 server_url: None,
                 machine_id: new_machine_id(),
@@ -127,6 +146,58 @@ impl Settings {
 
     fn path(dir: &PathBuf) -> PathBuf {
         dir.join("settings.json")
+    }
+
+    /// The single number an older version kept belongs to the server that
+    /// version was last pointed at: the only one it can have come from that
+    /// this file still names.
+    fn adopt_legacy_generation(&mut self) {
+        if self.ork_generation == 0 {
+            return;
+        }
+        if let Some(server) = self.server_url.clone().or_else(|| self.last_server.clone()) {
+            let seen = self.ork_generations.entry(server).or_insert(0);
+            *seen = (*seen).max(self.ork_generation);
+        }
+        self.ork_generation = 0;
+    }
+
+    /// The highest generation accepted from the server this installation is
+    /// pointed at. 0 when it is pointed at none, or has accepted none.
+    pub fn seen_generation(&self) -> i32 {
+        self.server_url
+            .as_deref()
+            .and_then(|s| self.ork_generations.get(s))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// Record a generation this machine opened a key of. Never lowers it.
+    /// True when the number moved, which is when the file needs saving.
+    pub fn accept_generation(&mut self, generation: i32) -> bool {
+        let Some(server) = self.server_url.clone() else { return false };
+        let seen = self.ork_generations.entry(server).or_insert(0);
+        if generation > *seen {
+            *seen = generation;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// This machine has just made a new identity on `server`: an account from
+    /// an invitation or a sign-up, with a key pair generated here a moment
+    /// ago. Whatever was remembered for that address described an identity
+    /// this one replaces (a server set up again on the same address is the
+    /// usual case), so the count starts where the new one stands: 1 for
+    /// somebody who created the organisation and its key, 0 for a member who
+    /// holds no key yet.
+    ///
+    /// The one place the number may go down. It is safe here and nowhere
+    /// else: no blob the server kept can be opened by a private key that did
+    /// not exist until now.
+    pub fn start_generation(&mut self, server: &str, generation: i32) {
+        self.ork_generations.insert(server.to_string(), generation);
     }
 }
 
@@ -240,6 +311,55 @@ mod tests {
             normalise_server_url("HTTPS://Fury.Example.com").unwrap(),
             "https://Fury.Example.com"
         );
+    }
+
+    fn pointed_at(server: &str) -> Settings {
+        Settings { server_url: Some(server.into()), ..Default::default() }
+    }
+
+    #[test]
+    fn a_generation_seen_on_one_server_says_nothing_about_another() {
+        // The report of 10.11.2026: a key rotated on the old server, then a
+        // new server whose organisation is at generation 1.
+        let mut s = pointed_at("https://old.example");
+        assert!(s.accept_generation(2));
+        s.server_url = Some("https://new.example".into());
+        assert_eq!(s.seen_generation(), 0);
+        assert!(s.accept_generation(1));
+        // And going back, the old server's number is still there.
+        s.server_url = Some("https://old.example".into());
+        assert_eq!(s.seen_generation(), 2);
+    }
+
+    #[test]
+    fn a_generation_never_goes_back_by_being_accepted() {
+        let mut s = pointed_at("https://a.example");
+        assert!(s.accept_generation(3));
+        assert!(!s.accept_generation(2));
+        assert_eq!(s.seen_generation(), 3);
+    }
+
+    #[test]
+    fn a_new_identity_starts_the_count_again() {
+        // The same address, a server set up from nothing behind it.
+        let mut s = pointed_at("https://a.example");
+        s.accept_generation(4);
+        s.start_generation("https://a.example", 1);
+        assert_eq!(s.seen_generation(), 1);
+    }
+
+    #[test]
+    fn the_number_an_older_version_kept_goes_to_its_server() {
+        let mut s: Settings = serde_json::from_str(
+            r#"{"server_url":null,"machine_id":"m","last_server":"https://a.example","ork_generation":3}"#,
+        )
+        .unwrap();
+        s.adopt_legacy_generation();
+        assert_eq!(s.ork_generation, 0);
+        s.server_url = Some("https://a.example".into());
+        assert_eq!(s.seen_generation(), 3);
+        s.server_url = Some("https://b.example".into());
+        assert_eq!(s.seen_generation(), 0);
     }
 
     #[test]
