@@ -310,9 +310,35 @@ impl std::fmt::Debug for Sealed {
 }
 
 pub fn pack(profile_dir: &Path, sealer: &Sealer<'_>) -> anyhow::Result<Sealed> {
+    pack_with(profile_dir, sealer, &[])
+}
+
+/// A file of the bundle taken from somewhere other than the profile directory.
+///
+/// `path` is relative to the profile. `from` is the file whose bytes go into
+/// the bundle under that name, or `None` to leave the name out altogether.
+pub struct Swap {
+    pub path: std::path::PathBuf,
+    pub from: Option<std::path::PathBuf>,
+}
+
+/// `pack`, with some files of the bundle swapped for others.
+///
+/// For an upload whose cookie jar had to be rewritten first (rekey.rs). The
+/// profile on disk stays exactly as it was: the rewritten jar is read from
+/// where it was made, so an upload that fails halfway leaves nothing to undo.
+/// A swap that names a file the profile does not have adds it.
+pub fn pack_with(profile_dir: &Path, sealer: &Sealer<'_>, swaps: &[Swap]) -> anyhow::Result<Sealed> {
     let mut archive = tar::Builder::new(Vec::new());
+    let mut used = vec![false; swaps.len()];
     if profile_dir.exists() {
-        append_dir(&mut archive, profile_dir, profile_dir)?;
+        append_dir(&mut archive, profile_dir, profile_dir, swaps, &mut used)?;
+    }
+    for (swap, used) in swaps.iter().zip(&used) {
+        if let (false, Some(from)) = (*used, swap.from.as_ref()) {
+            let mut file = std::fs::File::open(from)?;
+            archive.append_file(&swap.path, &mut file)?;
+        }
     }
     let tar_bytes = archive.into_inner()?;
 
@@ -405,6 +431,8 @@ fn append_dir<W: Write>(
     archive: &mut tar::Builder<W>,
     root: &Path,
     dir: &Path,
+    swaps: &[Swap],
+    used: &mut [bool],
 ) -> anyhow::Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
@@ -425,10 +453,20 @@ fn append_dir<W: Write>(
             continue;
         }
         if path.is_dir() {
-            append_dir(archive, root, &path)?;
+            append_dir(archive, root, &path, swaps, used)?;
         } else if path.is_file() {
             let rel = path.strip_prefix(root)?;
-            let mut file = std::fs::File::open(&path)?;
+            let source = match swaps.iter().position(|s| s.path == rel) {
+                Some(i) => {
+                    used[i] = true;
+                    match swaps[i].from.as_deref() {
+                        Some(from) => from,
+                        None => continue,
+                    }
+                }
+                None => path.as_path(),
+            };
+            let mut file = std::fs::File::open(source)?;
             archive.append_file(rel, &mut file)?;
         }
     }
@@ -483,6 +521,42 @@ mod tests {
             1
         );
         assert_eq!(std::fs::read(dest.join("Default/Cookies")).unwrap(), b"warm-account");
+    }
+
+    #[test]
+    fn a_swapped_file_travels_in_place_of_the_profiles_own() {
+        // An upload whose jar was rewritten: the bundle carries the rewritten
+        // one under the old name, drops what described the old one, gains the
+        // file the profile did not have, and the profile itself is untouched.
+        let key = [5u8; 32];
+        let src = dir("swap-src");
+        std::fs::create_dir_all(src.join("Default/Network")).unwrap();
+        std::fs::write(src.join("Default/Network/Cookies"), b"machine-bound").unwrap();
+        std::fs::write(src.join("Default/Network/Cookies-journal"), b"old journal").unwrap();
+        std::fs::write(src.join("Default/Preferences"), b"{}").unwrap();
+        let aside = dir("swap-aside");
+        std::fs::write(aside.join("jar"), b"profile-bound").unwrap();
+        std::fs::write(aside.join("id"), b"abc").unwrap();
+
+        let rel = std::path::Path::new("Default").join("Network");
+        let sealed = pack_with(
+            &src,
+            &Sealer::Shared { key, vault: None },
+            &[
+                Swap { path: rel.join("Cookies"), from: Some(aside.join("jar")) },
+                Swap { path: rel.join("Cookies-journal"), from: None },
+                Swap { path: "Fury Key Id".into(), from: Some(aside.join("id")) },
+            ],
+        )
+        .unwrap();
+
+        let dest = dir("swap-dest");
+        unpack(&sealed.bytes, &sealed.wrapped_key, &Sealer::Shared { key, vault: None }, &dest).unwrap();
+        assert_eq!(std::fs::read(dest.join("Default/Network/Cookies")).unwrap(), b"profile-bound");
+        assert!(!dest.join("Default/Network/Cookies-journal").exists());
+        assert_eq!(std::fs::read(dest.join("Default/Preferences")).unwrap(), b"{}");
+        assert_eq!(std::fs::read(dest.join("Fury Key Id")).unwrap(), b"abc");
+        assert_eq!(std::fs::read(src.join("Default/Network/Cookies")).unwrap(), b"machine-bound");
     }
 
     #[test]

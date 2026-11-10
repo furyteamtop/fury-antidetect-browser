@@ -60,6 +60,12 @@ pub struct LaunchSpec<'a> {
     /// See the switches in `build_args` and patch 0305.
     pub background: bool,
 
+    /// No window at all. Never for a profile somebody browses with: a headless
+    /// Chrome differs from a windowed one in ways a site can measure. It is for
+    /// the agent's own errands on a directory no page is loaded in, which today
+    /// is one: moving a jar onto the profile's key before an upload (rekey.rs).
+    pub headless: bool,
+
     /// The key the core encrypts this profile's cookies with, or `None` to
     /// leave that to the machine's own keychain.
     ///
@@ -266,6 +272,10 @@ pub fn build_args(spec: &LaunchSpec) -> Vec<String> {
     // Chrome too.
     //
     // Neither reaches a page. Both are visible in argv, like the lock switches.
+    if spec.headless {
+        args.push("--headless=new".to_string());
+    }
+
     if spec.background {
         args.push("--fury-background-window".to_string());
         args.push("--disable-backgrounding-occluded-windows".to_string());
@@ -334,13 +344,15 @@ pub fn spawn(spec: &LaunchSpec) -> Result<std::process::Child, LaunchError> {
     // a profile without DRM opens, one that refuses to open is an outage.
     // Idempotent, and an APFS clone, so a launch does not wait on 19 MB.
     #[cfg(target_os = "macos")]
-    match crate::widevine::stage_into_profile(spec.user_data_dir) {
-        Ok(s) => tracing::debug!(to = %s.to.display(), "Widevine CDM in the profile"),
-        Err(e) => tracing::warn!(
-            error = %e,
-            "no Widevine CDM for this profile — DRM video will not play, and \
-             requestMediaKeySystemAccess will refuse where real Chrome accepts"
-        ),
+    if !spec.headless {
+        match crate::widevine::stage_into_profile(spec.user_data_dir) {
+            Ok(s) => tracing::debug!(to = %s.to.display(), "Widevine CDM in the profile"),
+            Err(e) => tracing::warn!(
+                error = %e,
+                "no Widevine CDM for this profile — DRM video will not play, and \
+                 requestMediaKeySystemAccess will refuse where real Chrome accepts"
+            ),
+        }
     }
 
     // After the CDM: both are best effort, and neither may stop a launch.
@@ -439,6 +451,7 @@ mod tests {
             start_urls: &[],
             debug_port: Some(9222),
             background: false,
+            headless: false,
             os_crypt_key: None,
             ui_locale: "de",
         }

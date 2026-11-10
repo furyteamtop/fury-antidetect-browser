@@ -298,28 +298,33 @@ pub fn parse_location(raw: &str) -> Option<(f64, f64)> {
 
 /// What to open on this launch.
 ///
-/// Start URLs open on the FIRST launch and never again. The browser restores its
-/// previous session (see launcher.rs), and start URLs passed on top of a
-/// restored session are ADDED to it rather than replacing it — so the tenth
-/// launch of a profile opened its start page for the tenth time and the
-/// operator closed nine tabs by hand. Measured: two launches, one extra copy.
+/// The pages a profile is set to open on start open on EVERY launch. The
+/// browser also restores its previous session (see launcher.rs) and pages
+/// passed on top of a restored session are added to it, so a start page left
+/// open at the last close comes back twice. That is the price, chosen
+/// 10.11.2026: from 03.08 they opened on the first launch only, which made the
+/// setting do nothing from the second launch on, editing the list included,
+/// and was reported as "does not work". Telling which pages the session will
+/// bring back means reading its file, and Chromium 157 is moving that file
+/// under encryption (`Default/Sessions_Encrypted`).
+///
+/// With nothing configured, the start page opens on the first launch and
+/// never again: it is proof that the disguise and the exit are working, wanted
+/// once, and on the tenth launch it was a tab the operator closed by hand.
 ///
 /// "Has it been opened before" is asked of the directory rather than of a flag
 /// in the database, for the same reason `running` is: a flag can be wrong after
 /// a crash, or after a bundle is unpacked from a colleague's machine, and the
 /// Sessions directory is the very thing the browser will read a moment later.
 fn start_urls_for(dir: &std::path::Path, configured: &[String], start_page: &str) -> Vec<String> {
+    if !configured.is_empty() {
+        return configured.to_vec();
+    }
     if dir.join("Default").join("Sessions").is_dir() {
         return Vec::new();
     }
-    if configured.is_empty() {
-        // Nothing configured means the start page, not a blank tab: the first
-        // thing an operator needs after opening a profile is proof that the
-        // disguise and the exit are working. The address carries this
-        // launch's token — see `Relay::start_url`.
-        return vec![start_page.to_string()];
-    }
-    configured.to_vec()
+    // The address carries this launch's token — see `Relay::start_url`.
+    vec![start_page.to_string()]
 }
 
 impl Agent {
@@ -2471,12 +2476,58 @@ impl Agent {
                 }
                 key.copy_from_slice(&raw);
 
-                let sealed = crate::bundle::pack(
-                    &paths::profile_dir(&id),
+                // The cookies first. They are under this machine's key, and
+                // packed as they are they would arrive unreadable, which the
+                // colleague's browser answers by deleting them. See rekey.rs.
+                //
+                // Refused when it cannot be done, not sent anyway: a profile
+                // that stays here intact can be sent tomorrow, and one that
+                // arrived signed out has already been saved that way.
+                let dir = paths::profile_dir(&id);
+                let rekeyed = match crate::rekey::jar(&dir) {
+                    Some(jar) if crate::rekey::census(&dir.join(&jar)).await?.machine_bound > 0 => {
+                        let profile = self
+                            .store
+                            .profile(&id)
+                            .await?
+                            .ok_or_else(|| anyhow::anyhow!("no such profile"))?;
+                        let (config, ui_locale) = quiet_config(&profile)?;
+                        let binary = self.core().ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "this profile's cookies have to be converted before they can \
+                                 leave this machine, and that needs the browser, which is not \
+                                 installed. Download it and send the profile again"
+                            )
+                        })?;
+                        let core = crate::rekey::Core {
+                            binary: &binary,
+                            config: &config,
+                            ui_locale: &ui_locale,
+                        };
+                        crate::rekey::rekey(
+                            &dir,
+                            &core,
+                            fury_shared::keys::os_crypt_key(&key, &remote_id),
+                        )
+                        .await
+                        .map_err(|e| {
+                            anyhow::anyhow!(
+                                "the profile was not sent: its cookies could not be converted \
+                                 for the team ({e:#}). Nothing was changed on this machine"
+                            )
+                        })?
+                    }
+                    _ => None,
+                };
+                let swaps = rekeyed.as_ref().map(|r| r.swaps(&dir)).unwrap_or_default();
+
+                let sealed = crate::bundle::pack_with(
+                    &dir,
                     &crate::bundle::Sealer::Shared {
                         key,
                         vault: Some(self.store.vault()),
                     },
+                    &swaps,
                 )?;
 
                 // base_version 0: this profile has never been on that server,
@@ -2487,7 +2538,12 @@ impl Agent {
                     .push_bundle(&remote_id, &sealed.bytes, &sealed.wrapped_key, &sealed.sha256, 0, &lock_token, None)
                     .await?;
 
-                Ok(json!({ "bytes": sealed.bytes.len(), "version": version }))
+                Ok(json!({
+                    "bytes": sealed.bytes.len(),
+                    "version": version,
+                    "cookies_converted": rekeyed.as_ref().map(|r| r.read - r.refused),
+                    "cookies_refused": rekeyed.as_ref().map(|r| r.refused),
+                }))
             }
 
             "profile.unpack" => {
@@ -3237,20 +3293,7 @@ impl Agent {
             let _ = std::fs::remove_file(dir.join("DevToolsActivePort"));
         }
 
-        // Start URLs open on the FIRST launch and never again.
-        //
-        // The browser now restores its previous session (see launcher.rs), and
-        // start URLs passed on top of a restored session are added to it rather
-        // than replacing it — so the tenth launch of a profile opened its start
-        // page for the tenth time and the operator closed nine tabs by hand.
-        // Measured: two launches, one extra copy; the pattern is obvious from
-        // there.
-        //
-        // "Has it been opened before" is asked of the directory rather than of
-        // a flag in the database, for the same reason `running` is: a flag can
-        // be wrong after a crash or after a bundle is unpacked from a
-        // colleague's machine, and the Sessions directory is the thing the
-        // browser itself will be reading a moment later.
+        // The profile's own pages on every launch, the start page on the first.
         let start_urls = start_urls_for(&dir, &profile.start_urls, &start_page);
 
         // Whatever has been installed for this profile. Read from disk rather
@@ -3284,6 +3327,7 @@ impl Agent {
             // started without CDP for no visible reason.
             debug_port: wants_cdp.then_some(0),
             background,
+            headless: false,
         })?;
 
         let pid = child.id();
@@ -3513,12 +3557,43 @@ impl Agent {
     }
 }
 
+/// A config the core will start with, for a browser that loads no page.
+///
+/// The profile's own persona and seed, so it is a config the core has already
+/// accepted, with nothing asked of the proxy: the timezone and languages a
+/// launch takes from the exit are fixed here, because no site will see them.
+fn quiet_config(profile: &Profile) -> anyhow::Result<(serde_json::Value, String)> {
+    let persona = crate::personas::load(&profile.persona_id)?;
+    let persona = profile
+        .overrides
+        .apply(&persona, &crate::personas::all())
+        .map_err(|errs| {
+            anyhow::anyhow!(
+                "the machine settings of this profile describe a machine that does not exist:\n  {}",
+                errs.join("\n  ")
+            )
+        })?;
+    let mut ctx = fury_shared::persona::ProfileContext {
+        timezone: "UTC".into(),
+        languages: vec!["en-US".into(), "en".into()],
+        ui_locale: "en-US".into(),
+        geolocation: None,
+        chrome_major: crate::CHROME_MAJOR,
+        chrome_full_version: crate::CHROME_FULL_VERSION.to_string(),
+    };
+    profile.overrides.apply_context(&mut ctx);
+    let ui_locale = ctx.ui_locale.clone();
+    let mut config = persona.derive_core_config(profile.fp_seed as u64, &ctx);
+    profile.overrides.apply_config(&mut config);
+    Ok((config, ui_locale))
+}
+
 /// Where Chromium wrote the port it chose, and the browser's WebSocket path.
 ///
 /// Polled rather than waited on once: the file appears a moment after the
 /// process does, and how long that takes depends on whether the profile
 /// directory is cold.
-async fn devtools_endpoint(profile_dir: &std::path::Path) -> Option<(u16, String)> {
+pub(crate) async fn devtools_endpoint(profile_dir: &std::path::Path) -> Option<(u16, String)> {
     let path = profile_dir.join("DevToolsActivePort");
     // Twenty seconds, because that is what a cold start costs: a fresh profile
     // directory, a first run, and a machine doing other things. Measured at
@@ -3651,7 +3726,7 @@ mod tests {
     }
 
     #[test]
-    fn start_urls_open_once_and_then_the_session_takes_over() {
+    fn start_urls_open_on_every_launch_and_the_start_page_once() {
         let tmp = std::env::temp_dir().join(format!("fury-su-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
@@ -3665,10 +3740,13 @@ mod tests {
         // disguise and the exit are working.
         assert_eq!(start_urls_for(&tmp, &[], "http://fury.invalid/t/"), vec!["http://fury.invalid/t/".to_string()]);
 
-        // Once the browser has been here, the session is the answer and passing
-        // anything would stack a duplicate on top of it.
+        // Once the browser has been here: the pages the profile is set to open
+        // still open, the start page does not.
         std::fs::create_dir_all(tmp.join("Default").join("Sessions")).unwrap();
-        assert!(start_urls_for(&tmp, &["https://shop.example/".to_string()], "http://fury.invalid/t/").is_empty());
+        assert_eq!(
+            start_urls_for(&tmp, &["https://shop.example/".to_string()], "http://fury.invalid/t/"),
+            vec!["https://shop.example/".to_string()]
+        );
         assert!(start_urls_for(&tmp, &[], "http://fury.invalid/t/").is_empty());
 
         let _ = std::fs::remove_dir_all(&tmp);

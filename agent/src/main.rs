@@ -31,6 +31,7 @@ mod launcher;
 mod mirror;
 mod paths;
 mod personas;
+mod rekey;
 mod relay;
 mod store;
 mod syn_shape;
@@ -403,6 +404,7 @@ async fn cmd_launch(args: &[String]) -> anyhow::Result<()> {
         // MCP's background start, by hand: for checking patch 0305 on a
         // desktop without going through a stored profile.
         background: args.iter().any(|a| a == "--background"),
+        headless: false,
     };
 
     let mut child = launcher::spawn(&spec)?;
