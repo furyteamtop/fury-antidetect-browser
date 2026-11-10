@@ -3929,6 +3929,24 @@ pub async fn warm_defaults() -> R<serde_json::Value> {
     Ok(crate::agent::call("warm.defaults", serde_json::json!({})).await?)
 }
 
+// ---- bookmark sets (agent/src/bookmarks.rs) ---------------------------------
+//
+// Kept by the agent on this machine and written into a profile's bookmarks bar
+// at its next launch, for local and team profiles alike.
+
+#[tauri::command]
+pub async fn bookmarks_list() -> R<serde_json::Value> {
+    Ok(crate::agent::call("bookmarks.list", serde_json::json!({})).await?)
+}
+#[tauri::command]
+pub async fn bookmarks_save(set: serde_json::Value) -> R<serde_json::Value> {
+    Ok(crate::agent::call("bookmarks.save", serde_json::json!({ "set": set })).await?)
+}
+#[tauri::command]
+pub async fn bookmarks_delete(id: String) -> R<serde_json::Value> {
+    Ok(crate::agent::call("bookmarks.delete", serde_json::json!({ "id": id })).await?)
+}
+
 // ---- farming: warm-ups on a schedule (agent/src/farm.rs) ----------------------
 //
 // The agent keeps the plans and starts local sessions itself. A team session

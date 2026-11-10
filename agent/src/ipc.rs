@@ -1944,6 +1944,24 @@ impl Agent {
 
             "warm.defaults" => Ok(json!({ "urls": crate::warm::DEFAULT_URLS })),
 
+            // Bookmark sets: folders of links given to many profiles, written
+            // into each at its next launch. See bookmarks.rs.
+            "bookmarks.list" => {
+                let book = crate::bookmarks::Book::load(paths::bookmarks_file());
+                Ok(json!({ "sets": book.live() }))
+            }
+            "bookmarks.save" => {
+                let set: crate::bookmarks::Set = serde_json::from_value(params.get("set").cloned().unwrap_or_default())
+                    .map_err(|e| anyhow::anyhow!("bookmark set: {e}"))?;
+                let mut book = crate::bookmarks::Book::load(paths::bookmarks_file());
+                Ok(json!({ "id": book.save(set)? }))
+            }
+            "bookmarks.delete" => {
+                let id = str_param(&params, "id")?;
+                let mut book = crate::bookmarks::Book::load(paths::bookmarks_file());
+                Ok(json!({ "deleted": book.delete(&id)? }))
+            }
+
             // Farming: warm-ups on a schedule, over days. See farm.rs.
             "farm.list" => {
                 let farms = self.farms.lock().await;
@@ -3291,6 +3309,15 @@ impl Agent {
             // (bundle.rs, SKIP), and unpacking one put it back after the removal
             // above. Removed again for those.
             let _ = std::fs::remove_file(dir.join("DevToolsActivePort"));
+        }
+
+        // The bookmark sets this profile has, onto its bookmarks bar. Never a
+        // reason not to open the browser: a profile without its working links
+        // is still a profile somebody needs open.
+        match crate::bookmarks::apply(&dir, &crate::bookmarks::Book::load(paths::bookmarks_file()).sets, &profile.id) {
+            Ok(true) => tracing::info!(profile = %profile.name, "wrote the profile's bookmark sets"),
+            Ok(false) => {}
+            Err(e) => tracing::warn!(error = %e, profile = %profile.name, "could not write the profile's bookmark sets"),
         }
 
         // The profile's own pages on every launch, the start page on the first.

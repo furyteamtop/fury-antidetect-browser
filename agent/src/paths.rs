@@ -109,6 +109,12 @@ pub fn farms_file() -> PathBuf {
     data_dir().join("farms.json")
 }
 
+/// Bookmark sets and the profiles each is given to (bookmarks.rs): one JSON
+/// file, rewritten when a set is saved or deleted.
+pub fn bookmarks_file() -> PathBuf {
+    data_dir().join("bookmarks.json")
+}
+
 /// Where this profile's unpacked extensions sit.
 ///
 /// INSIDE the profile directory, which means the team bundle carries them

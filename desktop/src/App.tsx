@@ -10,6 +10,7 @@ import { BulkProfiles } from "./components/BulkProfiles";
 import { Cookies } from "./components/Cookies";
 import { Extensions } from "./components/Extensions";
 import { NetworkReport } from "./components/NetworkReport";
+import { BookmarksView } from "./components/BookmarksView";
 import { ExtensionsView } from "./components/ExtensionsView";
 import { AssistantsView } from "./components/AssistantsView";
 import { WarmDialog } from "./components/WarmDialog";
@@ -841,6 +842,8 @@ export function App() {
                 ? t("nav.proxies")
                 : view === "extensions"
                 ? t("nav.extensions")
+                : view === "bookmarks"
+                ? t("nav.bookmarks")
                 : view === "assistants"
                 ? t("nav.assistants")
                 : view === "users"
@@ -1638,6 +1641,7 @@ export function App() {
             them looking for a profile list that was never theirs. */}
         {view === "proxies" && <Proxies profiles={profiles} local={local} myEmail={me?.email ?? null} />}
         {view === "extensions" && <ExtensionsView profiles={profiles} />}
+        {view === "bookmarks" && <BookmarksView profiles={profiles} />}
         {view === "assistants" && <AssistantsView />}
 
         {view === "users" && (

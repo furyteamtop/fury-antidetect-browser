@@ -2218,3 +2218,92 @@ button.partnerBuy svg {
 .flag:empty {
   display: none;
 }
+
+
+/* Bookmark sets (components/BookmarksView.tsx). */
+.bookmarks {
+  max-width: 860px;
+}
+.bmSet {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  margin-bottom: var(--s-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+.bmActions,
+.bmFoot,
+.bmAdd {
+  display: flex;
+  gap: var(--s-2);
+}
+.bmFoot {
+  justify-content: flex-end;
+  margin-top: var(--s-5);
+}
+.bmEditor h3 {
+  margin: var(--s-5) 0 var(--s-2);
+}
+.bmTree.nested {
+  margin-inline-start: var(--s-5);
+  padding-inline-start: var(--s-3);
+  border-inline-start: 1px solid var(--line);
+}
+.bmRow {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-bottom: var(--s-2);
+}
+.bmRow input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.bmRow input.mono {
+  flex: 2 1 0;
+}
+.bmRow input.bmFolder {
+  font-weight: 600;
+}
+.bmMove {
+  padding-inline: var(--s-2);
+}
+.bmAdd {
+  margin-bottom: var(--s-3);
+}
+.bmCheck {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 3px 0;
+}
+.bmCheck input {
+  /* The global input rule makes every input a full-width text box. */
+  flex: none;
+  width: auto;
+  margin: 0;
+}
+.bmPickerHead > input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.bmPickerHead > .bmCheck {
+  white-space: nowrap;
+}
+.bmPickerHead {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  margin: var(--s-2) 0;
+}
+.bmPickerList {
+  max-height: 240px;
+  overflow: auto;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}

@@ -11,6 +11,7 @@
 //! docs/09-roadmap.md for what is still missing.
 
 mod blocklist;
+mod bookmarks;
 mod browse;
 mod bundle;
 mod capture;
