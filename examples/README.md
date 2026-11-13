@@ -99,6 +99,9 @@ is off unless you ask, and a team server can refuse it per role.
 | [`puppeteer_example.mjs`](puppeteer_example.mjs) | `connect`, the usual Node route. |
 | [`rotate.py`](rotate.py) | The thing people actually want: run one job across every profile in a project, one at a time, and never leave a browser open on a failure. |
 
+More, from the project and from the community, are in the
+[automation catalogue](automations/README.md), with a template for adding one.
+
 All four take the profile id from the command line, so:
 
 ```bash

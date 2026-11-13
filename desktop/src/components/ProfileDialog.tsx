@@ -9,20 +9,24 @@ import { WireGuardConf } from "./WireGuardConf";
 import { SUGGESTED } from "../status";
 import { api, type DomainList, type LocalProxy, type MachineOverrides, type Persona, type Preview, type Profile, type Project } from "../api";
 import { Logins } from "./Logins";
+import { countryPrefix } from "../flag";
+import { ProfileExtensions } from "./ProfileExtensions";
 import { Select } from "./Select";
 import { SuggestInput } from "./SuggestInput";
 
 // "Logins" only exists for a profile that has been saved: a login belongs to a
 // profile id, and there is no id until the first save. Showing an empty tab on
 // a new profile would invite somebody to type a password into something that
-// cannot store it yet.
-const TABS = ["General", "Proxy", "Device", "Machine", "Logins", "Advanced"] as const;
+// cannot store it yet. "Extensions" waits for the first save for the same
+// reason: they go into the profile's folder, which does not exist before it.
+const TABS = ["General", "Proxy", "Device", "Machine", "Logins", "Extensions", "Advanced"] as const;
 const TAB_KEYS = {
   General: "pd.tabGeneral",
   Proxy: "pd.tabProxy",
   Device: "pd.tabDevice",
   Machine: "pd.tabMachine",
   Logins: "pd.tabLogins",
+  Extensions: "pd.tabExtensions",
   Advanced: "pd.tabAdvanced",
 } as const;
 type Tab = (typeof TABS)[number];
@@ -615,6 +619,16 @@ export function ProfileDialog({
               </div>
             )}
 
+            {tab === "Extensions" &&
+              (editing?.id ? (
+                <ProfileExtensions profile={editing} />
+              ) : (
+                <div className="field">
+                  <div />
+                  <p className="hint">{t("pd.extAfterSave")}</p>
+                </div>
+              ))}
+
             {tab === "Proxy" && (
               <>
                 <div className="field">
@@ -647,7 +661,7 @@ export function ProfileDialog({
                         <option value="">{t("pd.proxyNone")}</option>
                         {proxies.map((p) => (
                           <option key={p.id} value={p.id}>
-                            {p.name} · {p.kind}://{p.host}:{p.port}
+                            {countryPrefix(p.last_country)}{p.name} · {p.kind}://{p.host}:{p.port}
                           </option>
                         ))}
                       </Select>

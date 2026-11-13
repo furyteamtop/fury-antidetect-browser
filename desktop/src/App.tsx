@@ -31,6 +31,7 @@ import { AntidetectImport } from "./components/AntidetectImport";
 import { IconButton } from "./components/Icon";
 import { useTheme } from "./theme";
 import { exitSharing } from "./consistency";
+import { countryPrefix } from "./flag";
 import { isSuggested, setStage as saveStage } from "./status";
 import { Select } from "./components/Select";
 import { OUR_SERVERS, versionNewer } from "./defaults";
@@ -1552,7 +1553,7 @@ export function App() {
                       </option>
                       {proxyList.map((x) => (
                         <option key={x.id} value={x.id}>
-                          {x.name} · {x.last_country ?? x.host}{used.has(x.id) ? ` · ${t("px.usedByN", { n: profiles.filter((p) => p.proxy?.id === x.id).length })}` : ""}
+                          {countryPrefix(x.last_country)}{x.name}{x.last_country ? "" : ` · ${x.host}`}{used.has(x.id) ? ` · ${t("px.usedByN", { n: profiles.filter((p) => p.proxy?.id === x.id).length })}` : ""}
                         </option>
                       ))}
                       {/* A team profile must have a proxy: the server refuses one without. */}

@@ -283,6 +283,14 @@ fn state_dirs(ext_id: &str) -> [PathBuf; 4] {
 /// the source does not have is removed from the destination too, so the copy
 /// is the source's state and nothing else. Both browsers must be closed.
 pub fn copy_with_state(src_profile: &Path, dst_profile: &Path, ext_id: &str) -> Result<Installed> {
+    copy(src_profile, dst_profile, ext_id, true)
+}
+
+/// [`copy_with_state`], or with `with_state` false the extension alone: the
+/// same id, an empty store, and whatever state the destination already had for
+/// it left as it was. For a new persona that should not share the source's
+/// wallet or account, which a copied login would tie the two together by.
+pub fn copy(src_profile: &Path, dst_profile: &Path, ext_id: &str, with_state: bool) -> Result<Installed> {
     if !fury_shared::extensions::is_id(ext_id) {
         bail!("{ext_id:?} is not an extension id");
     }
@@ -306,7 +314,7 @@ pub fn copy_with_state(src_profile: &Path, dst_profile: &Path, ext_id: &str) -> 
     fury_platform::tree::copy_tree_portable(Path::new(&source.path), &dst_dir)
         .with_context(|| format!("copying {}", source.path))?;
 
-    for rel in state_dirs(ext_id) {
+    for rel in state_dirs(ext_id).into_iter().filter(|_| with_state) {
         let (from, to) = (src_profile.join(&rel), dst_profile.join(&rel));
         if to.exists() {
             std::fs::remove_dir_all(&to).with_context(|| format!("clearing {}", to.display()))?;
@@ -318,6 +326,267 @@ pub fn copy_with_state(src_profile: &Path, dst_profile: &Path, ext_id: &str) -> 
     }
 
     Ok(Installed { path: dst_dir.display().to_string(), ..source })
+}
+
+// ---------------------------------------------------------------------------
+// ZIP archives and unpacked folders
+// ---------------------------------------------------------------------------
+//
+// Asked for in issue 28 (11.11.2026): a locally developed extension, or one
+// shipped as a .zip, had no way in. Unpacking is the easy half. The id is the
+// rest of this file over again: without a `key` in the manifest, Chromium
+// derives the id from the path, so every profile and every clone would get a
+// different one and lose the extension's storage.
+//
+// A CRX carries its key; a ZIP or folder carries one only if the developer put
+// it in the manifest. When it does not, a key is generated, and kept here by
+// the extension's name, so that installing the next version of the same
+// extension -- or the same one into another profile next week -- gives the same
+// id. The window tells the operator a key was made, since the extension's id
+// is now ours rather than the developer's.
+
+/// Where the key that pins an extension's id came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KeySource {
+    /// The developer's own, from the manifest.
+    Manifest,
+    /// Generated here for an earlier install of an extension with this name.
+    Saved,
+    /// Generated just now.
+    Generated,
+}
+
+/// What the operator handed over, besides a .crx.
+pub enum Package<'a> {
+    /// A ZIP archive.
+    Archive(&'a [u8]),
+    /// A folder chosen in the window: each file's path relative to the folder
+    /// the operator picked, and its bytes.
+    Files(&'a [(String, Vec<u8>)]),
+}
+
+/// An extension unpacked into a staging directory with its key pinned, ready
+/// to be copied into profiles.
+#[derive(Debug)]
+pub struct Staged {
+    pub root: PathBuf,
+    pub id: String,
+    pub key_source: KeySource,
+    /// Removed when this is dropped.
+    staging: PathBuf,
+}
+
+impl Drop for Staged {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.staging);
+    }
+}
+
+/// Anything an operator can add an extension from, ready to go into profiles.
+pub enum Source {
+    Crx { bytes: Vec<u8>, id: String },
+    Staged(Staged),
+}
+
+impl Source {
+    /// Sorts out what `bytes` is -- a .crx or a .zip, by their first bytes --
+    /// or stages `files`, a folder. Staging goes into a fresh directory under
+    /// the system's temporary folder, removed with the value.
+    pub fn new(bytes: Option<Vec<u8>>, files: Option<Vec<(String, Vec<u8>)>>, keys_file: &Path) -> Result<Self> {
+        let staging = std::env::temp_dir().join(format!("fury-ext-stage-{}", uuid::Uuid::now_v7()));
+        let staged = match (bytes, files) {
+            (Some(bytes), _) if is_crx(&bytes) => {
+                let id = parse(&bytes)?.id;
+                return Ok(Source::Crx { bytes, id });
+            }
+            (Some(bytes), _) => stage(Package::Archive(&bytes), &staging, keys_file, generate_key),
+            (None, Some(files)) => stage(Package::Files(&files), &staging, keys_file, generate_key),
+            (None, None) => bail!("nothing to install: no package and no files"),
+        };
+        // A refused package never becomes a `Staged`, so its Drop never runs:
+        // whatever was unpacked before the refusal is removed here.
+        if staged.is_err() {
+            let _ = std::fs::remove_dir_all(&staging);
+        }
+        Ok(Source::Staged(staged?))
+    }
+
+    pub fn id(&self) -> &str {
+        match self {
+            Source::Crx { id, .. } => id,
+            Source::Staged(s) => &s.id,
+        }
+    }
+
+    /// `None` for a .crx, whose key is the package's own.
+    pub fn key_source(&self) -> Option<KeySource> {
+        match self {
+            Source::Crx { .. } => None,
+            Source::Staged(s) => Some(s.key_source),
+        }
+    }
+
+    pub fn install(&self, dir: &Path) -> Result<Installed> {
+        match self {
+            Source::Crx { bytes, .. } => install(bytes, dir),
+            Source::Staged(s) => install_staged(s, dir),
+        }
+    }
+}
+
+/// True for the bytes of a .crx, as opposed to a ZIP.
+pub fn is_crx(bytes: &[u8]) -> bool {
+    bytes.starts_with(MAGIC)
+}
+
+/// A fresh RSA-2048 key, as the DER SubjectPublicKeyInfo Chromium reads from a
+/// manifest's `key`. The private half is not kept: nothing here signs, and an
+/// unpacked extension is loaded on the strength of the public key alone.
+pub fn generate_key() -> Result<Vec<u8>> {
+    use rsa::pkcs8::EncodePublicKey;
+    let private = rsa::RsaPrivateKey::new(&mut rand::thread_rng(), 2048).context("generating an RSA key")?;
+    Ok(rsa::RsaPublicKey::from(&private)
+        .to_public_key_der()
+        .context("encoding the public key")?
+        .as_bytes()
+        .to_vec())
+}
+
+/// Unpacks `package` into `staging` (emptied first), finds the extension in
+/// it, and pins its id by making sure the manifest has a `key`.
+///
+/// `keys_file` is the store of generated keys; `generate` makes a new one, and
+/// is a parameter only because RSA key generation in an unoptimised test build
+/// takes long enough to matter.
+pub fn stage(
+    package: Package<'_>,
+    staging: &Path,
+    keys_file: &Path,
+    generate: impl FnOnce() -> Result<Vec<u8>>,
+) -> Result<Staged> {
+    if staging.exists() {
+        std::fs::remove_dir_all(staging).with_context(|| format!("clearing {}", staging.display()))?;
+    }
+    std::fs::create_dir_all(staging)?;
+
+    match package {
+        Package::Archive(bytes) => {
+            if !bytes.starts_with(b"PK") {
+                bail!("not_a_package: neither a .crx nor a .zip");
+            }
+            unzip(bytes, staging)?;
+        }
+        Package::Files(files) => {
+            for (name, bytes) in files {
+                let out = safe_join(staging, name)?;
+                if let Some(parent) = out.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&out, bytes)?;
+            }
+        }
+    }
+
+    let root = find_root(staging)?;
+    // Finder's zip puts resource forks in `__MACOSX`, and Chromium refuses to
+    // load an extension with any top-level name starting with "_" other than
+    // its own (`_locales`, `_metadata`): the operator would get an error about
+    // a folder they never made.
+    let junk = root.join("__MACOSX");
+    if junk.exists() {
+        std::fs::remove_dir_all(&junk)?;
+    }
+
+    let manifest_path = root.join("manifest.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifest_path)?).context("reading manifest.json")?;
+    let b64 = base64::engine::general_purpose::STANDARD;
+
+    let existing = manifest.get("key").and_then(|v| v.as_str()).map(str::to_string);
+    let (key, key_source) = match existing {
+        Some(k) => {
+            // Developers paste it with line breaks often enough.
+            let compact: String = k.chars().filter(|c| !c.is_whitespace()).collect();
+            let key = b64.decode(&compact).context("the manifest's key is not base64")?;
+            (key, KeySource::Manifest)
+        }
+        None => {
+            let name = display_name(&root, &manifest);
+            let mut saved = load_keys(keys_file);
+            match saved.get(&name).and_then(|k| b64.decode(k).ok()) {
+                Some(key) => (key, KeySource::Saved),
+                None => {
+                    let key = generate()?;
+                    saved.insert(name, b64.encode(&key));
+                    save_keys(keys_file, &saved)?;
+                    (key, KeySource::Generated)
+                }
+            }
+        }
+    };
+
+    manifest
+        .as_object_mut()
+        .context("manifest.json is not an object")?
+        .insert("key".into(), serde_json::Value::String(b64.encode(&key)));
+    std::fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?)?;
+
+    Ok(Staged { root, id: id_from_key(&key), key_source, staging: staging.to_path_buf() })
+}
+
+/// Copies a staged extension into `dir`, replacing what was there.
+pub fn install_staged(staged: &Staged, dir: &Path) -> Result<Installed> {
+    if dir.exists() {
+        std::fs::remove_dir_all(dir).with_context(|| format!("clearing {}", dir.display()))?;
+    }
+    fury_platform::tree::copy_tree_portable(&staged.root, dir)
+        .with_context(|| format!("copying into {}", dir.display()))?;
+    let manifest: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("manifest.json"))?)?;
+    Ok(Installed {
+        id: staged.id.clone(),
+        name: display_name(dir, &manifest),
+        version: manifest.get("version").and_then(|v| v.as_str()).unwrap_or("0").to_string(),
+        path: dir.display().to_string(),
+    })
+}
+
+/// The directory holding `manifest.json`: the top of the package, or the one
+/// folder inside it -- zipping a folder, the usual way to make a .zip of an
+/// extension, puts everything one level down.
+fn find_root(staging: &Path) -> Result<PathBuf> {
+    if staging.join("manifest.json").is_file() {
+        return Ok(staging.to_path_buf());
+    }
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(staging)?.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with("__MACOSX") || name.starts_with('.') {
+            continue;
+        }
+        if entry.path().join("manifest.json").is_file() {
+            found.push(entry.path());
+        }
+    }
+    match found.len() {
+        1 => Ok(found.remove(0)),
+        0 => bail!("no_manifest: no manifest.json at the top of the package or in a folder directly inside it"),
+        _ => bail!("several_manifests: the package holds more than one extension"),
+    }
+}
+
+fn load_keys(path: &Path) -> std::collections::BTreeMap<String, String> {
+    std::fs::read(path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+fn save_keys(path: &Path, keys: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, serde_json::to_vec_pretty(keys)?)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -786,6 +1055,24 @@ mod tests {
     }
 
     #[test]
+    fn copying_without_state_carries_the_extension_and_not_the_login() {
+        let key = b"wallet key";
+        let crx = crx_with(key, &stored_zip("manifest.json", br#"{"name":"W","version":"2"}"#), 0);
+        let root = scratch("nostate");
+        let (src, dst) = (root.join("src"), root.join("dst"));
+        let id = install(&crx, &src.join(crate::paths::EXTENSIONS_DIR).join("w")).unwrap().id;
+        let login = src.join("Default/Local Extension Settings").join(&id);
+        std::fs::create_dir_all(&login).unwrap();
+        std::fs::write(login.join("000003.log"), b"signed in").unwrap();
+
+        let x = copy(&src, &dst, &id, false).unwrap();
+        assert_eq!(x.id, id);
+        assert!(Path::new(&x.path).join("manifest.json").is_file());
+        assert!(!dst.join("Default/Local Extension Settings").join(&id).exists(), "no login came along");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
     fn copying_from_a_profile_without_the_extension_says_so() {
         let root = scratch("copy-missing");
         let id = id_from_key(b"absent");
@@ -826,5 +1113,114 @@ mod tests {
         let err = install(&crx, &root.join("ext")).unwrap_err().to_string();
         assert!(err.contains("manifest.json"), "{err}");
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    // --- ZIP and folders -----------------------------------------------------
+
+    fn files(list: &[(&str, &[u8])]) -> Vec<(String, Vec<u8>)> {
+        list.iter().map(|(n, b)| (n.to_string(), b.to_vec())).collect()
+    }
+
+    fn manifest_key(dir: &Path) -> Option<String> {
+        let m: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("manifest.json")).unwrap()).unwrap();
+        m.get("key").and_then(|v| v.as_str()).map(str::to_string)
+    }
+
+    #[test]
+    fn a_folder_without_a_key_gets_one_and_keeps_it_on_the_next_install() {
+        let root = scratch("genkey");
+        let keys = root.join("keys.json");
+        let pkg = files(&[("manifest.json", br#"{"name":"Dev Tool","version":"1"}"#), ("bg.js", b"//")]);
+
+        let first = stage(Package::Files(&pkg), &root.join("s1"), &keys, || Ok(b"generated key".to_vec())).unwrap();
+        assert_eq!(first.key_source, KeySource::Generated);
+        assert_eq!(first.id, id_from_key(b"generated key"));
+
+        // The id is pinned in the copy each profile gets, whatever its path.
+        let a = install_staged(&first, &root.join("p1/ext")).unwrap();
+        let b = install_staged(&first, &root.join("p2/elsewhere")).unwrap();
+        assert_eq!((a.id.as_str(), b.id.as_str()), (first.id.as_str(), first.id.as_str()));
+        assert_eq!(installed(&root.join("p2"))[0].id, first.id, "listing reads the id from the key");
+        assert!(manifest_key(&root.join("p2/elsewhere")).is_some());
+
+        // A new version of the same extension, next week: same id, no new key.
+        let v2 = files(&[("manifest.json", br#"{"name":"Dev Tool","version":"2"}"#)]);
+        let second = stage(Package::Files(&v2), &root.join("s2"), &keys, || panic!("must not generate again")).unwrap();
+        assert_eq!(second.key_source, KeySource::Saved);
+        assert_eq!(second.id, first.id);
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn the_developers_own_key_wins_and_nothing_is_generated() {
+        let root = scratch("ownkey");
+        let key = base64::engine::general_purpose::STANDARD.encode(b"developer key");
+        // With a line break in it, as keys are often pasted.
+        let manifest = format!(r#"{{"name":"Shipped","version":"3","key":"{}\n{}"}}"#, &key[..8], &key[8..]);
+        let pkg = files(&[("manifest.json", manifest.as_bytes())]);
+        let s = stage(Package::Files(&pkg), &root.join("s"), &root.join("keys.json"), || panic!("has a key")).unwrap();
+        assert_eq!(s.key_source, KeySource::Manifest);
+        assert_eq!(s.id, id_from_key(b"developer key"));
+        assert!(!root.join("keys.json").exists(), "nothing saved for a key we did not make");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn a_zip_of_a_folder_is_found_one_level_down() {
+        let root = scratch("zipfolder");
+        let zip = stored_zip("my-ext/manifest.json", br#"{"name":"Zipped","version":"1"}"#);
+        let s = stage(Package::Archive(&zip), &root.join("s"), &root.join("k.json"), || Ok(b"k".to_vec())).unwrap();
+        assert!(s.root.ends_with("my-ext"), "{}", s.root.display());
+        let x = install_staged(&s, &root.join("p/ext")).unwrap();
+        assert_eq!(x.name, "Zipped");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn finders_resource_forks_do_not_reach_the_profile() {
+        let root = scratch("macosx");
+        let pkg = files(&[
+            ("manifest.json", br#"{"name":"Mac","version":"1"}"#),
+            ("__MACOSX/._manifest.json", b"fork"),
+        ]);
+        let s = stage(Package::Files(&pkg), &root.join("s"), &root.join("k.json"), || Ok(b"k".to_vec())).unwrap();
+        install_staged(&s, &root.join("p/ext")).unwrap();
+        assert!(!root.join("p/ext/__MACOSX").exists());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn packages_that_are_not_one_extension_say_so() {
+        let root = scratch("badpkg");
+        let k = root.join("k.json");
+        let gen = || Ok(b"k".to_vec());
+
+        let err = stage(Package::Archive(b"hello"), &root.join("a"), &k, gen).unwrap_err().to_string();
+        assert!(err.contains("not_a_package"), "{err}");
+
+        let none = files(&[("readme.txt", b"x")]);
+        let err = stage(Package::Files(&none), &root.join("b"), &k, gen).unwrap_err().to_string();
+        assert!(err.contains("no_manifest"), "{err}");
+
+        let two = files(&[("a/manifest.json", b"{}"), ("b/manifest.json", b"{}")]);
+        let err = stage(Package::Files(&two), &root.join("c"), &k, gen).unwrap_err().to_string();
+        assert!(err.contains("several_manifests"), "{err}");
+
+        let evil = files(&[("../escape/manifest.json", b"{}")]);
+        let err = stage(Package::Files(&evil), &root.join("d"), &k, gen).unwrap_err().to_string();
+        assert!(err.contains("climbs out"), "{err}");
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn a_generated_key_is_what_chromium_reads_as_a_key() {
+        // DER SubjectPublicKeyInfo: a SEQUENCE, and 294 bytes for RSA-2048,
+        // which is the length of every Web Store key.
+        let key = generate_key().unwrap();
+        assert_eq!(key[0], 0x30);
+        assert_eq!(key.len(), 294);
+        assert_ne!(key, generate_key().unwrap());
     }
 }

@@ -49,7 +49,9 @@
   --s-5: 24px;
   --s-6: 32px;
 
-  --font: -apple-system, "SF Pro Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  /* The flag font first: its unicode-range is the regional-indicator letters
+   * only, so it draws flags (Windows has none) and nothing else. */
+  --font: "Twemoji Country Flags", -apple-system, "SF Pro Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
 
   color-scheme: dark;

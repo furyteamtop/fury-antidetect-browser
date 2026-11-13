@@ -115,6 +115,13 @@ pub fn bookmarks_file() -> PathBuf {
     data_dir().join("bookmarks.json")
 }
 
+/// The developer keys this machine generated for extensions imported without
+/// one, by extension name (ext.rs, `stage`): reinstalling the same extension
+/// keeps its id, and with it the storage its logins live in.
+pub fn extension_keys_file() -> PathBuf {
+    data_dir().join("extension-keys.json")
+}
+
 /// Where this profile's unpacked extensions sit.
 ///
 /// INSIDE the profile directory, which means the team bundle carries them

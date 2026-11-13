@@ -3450,13 +3450,18 @@ pub async fn extensions(profile_id: String) -> R<serde_json::Value> {
     Ok(crate::agent::call("extensions.list", serde_json::json!({ "profile_id": profile_id })).await?)
 }
 
-/// `crx_b64` is the file the operator chose in the webview. There is no native
-/// file dialog in this shell, so what JavaScript has is bytes, not a path.
+/// `package_b64` is a .crx or .zip the operator chose in the webview, `files`
+/// a folder (`[{path, b64}]`). There is no native file dialog in this shell, so
+/// what JavaScript has is bytes, not a path. The agent sorts out which it is.
 #[tauri::command]
-pub async fn install_extension(profile_id: String, crx_b64: String) -> R<serde_json::Value> {
+pub async fn install_extension(
+    profile_id: String,
+    package_b64: Option<String>,
+    files: Option<Vec<serde_json::Value>>,
+) -> R<serde_json::Value> {
     Ok(crate::agent::call(
         "extensions.install",
-        serde_json::json!({ "profile_id": profile_id, "crx_b64": crx_b64 }),
+        serde_json::json!({ "profile_id": profile_id, "package_b64": package_b64, "files": files }),
     )
     .await?)
 }
@@ -3467,10 +3472,14 @@ pub async fn all_extensions() -> R<serde_json::Value> {
 }
 
 #[tauri::command]
-pub async fn install_extension_many(profile_ids: Vec<String>, crx_b64: String) -> R<serde_json::Value> {
+pub async fn install_extension_many(
+    profile_ids: Vec<String>,
+    package_b64: Option<String>,
+    files: Option<Vec<serde_json::Value>>,
+) -> R<serde_json::Value> {
     Ok(crate::agent::call(
         "extensions.install_many",
-        serde_json::json!({ "profile_ids": profile_ids, "crx_b64": crx_b64 }),
+        serde_json::json!({ "profile_ids": profile_ids, "package_b64": package_b64, "files": files }),
     )
     .await?)
 }
@@ -3622,10 +3631,16 @@ pub async fn copy_extension_with_state(
     from_profile_id: String,
     ext_id: String,
     profile_ids: Vec<String>,
+    with_state: Option<bool>,
 ) -> R<serde_json::Value> {
     Ok(crate::agent::call(
         "extensions.copy_with_state",
-        serde_json::json!({ "from_profile_id": from_profile_id, "ext_id": ext_id, "profile_ids": profile_ids }),
+        serde_json::json!({
+            "from_profile_id": from_profile_id,
+            "ext_id": ext_id,
+            "profile_ids": profile_ids,
+            "with_state": with_state.unwrap_or(true),
+        }),
     )
     .await?)
 }

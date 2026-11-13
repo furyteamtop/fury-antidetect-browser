@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { api, type LocalProxy, type Profile, type ProfileTemplate } from "../api";
 import { useI18n } from "../i18n";
+import { countryPrefix } from "../flag";
 import { SUGGESTED } from "../status";
 import { Select } from "./Select";
 import { SuggestInput } from "./SuggestInput";
@@ -242,7 +243,7 @@ export function BulkProfiles({
                         <option value="">{t("bp.noProxy")}</option>
                         {proxies.map((p) => (
                           <option key={p.id} value={p.id}>
-                            {p.name}
+                            {countryPrefix(p.last_country)}{p.name}
                           </option>
                         ))}
                       </Select>

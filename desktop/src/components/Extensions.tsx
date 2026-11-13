@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
-import { useEffect, useRef, useState } from "react";
-import { api, type Extension, type Profile, type Usage } from "../api";
+import { useEffect, useState } from "react";
+import { api, type Extension, type ExtensionPackage, type Profile, type Usage } from "../api";
 import { useI18n } from "../i18n";
+import { keyNote, PackageButtons, packageError } from "./ExtensionPackage";
 
 /** Extensions in one profile, and how much disk the profile takes.
  *
@@ -39,7 +40,6 @@ export function Extensions({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const file = useRef<HTMLInputElement>(null);
 
   const reload = async () => {
     try {
@@ -56,20 +56,25 @@ export function Extensions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile.id]);
 
-  const install = async (f: File) => {
+  const install = async (pkg: ExtensionPackage) => {
     setBusy(true);
     setError(null);
     setNote(null);
     try {
-      const b64 = await toBase64(f);
-      const installed = await api.installExtension(profile.id, b64);
-      setNote(t("ext.installed", { name: installed.name, version: installed.version }));
+      const installed = await api.installExtension(profile.id, pkg);
+      setNote(
+        [
+          t("ext.installed", { name: installed.name, version: installed.version }),
+          keyNote(t, installed.key_source, installed.name, installed.id),
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
       await reload();
     } catch (e) {
-      setError(say(e));
+      setError(packageError(t, say, e));
     } finally {
       setBusy(false);
-      if (file.current) file.current.value = "";
     }
   };
 
@@ -125,21 +130,17 @@ export function Extensions({
                   </tbody>
                 </table>
               )}
-              <p className="hint">{t("ext.hint")}</p>
+              <p className="hint">{t("ext.hintAny")}</p>
               {running && <p className="hint">{t("ext.restartHint")}</p>}
-              <input
-                ref={file}
-                type="file"
-                accept=".crx"
-                style={{ display: "none" }}
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void install(f);
-                }}
-              />
-              <button disabled={busy} onClick={() => file.current?.click()}>
-                {busy ? t("ck.working") : t("ext.add")}
-              </button>
+              <div className="row">
+                <PackageButtons
+                  disabled={busy}
+                  fileLabel={busy ? t("ck.working") : t("ext.addFile")}
+                  folderLabel={t("ext.addFolder")}
+                  onPicked={(pkg) => void install(pkg)}
+                  onError={(e) => setError(packageError(t, say, e))}
+                />
+              </div>
             </div>
           </div>
 
@@ -200,15 +201,4 @@ export function Extensions({
 function mb(bytes: number): string {
   const m = bytes / (1024 * 1024);
   return m >= 10 ? Math.round(m).toString() : m.toFixed(1);
-}
-
-function toBase64(f: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onerror = () => reject(r.error);
-    // A data: URL is "data:<type>;base64,<payload>"; the payload is what the
-    // agent wants.
-    r.onload = () => resolve(String(r.result).split(",", 2)[1] ?? "");
-    r.readAsDataURL(f);
-  });
 }

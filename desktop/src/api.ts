@@ -340,6 +340,17 @@ export interface ProfileTemplate {
   notes: string;
 }
 
+/** Where the key pinning an extension's id came from (agent ext.rs): the
+ *  developer's manifest, one this machine made for an earlier install of an
+ *  extension with this name, or one made just now. Null for a .crx. */
+export type KeySource = "manifest" | "saved" | "generated" | null;
+
+/** An extension as the operator handed it over: a .crx or .zip, or a folder's
+ *  files with paths relative to the folder chosen. */
+export type ExtensionPackage =
+  | { packageB64: string }
+  | { files: { path: string; b64: string }[] };
+
 export interface ExtensionEverywhere {
   id: string;
   name: string;
@@ -1312,10 +1323,10 @@ export const api = {
   /** Installed into one profile. Identity survives cloning — see ext.rs. */
   extensions: (profileId: string): Promise<Extension[]> =>
     cmd<Extension[]>("extensions", { profileId }),
-  /** The .crx as base64: the file was chosen in the webview, so bytes are what
-   *  we have. Installing the same extension twice replaces it. */
-  installExtension: (profileId: string, crxB64: string): Promise<Extension> =>
-    cmd<Extension>("install_extension", { profileId, crxB64 }),
+  /** A .crx, .zip or folder, as bytes: it was chosen in the webview.
+   *  Installing the same extension twice replaces it. */
+  installExtension: (profileId: string, pkg: ExtensionPackage): Promise<Extension & { key_source: KeySource }> =>
+    cmd("install_extension", { profileId, ...pkg }),
   /** Every extension on this machine, grouped by id, with the profiles it is in. */
   allExtensions: (): Promise<ExtensionEverywhere[]> => cmd<ExtensionEverywhere[]>("all_extensions"),
   /** The same, counting the team profiles named here as well. */
@@ -1327,14 +1338,14 @@ export const api = {
     extension: Extension | null; installed: string[]; skipped: { id: string; reason: string }[];
   }> => cmd("install_extension_from_store_team", { profileIds, extId }),
   /** One .crx into many profiles. Open profiles are skipped and named. */
-  installExtensionMany: (profileIds: string[], crxB64: string): Promise<{
-    extension: Extension | null; installed: string[]; skipped: { id: string; reason: string }[];
-  }> => cmd("install_extension_many", { profileIds, crxB64 }),
+  installExtensionMany: (profileIds: string[], pkg: ExtensionPackage): Promise<{
+    extension: Extension | null; installed: string[]; skipped: { id: string; reason: string }[]; key_source: KeySource;
+  }> => cmd("install_extension_many", { profileIds, ...pkg }),
   /** One profile's extension with its storage -- so signed in -- into others.
    *  Every browser involved must be closed; see ext::copy_with_state. */
-  copyExtensionWithState: (fromProfileId: string, extId: string, profileIds: string[]): Promise<{
+  copyExtensionWithState: (fromProfileId: string, extId: string, profileIds: string[], withState = true): Promise<{
     extension: Extension | null; installed: string[]; skipped: { id: string; reason: string }[];
-  }> => cmd("copy_extension_with_state", { fromProfileId, extId, profileIds }),
+  }> => cmd("copy_extension_with_state", { fromProfileId, extId, profileIds, withState }),
   removeExtension: (profileId: string, id: string): Promise<unknown> =>
     cmd("remove_extension", { profileId, id }),
   extensionCatalogue: (): Promise<CatalogueEntry[]> => cmd("extension_catalogue"),

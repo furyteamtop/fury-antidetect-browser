@@ -993,29 +993,15 @@ impl Agent {
 
             "extensions.install" => {
                 let id = str_param(&params, "profile_id")?;
-                // Either a path on this machine or the .crx itself, base64.
-                // The desktop has no native file dialog — a file chosen in
-                // the webview is bytes in JavaScript, not a path the agent
-                // could open — and a CRX is a few megabytes, which the pipe
-                // carries without ceremony.
-                let bytes = if let Some(b64) = params.get("crx_b64").and_then(|v| v.as_str()) {
-                    use base64::Engine;
-                    base64::engine::general_purpose::STANDARD
-                        .decode(b64)
-                        .map_err(|e| anyhow::anyhow!("crx_b64 is not base64: {e}"))?
-                } else {
-                    let path = str_param(&params, "path")?;
-                    std::fs::read(&path)
-                        .map_err(|e| anyhow::anyhow!("reading {path}: {e}"))?
-                };
-
-                let parsed = crate::ext::parse(&bytes)?;
+                let source = extension_source(&params)?;
                 // Named by id, so installing the same extension twice replaces
                 // it instead of accumulating directories that all claim the
                 // same identity.
-                let dir = paths::extensions_dir(&id).join(&parsed.id);
-                let installed = crate::ext::install(&bytes, &dir)?;
-                Ok(serde_json::to_value(installed)?)
+                let dir = paths::extensions_dir(&id).join(source.id());
+                let installed = source.install(&dir)?;
+                let mut out = serde_json::to_value(installed)?;
+                out["key_source"] = json!(source.key_source());
+                Ok(out)
             }
 
             "extensions.list" => {
@@ -1080,14 +1066,7 @@ impl Agent {
                     .and_then(|v| v.as_array())
                     .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
                     .unwrap_or_default();
-                let b64 = str_param(&params, "crx_b64")?;
-                let bytes = {
-                    use base64::Engine;
-                    base64::engine::general_purpose::STANDARD
-                        .decode(&b64)
-                        .map_err(|e| anyhow::anyhow!("crx_b64 is not base64: {e}"))?
-                };
-                let parsed = crate::ext::parse(&bytes)?;
+                let source = extension_source(&params)?;
                 let running = self.running.lock().await;
                 let mut installed = Vec::new();
                 let mut skipped = Vec::new();
@@ -1097,8 +1076,8 @@ impl Agent {
                         skipped.push(json!({ "id": id, "reason": "open" }));
                         continue;
                     }
-                    let dir = paths::extensions_dir(&id).join(&parsed.id);
-                    match crate::ext::install(&bytes, &dir) {
+                    let dir = paths::extensions_dir(&id).join(source.id());
+                    match source.install(&dir) {
                         Ok(x) => {
                             about.get_or_insert(x);
                             installed.push(id);
@@ -1110,6 +1089,7 @@ impl Agent {
                     "extension": about.map(|x| json!({ "id": x.id, "name": x.name, "version": x.version })),
                     "installed": installed,
                     "skipped": skipped,
+                    "key_source": source.key_source(),
                 }))
             }
 
@@ -1255,8 +1235,13 @@ impl Agent {
                 if !is_known(&from) {
                     anyhow::bail!("{from:?} is not a profile id");
                 }
+                // False copies the extension without its storage (ext::copy):
+                // the profile editor's "from another profile", for a persona
+                // that must not share the source's login.
+                let with_state = params.get("with_state").and_then(|v| v.as_bool()).unwrap_or(true);
                 let running = self.running.lock().await;
-                if running.contains_key(&from) {
+                // The source's files do not change while it runs; its storage does.
+                if with_state && running.contains_key(&from) {
                     anyhow::bail!("source_open");
                 }
                 let source = paths::profile_dir(&from);
@@ -1286,12 +1271,12 @@ impl Agent {
                             }
                         }
                     };
-                    match crate::ext::copy_with_state(&source, &paths::profile_dir(&id), &ext_id) {
+                    match crate::ext::copy(&source, &paths::profile_dir(&id), &ext_id, with_state) {
                         Ok(x) => {
                             // An existing marker already names the version this
                             // copy grew from; replacing it would forget a session
                             // that never reached the server.
-                            if let Some(v) = team_held {
+                            if let Some(v) = team_held.filter(|_| with_state) {
                                 if crate::unsynced::base(&id).is_none() {
                                     crate::unsynced::mark(&id, v);
                                 }
@@ -3749,6 +3734,41 @@ fn add_webrtc_exit(config: &mut serde_json::Value, exit_ip: Option<&str>) {
     let name = uuid::Builder::from_random_bytes(rand::random()).into_uuid();
     webrtc.insert("publicIp".into(), serde_json::json!(ip));
     webrtc.insert("hostName".into(), serde_json::json!(format!("{name}.local")));
+}
+
+/// What `extensions.install` and `extensions.install_many` were handed: a .crx
+/// or a .zip as base64 (`crx_b64`, the name it had when only a .crx was taken,
+/// or `package_b64`), a folder as `files` -- `[{ "path", "b64" }]`, each path
+/// relative to the folder chosen -- or a `path` on this machine.
+///
+/// Bytes rather than paths because the desktop has no native file dialog: a
+/// file or folder chosen in the webview is bytes in JavaScript, not a path the
+/// agent could open, and an extension is a few megabytes, which the pipe
+/// carries without ceremony.
+fn extension_source(params: &serde_json::Value) -> anyhow::Result<crate::ext::Source> {
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let bytes = match params.get("package_b64").or_else(|| params.get("crx_b64")).and_then(|v| v.as_str()) {
+        Some(text) => Some(b64.decode(text).map_err(|e| anyhow::anyhow!("the package is not base64: {e}"))?),
+        None => match params.get("path").and_then(|v| v.as_str()) {
+            Some(path) => Some(std::fs::read(path).map_err(|e| anyhow::anyhow!("reading {path}: {e}"))?),
+            None => None,
+        },
+    };
+    let files = match params.get("files").and_then(|v| v.as_array()) {
+        Some(list) => Some(
+            list.iter()
+                .map(|f| {
+                    let path = f.get("path").and_then(|v| v.as_str()).ok_or_else(|| anyhow::anyhow!("a file without a path"))?;
+                    let data = f.get("b64").and_then(|v| v.as_str()).ok_or_else(|| anyhow::anyhow!("a file without contents"))?;
+                    let data = b64.decode(data).map_err(|e| anyhow::anyhow!("{path} is not base64: {e}"))?;
+                    Ok((path.to_string(), data))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?,
+        ),
+        None => None,
+    };
+    crate::ext::Source::new(bytes, files, &paths::extension_keys_file())
 }
 
 fn str_param(params: &serde_json::Value, name: &str) -> anyhow::Result<String> {

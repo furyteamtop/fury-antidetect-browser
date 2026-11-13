@@ -2,9 +2,10 @@
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
 import { IconButton } from "./Icon";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type CatalogueEntry, type ExtensionEverywhere, type Profile, type StoreInstallResult } from "../api";
+import { useCallback, useEffect, useState } from "react";
+import { api, type CatalogueEntry, type ExtensionEverywhere, type ExtensionPackage, type KeySource, type Profile, type StoreInstallResult } from "../api";
 import { useI18n } from "../i18n";
+import { keyNote, PackageButtons, packageError, skipReason } from "./ExtensionPackage";
 
 /** Every extension on this machine, which profiles carry it, and a catalogue
  *  to install from.
@@ -49,7 +50,6 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
   const [targets, setTargets] = useState<Set<string>>(() => new Set(eligible.map((p) => p.id)));
   const [picking, setPicking] = useState<Pick | null>(null);
   const [byId, setById] = useState("");
-  const file = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -68,19 +68,14 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
   }, [load]);
 
   /** The agent's reasons are stable names; the sentence is ours. */
-  const reason = (r: string) => {
-    if (r === "proxy_missing") return t("exv.reason.proxy_missing");
-    if (r === "not_here") return t("exv.reason.not_here");
-    if (r.startsWith("id_mismatch:")) return t("exv.reason.id_mismatch");
-    if (r.startsWith("fetch:")) return t("exv.reason.fetch", { detail: r.slice(6) });
-    if (r.startsWith("in_use:")) {
-      const [who, machine] = r.slice(7).split("|");
-      return t("exv.reason.in_use", { who: who || "?", machine: machine || "?" });
-    }
-    return r;
-  };
+  const reason = (r: string) => skipReason(t, r);
 
-  const report = (r: StoreInstallResult | { extension: { name: string } | null; installed: string[]; skipped: { id: string; reason: string }[] }, fallback: string) => {
+  const report = (
+    r:
+      | StoreInstallResult
+      | { extension: { id: string; name: string } | null; installed: string[]; skipped: { id: string; reason: string }[]; key_source?: KeySource },
+    fallback: string,
+  ) => {
     const skippedOpen = r.skipped.filter((s) => s.reason === "open").length;
     const others = r.skipped.filter((s) => s.reason !== "open");
     setNote(
@@ -90,31 +85,25 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
         others.length > 0 ? others.map((s) => `${nameOf(s.id)}: ${reason(s.reason)}`).join("; ") : "",
         "routes" in r && r.installed.length > 0 ? t("exv.fetchedVia", { n: r.routes }) : "",
         r.installed.some(isTeam) ? t("exv.teamNote") : "",
+        "key_source" in r ? keyNote(t, r.key_source, r.extension?.name ?? fallback, r.extension?.id) : "",
       ]
         .filter(Boolean)
         .join(" "),
     );
   };
 
-  const installFile = async (f: File) => {
+  const installPackage = async (pkg: ExtensionPackage, label: string) => {
     setBusy(true);
     setError(null);
     setNote(null);
     try {
-      const b64 = await new Promise<string>((resolve, reject) => {
-        const r = new FileReader();
-        r.onerror = () => reject(r.error);
-        r.onload = () => resolve(String(r.result).split(",", 2)[1] ?? "");
-        r.readAsDataURL(f);
-      });
-      report(await api.installExtensionMany([...targets], b64), f.name);
+      report(await api.installExtensionMany([...targets], pkg), label);
       setPicking(null);
       await load();
     } catch (e) {
-      setError(say(e));
+      setError(packageError(t, say, e));
     } finally {
       setBusy(false);
-      if (file.current) file.current.value = "";
     }
   };
 
@@ -195,7 +184,7 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
           disabled={busy || eligible.length === 0}
           onClick={() => setPicking((v) => (v?.mode === "file" ? null : { mode: "file" }))}
         >
-          {t("exv.add")}
+          {t("exv.addAny")}
         </button>
         <div className="spacer" />
         <IconButton icon="refresh" label={t("bar.refresh")} onClick={() => void load()} />
@@ -247,21 +236,14 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
             <button className="linky" onClick={() => setTargets(new Set())}>{t("exv.clear")}</button>
             <div className="spacer" />
             {picking.mode === "file" ? (
-              <>
-                <input
-                  ref={file}
-                  type="file"
-                  accept=".crx"
-                  style={{ display: "none" }}
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) void installFile(f);
-                  }}
-                />
-                <button className="primary" disabled={busy || targets.size === 0} onClick={() => file.current?.click()}>
-                  {busy ? t("ck.working") : t("exv.chooseFile", { n: targets.size })}
-                </button>
-              </>
+              <PackageButtons
+                primary
+                disabled={busy || targets.size === 0}
+                fileLabel={busy ? t("ck.working") : t("exv.chooseFileAny", { n: targets.size })}
+                folderLabel={t("exv.chooseFolder", { n: targets.size })}
+                onPicked={(pkg, label) => void installPackage(pkg, label)}
+                onError={(e) => setError(packageError(t, say, e))}
+              />
             ) : picking.mode === "store" ? (
               <button
                 className="primary"
@@ -286,7 +268,7 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
           {picking.mode === "store" && targetsWithoutProxy > 0 && (
             <p className="hint warn">{t("exv.noProxyWarn", { n: targetsWithoutProxy })}</p>
           )}
-          {picking.mode === "file" && <p className="hint">{t("ext.hint")}</p>}
+          {picking.mode === "file" && <p className="hint">{t("ext.hintAny")}</p>}
           {picking.mode === "copy" && <p className="hint" style={{ maxWidth: 720 }}>{t("exv.copyHint")}</p>}
         </div>
       )}

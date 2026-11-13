@@ -1,0 +1,10 @@
+{
+  "name": "What it does, in a few words",
+  "summary": "One or two sentences: what it opens, what it does there, when it stops.",
+  "author": "your GitHub login",
+  "drives": ["local-api"],
+  "requires": ["python>=3.9"],
+  "entry": "main.py",
+  "licence": "AGPL-3.0-or-later",
+  "fury": ">=0.5.0"
+}

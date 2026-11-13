@@ -47,6 +47,9 @@ sqlx = { version = "0.8", default-features = false, features = [
 ] }
 tar = "0.4"
 flate2 = "1"
+# The developer key for an extension imported as a ZIP or folder without one
+# (ext.rs, `generate_key`). Already in the lock through the server.
+rsa = "0.9"
 # The .xz half of a core archive is decoded here rather than by whatever tar
 # the machine happens to have -- see unpack() in install_core.rs. Pure Rust on
 # purpose: the C liblzma would be faster and would put a C toolchain between
