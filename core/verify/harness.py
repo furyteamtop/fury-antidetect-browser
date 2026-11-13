@@ -79,6 +79,14 @@ class Session:
             "--use-mock-keychain",
             *extra_args,
         ]
+        # FURY_VERIFY_HEADLESS=1 for a run on a machine somebody is working
+        # at: off-screen windows still came up on top of his work on macOS
+        # (05.11.2026), a headless core never shows (measured 10.11). Not the
+        # default, for the reason in the comment above: headless answers some
+        # questions differently, so a claim that fails only here is checked
+        # again without it before it is believed.
+        if os.environ.get("FURY_VERIFY_HEADLESS") == "1":
+            args.append("--headless=new")
 
         # The os_crypt key rides its own descriptor, one past the config's:
         # --fury-oscrypt-fd names it, and the core reads exactly 32 bytes.

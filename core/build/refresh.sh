@@ -73,9 +73,26 @@ echo "==> Refreshing $NAME from ${#files[@]} file(s)"
 # components/fury/ happened to be `git add -N`ed at some point in the past, so
 # 0001 refreshed correctly on the same run, which is exactly why it took a
 # by-hand comparison to notice.
+#
+# Each file is intent-added in the repository that owns it; see owner_of below.
+SRC_REAL="$(cd "$SRC" && pwd -P)"
+
+# The git repository a file lives in. Almost always src/ itself, but
+# third_party/webrtc is a gclient dependency with its own .git, and git in src/
+# does not see inside it: `git -C src diff -- third_party/webrtc/...` prints
+# nothing, and the check further down would then refuse the refresh of 0071
+# (13.11.2026, the first patch into webrtc) as a patch missing its own files.
+owner_of() {
+  local dir="$SRC/$(dirname "$1")"
+  while [ ! -d "$dir" ] && [ "$dir" != "$SRC" ]; do dir="$(dirname "$dir")"; done
+  git -C "$dir" rev-parse --show-toplevel 2>/dev/null || echo "$SRC_REAL"
+}
+
 for f in "${files[@]}"; do
   if [ -e "$SRC/$f" ]; then
-    git -C "$SRC" add -N -- "$f" 2>/dev/null || true
+    top="$(owner_of "$f")"
+    rel="${top#"$SRC_REAL"}"; rel="${rel#/}"
+    git -C "$top" add -N -- "${f#"$rel/"}" 2>/dev/null || true
   fi
 done
 
@@ -88,7 +105,23 @@ done
 TMP="$(mktemp "${TMPDIR:-/tmp}/fury-refresh.XXXXXX")"
 trap 'rm -f "$TMP"' EXIT
 
-git -C "$SRC" diff --no-color --src-prefix=a/ --dst-prefix=b/ -- "${files[@]}" > "$TMP"
+# Files of src/ itself in one diff, as always; a file in a nested repository is
+# diffed there, with prefixes that keep its path relative to src/ so the patch
+# applies from src/ like every other.
+own=()
+for f in "${files[@]}"; do
+  [ "$(owner_of "$f")" = "$SRC_REAL" ] && own+=("$f")
+done
+: > "$TMP"
+if [ ${#own[@]} -gt 0 ]; then
+  git -C "$SRC" diff --no-color --src-prefix=a/ --dst-prefix=b/ -- "${own[@]}" > "$TMP"
+fi
+for f in "${files[@]}"; do
+  top="$(owner_of "$f")"
+  [ "$top" = "$SRC_REAL" ] && continue
+  rel="${top#"$SRC_REAL"/}"
+  git -C "$top" diff --no-color --src-prefix="a/$rel/" --dst-prefix="b/$rel/" -- "${f#"$rel/"}" >> "$TMP"
+done
 
 if [ ! -s "$TMP" ]; then
   echo "!! Diff is empty. Either nothing changed, or the file list is wrong." >&2

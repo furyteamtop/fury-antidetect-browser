@@ -1,0 +1,69 @@
+diff --git a/chrome/browser/component_updater/ai_embeddings_component_installer.cc b/chrome/browser/component_updater/ai_embeddings_component_installer.cc
+--- a/chrome/browser/component_updater/ai_embeddings_component_installer.cc
++++ b/chrome/browser/component_updater/ai_embeddings_component_installer.cc
+@@ -145,6 +145,11 @@
+   }
+ 
+   bool AllowCachedCopies() const override { return false; }
++
++  // Fury: the embeddings model is the other model the on-device AI setting
++  // lets in, and is refused for the same reason as the Gemini Nano assets in
++  // optimization_guide_on_device_model_installer.cc.
++  bool AllowUpdates() const override { return false; }
+ };
+ }  // namespace
+ 
+diff --git a/chrome/browser/component_updater/optimization_guide_on_device_model_installer.cc b/chrome/browser/component_updater/optimization_guide_on_device_model_installer.cc
+--- a/chrome/browser/component_updater/optimization_guide_on_device_model_installer.cc
++++ b/chrome/browser/component_updater/optimization_guide_on_device_model_installer.cc
+@@ -300,6 +300,17 @@
+     return false;
+   }
+ 
++  bool AllowUpdates() const override {
++    // Fury: never download a model asset. The on-device AI setting is on by
++    // default so that availability() answers what Chrome answers
++    // (optimization_guide_global_state.cc); this keeps create() from turning
++    // that answer into gigabytes per profile through the profile's proxy. The
++    // update check still runs and the update is refused as UPDATE_DISABLED,
++    // which the progress observers ignore, so availability() keeps saying
++    // "downloadable" and create() keeps waiting.
++    return false;
++  }
++
+   bool VerifyInstallation(const base::DictValue& manifest,
+                           const base::FilePath& install_dir) const override {
+     return optimization_guide::ManifestAssetManagerDelegate::VerifyInstallation(
+diff --git a/chrome/browser/optimization_guide/model_execution/optimization_guide_global_state.cc b/chrome/browser/optimization_guide/model_execution/optimization_guide_global_state.cc
+--- a/chrome/browser/optimization_guide/model_execution/optimization_guide_global_state.cc
++++ b/chrome/browser/optimization_guide/model_execution/optimization_guide_global_state.cc
+@@ -127,13 +127,22 @@
+ 
+ bool ShouldEnableOnDeviceAiByDefault(const PrefService& local_state,
+                                      version_info::Channel channel) {
+-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
+-  const bool is_official_branded_build = version_info::IsOfficialBuild();
+-#else
+-  const bool is_official_branded_build = false;
+-#endif
+-  return ShouldEnableOnDeviceAiByDefault(local_state, channel,
+-                                         is_official_branded_build);
++  // Fury: on, as in the stable Google Chrome every persona says it is.
++  //
++  // Upstream turns chrome://settings/ai on only for an official branded stable
++  // build, so in any Chromium build LanguageModel.availability() and
++  // Summarizer.availability() answer "unavailable" (kUnavailableFeatureNotEnabled
++  // from AIManager::GetPrefBlockedResult) where Chrome answers "downloadable".
++  // One call, no permission, read under "Built-in AI" by who.1ms.dog; issue 32.
++  // Measured 13.11.2026 on an M4: Chrome 157.0.8103.52 downloadable/downloadable,
++  // core 0.5.0 unavailable/unavailable, the same core with this default on
++  // downloadable/downloadable with Chrome's console warning word for word.
++  //
++  // Turning it on alone would let create() fetch Gemini Nano, several GB per
++  // profile and through the profile's proxy (4.2% in 40 s in that run). The
++  // model components refuse to update below (AllowUpdates), so create() waits
++  // as on a download that never gets going.
++  return true;
+ }
+ #endif  // BUILDFLAG(USE_ON_DEVICE_MODEL_SERVICE)
+ 

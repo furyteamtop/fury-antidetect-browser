@@ -133,6 +133,7 @@ if [ -n "$(git -C "$SRC" status --porcelain --untracked-files=no --ignore-submod
   echo "!! and core/build/apply.sh can put them back, clear it with:" >&2
   echo >&2
   echo "     git -C $SRC reset --hard && git -C $SRC clean -fd -e out" >&2
+  echo "     git -C $SRC/third_party/webrtc reset --hard    # 0071 patches this checkout" >&2
   echo >&2
   echo "!! Anything else in there is yours and this will not touch it." >&2
   exit 1

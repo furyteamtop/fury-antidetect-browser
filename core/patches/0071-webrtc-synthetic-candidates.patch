@@ -1,0 +1,334 @@
+diff --git a/third_party/blink/renderer/platform/p2p/port_allocator.cc b/third_party/blink/renderer/platform/p2p/port_allocator.cc
+index 1da016bb58..c2adba88ab 100644
+--- a/third_party/blink/renderer/platform/p2p/port_allocator.cc
++++ b/third_party/blink/renderer/platform/p2p/port_allocator.cc
+@@ -7,11 +7,16 @@
+ #include <stdint.h>
+ 
+ #include <memory>
++#include <optional>
++#include <string>
+ #include <utility>
+ 
+ #include "base/check.h"
++#include "base/uuid.h"
++#include "components/fury/fury_config.h"
+ #include "third_party/blink/public/platform/platform.h"
+ #include "third_party/webrtc/api/local_network_access_permission.h"
++#include "third_party/webrtc/rtc_base/ip_address.h"
+ #include "third_party/webrtc_overrides/environment.h"
+ 
+ namespace blink {
+@@ -46,6 +51,32 @@ P2PPortAllocator::P2PPortAllocator(
+   }
+   set_flags(flags);
+   set_allow_tcp_listen(false);
++
++  // Patch 0071. With non-proxied UDP disabled (patch 0070) a page gathers no
++  // candidates at all; given the proxy's exit address, the allocator announces
++  // a stock Chrome's host and srflx candidates instead, with nothing behind
++  // them (FurySyntheticPort in webrtc's basic_port_allocator.cc). The agent
++  // writes both keys at launch: the address from that launch's exit check,
++  // and the mDNS name fresh per launch, as Chrome's responder makes a new one
++  // each run and every frame of a run shares it. An address that is not IPv4
++  // leaves things as they were: a srflx candidate is an IPv4 NAT's answer.
++  if (!config_.enable_nonproxied_udp) {
++    if (const fury::FuryConfig* fury = fury::FuryConfig::Get()) {
++      std::optional<std::string> ip = fury->GetString("webrtc.publicIp");
++      std::optional<std::string> name = fury->GetString("webrtc.hostName");
++      webrtc::IPAddress public_ip;
++      if (ip && webrtc::IPFromString(*ip, &public_ip) &&
++          public_ip.family() == AF_INET) {
++        set_fury_synthetic_candidates(
++            {.hostname = name && !name->empty()
++                             ? *name
++                             : base::Uuid::GenerateRandomV4()
++                                       .AsLowercaseString() +
++                                   ".local",
++             .public_ip = public_ip});
++      }
++    }
++  }
+ }
+ 
+ P2PPortAllocator::~P2PPortAllocator() {}
+diff --git a/third_party/webrtc/p2p/BUILD.gn b/third_party/webrtc/p2p/BUILD.gn
+index a22bf19b22..23113cd774 100644
+--- a/third_party/webrtc/p2p/BUILD.gn
++++ b/third_party/webrtc/p2p/BUILD.gn
+@@ -145,6 +145,7 @@ rtc_library("basic_port_allocator") {
+     "../api/units:time_delta",
+     "../rtc_base:async_packet_socket",
+     "../rtc_base:checks",
++    "../rtc_base:crypto_random",
+     "../rtc_base:event_tracer",
+     "../rtc_base:ip_address",
+     "../rtc_base:logging",
+diff --git a/third_party/webrtc/p2p/client/basic_port_allocator.cc b/third_party/webrtc/p2p/client/basic_port_allocator.cc
+index bfa7a13114..e8d3b34758 100644
+--- a/third_party/webrtc/p2p/client/basic_port_allocator.cc
++++ b/third_party/webrtc/p2p/client/basic_port_allocator.cc
+@@ -44,6 +44,7 @@
+ #include "p2p/client/relay_port_factory_interface.h"
+ #include "rtc_base/async_packet_socket.h"
+ #include "rtc_base/checks.h"
++#include "rtc_base/crypto_random.h"
+ #include "rtc_base/ip_address.h"
+ #include "rtc_base/logging.h"
+ #include "rtc_base/net_helper.h"
+@@ -53,6 +54,7 @@
+ #include "rtc_base/network_constants.h"
+ #include "rtc_base/socket_address.h"
+ #include "rtc_base/strings/string_builder.h"
++#include "rtc_base/thread_annotations.h"
+ #include "rtc_base/trace_event.h"
+ 
+ namespace webrtc {
+@@ -1436,8 +1438,205 @@ void AllocationSequence::Process(int epoch) {
+   }
+ }
+ 
++namespace {
++
++// Fury (patch 0071). The candidates a stock Chrome gathers, with no socket
++// behind them.
++//
++// Under the IP-handling policy "disable_non_proxied_udp" (patch 0070, every
++// Fury profile) the allocator creates no UDP port, so a page gathers nothing:
++// iceGatheringState goes to "complete" with zero candidates. No leak, and not
++// what a browser looks like either. BrowserScan reads it as "WebRTC disabled",
++// who.1ms.dog as "UDP blocked" (issue 31, measured on 0.5.1). A stock Chrome
++// 157 on the same Mac, measured 13.11.2026, gathers
++//
++//   <uuid>.local 53339 typ host                        priority 2113937151
++//   <public ip> 6208 typ srflx raddr 0.0.0.0 rport 0   priority 1677729535
++//
++// the second only when the page named a STUN server, and the SDP's c= line
++// then carries the public address.
++//
++// This port announces that shape: the host candidate under the mDNS name the
++// agent chose for this launch, and the srflx candidate under the proxy's exit
++// address, which is what a STUN server would have seen had the traffic gone
++// through the proxy. Priorities, foundation and network cost come out of the
++// same code a UDPPort uses, from a stand-in private address that is replaced by
++// the name before the candidate leaves the port.
++//
++// It owns no socket, so nothing it announces can be reached and nothing goes
++// out: no STUN request, no DNS lookup of the STUN server's name, no
++// connectivity check. CreateConnection refuses, so a remote peer pairs with
++// nothing -- as with a stock Chrome behind a firewall that drops UDP. The cost
++// is that a page which actually connects two peers (its own loopback pair, a
++// call) still fails where Chrome succeeds, which it already did.
++//
++// The STUN server is not contacted, so its existence cannot be confirmed. A
++// server that obviously cannot answer -- an IP literal on a loopback, private
++// or link-local address -- gets no srflx, as it would get none in Chrome; a
++// hostname is taken on trust, because resolving it from here would be a DNS
++// query outside the proxy.
++class FurySyntheticPort : public Port {
++ public:
++  FurySyntheticPort(const PortParametersRef& args,
++                    std::string hostname,
++                    const IPAddress& public_ip,
++                    std::optional<SocketAddress> stun_server)
++      : Port(args, IceCandidateType::kHost),
++        hostname_(std::move(hostname)),
++        public_ip_(public_ip),
++        stun_server_(std::move(stun_server)) {}
++
++  void PrepareAddress() override {
++    // An ephemeral port as macOS and Windows hand them out, and a mapped
++    // port anywhere a NAT might put it.
++    const uint16_t host_port = 49152 + CreateRandomId() % 16384;
++    const uint16_t mapped_port = 1024 + CreateRandomId() % 64512;
++    // Feeds the foundation and the address precedence of the priority, then
++    // is replaced by the name. Never signalled.
++    const SocketAddress base(
++        IPAddress((192u << 24) | (168u << 16) | ((CreateRandomId() % 256) << 8) |
++                  (2 + CreateRandomId() % 252)),
++        host_port);
++
++    Candidate host = Make(base, base, IceCandidateType::kHost,
++                          ICE_TYPE_PREFERENCE_HOST, "");
++    host.set_address(SocketAddress(hostname_, host_port));
++    Emit(host, /*is_final=*/!stun_server_.has_value());
++    if (!stun_server_) {
++      return;
++    }
++
++    StringBuilder url;
++    url << "stun:" << stun_server_->hostname() << ":" << stun_server_->port();
++    Candidate srflx = Make(SocketAddress(public_ip_, mapped_port), base,
++                           IceCandidateType::kSrflx, ICE_TYPE_PREFERENCE_SRFLX,
++                           url.str());
++    // 0.0.0.0 0, as Chrome shows it. Not left to SanitizeCandidate: under
++    // this policy's flags it clears a srflx raddr only with mDNS on, which an
++    // any-address network does not have, and the stand-in address leaked
++    // (verify-0071, 13.11.2026).
++    srflx.set_related_address(EmptySocketAddressWithFamily(AF_INET));
++    // A STUN round trip takes time; an answer in zero milliseconds is a
++    // measurement of its own.
++    thread()->PostDelayedTask(
++        SafeTask(safety_.flag(),
++                 [this, srflx] { Emit(srflx, /*is_final=*/true); }),
++        TimeDelta::Millis(25 + CreateRandomId() % 70));
++  }
++
++  Connection* CreateConnection(const Candidate& /* remote */,
++                               CandidateOrigin /* origin */) override {
++    return nullptr;
++  }
++  int SendTo(std::span<const uint8_t> /* data */,
++             const SocketAddress& /* addr */,
++             const AsyncSocketPacketOptions& /* options */,
++             bool /* payload */) override {
++    return -1;
++  }
++  int SetOption(Socket::Option /* opt */, int /* value */) override {
++    return 0;
++  }
++  int GetOption(Socket::Option /* opt */, int* /* value */) override {
++    return -1;
++  }
++  int GetError() override { return 0; }
++  bool SupportsProtocol(absl::string_view protocol) const override {
++    return protocol == UDP_PROTOCOL_NAME;
++  }
++  ProtocolType GetProtocol() const override { return PROTO_UDP; }
++  void OnSentPacket(AsyncPacketSocket* /* socket */,
++                    const SentPacketInfo& /* sent_packet */) override {}
++
++ private:
++  // Port::AddAddress would write the stand-in address into the SDP: the
++  // serializer prints an address's IP whenever it has one, and only an mDNS
++  // responder -- which an any-address network does not have -- strips it. So
++  // the candidate is finished here instead, with the name alone.
++  //
++  // FinishAddingAddress runs on the port's thread, and both callers are on
++  // it: PrepareAddress is called there by the session, and the srflx task is
++  // posted to thread(). The analysis cannot see that, because the thread it
++  // names is a private member of Port.
++  void Emit(const Candidate& c, bool is_final) RTC_NO_THREAD_SAFETY_ANALYSIS {
++    RTC_DCHECK(thread()->IsCurrent());
++    FinishAddingAddress(c, is_final);
++  }
++
++  // What Port::AddAddress builds, without its mDNS step: the name is already
++  // chosen, and an any-address network has no responder to ask.
++  Candidate Make(const SocketAddress& address,
++                 const SocketAddress& base,
++                 IceCandidateType type,
++                 uint32_t type_preference,
++                 absl::string_view url) {
++    Candidate c(component(), UDP_PROTOCOL_NAME, address, 0U,
++                username_fragment(), password(), type, generation(), "",
++                Network()->id(), network_cost());
++    c.ComputeFoundation(base, IceTiebreaker());
++    c.set_priority(c.GetPriority(
++        type_preference, Network()->preference(), 0,
++        env().field_trials().IsEnabled(
++            "WebRTC-IncreaseIceCandidatePriorityHostSrflx")));
++    c.set_network_name(Network()->name());
++    c.set_network_type(Network()->type());
++    c.set_underlying_type_for_vpn(Network()->underlying_type_for_vpn());
++    c.set_url(url);
++    c.set_network_slice(Network()->network_slice());
++    return c;
++  }
++
++  const std::string hostname_;
++  const IPAddress public_ip_;
++  const std::optional<SocketAddress> stun_server_;
++  ScopedTaskSafety safety_;
++};
++
++// The STUN server a srflx candidate may claim to have come from, or none.
++std::optional<SocketAddress> FuryStunServer(const ServerAddresses& servers) {
++  for (const SocketAddress& server : servers) {
++    if (!server.IsUnresolvedIP()) {
++      const IPAddress& ip = server.ipaddr();
++      if (IPIsAny(ip) || IPIsPrivate(ip) || IPIsUnspec(ip)) {
++        continue;
++      }
++    }
++    return server;
++  }
++  return std::nullopt;
++}
++
++}  // namespace
++
+ void AllocationSequence::CreateUDPPorts() {
+   if (IsFlagSet(PORTALLOCATOR_DISABLE_UDP)) {
++    // Fury (patch 0071): one synthetic port on the IPv4 any-address network,
++    // when the profile knows its exit address. See FurySyntheticPort.
++    const auto& synthetic =
++        session_->allocator()->fury_synthetic_candidates();
++    if (synthetic && network_->GetBestIP().family() == AF_INET) {
++      // PORTALLOCATOR_DISABLE_STUN comes with DISABLE_UDP from the same
++      // policy and is not consulted: nothing here contacts the server.
++      std::optional<SocketAddress> stun_server;
++      if (config_) {
++        stun_server = FuryStunServer(config_->StunServers());
++      }
++      session_->AddAllocatedPort(
++          new FurySyntheticPort(
++              {.env = session_->allocator()->env(),
++               .network_thread = session_->network_thread(),
++               .socket_factory = session_->socket_factory(),
++               .network = network_,
++               .ice_username_fragment = session_->username(),
++               .ice_password = session_->password(),
++               .content_name = session_->content_name(),
++               .lna_permission_factory =
++                   session_->allocator()->lna_permission_factory(),
++               .ice_tiebreaker = session_->allocator()->ice_tiebreaker()},
++              synthetic->hostname, synthetic->public_ip, stun_server),
++          this);
++      return;
++    }
+     RTC_LOG(LS_VERBOSE) << "AllocationSequence: UDP ports disabled, skipping.";
+     return;
+   }
+diff --git a/third_party/webrtc/p2p/client/basic_port_allocator.h b/third_party/webrtc/p2p/client/basic_port_allocator.h
+index e35b69147e..66363411d7 100644
+--- a/third_party/webrtc/p2p/client/basic_port_allocator.h
++++ b/third_party/webrtc/p2p/client/basic_port_allocator.h
+@@ -16,6 +16,7 @@
+ #include <memory>
+ #include <optional>
+ #include <string>
++#include <utility>
+ #include <vector>
+ 
+ #include "absl/base/nullability.h"
+@@ -105,7 +106,29 @@ class RTC_EXPORT BasicPortAllocator : public PortAllocator {
+ 
+   const Environment& env() const { return env_; }
+ 
++  // Fury (patch 0071): what a session gathers when UDP is disabled by the
++  // IP-handling policy and the profile knows its proxy's exit address. In
++  // place of no candidates at all, the shape of a stock Chrome: an mDNS host
++  // candidate and, when the page named a STUN server, a server-reflexive one
++  // carrying `public_ip`. Neither has a socket behind it and nothing is sent;
++  // see FurySyntheticPort in basic_port_allocator.cc.
++  struct FurySyntheticCandidates {
++    // "<uuid>.local", the name a stock Chrome registers for its address.
++    std::string hostname;
++    // IPv4 only. Anything else leaves this unset.
++    IPAddress public_ip;
++  };
++  void set_fury_synthetic_candidates(FurySyntheticCandidates candidates) {
++    fury_synthetic_candidates_ = std::move(candidates);
++  }
++  const std::optional<FurySyntheticCandidates>& fury_synthetic_candidates()
++      const {
++    return fury_synthetic_candidates_;
++  }
++
+  private:
++  std::optional<FurySyntheticCandidates> fury_synthetic_candidates_;
++
+   bool MdnsObfuscationEnabled() const override;
+ 
+   const Environment env_;

@@ -206,6 +206,11 @@
 # fonts.rs builds the list.
 0050-font-fallback-filter.patch
 0051-font-platform-filter.patch
+# The same rule for the one API that LISTS fonts: queryLocalFonts() after a
+# local-fonts grant handed out every installed family, hidden ones included,
+# while 0050/0051 made them measure absent (issue 33). The rule moves behind
+# fury_font_filter.h so both read one copy.
+0052-font-access-filter.patch
 
 # --- devices ----------------------------------------------------------------
 # Narrows the device list to the persona's counts. Narrowing only, like WebGPU
@@ -275,6 +280,17 @@
 # including that an unconfigured build still leaks — a control that passes when
 # broken is not a control.
 0070-webrtc-policy.patch!
+
+# ...and gathering NOTHING turned out to be its own signal: BrowserScan reads
+# it as "WebRTC disabled", who.1ms.dog as "UDP blocked" (issue 31). With the
+# exit address in the config (webrtc.publicIp, from that launch's exit check)
+# the allocator announces what a stock Chrome 157 gathers, measured 13.11.2026:
+# an mDNS host candidate, and a srflx candidate with the exit address when the
+# page names a STUN server. A port with no socket behind it: nothing is sent,
+# nothing connects. Patches third_party/webrtc, a nested gclient checkout --
+# apply.sh skips it when already applied, refresh.sh diffs it in its own repo.
+# Verified in core/verify/verify-0071.py.
+0071-webrtc-synthetic-candidates.patch!   # basic_port_allocator.cc is webrtc's
 
 # --- time & locale ----------------------------------------------------------
 0080-timezone-icu.patch
@@ -490,6 +506,13 @@
 # factor, the window, or mouse-to-touch input, which are docs/18 steps 3 and 4.
 0130-mobile-mode.patch
 0122-network-information.patch
+
+# Built-in AI answers as Chrome does: the on-device AI setting on by default,
+# so LanguageModel/Summarizer.availability() read "downloadable" instead of the
+# "unavailable" every Chromium build gives (issue 32), and the model components
+# refused, so create() never pulls gigabytes through the profile's proxy.
+# Verified in core/verify/verify-0123.py.
+0123-built-in-ai.patch
 
 # MOBILE SCREEN (docs/18, step 3). A Chrome window on macOS is never narrower
 # than 500, so a 384-wide phone persona's page saw a 500-wide viewport on a

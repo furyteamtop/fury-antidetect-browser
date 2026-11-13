@@ -1,0 +1,108 @@
+diff --git a/third_party/blink/renderer/modules/font_access/font_access.cc b/third_party/blink/renderer/modules/font_access/font_access.cc
+--- a/third_party/blink/renderer/modules/font_access/font_access.cc
++++ b/third_party/blink/renderer/modules/font_access/font_access.cc
+@@ -22,6 +22,7 @@
+ #include "third_party/blink/renderer/core/frame/local_frame.h"
+ #include "third_party/blink/renderer/modules/font_access/font_metadata.h"
+ #include "third_party/blink/renderer/platform/bindings/script_state.h"
++#include "third_party/blink/renderer/platform/fonts/fury_font_filter.h"
+ 
+ namespace blink {
+ 
+@@ -166,6 +167,18 @@
+         .family = String::FromUtf8(element.family()),
+         .style = String::FromUtf8(element.style()),
+     };
++
++    // The profile's font rule, the one canvas, offsetWidth and local() already
++    // answer to (0050, 0051). Without it a page granted local-fonts read every
++    // family the machine has here while measuring the hidden ones as absent:
++    // two answers from one machine, which no real machine gives. Measured on
++    // 0.5.1, reported in issue 33: 15 hidden families at 0/15 by width, 15/15
++    // in this list. A dropped family goes whole, every face of it, as on a
++    // machine where it was never installed.
++    if (FuryFontHiddenFromPage(entry.family)) {
++      continue;
++    }
++
+     entries.push_back(MakeGarbageCollected<FontMetadata>(std::move(entry)));
+   }
+ 
+diff --git a/third_party/blink/renderer/platform/BUILD.gn b/third_party/blink/renderer/platform/BUILD.gn
+--- a/third_party/blink/renderer/platform/BUILD.gn
++++ b/third_party/blink/renderer/platform/BUILD.gn
+@@ -782,6 +782,7 @@
+     "fonts/font_vertical_position_type.h",
+     "fonts/font_width_variant.cc",
+     "fonts/font_width_variant.h",
++    "fonts/fury_font_filter.h",
+     "fonts/generic_font_family_settings.cc",
+     "fonts/generic_font_family_settings.h",
+     "fonts/glyph_metrics_map.h",
+diff --git a/third_party/blink/renderer/platform/fonts/font_cache.cc b/third_party/blink/renderer/platform/fonts/font_cache.cc
+--- a/third_party/blink/renderer/platform/fonts/font_cache.cc
++++ b/third_party/blink/renderer/platform/fonts/font_cache.cc
+@@ -58,6 +58,7 @@
+ #include "third_party/blink/renderer/platform/fonts/font_description.h"
+ #include "third_party/blink/renderer/platform/fonts/font_fallback_map.h"
+ #include "third_party/blink/renderer/platform/fonts/font_fallback_priority.h"
++#include "third_party/blink/renderer/platform/fonts/fury_font_filter.h"
+ #include "third_party/blink/renderer/platform/fonts/font_global_context.h"
+ #include "third_party/blink/renderer/platform/fonts/font_performance.h"
+ #include "third_party/blink/renderer/platform/fonts/font_platform_data_cache.h"
+@@ -309,6 +310,17 @@
+       g_fury_filter_suspended != 0) {
+     return false;
+   }
++  return FuryFontHiddenFromPage(family);
++}
++
++}  // namespace fury_internal
++
++// The rule without the two exemptions ShouldHideFont carries. Both are about
++// Blink resolving a family the page did not name -- its last-resort floor, the
++// face behind a generic keyword -- and neither applies to a list handed to the
++// page, where every entry is a name the page can then ask for. The generic
++// keywords stay exempt only because they are not families anyone installs.
++bool FuryFontHiddenFromPage(const String& family) {
+   if (const FuryFontRule* rule = FuryFonts()) {
+     const std::string lower = FuryLower(family.Utf8());
+     const bool listed = rule->names.count(lower) > 0;
+@@ -316,8 +328,6 @@
+   }
+   return false;
+ }
+-
+-}  // namespace fury_internal
+ 
+ const SimpleFontData* FontCache::GetFontData(
+     const FontDescription& font_description,
+diff --git a/third_party/blink/renderer/platform/fonts/fury_font_filter.h b/third_party/blink/renderer/platform/fonts/fury_font_filter.h
+new file mode 100644
+--- /dev/null
++++ b/third_party/blink/renderer/platform/fonts/fury_font_filter.h
+@@ -0,0 +1,24 @@
++// Copyright 2026 The Fury Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_FURY_FONT_FILTER_H_
++#define THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_FURY_FONT_FILTER_H_
++
++#include "third_party/blink/renderer/platform/platform_export.h"
++#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
++
++namespace blink {
++
++// Whether the profile's font rule hides `family` from pages: the same rule
++// FontCache applies when a page names a family (0050, 0051), exposed for the
++// places that LIST fonts instead of resolving them. Local Font Access is the
++// one that matters: once a page holds the local-fonts permission,
++// queryLocalFonts() hands it the machine's whole list, and a family the
++// rendering path refuses must not be in it. Defined in font_cache.cc, next to
++// the rule.
++PLATFORM_EXPORT bool FuryFontHiddenFromPage(const String& family);
++
++}  // namespace blink
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_FURY_FONT_FILTER_H_

@@ -567,7 +567,9 @@ pub const CORE_CONFIG_KEYS: &[&str] = &[
     "screen.width",
     "speech.androidVoices",
     "speech.voices",
+    "webrtc.hostName",
     "webrtc.ipHandlingPolicy",
+    "webrtc.publicIp",
     "window.profileName",
 ];
 
@@ -624,6 +626,10 @@ const OPTIONAL_BRANCHES: &[(&str, &[&str])] = &[
             "geolocation.longitude",
         ],
     ),
+    // Not part of a persona: the agent adds the exit address and an mDNS name
+    // at launch, from that launch's exit check (patch 0071). Without an answer
+    // the profile gathers no candidates, as before 0071; with one, both keys.
+    ("webrtc.publicIp", &["webrtc.hostName", "webrtc.publicIp"]),
     // Not part of a persona: the agent adds the profile's name at launch
     // (patch 0904, the Windows taskbar). A config without it is a launch
     // that did not name the window, which is the CLI's.

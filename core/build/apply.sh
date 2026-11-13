@@ -56,6 +56,16 @@ for patch in "${series[@]}"; do
     continue
   fi
 
+  # Already there in full. A tree reset with `git -C src reset --hard` does not
+  # reach a nested gclient checkout -- third_party/webrtc has its own .git --
+  # so a patch into one (0071) is still applied on the next run, and would
+  # otherwise stop the series as "does not apply". Only a patch whose every
+  # hunk reverses cleanly counts; half-applied still fails below.
+  if git -C "$SRC" apply --reverse --check "$file" 2>/dev/null; then
+    echo "   == $patch (already applied)"
+    continue
+  fi
+
   if git -C "$SRC" apply --check "$file" 2>/dev/null; then
     if [ "$CHECK_ONLY" -eq 0 ]; then
       git -C "$SRC" apply "$file"

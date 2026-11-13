@@ -3040,11 +3040,22 @@ impl Agent {
         let mut exit_country = proxy.and_then(|p| p.last_country.clone());
         let mut exit_timezone = proxy.and_then(|p| p.last_timezone.clone());
         let mut exit_location = proxy.and_then(|p| p.last_location.clone());
+        // The address this launch leaves from, for patch 0071's srflx
+        // candidate. Never the stored one: a rotating proxy's last answer is a
+        // different address by the next launch, and a srflx candidate that
+        // disagrees with the address the site's own server sees is a
+        // contradiction any page can check -- worse than no candidate, which is
+        // what the profile falls back to when the lookup fails.
+        let mut exit_ip: Option<String> = None;
 
         // The position joins the same lookup: one round trip answers where the
         // exit is, what time it is there and what language it speaks, and asking
         // separately would let the three drift apart.
-        if (want_timezone && exit_timezone.is_none())
+        //
+        // Asked on every launch through a proxy since 0071 (13.11.2026), for
+        // the address above; before, a launch with all three stored skipped it.
+        if proxy.is_some()
+            || (want_timezone && exit_timezone.is_none())
             || (want_languages && exit_country.is_none())
             || exit_location.is_none()
         {
@@ -3082,6 +3093,7 @@ impl Agent {
                     // Only overwrite with an answer. A checker that returns a
                     // timezone and no country must not blank a country we
                     // already had.
+                    exit_ip = facts.ip.clone();
                     exit_country = facts.country.or(exit_country);
                     exit_timezone = facts.timezone.or(exit_timezone);
                     exit_location = facts.location.or(exit_location);
@@ -3153,6 +3165,7 @@ impl Agent {
         let ui_locale = ctx.ui_locale.clone();
         let mut config = persona.derive_core_config(profile.fp_seed as u64, &ctx);
         profile.overrides.apply_config(&mut config);
+        add_webrtc_exit(&mut config, exit_ip.as_deref());
         // The window's name on the Windows taskbar (patch 0904). Not part of
         // the persona: it is what the operator calls the profile, and nothing
         // a page can read -- the window title is the browser's own.
@@ -3719,6 +3732,25 @@ fn load_local_lists() -> crate::blocklist::Blocklist {
     all
 }
 
+/// Patch 0071: the exit address a page's srflx candidate carries, and the mDNS
+/// name of its host candidate.
+///
+/// IPv4 only, because a srflx candidate is what an IPv4 NAT answers; an IPv6
+/// exit, or none, leaves the profile gathering no candidates, as before 0071.
+/// The name is new on every launch and the same for every frame of one, which
+/// is how a stock Chrome's mDNS responder behaves.
+fn add_webrtc_exit(config: &mut serde_json::Value, exit_ip: Option<&str>) {
+    let Some(ip) = exit_ip.filter(|ip| ip.parse::<std::net::Ipv4Addr>().is_ok()) else {
+        return;
+    };
+    let Some(webrtc) = config.get_mut("webrtc").and_then(|v| v.as_object_mut()) else {
+        return;
+    };
+    let name = uuid::Builder::from_random_bytes(rand::random()).into_uuid();
+    webrtc.insert("publicIp".into(), serde_json::json!(ip));
+    webrtc.insert("hostName".into(), serde_json::json!(format!("{name}.local")));
+}
+
 fn str_param(params: &serde_json::Value, name: &str) -> anyhow::Result<String> {
     params
         .get(name)
@@ -3730,6 +3762,32 @@ fn str_param(params: &serde_json::Value, name: &str) -> anyhow::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_launch_with_an_ipv4_exit_gives_webrtc_its_address_and_a_fresh_name() {
+        let base = serde_json::json!({ "webrtc": { "ipHandlingPolicy": "disable_non_proxied_udp" } });
+
+        let mut a = base.clone();
+        add_webrtc_exit(&mut a, Some("203.0.113.7"));
+        assert_eq!(a["webrtc"]["publicIp"], "203.0.113.7");
+        let name = a["webrtc"]["hostName"].as_str().unwrap().to_string();
+        let uuid = name.strip_suffix(".local").expect("an mDNS name ends in .local");
+        assert_eq!(uuid::Uuid::parse_str(uuid).unwrap().get_version_num(), 4, "{name}");
+        assert_eq!(uuid, uuid.to_lowercase(), "Chrome writes it in lower case");
+        assert_eq!(a["webrtc"]["ipHandlingPolicy"], "disable_non_proxied_udp", "the policy stays");
+
+        let mut b = base.clone();
+        add_webrtc_exit(&mut b, Some("203.0.113.7"));
+        assert_ne!(b["webrtc"]["hostName"], a["webrtc"]["hostName"], "a new name per launch");
+
+        // No answer, or an IPv6 exit: nothing is added, and the profile gathers
+        // no candidates as before.
+        for exit in [None, Some("2001:db8::1"), Some("not an address")] {
+            let mut c = base.clone();
+            add_webrtc_exit(&mut c, exit);
+            assert_eq!(c, base, "{exit:?}");
+        }
+    }
 
     #[test]
     fn a_coordinate_is_taken_or_refused_but_never_repaired() {
