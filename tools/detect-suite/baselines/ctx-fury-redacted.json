@@ -1,5 +1,5 @@
 {
-  "__collectedInMs": 4526,
+  "__collectedInMs": 4169,
   "__probeVersion": "0.3.0",
   "__redacted": true,
   "__schema": 1,
@@ -394,9 +394,9 @@
       }
     },
     "nativeToString": "hardwareConcurrency:native,userAgent:native,width:native",
-    "performanceNowPrecision": 0,
+    "performanceNowPrecision": 0.10000000894069672,
     "toStringTag": "[object Navigator]",
-    "totalJSHeapSize": 8270459
+    "totalJSHeapSize": 8252337
   },
   "fonts": {
     "baselineWidths": {
@@ -497,7 +497,7 @@
             null,
             null
           ],
-          "t": 925
+          "t": 276
         }
       ]
     },
@@ -585,11 +585,11 @@
     "colorDepth": 24,
     "devicePixelRatio": 1,
     "height": 1080,
-    "innerHeight": 713,
+    "innerHeight": 732,
     "innerWidth": 1280,
     "orientationAngle": 0,
     "orientationType": "landscape-primary",
-    "outerHeight": 852,
+    "outerHeight": 871,
     "outerWidth": 1280,
     "pixelDepth": 24,
     "screenX": 0,
@@ -873,10 +873,13 @@
   },
   "webrtc": {
     "__redacted": true,
-    "addresses": [],
-    "candidateCount": 0,
+    "addresses": [
+      "6d0f3a4e-8c1b-4b7a-9e2d-5f1c0a7b3e91.local",
+      "203.0.113.7"
+    ],
+    "candidateCount": 2,
     "completed": true,
-    "types": "",
-    "usesMdns": false
+    "types": "host,srflx",
+    "usesMdns": true
   }
 }
