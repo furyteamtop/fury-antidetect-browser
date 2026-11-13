@@ -72,6 +72,7 @@ export const vi: Record<Key, string> = {
   "app.coreStale": "Trình duyệt đã cài là bản dựng từ Fury {have}; phiên bản này cần bản dựng từ {need} trở lên.",
   "app.coreStaleUnknown": "Trình duyệt đã cài có thể là bản dựng cũ; phiên bản này cần bản dựng từ Fury {need} trở lên.",
   "app.coreStaleHow": "{what} Các hồ sơ vẫn chạy bình thường trên bản dựng cũ cho đến khi bạn cập nhật. Hãy đóng các hồ sơ đang mở rồi bấm nút; các hồ sơ vẫn giữ nguyên.",
+  "app.coreWhat054": "Bản dựng mới trả lời giống Chrome ở thêm ba chỗ: trang được phép liệt kê phông chữ chỉ thấy phông của hồ sơ, AI tích hợp hiện là sẵn sàng tải xuống, và WebRTC hiển thị các ứng viên thông thường của Chrome với địa chỉ proxy thay vì không có gì.",
   "app.coreWhat0414": "Ở bản dựng mới, mọi frame của trang đều báo cùng một kích thước cửa sổ, giống Chrome. Trước đây frame nhúng báo kích thước riêng cộng với viền cửa sổ, và trang web có thể đem ra so sánh.",
   "app.coreWhat0412": "Bản dựng mới trông giống Chrome thường hơn trước các công cụ kiểm tra như fingerprint.com: số đo văn bản không còn phần thập phân lộ liễu, có đủ giọng đọc Google của chính Chrome, và WebGL liệt kê các tiện ích mở rộng theo đúng thứ tự của Chrome.",
   "app.coreWhat038": "Bản dựng mới đóng hồ sơ cùng với cửa sổ cuối cùng: trước đây hồ sơ đóng bằng nút đỏ vẫn chạy ngầm trong Dock và vẫn hiện là đang mở trong Fury.",

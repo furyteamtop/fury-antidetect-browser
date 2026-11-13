@@ -72,6 +72,7 @@ export const de: Record<Key, string> = {
   "app.coreStale": "Installiert ist der Build aus Fury {have}. Diese Version erwartet den Build aus {need} oder neuer.",
   "app.coreStaleUnknown": "Der installierte Browser ist möglicherweise ein älterer Build. Diese Version erwartet den Build aus Fury {need} oder neuer.",
   "app.coreStaleHow": "{what} Profile laufen bis zur Aktualisierung weiter auf dem alten Build. Schließen Sie geöffnete Profile und klicken Sie dann auf die Schaltfläche. Die Profile bleiben unverändert.",
+  "app.coreWhat054": "Der neue Build antwortet an drei weiteren Stellen wie Chrome: Eine Seite, die Schriften auflisten darf, sieht nur die des Profils, die integrierte KI gilt als herunterladbar, und WebRTC zeigt Chromes übliche Kandidaten mit der Adresse des Proxys statt gar keiner.",
   "app.coreWhat0414": "Im neuen Build meldet jeder Frame einer Seite dieselbe Fenstergröße, wie es Chrome tut. Ein eingebetteter Frame meldete bisher seine eigene Größe plus den Fensterrand, was eine Seite vergleichen konnte.",
   "app.coreWhat0412": "Der neue Build ähnelt für Prüfdienste wie fingerprint.com stärker einem normalen Chrome: Textmessungen tragen keine verräterischen Nachkommastellen mehr, die Google-Stimmen von Chrome sind vorhanden, und WebGL listet seine Erweiterungen in der Reihenfolge von Chrome auf.",
   "app.coreWhat038": "Der neue Build beendet ein Profil mit seinem letzten Fenster. Bisher lief ein Profil, das mit der roten Schaltfläche geschlossen wurde, im Dock weiter und blieb in Fury geöffnet.",

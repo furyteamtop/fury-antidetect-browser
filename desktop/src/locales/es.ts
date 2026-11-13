@@ -72,6 +72,7 @@ export const es: Record<Key, string> = {
   "app.coreStale": "El navegador instalado es la compilación de Fury {have}; esta versión espera la compilación de {need} o posterior.",
   "app.coreStaleUnknown": "Puede que el navegador instalado sea una compilación anterior; esta versión espera la compilación de Fury {need} o posterior.",
   "app.coreStaleHow": "{what} Los perfiles siguen funcionando con la compilación anterior hasta que actualices. Cierra los perfiles abiertos y pulsa el botón; los perfiles se conservan tal cual.",
+  "app.coreWhat054": "La nueva compilación responde como Chrome en tres sitios más: una página con permiso para listar fuentes solo ve las fuentes del perfil, la IA integrada aparece como lista para descargar y WebRTC muestra los candidatos habituales de Chrome con la dirección del proxy en lugar de ninguno.",
   "app.coreWhat0414": "En la nueva compilación todos los marcos de una página informan del mismo tamaño de ventana, como hace Chrome. Antes, un marco incrustado informaba de su propio tamaño más el borde de la ventana, algo que una página podía comparar.",
   "app.coreWhat0412": "La nueva compilación se parece más a Chrome estándar para verificadores como fingerprint.com: las medidas de texto ya no llevan fracciones delatoras, están las voces de Google propias de Chrome y WebGL enumera sus extensiones en el orden de Chrome.",
   "app.coreWhat038": "La nueva compilación cierra un perfil al cerrar su última ventana: hasta ahora, un perfil cerrado con el botón rojo seguía ejecutándose en el Dock y permanecía abierto en Fury.",

@@ -514,10 +514,15 @@ pub fn core_outdated(exe: &std::path::Path) -> Option<String> {
 /// profile (0122), hidden fonts refused before the platform cache (0051) and a
 /// phone's orientation events at a phone's rate (0135). CHROME_MAJOR already
 /// sends every older core to the download, so this only keeps the number honest.
+///
+/// 0.5.4 rebuilds both on the same Chrome: Local Font Access lists only the
+/// fonts the profile shows (0052), built-in AI answers "downloadable" as
+/// Chrome does (0123), and WebRTC gathers Chrome's host and srflx candidates
+/// carrying the proxy's exit address (0071). Issues 31-33.
 #[cfg(windows)]
-pub const CORE_BUILD: &str = "0.5.0";
+pub const CORE_BUILD: &str = "0.5.4";
 #[cfg(not(windows))]
-pub const CORE_BUILD: &str = "0.5.0";
+pub const CORE_BUILD: &str = "0.5.4";
 
 /// `0.2.10` as (0, 2, 10); None for anything else.
 pub fn parse_release(s: &str) -> Option<(u32, u32, u32)> {
@@ -574,12 +579,12 @@ pub fn core_stale(exe: &std::path::Path) -> Option<Option<String>> {
 #[cfg(target_os = "macos")]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = Some((
     "../Frameworks/Fury Framework.framework/Versions/Current/Fury Framework",
-    "1fba01ebe646fe09dce5a9c4ab52dc268829c2667738ef02fd078d4c3a547804",
+    "51d91a29610580e961f0623c1d91351e3d6178e0a3d6644fd9008e1e5d99ec2f",
 ));
 #[cfg(windows)]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = Some((
     "chrome.dll",
-    "06977faf8fd6c6b733abb282c66d89bd42622b83bac533a1227ed8d381efc150",
+    "58946137333cb62ae17aeb03a28b3ab790b5eca2fa871036bec7d2e3ad9ad59a",
 ));
 #[cfg(not(any(target_os = "macos", windows)))]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = None;
