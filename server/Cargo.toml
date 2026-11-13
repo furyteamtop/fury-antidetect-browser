@@ -45,3 +45,8 @@ sqlx = { version = "0.8", default-features = false, features = [
     "macros",
     "migrate",
 ] }
+
+[dev-dependencies]
+# In-process requests for recovery_tests.rs: the router without a socket.
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

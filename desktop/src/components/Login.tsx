@@ -4,6 +4,7 @@
 import { Brand } from "./Brand";
 import { useEffect, useState } from "react";
 import { useI18n } from "../i18n";
+import { RecoveryFlow } from "./RecoveryFlow";
 import { api, type Shell } from "../api";
 
 export function Login({
@@ -63,6 +64,8 @@ export function Login({
     void api.ownVerifyCode().then(setOwnCode, () => setOwnCode(null));
   }, [awaitingKey]);
   const { t } = useI18n();
+  // "Forgot password?" (docs/25): a screen of its own while it lasts.
+  const [recovering, setRecovering] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -243,6 +246,17 @@ export function Login({
     );
   }
 
+  if (recovering) {
+    return (
+      <RecoveryFlow
+        initialEmail={email}
+        version={version}
+        onDone={onSuccess}
+        onBack={() => setRecovering(false)}
+      />
+    );
+  }
+
   return (
     <form className="login" onSubmit={submit}>
       <Brand version={version} />
@@ -282,6 +296,11 @@ export function Login({
       {challenge && (
         <button type="button" className="quiet" onClick={() => { setChallenge(null); setCode(""); setError(null); }}>
           {t("ui.cancel")}
+        </button>
+      )}
+      {!challenge && (
+        <button type="button" className="quiet" disabled={busy} onClick={() => setRecovering(true)}>
+          {t("rf.forgot")}
         </button>
       )}
       {!unlockFor && (

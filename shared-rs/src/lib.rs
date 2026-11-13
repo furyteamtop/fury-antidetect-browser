@@ -15,6 +15,7 @@ pub mod catalogue;
 pub mod fingerprint;
 pub mod fonts;
 pub mod keys;
+pub mod recovery;
 pub mod locale;
 pub mod overrides;
 pub mod persona;

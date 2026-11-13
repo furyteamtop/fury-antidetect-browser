@@ -15,9 +15,12 @@ mod enroll;
 mod error;
 mod mail;
 mod rbac_guard;
+mod recovery;
 mod security;
 #[cfg(test)]
 mod rls_tests;
+#[cfg(test)]
+mod recovery_tests;
 
 use std::net::SocketAddr;
 use std::sync::Arc;

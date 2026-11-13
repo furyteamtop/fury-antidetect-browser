@@ -53,6 +53,17 @@ pub struct AppState {
     /// lives exactly as long as the process and no longer. Signing out drops
     /// it; so does quitting. That is the intended cost of the design.
     pub org_key: Mutex<Option<[u8; 32]>>,
+
+    /// An account recovery under way (docs/25): the code as typed, held in
+    /// memory only, to open the private key once the server has let the
+    /// attempt through. The attempt's handle is also in settings, so a 24-hour
+    /// wait survives a restart; the code never is.
+    pub recovery: Mutex<Option<Recovering>>,
+}
+
+pub struct Recovering {
+    pub email: String,
+    pub raw: [u8; 32],
 }
 
 /// A failed call, in the same shape the browser transport produces.
@@ -242,6 +253,16 @@ impl AppState {
                     Some("totp_enrolment_required") => Some("err.totpEnrolmentRequired"),
                     Some("proxy_not_yours") => Some("err.proxyNotYours"),
                     Some("persona_not_yours") => Some("err.personaNotYours"),
+                    // Recovery and owner hand-over (server recovery.rs, docs/25).
+                    Some("wrong_password") => Some("err.wrongPassword"),
+                    Some("totp_required") => Some("err.totpRequired"),
+                    Some("wrong_code") => Some("err.wrongCode"),
+                    Some("too_many_attempts") => Some("err.recoveryTooMany"),
+                    Some("recovery_closed") => Some("err.recoveryClosed"),
+                    Some("recovery_not_ready") => Some("err.recoveryNotReady"),
+                    Some("wrong_answer") => Some("err.recoveryKeyWrong"),
+                    Some("not_an_admin") => Some("err.notAnAdmin"),
+                    Some("not_let_in") => Some("err.notLetIn"),
                     _ => None,
                 }
             } else {
@@ -706,6 +727,241 @@ async fn finish_login(state: &State<'_, AppState>, ok: LoginOk, email: &str, pas
     state
         .call(reqwest::Method::GET, "/v1/me", Body::None, true)
         .await
+}
+
+// ---- account recovery and owner hand-over (docs/25) ------------------------
+//
+// The server cannot reset a password: the private key is wrapped under it and
+// a new one would open nothing. A recovery code is a second lock on the same
+// key, made here and shown once. Everything that touches the code or the key
+// runs in this file and nothing of either reaches the webview, except the
+// printed code itself at the one moment the person has to write it down.
+
+/// Has this account a recovery key, and is anyone trying to use it.
+#[tauri::command]
+pub async fn recovery_status(state: State<'_, AppState>) -> R<serde_json::Value> {
+    let v: serde_json::Value = state.call(reqwest::Method::GET, "/v1/me/recovery", Body::None, true).await?;
+    Ok(serde_json::json!({ "has_key": v["has_key"], "created_at": v["created_at"], "pending": v["pending"] }))
+}
+
+/// Make or replace the recovery key. Returns the printed code, once.
+#[tauri::command]
+pub async fn recovery_create(state: State<'_, AppState>, password: String, totp_code: Option<String>) -> R<String> {
+    let v: serde_json::Value = state.call(reqwest::Method::GET, "/v1/me/recovery", Body::None, true).await?;
+    let field = |k: &str| v[k].as_str().unwrap_or_default().to_string();
+    let secret = crypto::open_own_private_key(&password, &field("kdf_salt"), &field("wrapped_private_key"), &field("public_key"))
+        .map_err(|_| ApiErr::coded("err.wrongPassword", "That is not the password of this account."))?;
+    let (printed, mut material) = crypto::new_recovery(&secret).map_err(|e| ApiErr::local(e.to_string()))?;
+    material["password"] = serde_json::json!(password);
+    material["totp_code"] = serde_json::json!(totp_code.filter(|c| !c.trim().is_empty()));
+    let _: serde_json::Value = state.call(reqwest::Method::POST, "/v1/me/recovery", Body::Json(material), true).await?;
+    Ok(printed)
+}
+
+/// End a recovery attempt: one's own from a live session, or a team member's
+/// as owner or admin.
+#[tauri::command]
+pub async fn recovery_cancel(state: State<'_, AppState>, id: String) -> R<serde_json::Value> {
+    state.call(reqwest::Method::POST, &format!("/v1/recovery/{id}/cancel"), Body::Json(serde_json::json!({})), true).await
+}
+
+/// The team's open recovery attempts, for the owner and admins.
+#[tauri::command]
+pub async fn org_recoveries(state: State<'_, AppState>) -> R<serde_json::Value> {
+    state.call(reqwest::Method::GET, "/v1/org/recovery", Body::None, true).await
+}
+
+/// Make an admin the owner of the team; the caller becomes an admin.
+#[tauri::command]
+pub async fn hand_over_ownership(state: State<'_, AppState>, user_id: String, password: String, totp_code: Option<String>) -> R<serde_json::Value> {
+    state
+        .call(
+            reqwest::Method::POST,
+            "/v1/org/owner",
+            Body::Json(serde_json::json!({
+                "user_id": user_id,
+                "password": password,
+                "totp_code": totp_code.filter(|c| !c.trim().is_empty()),
+            })),
+            true,
+        )
+        .await
+}
+
+fn recovery_handle(state: &State<'_, AppState>) -> R<serde_json::Value> {
+    let s = state.settings.lock().unwrap();
+    let p = s
+        .pending_recovery
+        .as_ref()
+        .ok_or_else(|| ApiErr::coded("err.recoveryClosed", "There is no recovery under way."))?;
+    Ok(serde_json::json!({ "request": p.request, "secret": p.secret }))
+}
+
+fn forget_recovery(state: &State<'_, AppState>) {
+    *state.recovery.lock().unwrap() = None;
+    let mut s = state.settings.lock().unwrap();
+    s.pending_recovery = None;
+    let _ = s.save(&state.config_dir);
+}
+
+/// Begin, or resume, recovering an account: the address and the code as typed.
+///
+/// An attempt already open on this machine for the same server and address is
+/// resumed rather than restarted, so a 24-hour wait is not reset by closing
+/// the app. Answers with the second step the server chose.
+#[tauri::command]
+pub async fn recovery_start(state: State<'_, AppState>, email: String, code: String, lang: String) -> R<serde_json::Value> {
+    let raw = fury_shared::recovery::parse(&code)
+        .map_err(|_| ApiErr::coded("err.recoveryCodeFormat", "That is not a recovery key: it has 52 letters and digits in groups of four."))?;
+    let email = email.trim().to_string();
+    let server = state.settings.lock().unwrap().server_url.clone().unwrap_or_default();
+    *state.recovery.lock().unwrap() = Some(Recovering { email: email.clone(), raw });
+
+    let resumable = {
+        let s = state.settings.lock().unwrap();
+        s.pending_recovery.as_ref().is_some_and(|p| p.server == server && p.email.eq_ignore_ascii_case(&email))
+    };
+    if resumable {
+        let handle = recovery_handle(&state)?;
+        match state.call::<serde_json::Value>(reqwest::Method::POST, "/v1/auth/recover/status", Body::Json(handle), false).await {
+            Ok(v) => return Ok(v),
+            Err(_) => {
+                let mut s = state.settings.lock().unwrap();
+                s.pending_recovery = None;
+                let _ = s.save(&state.config_dir);
+            }
+        }
+    }
+
+    let (machine_name, machine_id) = {
+        let s = state.settings.lock().unwrap();
+        (settings::machine_name(), s.machine_id.clone())
+    };
+    let auth = { use base64::Engine; base64::engine::general_purpose::STANDARD.encode(fury_shared::recovery::auth(&raw)) };
+    let v: serde_json::Value = state
+        .call(
+            reqwest::Method::POST,
+            "/v1/auth/recover/start",
+            Body::Json(serde_json::json!({
+                "email": email, "auth": auth, "machine_name": machine_name, "machine_id": machine_id, "lang": lang,
+            })),
+            false,
+        )
+        .await
+        .map_err(|e| if e.status == 401 { ApiErr::coded("err.recoveryKeyWrong", "That key does not open this account.") } else { e })?;
+    {
+        let mut s = state.settings.lock().unwrap();
+        s.pending_recovery = Some(settings::PendingRecovery {
+            server,
+            email,
+            request: v["request"].as_str().unwrap_or_default().to_string(),
+            secret: v["secret"].as_str().unwrap_or_default().to_string(),
+        });
+        let _ = s.save(&state.config_dir);
+    }
+    Ok(serde_json::json!({ "factor": v["factor"], "ready_at": v["ready_at"], "ready": false }))
+}
+
+/// Where the attempt stands. What the waiting screen polls.
+#[tauri::command]
+pub async fn recovery_poll(state: State<'_, AppState>) -> R<serde_json::Value> {
+    let handle = recovery_handle(&state)?;
+    let r = state.call(reqwest::Method::POST, "/v1/auth/recover/status", Body::Json(handle), false).await;
+    if r.as_ref().is_err_and(|e| e.code.as_deref() == Some("err.recoveryClosed")) {
+        forget_recovery(&state);
+    }
+    r
+}
+
+/// The second step's code: from the authenticator app, or from the letter.
+#[tauri::command]
+pub async fn recovery_verify(state: State<'_, AppState>, code: String) -> R<serde_json::Value> {
+    let mut handle = recovery_handle(&state)?;
+    handle["code"] = serde_json::json!(code.trim());
+    let r = state.call(reqwest::Method::POST, "/v1/auth/recover/verify", Body::Json(handle), false).await;
+    if r.as_ref().is_err_and(|e| e.code.as_deref() == Some("err.recoveryClosed")) {
+        forget_recovery(&state);
+    }
+    r
+}
+
+#[derive(Serialize)]
+pub struct Recovered {
+    pub me: Me,
+    /// The new recovery code, shown once: the one just used no longer works.
+    pub code: String,
+}
+
+/// The last step: open the private key with the code, prove it, set the new
+/// password, make the next recovery code, and sign in.
+#[tauri::command]
+pub async fn recovery_finish(state: State<'_, AppState>, password: String) -> R<Recovered> {
+    let (email, raw) = {
+        let r = state.recovery.lock().unwrap();
+        let r = r
+            .as_ref()
+            .ok_or_else(|| ApiErr::coded("err.recoveryClosed", "There is no recovery under way."))?;
+        (r.email.clone(), r.raw)
+    };
+    let handle = recovery_handle(&state)?;
+    let m: serde_json::Value = state.call(reqwest::Method::POST, "/v1/auth/recover/material", Body::Json(handle.clone()), false).await?;
+    let field = |k: &str| m[k].as_str().unwrap_or_default().to_string();
+    let secret = crypto::open_with_recovery(&raw, &field("salt"), &field("wrapped_key"), &field("public_key"))
+        .map_err(|_| ApiErr::coded("err.recoveryKeyWrong", "That key does not open this account."))?;
+    let answer = crypto::answer_challenge(&secret, &field("challenge")).map_err(|e| ApiErr::local(e.to_string()))?;
+    let (kdf_salt, wrapped_private_key) = crypto::rewrap_for_password(&password, &secret).map_err(|e| ApiErr::local(e.to_string()))?;
+    let (printed, material) = crypto::new_recovery(&secret).map_err(|e| ApiErr::local(e.to_string()))?;
+    let (machine_name, machine_id) = {
+        let s = state.settings.lock().unwrap();
+        (settings::machine_name(), s.machine_id.clone())
+    };
+    let mut body = handle;
+    body["answer"] = serde_json::json!(answer);
+    body["password"] = serde_json::json!(password);
+    body["kdf_salt"] = serde_json::json!(kdf_salt);
+    body["wrapped_private_key"] = serde_json::json!(wrapped_private_key);
+    body["recovery"] = material;
+    body["machine_name"] = serde_json::json!(machine_name);
+    body["machine_id"] = serde_json::json!(machine_id);
+    let raw_ok: serde_json::Value = state.call(reqwest::Method::POST, "/v1/auth/recover/finish", Body::Json(body), false).await?;
+    forget_recovery(&state);
+    let ok: LoginOk = serde_json::from_value(raw_ok).map_err(|e| ApiErr::local(e.to_string()))?;
+    let me = finish_login(&state, ok, &email, &password).await?;
+    Ok(Recovered { me, code: printed })
+}
+
+/// The recovery key as a text file in Downloads, with what it belongs to:
+/// a code found in a drawer a year later has to say which server and which
+/// account it opens. The window says not to leave it only on this computer.
+#[tauri::command]
+pub async fn save_recovery_file(state: State<'_, AppState>, code: String, email: String) -> R<String> {
+    let server = state.settings.lock().unwrap().server_url.clone().unwrap_or_default();
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .ok_or_else(|| ApiErr::local("no home directory"))?;
+    let dir = std::path::Path::new(&home).join("Downloads");
+    std::fs::create_dir_all(&dir).map_err(|e| ApiErr::local(format!("Could not create {}: {e}", dir.display())))?;
+    let host: String = server
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' })
+        .collect();
+    let path = dir.join(format!("fury-recovery-key-{host}.txt"));
+    let text = format!(
+        "Fury recovery key / Ключ восстановления Fury\n\n{code}\n\nServer / Сервер: {server}\nAccount / Аккаунт: {email}\n\n\
+         Sign-in screen > \"Forgot password?\". Keep this away from the computer it was made on.\n\
+         Экран входа > «Забыли пароль?». Храните не на том компьютере, где ключ создан.\n"
+    );
+    std::fs::write(&path, text).map_err(|e| ApiErr::local(format!("Could not write {}: {e}", path.display())))?;
+    Ok(path.display().to_string())
+}
+
+/// Give up on a recovery started on this machine.
+#[tauri::command]
+pub async fn recovery_abandon(state: State<'_, AppState>) -> R<()> {
+    forget_recovery(&state);
+    Ok(())
 }
 
 // ---- team security: the second factor, the policy, sessions, journals -----

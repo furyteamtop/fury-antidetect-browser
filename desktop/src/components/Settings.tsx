@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { api, type DomainList, type KeptPersona, type Shell } from "../api";
+import { RecoveryKey } from "./RecoveryKey";
 import { SecondFactor } from "./SecondFactor";
 import { languageNames, languages, useI18n, type Language } from "../i18n";
 import { type Theme, themes, useTheme } from "../theme";
@@ -239,7 +240,14 @@ export function Settings({
               )}
             </div>
           )}
-          {tab === "team" && shell.mode !== "local" && shell.signed_in && <SecondFactor />}
+          {tab === "team" && shell.mode !== "local" && shell.signed_in && (
+            <>
+              <SecondFactor />
+              <div className="settingsGroup">
+                <RecoveryKey email={shell.last_email ?? ""} />
+              </div>
+            </>
+          )}
 
           {tab === "data" && (
             <>

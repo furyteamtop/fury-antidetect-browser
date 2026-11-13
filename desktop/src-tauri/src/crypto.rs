@@ -537,3 +537,61 @@ mod credential_tests {
         assert_ne!(one, two, "the same login sealed twice produced the same bytes");
     }
 }
+
+// ---- account recovery (docs/25, fury_shared::recovery) ----------------------
+
+/// The private key, opened with the password, and refused unless it is the one
+/// the server publishes for this account.
+pub fn open_own_private_key(
+    password: &str,
+    kdf_salt: &str,
+    wrapped_private_key: &str,
+    public_key: &str,
+) -> anyhow::Result<[u8; 32]> {
+    let uk = keys::user_key(password, &unb64("kdf_salt", kdf_salt)?)?;
+    let secret = key32(
+        "the wrapped private key",
+        keys::unwrap(&uk, &unb64("wrapped_private_key", wrapped_private_key)?)?,
+    )?;
+    if keys::public_from_secret(&secret).to_vec() != unb64("public_key", public_key)? {
+        anyhow::bail!("the private key does not belong to this account");
+    }
+    Ok(secret)
+}
+
+/// A new recovery code for `secret`: the printed code, shown once, and what the
+/// server keeps (`salt`, `wrapped_key`, `auth`, base64).
+pub fn new_recovery(secret: &[u8; 32]) -> anyhow::Result<(String, serde_json::Value)> {
+    let (raw, printed) = fury_shared::recovery::new_code();
+    let m = fury_shared::recovery::seal(&raw, secret)?;
+    Ok((
+        printed,
+        serde_json::json!({ "salt": b64(&m.salt), "wrapped_key": b64(&m.wrapped_private_key), "auth": b64(&m.auth) }),
+    ))
+}
+
+/// The private key, opened with a recovery code and checked against the
+/// published public key.
+pub fn open_with_recovery(
+    raw: &[u8; 32],
+    salt: &str,
+    wrapped_key: &str,
+    public_key: &str,
+) -> anyhow::Result<[u8; 32]> {
+    let d = fury_shared::recovery::derive(raw, &unb64("salt", salt)?)?;
+    let public = key32("the public key", unb64("public_key", public_key)?)?;
+    Ok(fury_shared::recovery::open(&d, &unb64("wrapped_key", wrapped_key)?, &public)?)
+}
+
+/// The server's challenge, opened: the proof that this client holds the key.
+pub fn answer_challenge(secret: &[u8; 32], challenge: &str) -> anyhow::Result<String> {
+    Ok(b64(&keys::open_sealed(secret, &unb64("challenge", challenge)?)?))
+}
+
+/// `secret` wrapped under a new password: a fresh salt and the wrapping.
+pub fn rewrap_for_password(password: &str, secret: &[u8; 32]) -> anyhow::Result<(String, String)> {
+    let salt = keys::new_salt();
+    let uk = keys::user_key(password, &salt)?;
+    Ok((b64(&salt), b64(&keys::wrap(&uk, secret))))
+}
+

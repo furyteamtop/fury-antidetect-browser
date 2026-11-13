@@ -9,6 +9,7 @@ import { ProfileDialog } from "./components/ProfileDialog";
 import { BulkProfiles } from "./components/BulkProfiles";
 import { Cookies } from "./components/Cookies";
 import { Extensions } from "./components/Extensions";
+import { RecoveryBanners } from "./components/RecoveryKey";
 import { NetworkReport } from "./components/NetworkReport";
 import { BookmarksView } from "./components/BookmarksView";
 import { ExtensionsView } from "./components/ExtensionsView";
@@ -1126,6 +1127,16 @@ export function App() {
               {t("app.updateLater")}
             </button>
           </div>
+        )}
+
+        {/* Recovery (docs/25): an attempt to recover an account in this
+            team, for the owner and admins who can cancel it, and the owner's
+            reminder to make a recovery key. */}
+        {me && shell?.mode === "team" && (
+          <RecoveryBanners
+            me={me}
+            onOpenSettings={() => { setSettingsTab("team"); setSettingsOpen(true); }}
+          />
         )}
 
         {/* The team server behind the newest release. Shown to owners and

@@ -72,6 +72,32 @@ impl Mailer {
 
 /// The letter with the six digits, in the language the newcomer's app is in.
 /// Plain text: it carries one number, and HTML mail is where phishing lives.
+/// The second step of an account recovery (recovery.rs), when the account has
+/// no authenticator app and this server sends mail.
+pub fn recovery_code_letter(lang: &str, code: &str, minutes: i64) -> (String, String) {
+    if lang.starts_with("ru") {
+        (
+            format!("Восстановление доступа к Fury: {code}"),
+            format!(
+                "Кто-то ввёл ключ восстановления вашего аккаунта Fury. Код, чтобы продолжить: {code}\n\n\
+                 Он действует {minutes} минут.\n\n\
+                 Если это не вы, ваш ключ восстановления больше не тайна: войдите в Fury и создайте \
+                 новый в настройках, старый перестанет действовать. Без этого кода никто не сменит пароль.\n"
+            ),
+        )
+    } else {
+        (
+            format!("Fury account recovery: {code}"),
+            format!(
+                "Somebody entered the recovery key of your Fury account. The code to continue: {code}\n\n\
+                 It is valid for {minutes} minutes.\n\n\
+                 If it was not you, your recovery key is no longer a secret: sign in to Fury and make a \
+                 new one in Settings, which ends the old one. Without this code nobody can change your password.\n"
+            ),
+        )
+    }
+}
+
 pub fn email_code_letter(lang: &str, org: &str, code: &str, minutes: i64) -> (String, String) {
     if lang.starts_with("ru") {
         (

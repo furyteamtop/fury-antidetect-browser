@@ -100,6 +100,7 @@ fn main() {
                 session,
                 locks: Default::default(),
                 org_key: Default::default(),
+                recovery: Default::default(),
             });
             Ok(())
         })
@@ -120,6 +121,17 @@ fn main() {
             commands::save_server_kit,
             commands::login,
             commands::login_totp,
+            commands::recovery_status,
+            commands::recovery_create,
+            commands::recovery_cancel,
+            commands::org_recoveries,
+            commands::hand_over_ownership,
+            commands::recovery_start,
+            commands::recovery_poll,
+            commands::recovery_verify,
+            commands::recovery_finish,
+            commands::recovery_abandon,
+            commands::save_recovery_file,
             commands::totp_status,
             commands::totp_setup,
             commands::totp_confirm,

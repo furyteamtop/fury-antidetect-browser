@@ -423,7 +423,7 @@ pub async fn org_of(db: &sqlx::PgPool, user: Uuid) -> Option<Uuid> {
 
 /// This code, or the one before or after: a clock a few seconds out is not a
 /// wrong password.
-fn code_matches(secret: &[u8], code: &str) -> bool {
+pub(crate) fn code_matches(secret: &[u8], code: &str) -> bool {
     let code = code.trim();
     if code.len() != 6 || !code.bytes().all(|b| b.is_ascii_digit()) {
         return false;

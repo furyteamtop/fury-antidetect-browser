@@ -12,6 +12,8 @@ interface Request {
   initial?: string;
   confirmLabel: string;
   danger?: boolean;
+  /** A password: typed into a field that does not show it. */
+  secret?: boolean;
 }
 
 /** Confirmations and prompts, drawn by the application.
@@ -72,6 +74,7 @@ export function useAsk(): {
           {request.placeholder !== undefined && (
             <input
               style={{ marginTop: "var(--s-3)" }}
+              type={request.secret ? "password" : "text"}
               value={value}
               autoFocus
               placeholder={request.placeholder}

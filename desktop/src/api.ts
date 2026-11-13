@@ -351,6 +351,30 @@ export type ExtensionPackage =
   | { packageB64: string }
   | { files: { path: string; b64: string }[] };
 
+/** One open account-recovery attempt (server recovery.rs). */
+export interface RecoveryAttempt {
+  id: string;
+  email: string;
+  factor: "totp" | "email" | "wait";
+  created_at: string;
+  ready_at: string | null;
+  ip: string | null;
+  machine_name: string;
+}
+
+export interface RecoveryStatus {
+  has_key: boolean;
+  created_at: string | null;
+  pending: RecoveryAttempt[];
+}
+
+/** Where a recovery stands: which second step, and whether it is passed. */
+export interface RecoveryStep {
+  factor: "totp" | "email" | "wait";
+  ready: boolean;
+  ready_at: string | null;
+}
+
 export interface ExtensionEverywhere {
   id: string;
   name: string;
@@ -873,6 +897,22 @@ export const api = {
 
   // ---- team security -----------------------------------------------------
 
+  // ---- account recovery and owner hand-over (docs/25) ----
+  recoveryStatus: (): Promise<RecoveryStatus> => cmd("recovery_status"),
+  /** Returns the printed recovery code, once. */
+  recoveryCreate: (password: string, totpCode: string | null): Promise<string> =>
+    cmd("recovery_create", { password, totpCode }),
+  recoveryCancel: (id: string): Promise<unknown> => cmd("recovery_cancel", { id }),
+  orgRecoveries: (): Promise<RecoveryAttempt[]> => cmd("org_recoveries"),
+  handOverOwnership: (userId: string, password: string, totpCode: string | null): Promise<unknown> =>
+    cmd("hand_over_ownership", { userId, password, totpCode }),
+  recoveryStart: (email: string, code: string, lang: string): Promise<RecoveryStep> =>
+    cmd("recovery_start", { email, code, lang }),
+  recoveryPoll: (): Promise<RecoveryStep> => cmd("recovery_poll"),
+  recoveryVerify: (code: string): Promise<RecoveryStep> => cmd("recovery_verify", { code }),
+  recoveryFinish: (password: string): Promise<{ me: Me; code: string }> => cmd("recovery_finish", { password }),
+  recoveryAbandon: (): Promise<void> => cmd("recovery_abandon"),
+  saveRecoveryFile: (code: string, email: string): Promise<string> => cmd("save_recovery_file", { code, email }),
   totpStatus: (): Promise<{ enabled: boolean; enabled_at: string | null; pending: boolean; required_by_org: string }> =>
     cmd("totp_status"),
   totpSetup: (): Promise<{ uri: string; secret: string }> => cmd("totp_setup"),

@@ -93,6 +93,21 @@ pub struct Settings {
     /// tool somebody opens ten times a day.
     #[serde(default = "yes")]
     pub remember_org_key: bool,
+
+    /// An account recovery that has started on this machine and not finished:
+    /// the server, the address, and the attempt's handle. Kept so that a
+    /// 24-hour wait is not restarted by closing the app. Not the code: without
+    /// it the handle opens nothing (docs/25).
+    #[serde(default)]
+    pub pending_recovery: Option<PendingRecovery>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingRecovery {
+    pub server: String,
+    pub email: String,
+    pub request: String,
+    pub secret: String,
 }
 
 fn yes() -> bool {
@@ -126,6 +141,7 @@ impl Settings {
                 ork_generation: 0,
                 ork_generations: Default::default(),
                 remember_org_key: true,
+                pending_recovery: None,
                 server_url: None,
                 machine_id: new_machine_id(),
             },

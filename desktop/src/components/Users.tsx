@@ -750,6 +750,38 @@ export function Users({
                           {teamProjects.length > 0 ? t("team.letIn") : t("team.giveKey")}
                         </button>
                       )}
+                      {/* Handing the team over (docs/25): the owner's own act, to
+                          an admin who already holds the key, with the password
+                          again and the authenticator code when there is one. */}
+                      {myRole === "owner" && m.role === "admin" && m.has_key && (
+                        <button
+                          className="ghost"
+                          disabled={busy}
+                          onClick={async () => {
+                            const password = await ask({
+                              title: t("team.handOver", { email: m.email }),
+                              detail: t("team.handOverDetail", { email: m.email }),
+                              placeholder: t("auth.password"),
+                              confirmLabel: t("team.handOverConfirm"),
+                              danger: true,
+                              secret: true,
+                            });
+                            if (!password) return;
+                            await run(async () => {
+                              try {
+                                await api.handOverOwnership(m.user_id, password, null);
+                              } catch (e) {
+                                if ((e as { code?: string } | null)?.code !== "err.totpRequired") throw e;
+                                const code = await ask({ title: t("team.handOver", { email: m.email }), detail: t("auth.codeWhy"), placeholder: t("auth.code"), confirmLabel: t("team.handOverConfirm"), danger: true });
+                                if (!code) return;
+                                await api.handOverOwnership(m.user_id, password, code);
+                              }
+                            });
+                          }}
+                        >
+                          {t("team.handOverShort")}
+                        </button>
+                      )}
                       {/* Removing follows the role rule: not yourself, never
                           the owner, an admin only below admin. A member saw
                           "Remove" beside the owner (14.10.2026). */}
