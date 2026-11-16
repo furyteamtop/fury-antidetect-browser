@@ -156,6 +156,15 @@ async fn check_failure(upstream: &crate::relay::Upstream, endpoint: &str, e: Opt
         Some(RelayError::ConnectRejected { reason, .. }) => {
             return ("tunnel", format!("The proxy answered but refused to connect onward ({reason})."))
         }
+        // An https:// address that is not a TLS proxy, or whose certificate
+        // this machine does not trust (issue 37). The first comes with the
+        // http button from `speaks_instead` when plain HTTP works.
+        Some(RelayError::WrongProtocol { expected: "HTTPS", saw }) => {
+            return ("notTls", format!("This address does not speak TLS: {saw}."))
+        }
+        Some(RelayError::ProxyCertificate(why)) => {
+            return ("tlsCert", format!("The proxy speaks TLS, but this computer does not trust its certificate ({why}), so the login was not sent."))
+        }
         Some(other) => return ("connect", format!("Could not connect to the proxy ({other}).")),
         None => {}
     }

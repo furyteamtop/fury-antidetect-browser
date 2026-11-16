@@ -899,7 +899,9 @@ pub fn parse_upstream(url: &str) -> anyhow::Result<Upstream> {
     let host = host.to_string();
 
     Ok(match scheme {
-        "http" | "https" => Upstream::Http { host, port, auth },
+        "http" => Upstream::Http { host, port, auth, tls: false },
+        // TLS to the proxy itself; see `Upstream::Http`.
+        "https" => Upstream::Http { host, port, auth, tls: true },
         // socks5 is treated as socks5h unconditionally: local DNS resolution
         // would leak the operator's resolver. See docs/05.
         "socks5" | "socks5h" => Upstream::Socks5 { host, port, auth },

@@ -224,34 +224,42 @@ pub async fn run(url: &str, checker_url: Option<&str>) -> Report {
 /// no request, and only on a failure that already cost the operator fifteen
 /// seconds.
 ///
-/// `http` and `https` are one family here: both parse to [`Upstream::Http`],
-/// and offering to swap one for the other would be offering to change nothing.
+/// An `https://` address is tried as plain `http://` first. Since 0.5.7 it
+/// means TLS to the proxy (issue 37), and many proxies sold as "HTTPS" are
+/// plain HTTP with CONNECT: until then they worked only because `https://` was
+/// dialled as `http://`, and the button is how such a saved proxy gets fixed.
 pub async fn speaks_instead(url: &str, checker_url: Option<&str>) -> Option<&'static str> {
     let (scheme, rest) = url.split_once("://")?;
-    let candidate = match scheme {
-        "socks5" | "socks5h" => "http",
-        "http" | "https" => "socks5",
+    let candidates: &[&'static str] = match scheme {
+        "socks5" | "socks5h" => &["http"],
+        "http" => &["socks5"],
+        "https" => &["http", "socks5"],
         _ => return None,
     };
-    let upstream = crate::parse_upstream(&format!("{candidate}://{rest}")).ok()?;
     let endpoint = checker_endpoint(checker_url);
     let target = reqwest::Url::parse(&endpoint)
         .ok()
         .and_then(|u| u.host_str().map(str::to_string))
         .unwrap_or_else(|| "ipinfo.io".to_string());
 
-    match tokio::time::timeout(Duration::from_secs(20), Relay::new(upstream).dial(&target, 443)).await {
-        Ok(Ok(_)) => Some(candidate),
+    for &candidate in candidates {
+        let Ok(upstream) = crate::parse_upstream(&format!("{candidate}://{rest}")) else { continue };
+        if let Ok(Ok(_)) =
+            tokio::time::timeout(Duration::from_secs(20), Relay::new(upstream).dial(&target, 443)).await
+        {
+            return Some(candidate);
+        }
         // Anything else means the guess is no better than what was tried. Say
         // nothing rather than send somebody round a second wrong dropdown.
-        _ => None,
     }
+    None
 }
 
 fn describe(u: &Upstream) -> String {
     match u {
-        Upstream::Http { host, port, auth } => {
-            format!("http proxy {host}:{port}{}", if auth.is_some() { ", with credentials" } else { ", no credentials" })
+        Upstream::Http { host, port, auth, tls } => {
+            let kind = if *tls { "https" } else { "http" };
+            format!("{kind} proxy {host}:{port}{}", if auth.is_some() { ", with credentials" } else { ", no credentials" })
         }
         Upstream::Socks5 { host, port, auth } => {
             format!("socks5 proxy {host}:{port}{}", if auth.is_some() { ", with credentials" } else { ", no credentials" })
@@ -301,6 +309,17 @@ fn classify_relay(e: &RelayError, target: &str) -> (&'static str, String) {
             format!("the proxy accepted us but would not open {target}:443 — {reason}. Usually an exhausted plan, a blocked destination, or a proxy that only allows certain ports"),
         ),
         RelayError::UpstreamUnreachable(io) => ("unreachable", format!("the proxy stopped answering: {io}")),
+        // Its own code: the generic protocol sentence talks about http:// and
+        // SOCKS, which is the wrong lead for a plain proxy saved as https://.
+        RelayError::WrongProtocol { expected: "HTTPS", saw } => (
+            "not_tls",
+            format!("this address does not speak TLS: {saw}"),
+        ),
+        RelayError::ProxyCertificate(why) => (
+            "tls",
+            format!("the proxy speaks TLS, but this computer does not trust its certificate ({why}), so the login was not sent"),
+        ),
+        RelayError::ProxyTls(why) => ("tls_failed", format!("TLS with the proxy failed: {why}")),
         RelayError::WrongProtocol { expected, saw } => (
             "protocol",
             format!("this address does not speak {expected}: {saw}"),

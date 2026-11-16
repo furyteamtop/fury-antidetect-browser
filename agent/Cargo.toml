@@ -46,6 +46,10 @@ sqlx = { version = "0.8", default-features = false, features = [
     "macros",
 ] }
 tar = "0.4"
+# TLS to an https:// proxy (relay.rs, `tls_to_proxy`). Both already in the lock
+# through reqwest; ring and no default features, so aws-lc stays out of the tree.
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+rustls-native-certs = "0.8"
 flate2 = "1"
 # The developer key for an extension imported as a ZIP or folder without one
 # (ext.rs, `generate_key`). Already in the lock through the server.

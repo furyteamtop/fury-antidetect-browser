@@ -58,10 +58,23 @@ impl std::fmt::Debug for Credentials {
 
 #[derive(Debug, Clone)]
 pub enum Upstream {
+    /// An HTTP proxy, spoken to with CONNECT.
+    ///
+    /// `tls` is an `https://` address: the CONNECT goes inside a TLS session
+    /// with the proxy, the way `curl --proxy https://` sends it. Until 0.5.7
+    /// `https://` was dialled as plain TCP, and a real HTTPS proxy closed the
+    /// connection on the first plaintext byte: every page in the profile was a
+    /// 502 (issue 37). A proxy sold as "HTTPS" that is really plain HTTP with
+    /// CONNECT now fails instead, with a sentence that says to address it as
+    /// `http://` (`tls_to_proxy`), and the proxy check offers the switch
+    /// (`diagnose::speaks_instead`). Never a silent fallback to plaintext: the
+    /// operator chose an encrypted hop to the proxy, and quietly sending the
+    /// password in clear would undo that choice behind their back.
     Http {
         host: String,
         port: u16,
         auth: Option<Credentials>,
+        tls: bool,
     },
     /// Always SOCKS5h semantics: hostnames are sent to the proxy for remote
     /// resolution. Local resolution is never performed.
@@ -141,6 +154,15 @@ pub enum RelayError {
     WrongProtocol { expected: &'static str, saw: String },
     #[error("upstream refused CONNECT to {target}: {reason}")]
     ConnectRejected { target: String, reason: String },
+    /// The proxy speaks TLS, but its certificate failed the check against this
+    /// machine's trusted roots, which it gets like any site's. Not skipped for
+    /// a proxy: whoever can present a certificate for it unchecked reads the
+    /// proxy password and every destination the profile opens.
+    #[error("the proxy's TLS certificate was refused: {0}")]
+    ProxyCertificate(String),
+    /// TLS with the proxy failed for any other reason.
+    #[error("TLS with the proxy failed: {0}")]
+    ProxyTls(String),
     #[error("malformed request from browser")]
     BadRequest,
     #[error(transparent)]
@@ -217,7 +239,7 @@ impl Relay {
     /// anywhere near that.
     fn upstream_label(&self) -> String {
         let (host, port, scheme) = match &self.upstream {
-            Upstream::Http { host, port, .. } => (host, port, "http"),
+            Upstream::Http { host, port, tls, .. } => (host, port, if *tls { "https" } else { "http" }),
             Upstream::Socks5 { host, port, .. } => (host, port, "socks5"),
             // The peer's address is in the config the operator pasted and is
             // not a secret, but it is not reached through this struct — and
@@ -403,6 +425,22 @@ impl Relay {
                 host: phost,
                 port: pport,
                 auth,
+                tls: true,
+            } => {
+                let s = connect_upstream(phost, *pport).await?;
+                let mut s = handshake("HTTPS", tls_to_proxy(s, phost)).await?;
+                handshake(
+                    "HTTP",
+                    http_connect(&mut s, host, port, auth.as_ref()),
+                )
+                .await?;
+                Ok(Conn::Tls(Box::new(s)))
+            }
+            Upstream::Http {
+                host: phost,
+                port: pport,
+                auth,
+                tls: false,
             } => {
                 let mut s = connect_upstream(phost, *pport).await?;
                 handshake(
@@ -662,10 +700,10 @@ fn timed_out(host: &str, port: u16, what: &str) -> RelayError {
 
 /// Run a proxy handshake within [`HANDSHAKE_TIMEOUT`], and read silence as an
 /// answer about what the far end is.
-async fn handshake(
+async fn handshake<T>(
     expected: &'static str,
-    f: impl std::future::Future<Output = Result<(), RelayError>>,
-) -> Result<(), RelayError> {
+    f: impl std::future::Future<Output = Result<T, RelayError>>,
+) -> Result<T, RelayError> {
     match tokio::time::timeout(HANDSHAKE_TIMEOUT, f).await {
         Ok(r) => r,
         Err(_) => Err(RelayError::WrongProtocol {
@@ -688,6 +726,8 @@ async fn handshake(
 /// the two a common name, rather than to add behaviour.
 pub enum Conn {
     Tcp(TcpStream),
+    /// An `https://` proxy: the CONNECT tunnel inside a TLS session with it.
+    Tls(Box<tokio_rustls::client::TlsStream<TcpStream>>),
     Tunnel(tokio::io::DuplexStream),
 }
 
@@ -699,6 +739,7 @@ impl tokio::io::AsyncRead for Conn {
     ) -> std::task::Poll<std::io::Result<()>> {
         match self.get_mut() {
             Conn::Tcp(s) => std::pin::Pin::new(s).poll_read(cx, buf),
+            Conn::Tls(s) => std::pin::Pin::new(s.as_mut()).poll_read(cx, buf),
             Conn::Tunnel(s) => std::pin::Pin::new(s).poll_read(cx, buf),
         }
     }
@@ -712,6 +753,7 @@ impl tokio::io::AsyncWrite for Conn {
     ) -> std::task::Poll<std::io::Result<usize>> {
         match self.get_mut() {
             Conn::Tcp(s) => std::pin::Pin::new(s).poll_write(cx, buf),
+            Conn::Tls(s) => std::pin::Pin::new(s.as_mut()).poll_write(cx, buf),
             Conn::Tunnel(s) => std::pin::Pin::new(s).poll_write(cx, buf),
         }
     }
@@ -721,6 +763,7 @@ impl tokio::io::AsyncWrite for Conn {
     ) -> std::task::Poll<std::io::Result<()>> {
         match self.get_mut() {
             Conn::Tcp(s) => std::pin::Pin::new(s).poll_flush(cx),
+            Conn::Tls(s) => std::pin::Pin::new(s.as_mut()).poll_flush(cx),
             Conn::Tunnel(s) => std::pin::Pin::new(s).poll_flush(cx),
         }
     }
@@ -730,6 +773,7 @@ impl tokio::io::AsyncWrite for Conn {
     ) -> std::task::Poll<std::io::Result<()>> {
         match self.get_mut() {
             Conn::Tcp(s) => std::pin::Pin::new(s).poll_shutdown(cx),
+            Conn::Tls(s) => std::pin::Pin::new(s.as_mut()).poll_shutdown(cx),
             Conn::Tunnel(s) => std::pin::Pin::new(s).poll_shutdown(cx),
         }
     }
@@ -957,11 +1001,99 @@ fn socks5_reply_reason(code: u8) -> &'static str {
 }
 
 // ---------------------------------------------------------------------------
+// TLS to an https:// proxy
+// ---------------------------------------------------------------------------
+
+/// One client config for every https:// proxy in the process: reading the
+/// system's trusted roots costs tens of milliseconds, too much per tab.
+///
+/// The system's roots, as the proxy check's own client uses (reqwest with
+/// `rustls-tls-native-roots`), so a proxy the check trusts is one the profile
+/// trusts. `ring`, as everywhere else in the tree: aws-lc would bring a C
+/// toolchain into the Windows build. ALPN says http/1.1, as curl does, because
+/// what follows is a CONNECT and nothing else.
+fn proxy_tls_config() -> Arc<tokio_rustls::rustls::ClientConfig> {
+    use tokio_rustls::rustls;
+    static CONFIG: std::sync::OnceLock<Arc<rustls::ClientConfig>> = std::sync::OnceLock::new();
+    CONFIG
+        .get_or_init(|| {
+            let found = rustls_native_certs::load_native_certs();
+            for e in &found.errors {
+                tracing::warn!(error = %e, "a trusted root could not be read");
+            }
+            let mut roots = rustls::RootCertStore::empty();
+            let (added, ignored) = roots.add_parsable_certificates(found.certs);
+            tracing::debug!(added, ignored, "trusted roots for https:// proxies");
+            let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(
+                rustls::crypto::ring::default_provider(),
+            ))
+            .with_safe_default_protocol_versions()
+            .expect("ring supports TLS 1.2 and 1.3")
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+            config.alpn_protocols = vec![b"http/1.1".to_vec()];
+            Arc::new(config)
+        })
+        .clone()
+}
+
+/// Open the TLS session with an https:// proxy, and name what went wrong in
+/// terms of the dropdown when it was not a TLS proxy at all.
+async fn tls_to_proxy(
+    s: TcpStream,
+    host: &str,
+) -> Result<tokio_rustls::client::TlsStream<TcpStream>, RelayError> {
+    tls_to_proxy_with(s, host, proxy_tls_config()).await
+}
+
+/// The roots as a parameter, for the tests' own CA.
+async fn tls_to_proxy_with(
+    s: TcpStream,
+    host: &str,
+    config: Arc<tokio_rustls::rustls::ClientConfig>,
+) -> Result<tokio_rustls::client::TlsStream<TcpStream>, RelayError> {
+    use tokio_rustls::rustls::pki_types::ServerName;
+    let bare = host.trim_start_matches('[').trim_end_matches(']');
+    let name = ServerName::try_from(bare.to_string())
+        .map_err(|_| RelayError::ProxyTls(format!("{host} is not a name a certificate can be checked against")))?;
+    tokio_rustls::TlsConnector::from(config)
+        .connect(name, s)
+        .await
+        .map_err(|e| tls_failure(&e))
+}
+
+fn tls_failure(e: &io::Error) -> RelayError {
+    use tokio_rustls::rustls::Error as Tls;
+    match e.get_ref().and_then(|inner| inner.downcast_ref::<Tls>()) {
+        // The first bytes back were not a TLS record. In practice that is
+        // "HTTP/1.1 400 Bad Request": a plain HTTP proxy that read the
+        // ClientHello as a request line, the "HTTPS proxy" of many sellers.
+        Some(Tls::InvalidMessage(_)) => RelayError::WrongProtocol {
+            expected: "HTTPS",
+            saw: "it answered in plain text, not TLS. Many proxies sold as \"HTTPS\" are \
+                  ordinary HTTP proxies: address it as http://"
+                .to_string(),
+        },
+        Some(Tls::InvalidCertificate(why)) => RelayError::ProxyCertificate(format!("{why:?}")),
+        Some(other) => RelayError::ProxyTls(other.to_string()),
+        // A SOCKS5 server, and some HTTP proxies, hang up on a ClientHello
+        // without a word.
+        None if hung_up(e) => RelayError::WrongProtocol {
+            expected: "HTTPS",
+            saw: "it closed the connection when TLS began. Many proxies sold as \"HTTPS\" are \
+                  ordinary HTTP proxies: address it as http:// (or socks5:// for a SOCKS proxy)"
+                .to_string(),
+        },
+        None => RelayError::ProxyTls(e.to_string()),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // HTTP CONNECT
 // ---------------------------------------------------------------------------
 
-async fn http_connect(
-    s: &mut TcpStream,
+async fn http_connect<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
+    s: &mut S,
     host: &str,
     port: u16,
     auth: Option<&Credentials>,
@@ -1016,7 +1148,7 @@ async fn http_connect(
 
 /// Read until the end of headers. Returns the head as text plus any body bytes
 /// that arrived in the same read.
-async fn read_request_head(s: &mut TcpStream) -> Result<(String, Vec<u8>), RelayError> {
+async fn read_request_head<S: tokio::io::AsyncRead + Unpin>(s: &mut S) -> Result<(String, Vec<u8>), RelayError> {
     let mut buf = Vec::with_capacity(2048);
     let mut chunk = [0u8; 1024];
     loop {
@@ -1402,6 +1534,171 @@ mod tests {
         assert_eq!(sniff(closed).await, None);
     }
 
+    // ---- https:// proxies (issue 37) -------------------------------------
+
+    const TEST_CA: &[u8] = include_bytes!("../testdata/proxy-tls/ca.pem");
+    const TEST_PROXY_CERT: &[u8] = include_bytes!("../testdata/proxy-tls/proxy.pem");
+    const TEST_PROXY_KEY: &[u8] = include_bytes!("../testdata/proxy-tls/proxy.key");
+
+    fn ring() -> Arc<tokio_rustls::rustls::crypto::CryptoProvider> {
+        Arc::new(tokio_rustls::rustls::crypto::ring::default_provider())
+    }
+
+    /// A client config that trusts the test CA and nothing else.
+    fn trusting_test_ca() -> Arc<tokio_rustls::rustls::ClientConfig> {
+        use tokio_rustls::rustls::pki_types::{pem::PemObject, CertificateDer};
+        let mut roots = tokio_rustls::rustls::RootCertStore::empty();
+        roots.add(CertificateDer::from_pem_slice(TEST_CA).unwrap()).unwrap();
+        let mut c = tokio_rustls::rustls::ClientConfig::builder_with_provider(ring())
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        c.alpn_protocols = vec![b"http/1.1".to_vec()];
+        Arc::new(c)
+    }
+
+    /// A real HTTPS proxy on loopback: TLS with a certificate for localhost
+    /// and 127.0.0.1 from the test CA, then CONNECT inside the session. It
+    /// answers 407 without the right login, 200 with it, and then echoes, so
+    /// a test can see bytes cross the tunnel. Returns the port and the
+    /// request heads it received.
+    async fn tls_proxy() -> (u16, Arc<std::sync::Mutex<Vec<String>>>) {
+        use tokio_rustls::rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
+        let config = tokio_rustls::rustls::ServerConfig::builder_with_provider(ring())
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![CertificateDer::from_pem_slice(TEST_PROXY_CERT).unwrap()],
+                PrivateKeyDer::from_pem_slice(TEST_PROXY_KEY).unwrap(),
+            )
+            .unwrap();
+        let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
+        let l = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = Arc::clone(&seen);
+        tokio::spawn(async move {
+            while let Ok((s, _)) = l.accept().await {
+                let acceptor = acceptor.clone();
+                let log = Arc::clone(&log);
+                tokio::spawn(async move {
+                    let Ok(mut s) = acceptor.accept(s).await else { return };
+                    let Ok((head, _)) = read_request_head(&mut s).await else { return };
+                    log.lock().unwrap().push(head.clone());
+                    // "u:p"
+                    if !head.contains("Proxy-Authorization: Basic dTpw") {
+                        let _ = s.write_all(b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n").await;
+                        return;
+                    }
+                    let _ = s.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n").await;
+                    let mut buf = [0u8; 64];
+                    while let Ok(n) = s.read(&mut buf).await {
+                        if n == 0 || s.write_all(&buf[..n]).await.is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+        });
+        (port, seen)
+    }
+
+    fn login() -> Option<Credentials> {
+        Some(Credentials { username: "u".into(), password: "p".into() })
+    }
+
+    #[test]
+    fn https_and_http_addresses_parse_to_tls_and_plain() {
+        let tls = |u: &str| match crate::parse_upstream(u).unwrap() {
+            Upstream::Http { tls, .. } => tls,
+            _ => panic!("{u}: wrong variant"),
+        };
+        assert!(tls("https://u:p@proxy.example:8443"));
+        assert!(!tls("http://u:p@proxy.example:8080"));
+    }
+
+    /// The issue itself: CONNECT goes inside TLS, the login with it, and the
+    /// tunnel carries bytes both ways.
+    #[tokio::test]
+    async fn an_https_proxy_gets_its_connect_inside_tls() {
+        let (port, seen) = tls_proxy().await;
+        for host in ["localhost", "127.0.0.1"] {
+            let s = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+            let mut s = tls_to_proxy_with(s, host, trusting_test_ca()).await.unwrap();
+            http_connect(&mut s, "example.com", 443, login().as_ref()).await.unwrap();
+            s.write_all(b"ping").await.unwrap();
+            let mut back = [0u8; 4];
+            s.read_exact(&mut back).await.unwrap();
+            assert_eq!(&back, b"ping", "through {host}");
+        }
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert!(seen[0].starts_with("CONNECT example.com:443 HTTP/1.1"), "{}", seen[0]);
+    }
+
+    #[tokio::test]
+    async fn a_wrong_login_inside_tls_is_still_a_wrong_login() {
+        let (port, _) = tls_proxy().await;
+        let s = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        let mut s = tls_to_proxy_with(s, "localhost", trusting_test_ca()).await.unwrap();
+        let bad = Credentials { username: "u".into(), password: "wrong".into() };
+        assert!(matches!(
+            http_connect(&mut s, "example.com", 443, Some(&bad)).await,
+            Err(RelayError::AuthRejected)
+        ));
+    }
+
+    /// Through `dial`, as a profile reaches it, with the system's roots: the
+    /// test CA is not among them, so this is the certificate refusal, not a
+    /// silent pass. A proxy whose certificate is not checked hands its
+    /// password to whoever sits in between.
+    #[tokio::test]
+    async fn an_untrusted_certificate_is_refused_not_ignored() {
+        let (port, seen) = tls_proxy().await;
+        let relay = Relay::new(Upstream::Http { host: "127.0.0.1".into(), port, auth: login(), tls: true });
+        match relay.dial("example.com", 443).await.map(|_| ()) {
+            Err(RelayError::ProxyCertificate(why)) => assert!(why.contains("UnknownIssuer"), "{why}"),
+            other => panic!("expected a certificate refusal, got {other:?}"),
+        }
+        assert!(seen.lock().unwrap().is_empty(), "the CONNECT left before the certificate was trusted");
+    }
+
+    /// The "HTTPS proxy" of many sellers: plain HTTP with CONNECT. It reads
+    /// the ClientHello as a request line and answers 400 in plain text.
+    #[tokio::test]
+    async fn a_plain_http_proxy_saved_as_https_is_told_to_use_http() {
+        let (host, port) = fake_proxy(b"HTTP/1.1 400 Bad Request\r\n\r\n", false).await;
+        let relay = Relay::new(Upstream::Http { host, port, auth: None, tls: true });
+        match relay.dial("example.com", 443).await.map(|_| ()) {
+            Err(RelayError::WrongProtocol { expected, saw }) => {
+                assert_eq!(expected, "HTTPS");
+                assert!(saw.contains("http://"), "{saw}");
+            }
+            other => panic!("expected a protocol mismatch, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_proxy_that_hangs_up_on_tls_is_named_too() {
+        let (host, port) = fake_proxy(b"", true).await;
+        let relay = Relay::new(Upstream::Http { host, port, auth: None, tls: true });
+        match relay.dial("example.com", 443).await.map(|_| ()) {
+            Err(RelayError::WrongProtocol { expected, saw }) => {
+                assert_eq!(expected, "HTTPS");
+                assert!(saw.contains("http://"), "{saw}");
+            }
+            other => panic!("expected a protocol mismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_start_page_names_an_https_proxy_as_https() {
+        let r = Relay::new(Upstream::Http { host: "h".into(), port: 1, auth: None, tls: true });
+        assert_eq!(r.upstream_label(), "https://h:1");
+    }
+
     /// A listener that accepts one connection and then does what `then` says.
     ///
     /// Real sockets rather than a trait: the failures under test are things a
@@ -1456,7 +1753,7 @@ mod tests {
     #[tokio::test]
     async fn a_socks_proxy_addressed_as_http_names_the_protocol() {
         let (host, port) = fake_proxy(b"", true).await;
-        let relay = Relay::new(Upstream::Http { host, port, auth: None });
+        let relay = Relay::new(Upstream::Http { host, port, auth: None, tls: false });
 
         // Mapped to () so a failure can be printed: a live socket is not Debug.
         match relay.dial("example.com", 443).await.map(|_| ()) {
@@ -1723,6 +2020,7 @@ mod tests {
             host: "127.0.0.1".into(),
             port: 1,
             auth: None,
+            tls: false,
         })
         .blocking(list);
 
@@ -1788,7 +2086,7 @@ mod tests {
                 drop(s);
             }
         });
-        (Upstream::Http { host: "127.0.0.1".into(), port, auth: None }, hits)
+        (Upstream::Http { host: "127.0.0.1".into(), port, auth: None, tls: false }, hits)
     }
 
     /// A `@local` name that resolves outside private space — here to
@@ -1912,7 +2210,7 @@ mod tests {
 
     #[test]
     fn the_start_page_is_recognised_however_it_is_addressed() {
-        let r = Relay::new(Upstream::Http { host: "h".into(), port: 1, auth: None });
+        let r = Relay::new(Upstream::Http { host: "h".into(), port: 1, auth: None, tls: false });
         let t = r.token.clone();
         // With the token: answered, in both request forms.
         assert_eq!(r.route(&format!("http://fury.invalid/{t}/"), ""), Some(Route::Start));
