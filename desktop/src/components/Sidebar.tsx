@@ -4,6 +4,7 @@
 import { useI18n } from "../i18n";
 import { useState } from "react";
 import type { Me, Project, Shell } from "../api";
+import { Icon } from "./Icon";
 
 export type View = "profiles" | "sharedWithMe" | "proxies" | "extensions" | "bookmarks" | "assistants" | "trash" | "users";
 
@@ -22,6 +23,7 @@ export function Sidebar({
   view,
   onView,
   onSettings,
+  onSupport,
 }: {
   projects: Project[];
   active: Project | null;
@@ -40,6 +42,8 @@ export function Sidebar({
   onView: (v: View) => void;
   onNewProfile: () => void;
   onSettings: () => void;
+  /** Settings at the About tab, scrolled to the donation address. */
+  onSupport: () => void;
 }) {
   const { t } = useI18n();
   const local = shell.mode === "local";
@@ -206,6 +210,17 @@ export function Sidebar({
         {/* An icon, not a word: it sits under the machine name where a label
             competes with information, and a gear is the one glyph nobody has to
             learn. The accessible name carries the word instead. */}
+        {/* Asked for by users who pay for other anti-detects (17.11.2026). An
+            icon beside the gear, not a banner: it is there for whoever looks,
+            and it never stands between anybody and their work. */}
+        <button
+          className="iconBtn"
+          onClick={onSupport}
+          title={t("support.button")}
+          aria-label={t("support.button")}
+        >
+          <Icon name="heart" size={16} />
+        </button>
         <button
           className="iconBtn"
           onClick={onSettings}

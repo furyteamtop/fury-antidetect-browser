@@ -276,7 +276,7 @@ export function App() {
   /** Which settings tab opens. "Connect a server" in Users means the team
    *  tab; it opened on General, one more click away from the only field that
    *  matters there, and a tester could not find where to sign in (14.10.2026). */
-  const [settingsTab, setSettingsTab] = useState<"general" | "team">("general");
+  const [settingsTab, setSettingsTab] = useState<"general" | "team" | "about">("general");
   // Applied at the root before anything renders, so the first paint is already
   // the right theme rather than a flash of the wrong one.
   useTheme();
@@ -715,6 +715,7 @@ export function App() {
         onView={setView}
         onNewProfile={() => setEditing(null)}
         onSettings={() => { setSettingsTab("general"); setSettingsOpen(true); }}
+        onSupport={() => { setSettingsTab("about"); setSettingsOpen(true); }}
         onRenameProject={async (p) => {
           const name = await ask({
             title: t("proj.rename"),

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type DomainList, type KeptPersona, type Shell } from "../api";
 import { RecoveryKey } from "./RecoveryKey";
 import { SecondFactor } from "./SecondFactor";
@@ -11,6 +11,7 @@ import { Select } from "./Select";
 import { DEFAULT_SERVER } from "../defaults";
 import { Icon, type IconName } from "./Icon";
 import { PartnerCard } from "./Partner";
+import { USDT_TRC20 } from "../donate";
 
 const TABS = ["general", "team", "data", "about", "products", "partners"] as const;
 type Tab = (typeof TABS)[number];
@@ -294,7 +295,7 @@ export function Settings({
             </>
           )}
 
-          {tab === "about" && <About shell={shell} />}
+          {tab === "about" && <About shell={shell} support={initialTab === "about"} />}
           {tab === "products" && <Products />}
           {tab === "partners" && (
             <div className="settingsGroup">
@@ -392,7 +393,54 @@ function SelfHosting() {
 
 type Check = Awaited<ReturnType<typeof api.checkUpdate>>;
 
-function About({ shell }: { shell: Shell }) {
+/** The donation address, with a copy button and the two warnings that keep
+ *  money from being lost: the network, and checking the address against the
+ *  published one (donate.ts says why). */
+function Support({ focus }: { focus: boolean }) {
+  const { t } = useI18n();
+  const ref = useRef<HTMLDivElement>(null);
+  const code = useRef<HTMLElement>(null);
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+  useEffect(() => {
+    if (focus) ref.current?.scrollIntoView({ block: "start" });
+  }, [focus]);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(USDT_TRC20);
+      setState("copied");
+      window.setTimeout(() => setState((s) => (s === "copied" ? "idle" : s)), 2000);
+    } catch {
+      // A refusing clipboard leaves the address selected, so the next key
+      // press copies it, and the line under it says so.
+      const range = document.createRange();
+      if (code.current) {
+        range.selectNodeContents(code.current);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      }
+      setState("failed");
+    }
+  };
+  return (
+    <div className="settingsGroup" ref={ref} id="support">
+      <h2>{t("support.h")}</h2>
+      <p>{t("support.body")}</p>
+      <div className="row" style={{ flexWrap: "wrap" }}>
+        <code className="mono" ref={code} style={{ userSelect: "all", wordBreak: "break-all" }}>
+          {USDT_TRC20}
+        </code>
+        <button onClick={() => void copy()}>
+          <Icon name="copy" size={13} /> {state === "copied" ? t("support.copied") : t("support.copy")}
+        </button>
+      </div>
+      <p className="hint">{state === "failed" ? t("support.copyFailed") : t("support.network")}</p>
+      <p className="hint">{t("support.verify")}</p>
+    </div>
+  );
+}
+
+function About({ shell, support }: { shell: Shell; support: boolean }) {
   const { t } = useI18n();
   const [check, setCheck] = useState<Check | null>(null);
   const [autoCheck, setAutoCheck] = useState(() => {
@@ -492,6 +540,8 @@ function About({ shell }: { shell: Shell }) {
             be, and people running accounts deserve to know which it is. */}
         <p className="hint">{t("about.noAutoInstall")}</p>
       </div>
+
+      <Support focus={support} />
 
       <div className="settingsGroup">
         <h2>{t("about.licence")}</h2>

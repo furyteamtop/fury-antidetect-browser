@@ -232,6 +232,11 @@ jobs:
       - name: hunk headers count correctly
         run: python3 tools/ci/check-hunks.py
 
+      # One changed character in a pull request sends donations elsewhere;
+      # tools/ci/check-wallet.py holds the reference and says why.
+      - name: the donation address is the same everywhere
+        run: python3 tools/ci/check-wallet.py
+
       # A patch that re-creates a file an earlier patch creates breaks the
       # series on a clean tree while looking perfectly plausible in review.
       - name: no patch re-creates another patch's file
