@@ -74,6 +74,7 @@ const en = {
   "app.workingLocally": "Working locally · no account",
   "app.browserDev": "browser dev",
   "app.dismiss": "Dismiss",
+  "app.openProxySettings": "Open proxy settings",
   "app.agentDown":
     "The local agent is not running, so nothing can be launched. It normally starts on its own — if this persists, run fury-agent serve.",
   "pd.tabLogins": "Logins",
@@ -1483,6 +1484,7 @@ const ru: Record<Key, string> = {
   "app.workingLocally": "Локально · без аккаунта",
   "app.browserDev": "браузерный режим",
   "app.dismiss": "Скрыть",
+  "app.openProxySettings": "Открыть настройки прокси",
   "app.agentDown":
     "Локальный агент не запущен, поэтому открыть ничего нельзя. Обычно он стартует сам — если это повторяется, запустите fury-agent serve.",
   "pd.tabLogins": "Логины",
@@ -2839,6 +2841,7 @@ const zh: Record<Key, string> = {
   "app.workingLocally": "本地模式 · 未登录账户",
   "app.browserDev": "浏览器开发模式",
   "app.dismiss": "关闭",
+  "app.openProxySettings": "打开代理设置",
   "app.agentDown": "本地后台服务未运行，因此无法打开任何环境。它通常会自动启动——如果一直如此，请运行 fury-agent serve。",
   "pd.tabLogins": "账号",
   "pd.loginsAfterSave": "请先保存环境——账号绑定在环境上，保存前环境还没有身份。",

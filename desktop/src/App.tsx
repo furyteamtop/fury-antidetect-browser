@@ -146,6 +146,11 @@ export function App() {
     return () => clearInterval(every);
   }, []);
   const [editing, setEditing] = useState<Profile | null | undefined>(undefined);
+  // The tab the profile dialog opens on; set only by the no-proxy refusal.
+  const [editTab, setEditTab] = useState<"Proxy" | undefined>(undefined);
+  // A launch refused for having no proxy: the bar then offers the way out
+  // instead of describing where it is ("нашёл) неочевидно)))", 17.11.2026).
+  const [noProxyFor, setNoProxyFor] = useState<Profile | null>(null);
   const [query, setQuery] = useState("");
   const [tag, setTag] = useState("");
   // The stage filter (5.5): "" is every stage, "\u0000none" is no stage.
@@ -532,6 +537,7 @@ export function App() {
     if (launching.has(profile.id)) return;
     setLaunching((prev) => new Set(prev).add(profile.id));
     setError(null);
+    setNoProxyFor(null);
     try {
       const res = await api.launch(profile.id, force, profile.origin);
       // Restrictions are the technical half of "an operator cannot take the
@@ -557,6 +563,7 @@ export function App() {
       await refreshProfiles();
     } catch (e) {
       setError(say(e));
+      if (e instanceof ApiError && e.code === "err.noProxy") setNoProxyFor(profile);
     } finally {
       setLaunching((prev) => {
         const next = new Set(prev);
@@ -1267,7 +1274,20 @@ export function App() {
         {error && (
           <div className="notice" role="status">
             {error}
-            <button className="ghost" onClick={() => setError(null)}>
+            {noProxyFor && (
+              <button
+                className="primary"
+                onClick={() => {
+                  setEditTab("Proxy");
+                  setEditing(noProxyFor);
+                  setError(null);
+                  setNoProxyFor(null);
+                }}
+              >
+                {t("app.openProxySettings")}
+              </button>
+            )}
+            <button className="ghost" onClick={() => { setError(null); setNoProxyFor(null); }}>
               {t("app.dismiss")}
             </button>
           </div>
@@ -1811,9 +1831,11 @@ export function App() {
             editing={editing}
             origin={newOrigin}
             canChoose={canChooseOrigin}
-            onClose={() => setEditing(undefined)}
+            initialTab={editTab}
+            onClose={() => { setEditing(undefined); setEditTab(undefined); }}
             onSaved={async () => {
               setEditing(undefined);
+              setEditTab(undefined);
               await load();
               await refreshProfiles();
             }}

@@ -22,6 +22,7 @@ export const uk: Record<Key, string> = {
   "app.workingLocally": "Локальний режим · без облікового запису",
   "app.browserDev": "browser dev",
   "app.dismiss": "Закрити",
+  "app.openProxySettings": "Відкрити налаштування проксі",
   "app.agentDown": "Локальний агент не запущено, тому нічого не можна відкрити. Зазвичай він стартує сам. Якщо так і лишається, запустіть fury-agent serve.",
   "pd.tabLogins": "Логіни",
   "pd.loginsAfterSave": "Спершу збережіть профіль: логін зберігається саме в ньому, а до цього в профілю ще немає ідентичності.",

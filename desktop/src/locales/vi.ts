@@ -22,6 +22,7 @@ export const vi: Record<Key, string> = {
   "app.workingLocally": "Làm việc cục bộ · không có tài khoản",
   "app.browserDev": "bản dev của trình duyệt",
   "app.dismiss": "Đóng",
+  "app.openProxySettings": "Mở cài đặt proxy",
   "app.agentDown": "Agent cục bộ chưa chạy nên không thể khởi chạy gì cả. Bình thường nó tự khởi động — nếu tình trạng này kéo dài, hãy chạy fury-agent serve.",
   "pd.tabLogins": "Đăng nhập",
   "pd.loginsAfterSave": "Hãy lưu hồ sơ trước — thông tin đăng nhập được lưu theo hồ sơ, mà hồ sơ chưa có danh tính cho đến lúc đó.",

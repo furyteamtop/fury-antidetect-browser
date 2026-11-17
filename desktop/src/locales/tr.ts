@@ -22,6 +22,7 @@ export const tr: Record<Key, string> = {
   "app.workingLocally": "Yerel çalışıyorsunuz · hesap yok",
   "app.browserDev": "tarayıcı geliştirme",
   "app.dismiss": "Kapat",
+  "app.openProxySettings": "Proxy ayarlarını aç",
   "app.agentDown": "Yerel ajan çalışmıyor, bu yüzden hiçbir şey başlatılamıyor. Normalde kendiliğinden başlar; bu durum sürerse fury-agent serve komutunu çalıştırın.",
   "pd.tabLogins": "Girişler",
   "pd.loginsAfterSave": "Önce profili kaydedin: giriş bilgisi bir profile bağlı olarak saklanır ve profil kaydedilene kadar kimliği yoktur.",

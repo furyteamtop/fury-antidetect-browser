@@ -22,6 +22,7 @@ export const ja: Record<Key, string> = {
   "app.workingLocally": "ローカルで使用中 · アカウントなし",
   "app.browserDev": "ブラウザ開発",
   "app.dismiss": "閉じる",
+  "app.openProxySettings": "プロキシ設定を開く",
   "app.agentDown": "ローカルエージェントが起動していないため、何も起動できません。通常は自動的に起動します。改善しない場合は fury-agent serve を実行してください。",
   "pd.tabLogins": "ログイン情報",
   "pd.loginsAfterSave": "先にプロファイルを保存してください。ログイン情報はプロファイルに紐づけて保存されるため、保存するまでは紐づけ先がありません。",

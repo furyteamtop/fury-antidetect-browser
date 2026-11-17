@@ -22,6 +22,7 @@ export const hi: Record<Key, string> = {
   "app.workingLocally": "लोकल मोड · कोई खाता नहीं",
   "app.browserDev": "ब्राउज़र डेव",
   "app.dismiss": "बंद करें",
+  "app.openProxySettings": "प्रॉक्सी सेटिंग्स खोलें",
   "app.agentDown": "लोकल एजेंट नहीं चल रहा है, इसलिए कुछ भी लॉन्च नहीं हो सकता। यह आमतौर पर अपने आप शुरू हो जाता है। अगर समस्या बनी रहे, तो fury-agent serve चलाएँ।",
   "pd.tabLogins": "लॉगिन",
   "pd.loginsAfterSave": "पहले प्रोफ़ाइल सेव करें। लॉगिन प्रोफ़ाइल से जुड़कर सेव होता है, और सेव करने से पहले प्रोफ़ाइल की कोई पहचान नहीं होती।",

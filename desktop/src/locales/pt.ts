@@ -22,6 +22,7 @@ export const pt: Record<Key, string> = {
   "app.workingLocally": "Trabalhando localmente · sem conta",
   "app.browserDev": "dev no navegador",
   "app.dismiss": "Dispensar",
+  "app.openProxySettings": "Abrir configurações de proxy",
   "app.agentDown": "O agente local não está em execução, por isso nada pode ser iniciado. Normalmente ele inicia sozinho. Se o problema persistir, execute fury-agent serve.",
   "pd.tabLogins": "Logins",
   "pd.loginsAfterSave": "Salve o perfil primeiro: o login é armazenado nele, e o perfil não tem identidade até ser salvo.",

@@ -22,6 +22,7 @@ export const ko: Record<Key, string> = {
   "app.workingLocally": "로컬 작업 중 · 계정 없음",
   "app.browserDev": "브라우저 개발",
   "app.dismiss": "닫기",
+  "app.openProxySettings": "프록시 설정 열기",
   "app.agentDown": "로컬 에이전트가 실행 중이 아니어서 아무것도 실행할 수 없습니다. 보통 자동으로 시작됩니다. 계속 이런 상태라면 fury-agent serve를 실행하세요.",
   "pd.tabLogins": "로그인 정보",
   "pd.loginsAfterSave": "먼저 프로필을 저장하세요. 로그인 정보는 프로필에 연결되어 저장되는데, 저장하기 전에는 프로필에 식별 정보가 없습니다.",

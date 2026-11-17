@@ -22,6 +22,7 @@ export const ar: Record<Key, string> = {
   "app.workingLocally": "العمل محليًا · بدون حساب",
   "app.browserDev": "نسخة المطورين",
   "app.dismiss": "إغلاق",
+  "app.openProxySettings": "فتح إعدادات الوكيل",
   "app.agentDown": "الوكيل المحلي غير قيد التشغيل، لذا لا يمكن تشغيل أي شيء. يبدأ عادةً من تلقاء نفسه. إذا استمرت المشكلة، شغّل fury-agent serve.",
   "pd.tabLogins": "بيانات الدخول",
   "pd.loginsAfterSave": "احفظ الملف الشخصي أولًا، فبيانات الدخول تُخزَّن مرتبطة به وليس له هوية قبل ذلك.",

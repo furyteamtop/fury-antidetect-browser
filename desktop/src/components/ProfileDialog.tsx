@@ -29,7 +29,7 @@ const TAB_KEYS = {
   Extensions: "pd.tabExtensions",
   Advanced: "pd.tabAdvanced",
 } as const;
-type Tab = (typeof TABS)[number];
+export type Tab = (typeof TABS)[number];
 
 /** Creating or editing a profile.
  *
@@ -157,6 +157,7 @@ export function ProfileDialog({
   editing,
   origin,
   canChoose,
+  initialTab,
   onClose,
   onSaved,
 }: {
@@ -177,13 +178,15 @@ export function ProfileDialog({
   /** No project open and a server connected: either world is a fair answer,
    *  so the person picks it instead of the shell deciding silently. */
   canChoose: boolean;
+  /** Where to open: "Proxy" when the launch was refused for having none. */
+  initialTab?: Tab;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const { t, say } = useI18n();
   // The interface language, for naming languages in it.
   const lang = document.documentElement.lang || "en";
-  const [tab, setTab] = useState<Tab>("General");
+  const [tab, setTab] = useState<Tab>(initialTab ?? "General");
   const [where, setWhere] = useState<"local" | "team">(origin);
   // The world this profile lives in, or will: an existing one keeps its own.
   const target = editing ? editing.origin : where;

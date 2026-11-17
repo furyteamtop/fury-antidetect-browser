@@ -22,6 +22,7 @@ export const id: Record<Key, string> = {
   "app.workingLocally": "Bekerja secara lokal · tanpa akun",
   "app.browserDev": "pengembangan browser",
   "app.dismiss": "Tutup",
+  "app.openProxySettings": "Buka pengaturan proxy",
   "app.agentDown": "Agen lokal tidak berjalan, jadi tidak ada yang bisa diluncurkan. Biasanya agen mulai sendiri — jika masalah ini berlanjut, jalankan fury-agent serve.",
   "pd.tabLogins": "Login",
   "pd.loginsAfterSave": "Simpan profil terlebih dahulu — login disimpan untuk sebuah profil, dan profil belum punya identitas sebelum itu.",
