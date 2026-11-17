@@ -2260,6 +2260,11 @@ button.partnerBuy svg {
   background: var(--bg);
   border-top: 1px solid var(--line);
 }
+.bmFootError {
+  flex: 1 1 auto;
+  min-width: 0;
+  align-self: center;
+}
 .bmEditor h3 {
   margin: var(--s-5) 0 var(--s-2);
 }

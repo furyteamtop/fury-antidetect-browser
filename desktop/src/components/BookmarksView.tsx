@@ -57,6 +57,7 @@ export function BookmarksView({ profiles }: { profiles: Profile[] }) {
   const save = async () => {
     if (!editing) return;
     setBusy(true);
+    setError(null);
     try {
       await api.saveBookmarkSet(editing);
       setEditing(null);
@@ -91,7 +92,10 @@ export function BookmarksView({ profiles }: { profiles: Profile[] }) {
       {dialog}
       <p className="muted">{t("bm.intro")}</p>
 
-      {error && (
+      {/* While the editor is open the error goes to its pinned footer instead:
+          up here it was out of sight of a Save pressed at the bottom of a
+          long set, so "nothing happened" was all anyone saw. */}
+      {error && !editing && (
         <div className="notice" role="status">
           {error}
           <button className="ghost" onClick={() => setError(null)}>
@@ -178,7 +182,12 @@ export function BookmarksView({ profiles }: { profiles: Profile[] }) {
           )}
 
           <div className="bmFoot">
-            <button className="ghost" onClick={() => setEditing(null)} disabled={busy}>
+            {error && (
+              <span className="error bmFootError" role="alert">
+                {error}
+              </span>
+            )}
+            <button className="ghost" onClick={() => { setError(null); setEditing(null); }} disabled={busy}>
               {t("ui.cancel")}
             </button>
             <button className="primary" onClick={() => void save()} disabled={busy || editing.name.trim() === ""}>
