@@ -2223,7 +2223,15 @@ button.partnerBuy svg {
 
 
 /* Bookmark sets (components/BookmarksView.tsx). */
+/* The section scrolls inside .main (which clips), and the editor's Cancel /
+   Save stay pinned to its bottom: with a dozen links and a folder or two the
+   buttons used to fall below the window with no way to reach them. */
 .bookmarks {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.bookmarks > * {
   max-width: 860px;
 }
 .bmSet {
@@ -2246,6 +2254,11 @@ button.partnerBuy svg {
 .bmFoot {
   justify-content: flex-end;
   margin-top: var(--s-5);
+  position: sticky;
+  bottom: 0;
+  padding: var(--s-3) 0;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
 }
 .bmEditor h3 {
   margin: var(--s-5) 0 var(--s-2);
