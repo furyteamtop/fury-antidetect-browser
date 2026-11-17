@@ -142,7 +142,7 @@ pub async fn profile(base: &str, token: &str, summary: &Summary) -> Result<Detai
     let body = get(&c, &format!("{base}/cookies/{fid}/{}", summary.id), header, token).await?;
     let cookies = body.get("data").and_then(Value::as_array).cloned().unwrap_or_default();
     let cookie_note = cookies.is_empty().then(|| "Vision has no cookies stored for this profile".to_string());
-    Ok(Detail { proxy_line, proxy_note, start_url: None, cookies, cookie_note })
+    Ok(Detail { proxy_line, proxy_note, start_url: None, cookies, cookie_note, os: None })
 }
 
 #[cfg(test)]

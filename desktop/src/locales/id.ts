@@ -863,6 +863,7 @@ export const id: Record<Key, string> = {
   "gl.how.undetectable": "API lokal Undetectable: aplikasi harus berjalan dan sudah login, dengan paket berbayar. Tanpa token.",
   "gl.how.kameleo": "API lokal Kameleo: aplikasi harus berjalan. Tutup profil lebih dahulu; Kameleo tidak memberikan cookie profil yang sedang berjalan.",
   "gl.how.vision": "API cloud Vision. Token ada di Vision: Settings, X-Token, Copy.",
+  "gl.how.octo": "Profil diambil dari API cloud Octo Browser; token ada di Octo: Settings, API. Cookie dibaca dari setiap profil melalui aplikasi Octo, jadi aplikasi harus berjalan dan masuk di komputer ini, dan profil ditutup lebih dahulu; profil berkata sandi datang tanpa cookie. Octo menghitung tiga permintaan per profil dalam batas per jamnya (500 pada paket Base).",
   "gl.token": "Token API",
   "gl.tokenOptional": "Kunci API (jika ada)",
   "gl.tokenKept": "Dipakai hanya untuk impor ini dan tidak disimpan.",

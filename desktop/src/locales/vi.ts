@@ -863,6 +863,7 @@ export const vi: Record<Key, string> = {
   "gl.how.undetectable": "API cục bộ của Undetectable: ứng dụng phải đang chạy và đã đăng nhập, với gói trả phí. Không cần token.",
   "gl.how.kameleo": "API cục bộ của Kameleo: ứng dụng phải đang chạy. Hãy đóng các hồ sơ trước; Kameleo không đưa cookie của hồ sơ đang chạy.",
   "gl.how.vision": "API đám mây của Vision. Token nằm trong Vision: Settings, X-Token, Copy.",
+  "gl.how.octo": "Hồ sơ được lấy từ API đám mây của Octo Browser; token nằm trong Octo: Settings, API. Cookie được đọc từ từng hồ sơ thông qua ứng dụng Octo, vì vậy ứng dụng phải đang chạy và đã đăng nhập trên máy này, và hãy đóng các hồ sơ trước; hồ sơ có mật khẩu sẽ được chuyển sang không kèm cookie. Octo tính ba yêu cầu cho mỗi hồ sơ vào giới hạn theo giờ (500 với gói Base).",
   "gl.token": "Token API",
   "gl.tokenOptional": "Khóa API (nếu có đặt)",
   "gl.tokenKept": "Chỉ dùng cho lần nhập này và không được lưu.",

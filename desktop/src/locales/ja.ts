@@ -863,6 +863,7 @@ export const ja: Record<Key, string> = {
   "gl.how.undetectable": "Undetectable のローカル API です。アプリを起動してサインインしておく必要があり、有料プランが必要です。トークンは不要です。",
   "gl.how.kameleo": "Kameleo のローカル API です。アプリを起動しておく必要があります。先にプロファイルを閉じてください。Kameleo は、実行中のプロファイルの Cookie を渡してくれません。",
   "gl.how.vision": "Vision のクラウド API です。トークンは Vision の「設定」→「X-Token」→「コピー」で取得できます。",
+  "gl.how.octo": "プロファイルは Octo Browser のクラウド API から取得します。トークンは Octo の「設定」→「API」にあります。Cookie は Octo アプリを通じて各プロファイルから読み取るため、このコンピューターで Octo を起動してサインインし、先にプロファイルを閉じてください。パスワード付きのプロファイルは Cookie なしで移行されます。Octo は 1 プロファイルにつき 3 リクエストを 1 時間あたりの上限に数えます（Base プランでは 500）。",
   "gl.token": "API トークン",
   "gl.tokenOptional": "API キー（設定している場合）",
   "gl.tokenKept": "このインポートにのみ使用し、保存はしません。",

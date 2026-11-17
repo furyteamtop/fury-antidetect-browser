@@ -863,6 +863,7 @@ export const ko: Record<Key, string> = {
   "gl.how.undetectable": "Undetectable 로컬 API입니다. 앱이 실행되어 로그인된 상태여야 하며 유료 요금제가 필요합니다. 토큰은 필요하지 않습니다.",
   "gl.how.kameleo": "Kameleo 로컬 API입니다. 앱이 실행 중이어야 합니다. 먼저 프로필을 닫으세요. Kameleo는 실행 중인 프로필의 쿠키를 제공하지 않습니다.",
   "gl.how.vision": "Vision 클라우드 API입니다. 토큰은 Vision의 설정, X-Token, 복사에 있습니다.",
+  "gl.how.octo": "프로필은 Octo Browser 클라우드 API에서 가져옵니다. 토큰은 Octo의 설정, API에 있습니다. 쿠키는 Octo 앱을 통해 각 프로필에서 읽으므로 이 컴퓨터에서 Octo가 실행 중이고 로그인되어 있어야 하며, 먼저 프로필을 닫으세요. 비밀번호가 있는 프로필은 쿠키 없이 옮겨집니다. Octo는 프로필당 요청 3회를 시간당 한도에 포함합니다(Base 요금제 500회).",
   "gl.token": "API 토큰",
   "gl.tokenOptional": "API 키(설정한 경우)",
   "gl.tokenKept": "이번 가져오기에만 사용되며 저장되지 않습니다.",

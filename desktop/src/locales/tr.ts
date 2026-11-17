@@ -863,6 +863,7 @@ export const tr: Record<Key, string> = {
   "gl.how.undetectable": "Undetectable'ın yerel API'si: uygulama çalışıyor ve oturumu açık olmalı, ücretli bir planla. Belirteç gerekmez.",
   "gl.how.kameleo": "Kameleo'nun yerel API'si: uygulama çalışıyor olmalı. Önce profilleri kapatın; Kameleo çalışan bir profilin cookie'lerini vermez.",
   "gl.how.vision": "Vision'ın bulut API'si. Belirteç Vision'da: Ayarlar, X-Token, Kopyala.",
+  "gl.how.octo": "Profiller Octo Browser'ın bulut API'sinden gelir; token Octo'da: Ayarlar, API. Cookie'ler her profilden Octo uygulaması üzerinden okunur: uygulama bu bilgisayarda çalışıyor ve oturum açık olmalı, profiller önce kapatılmalı. Parolalı bir profil cookie'siz gelir. Octo, profil başına üç isteği saatlik sınırından düşer (Base'de 500).",
   "gl.token": "API belirteci",
   "gl.tokenOptional": "API anahtarı (varsa)",
   "gl.tokenKept": "Yalnızca bu içe aktarma için kullanılır ve kaydedilmez.",

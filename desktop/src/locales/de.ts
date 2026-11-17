@@ -863,6 +863,7 @@ export const de: Record<Key, string> = {
   "gl.how.undetectable": "Die lokale API von Undetectable: Die App muss laufen und angemeldet sein, mit kostenpflichtigem Tarif. Kein Token.",
   "gl.how.kameleo": "Die lokale API von Kameleo: Die App muss laufen. Schließen Sie zuerst die Profile, denn Kameleo gibt die Cookies eines laufenden nicht heraus.",
   "gl.how.vision": "Die Cloud-API von Vision. Den Token finden Sie in Vision unter Einstellungen, X-Token, Kopieren.",
+  "gl.how.octo": "Die Profile kommen aus der Cloud-API von Octo Browser; den Token finden Sie in Octo unter Einstellungen, API. Cookies werden über die Octo-App aus jedem Profil gelesen: Die App muss auf diesem Computer laufen und angemeldet sein, und die Profile müssen geschlossen sein. Ein Profil mit Passwort kommt ohne sie herüber. Octo zählt drei Anfragen pro Profil gegen sein Stundenlimit (500 im Base-Tarif).",
   "gl.token": "API-Token",
   "gl.tokenOptional": "API-Schlüssel (falls gesetzt)",
   "gl.tokenKept": "Wird nur für diesen Import verwendet und nicht gespeichert.",

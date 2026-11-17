@@ -863,6 +863,7 @@ export const fr: Record<Key, string> = {
   "gl.how.undetectable": "API locale d'Undetectable : l'application doit être lancée et connectée, avec une offre payante. Pas de jeton.",
   "gl.how.kameleo": "API locale de Kameleo : l'application doit être lancée. Fermez d'abord les profils ; Kameleo ne fournit pas les cookies d'un profil en cours d'exécution.",
   "gl.how.vision": "API cloud de Vision. Le jeton se trouve dans Vision : Paramètres, X-Token, Copier.",
+  "gl.how.octo": "Les profils viennent de l'API cloud d'Octo Browser ; le jeton se trouve dans Octo : Paramètres, API. Les cookies sont lus dans chaque profil via l'application Octo : elle doit être lancée et connectée sur cet ordinateur, et les profils fermés. Un profil protégé par mot de passe arrive sans eux. Octo compte trois requêtes par profil dans sa limite horaire (500 avec Base).",
   "gl.token": "Jeton d'API",
   "gl.tokenOptional": "Clé d'API (si définie)",
   "gl.tokenKept": "Utilisé pour cet import uniquement et non enregistré.",

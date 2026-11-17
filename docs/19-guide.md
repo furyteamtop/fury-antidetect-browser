@@ -77,8 +77,9 @@ fingerprint.
 Two buttons above the list:
 
 - **From another anti-detect…**: GoLogin, Dolphin, AdsPower, Undetectable,
-  Kameleo and Vision. The dialog says what each needs: an API token from its
-  settings, or the app running. Names, notes, tags, start pages, your own
+  Kameleo, Vision and Octo Browser. The dialog says what each needs: an API
+  token from its settings, or the app running (Octo needs both: the token for
+  the profiles, the app for the cookies). Names, notes, tags, start pages, your own
   proxies with login and password, and cookies come over. The fingerprint does
   not: each profile gets a device from Fury's catalogue with the same OS.
 - **Import CSV…**: a table of names, proxies, tags and so on.

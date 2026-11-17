@@ -863,6 +863,7 @@ export const es: Record<Key, string> = {
   "gl.how.undetectable": "La API local de Undetectable: la aplicación debe estar en ejecución y con la sesión iniciada, con un plan de pago. Sin token.",
   "gl.how.kameleo": "La API local de Kameleo: la aplicación debe estar en ejecución. Cierra antes los perfiles; Kameleo no da las cookies de uno en ejecución.",
   "gl.how.vision": "La API en la nube de Vision. El token está en Vision: Ajustes, X-Token, Copiar.",
+  "gl.how.octo": "Los perfiles vienen de la API en la nube de Octo Browser; el token está en Octo: Ajustes, API. Las cookies se leen de cada perfil a través de la aplicación Octo: debe estar en ejecución y con la sesión iniciada en este equipo, y los perfiles cerrados. Un perfil con contraseña llega sin ellas. Octo cuenta tres solicitudes por perfil en su límite por hora (500 en Base).",
   "gl.token": "Token de API",
   "gl.tokenOptional": "Clave de API (si está configurada)",
   "gl.tokenKept": "Se usa solo para esta importación y no se guarda.",

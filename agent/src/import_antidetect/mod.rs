@@ -31,6 +31,7 @@ pub mod adspower;
 pub mod dolphin;
 pub mod gologin;
 pub mod kameleo;
+pub mod octo;
 pub mod undetectable;
 pub mod vision;
 
@@ -71,6 +72,10 @@ pub struct Detail {
     /// source says so: cloud sync off, a running profile, a password.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cookie_note: Option<String>,
+    /// The OS, when only the profile's detail says it (Octo's list does not
+    /// carry the fingerprint). The shell prefers it over the summary's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub os: Option<String>,
 }
 
 /// The sources this agent can read.
@@ -82,6 +87,7 @@ pub enum Vendor {
     Undetectable,
     Kameleo,
     Vision,
+    Octo,
 }
 
 impl Vendor {
@@ -93,6 +99,7 @@ impl Vendor {
             "undetectable" => Vendor::Undetectable,
             "kameleo" => Vendor::Kameleo,
             "vision" => Vendor::Vision,
+            "octo" => Vendor::Octo,
             other => bail!("{other:?} is not a source this version can import from"),
         })
     }
@@ -115,6 +122,7 @@ pub async fn list(vendor: Vendor, access: &Access) -> Result<Vec<Summary>> {
         Vendor::Undetectable => undetectable::list(&access.base_or(undetectable::BASE)).await,
         Vendor::Kameleo => kameleo::list(&access.base_or(kameleo::BASE)).await,
         Vendor::Vision => vision::list(&access.base_or(vision::BASE), t).await,
+        Vendor::Octo => octo::list(octo::CLOUD, t).await,
     }
 }
 
@@ -131,6 +139,7 @@ pub async fn profile(vendor: Vendor, access: &Access, summary: &Summary) -> Resu
         Vendor::Undetectable => undetectable::profile(&access.base_or(undetectable::BASE), summary).await?,
         Vendor::Kameleo => kameleo::profile(&access.base_or(kameleo::BASE), summary).await?,
         Vendor::Vision => vision::profile(&access.base_or(vision::BASE), t, summary).await?,
+        Vendor::Octo => octo::profile(octo::CLOUD, &access.base_or(octo::LOCAL), t, summary).await?,
     };
     detail.cookies = normalise_cookies(&detail.cookies);
     Ok(detail)

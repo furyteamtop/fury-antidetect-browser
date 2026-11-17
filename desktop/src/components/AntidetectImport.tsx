@@ -36,6 +36,9 @@ const VENDORS: { id: Vendor; name: string; token: "required" | "optional" | "non
   { id: "undetectable", name: "Undetectable", token: "none", local: "http://127.0.0.1:25325" },
   { id: "kameleo", name: "Kameleo", token: "none", local: "http://localhost:5050" },
   { id: "vision", name: "Vision", token: "required", local: null },
+  // Cloud API for the profiles; `local` is the Octo app, which the cookies
+  // are read through (octo.rs says why).
+  { id: "octo", name: "Octo Browser", token: "required", local: "http://localhost:58888" },
 ];
 
 export function AntidetectImport({
@@ -137,9 +140,10 @@ export function AntidetectImport({
           }
           // Said whenever the catalogue has no device of that OS, Android
           // included until a phone has been captured (docs/18).
-          const prefix = OS_PREFIX[g.os];
-          if (g.os && !(prefix && personas.some((p) => p.os.startsWith(prefix)))) {
-            row.notes.push(t("gl.osSubstituted", { os: g.os }));
+          const os = d.os || g.os;
+          const prefix = OS_PREFIX[os];
+          if (os && !(prefix && personas.some((p) => p.os.startsWith(prefix)))) {
+            row.notes.push(t("gl.osSubstituted", { os }));
           }
 
           const saved = await api.saveProfile({
@@ -149,7 +153,7 @@ export function AntidetectImport({
             notes: g.notes,
             status: "",
             tags: g.tags,
-            persona_id: pick(g.os),
+            persona_id: pick(os),
             fp_seed: 0,
             proxy_id,
             timezone: null,

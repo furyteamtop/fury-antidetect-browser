@@ -266,7 +266,7 @@ pub async fn profile(hosts: &Hosts, token: &str, summary: &Summary) -> Result<De
     }
 
     let start_url = summary.extra.get("start_url").and_then(Value::as_str).map(str::to_string);
-    Ok(Detail { proxy_line, proxy_note, start_url, cookies, cookie_note })
+    Ok(Detail { proxy_line, proxy_note, start_url, cookies, cookie_note, os: None })
 }
 
 #[cfg(test)]

@@ -439,7 +439,7 @@ export interface OverrideOptions {
   ui_locales: string[];
 }
 
-export type Vendor = "gologin" | "dolphin" | "adspower" | "undetectable" | "kameleo" | "vision";
+export type Vendor = "gologin" | "dolphin" | "adspower" | "undetectable" | "kameleo" | "vision" | "octo";
 
 export interface VendorProfile {
   id: string;
@@ -461,6 +461,8 @@ export interface VendorDetail {
   cookies: unknown[];
   /** Why there are no cookies, when the source says: sync off, a running profile. */
   cookie_note?: string | null;
+  /** The OS when only the profile's detail says it (Octo); wins over the list's. */
+  os?: string | null;
 }
 
 export interface Persona {

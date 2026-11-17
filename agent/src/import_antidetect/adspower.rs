@@ -144,7 +144,7 @@ pub async fn profile(base: &str, key: &str, summary: &Summary) -> Result<Detail>
         }
     }
     let cookie_note = cookies.is_empty().then(|| "AdsPower has no cookies stored for this profile".to_string());
-    Ok(Detail { proxy_line, proxy_note, start_url: None, cookies, cookie_note })
+    Ok(Detail { proxy_line, proxy_note, start_url: None, cookies, cookie_note, os: None })
 }
 
 #[cfg(test)]

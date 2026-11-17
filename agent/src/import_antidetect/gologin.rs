@@ -111,7 +111,7 @@ pub async fn profile_from(base: &str, token: &str, id: &str) -> Result<Detail> {
             .unwrap_or_default(),
         _ => Vec::new(),
     };
-    Ok(Detail { proxy_line, proxy_note, start_url, cookies, cookie_note: None })
+    Ok(Detail { proxy_line, proxy_note, start_url, cookies, cookie_note: None, os: None })
 }
 
 /// The profiles on one page of `/browser/v2`, and the total if it says one.

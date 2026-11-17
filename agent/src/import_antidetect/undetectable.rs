@@ -123,7 +123,7 @@ pub async fn profile(base: &str, summary: &Summary) -> Result<Detail> {
         .map(|a| a.iter().filter(|c| c.is_object()).cloned().collect())
         .unwrap_or_default();
     let cookie_note = cookies.is_empty().then(|| "Undetectable has no cookies stored for this profile".to_string());
-    Ok(Detail { proxy_line, proxy_note, start_url: None, cookies, cookie_note })
+    Ok(Detail { proxy_line, proxy_note, start_url: None, cookies, cookie_note, os: None })
 }
 
 #[cfg(test)]
