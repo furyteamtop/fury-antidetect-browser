@@ -111,6 +111,39 @@ pub struct LaunchSpec<'a> {
 ///
 /// Everything except the two carrier switches, which name a slot that does not
 /// exist until the carrier does. Those come from `carrier_switches`.
+/// Tells Chromium the last session ended cleanly, so `--restore-last-session`
+/// is honoured.
+///
+/// Chromium never restores a session after an unclean exit: it reads
+/// `profile.exit_type` from the profile's Preferences, and when that says
+/// "Crashed" it opens a fresh window with a "Restore pages?" prompt instead
+/// (startup_browser_creator_impl.cc, "could cause a crash loop"). Every way a
+/// Fury browser can end other than closing its own window leaves "Crashed":
+/// the agent killing it after ten seconds of WM_CLOSE, Fury quitting, the
+/// machine shutting down. Measured 17.11.2026 on Windows, core 157: four tabs,
+/// the process killed, relaunched: one tab, the start page. The same tabs
+/// closed cleanly came back. Reported the same day as "close it and the tabs
+/// are gone".
+///
+/// Only "Crashed" is touched; the file is left as it is otherwise, and a file
+/// that cannot be read or parsed is left alone: the browser then behaves as
+/// before, which is a missing tab, not a broken profile.
+pub fn forget_unclean_exit(user_data_dir: &Path) -> bool {
+    let path = user_data_dir.join("Default").join("Preferences");
+    let Ok(text) = std::fs::read_to_string(&path) else { return false };
+    let Ok(mut prefs) = serde_json::from_str::<serde_json::Value>(&text) else { return false };
+    let Some(profile) = prefs.get_mut("profile").and_then(|p| p.as_object_mut()) else { return false };
+    if profile.get("exit_type").and_then(|v| v.as_str()) != Some("Crashed") {
+        return false;
+    }
+    profile.insert("exit_type".into(), serde_json::json!("Normal"));
+    profile.insert("exited_cleanly".into(), serde_json::json!(true));
+    let Ok(out) = serde_json::to_vec(&prefs) else { return false };
+    // Write beside it and rename, so a failure halfway leaves the old file.
+    let tmp = path.with_extension("fury-tmp");
+    std::fs::write(&tmp, out).and_then(|_| std::fs::rename(&tmp, &path)).is_ok()
+}
+
 pub fn build_args(spec: &LaunchSpec) -> Vec<String> {
     let mut args = vec![
         format!("--user-data-dir={}", spec.user_data_dir.display()),
@@ -416,6 +449,29 @@ fn carrier_switches(config: &Carrier, oscrypt: Option<&Carrier>) -> Vec<String> 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_unclean_exit_is_forgotten_and_nothing_else_changes() {
+        let root = std::env::temp_dir().join(format!("fury-exit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("Default")).unwrap();
+        let prefs = root.join("Default").join("Preferences");
+        std::fs::write(&prefs, r#"{"profile":{"exit_type":"Crashed","name":"x"},"other":{"a":1}}"#).unwrap();
+        assert!(super::forget_unclean_exit(&root));
+        let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&prefs).unwrap()).unwrap();
+        assert_eq!(v["profile"]["exit_type"], "Normal");
+        assert_eq!(v["profile"]["name"], "x");
+        assert_eq!(v["other"]["a"], 1);
+
+        // A clean or forced-shutdown exit, a missing file, and garbage are left alone.
+        std::fs::write(&prefs, r#"{"profile":{"exit_type":"SessionEnded"}}"#).unwrap();
+        assert!(!super::forget_unclean_exit(&root));
+        std::fs::write(&prefs, "not json").unwrap();
+        assert!(!super::forget_unclean_exit(&root));
+        assert_eq!(std::fs::read_to_string(&prefs).unwrap(), "not json");
+        assert!(!super::forget_unclean_exit(&root.join("nowhere")));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     use super::*;
     use fury_shared::rbac::{effective, OrgRole, PermSet};
 

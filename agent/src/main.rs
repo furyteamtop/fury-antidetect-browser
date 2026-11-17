@@ -355,6 +355,7 @@ async fn cmd_launch(args: &[String]) -> anyhow::Result<()> {
         ))
     });
     std::fs::create_dir_all(&profile_dir)?;
+    launcher::forget_unclean_exit(&profile_dir);
 
     // The first tab is the start page, as it is from the application, unless
     // --url says otherwise. Without this the CLI opened chrome://newtab, and

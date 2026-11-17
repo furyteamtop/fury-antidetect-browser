@@ -3327,6 +3327,12 @@ impl Agent {
             Err(e) => tracing::warn!(error = %e, profile = %profile.name, "could not write the profile's bookmark sets"),
         }
 
+        // Last time it was killed rather than closed (or the machine went
+        // down): without this Chromium would not restore the tabs.
+        if crate::launcher::forget_unclean_exit(&dir) {
+            tracing::info!(profile = %profile.name, "last session ended uncleanly; its tabs will be restored");
+        }
+
         // The profile's own pages on every launch, the start page on the first.
         let start_urls = start_urls_for(&dir, &profile.start_urls, &start_page);
 
