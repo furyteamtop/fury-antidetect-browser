@@ -1970,16 +1970,34 @@ button.selectBtn:disabled {
   visibility: hidden;
 }
 
-.selectList {
+.selectPop {
   position: fixed;
   z-index: 1000;
   max-width: min(560px, 92vw);
-  overflow-y: auto;
   padding: 4px;
   border: 1px solid var(--line-strong);
   border-radius: var(--r);
   background: var(--surface);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+}
+
+.selectList {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.selectSearch {
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+.selectEmpty {
+  padding: 8px 12px;
+  color: var(--text-faint);
+  font-size: 12px;
 }
 
 .selectOption {
