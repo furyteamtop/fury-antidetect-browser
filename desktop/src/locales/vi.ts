@@ -399,7 +399,6 @@ export const vi: Record<Key, string> = {
   "cons.personaUnknown": "thiết bị {id} không còn trong danh mục — hãy chọn thiết bị khác trong trình chỉnh sửa",
   "cons.tzMismatch": "hồ sơ cố định múi giờ {profile} trong khi proxy ra ở {exit} — hãy đặt múi giờ theo lối ra, hoặc kiểm tra lại proxy",
   "cons.langCountry": "ngôn ngữ đầu tiên là {lang} trên lối ra ở {country} — người dùng thật ở đó hiếm khi đặt nó đầu tiên",
-  "cons.sharedExit": "{n} hồ sơ ra từ lối ra này — các trang web cùng lắm chỉ thấy chúng là một hộ gia đình",
   "row.masked": "đã che",
   "row.proxyUnchecked": "chưa kiểm tra",
   "set.tab.general": "Chung",

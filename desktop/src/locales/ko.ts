@@ -399,7 +399,6 @@ export const ko: Record<Key, string> = {
   "cons.personaUnknown": "페르소나 {id}이(가) 카탈로그에 더 이상 없습니다. 편집기에서 다른 것을 선택하세요",
   "cons.tzMismatch": "프로필은 {profile} 시간대로 고정되어 있는데 프록시는 {exit}에서 나갑니다. 시간대를 출구 주소에 맞추거나 프록시를 다시 확인하세요",
   "cons.langCountry": "{country}의 출구 주소에서 첫 번째 언어가 {lang}입니다. 그곳의 실제 사용자는 이 언어를 첫 번째로 쓰는 경우가 드뭅니다",
-  "cons.sharedExit": "이 출구 주소에서 프로필 {n}개가 나갑니다. 사이트에서는 기껏해야 한 가구로 보입니다",
   "row.masked": "숨김",
   "row.proxyUnchecked": "아직 확인되지 않음",
   "set.tab.general": "일반",

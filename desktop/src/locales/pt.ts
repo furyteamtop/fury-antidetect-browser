@@ -399,7 +399,6 @@ export const pt: Record<Key, string> = {
   "cons.personaUnknown": "a persona {id} não está mais no catálogo: escolha outra no editor",
   "cons.tzMismatch": "o perfil fixa {profile}, enquanto o proxy sai em {exit}: configure o fuso horário para seguir a saída ou verifique o proxy de novo",
   "cons.langCountry": "primeiro idioma {lang} numa saída em {country}: usuários reais de lá raramente o têm como primeiro",
-  "cons.sharedExit": "{n} perfis usam esta saída: os sites os veem, no melhor caso, como uma só residência",
   "row.masked": "mascarado",
   "row.proxyUnchecked": "ainda não verificado",
   "set.tab.general": "Geral",

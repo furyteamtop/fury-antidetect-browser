@@ -399,7 +399,6 @@ export const id: Record<Key, string> = {
   "cons.personaUnknown": "persona {id} tidak ada lagi di katalog — pilih yang lain di editor",
   "cons.tzMismatch": "profil menetapkan {profile} sementara proxy keluar di {exit} — atur zona waktu mengikuti jalur keluar, atau periksa ulang proxy",
   "cons.langCountry": "bahasa pertama {lang} pada jalur keluar di {country} — pengguna sungguhan di sana jarang memakainya sebagai bahasa pertama",
-  "cons.sharedExit": "{n} profil keluar dari jalur ini — situs melihatnya paling banter sebagai satu rumah tangga",
   "row.masked": "disamarkan",
   "row.proxyUnchecked": "belum diperiksa",
   "set.tab.general": "Umum",

@@ -399,7 +399,6 @@ export const tr: Record<Key, string> = {
   "cons.personaUnknown": "{id} personası artık katalogda yok; düzenleyicide başka birini seçin",
   "cons.tzMismatch": "profil {profile} saat dilimini sabitlemiş, proxy ise {exit} bölgesinden çıkıyor: saat dilimini çıkışı izleyecek şekilde ayarlayın ya da proxy'yi yeniden denetleyin",
   "cons.langCountry": "{country} ülkesindeki bir çıkışta birinci dil {lang}: oradaki gerçek kullanıcılarda bu nadiren ilk dildir",
-  "cons.sharedExit": "{n} profil bu çıkıştan çıkıyor: siteler onları en iyi ihtimalle tek bir hane olarak görür",
   "row.masked": "maskeli",
   "row.proxyUnchecked": "henüz denetlenmedi",
   "set.tab.general": "Genel",

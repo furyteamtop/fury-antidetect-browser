@@ -399,7 +399,6 @@ export const ja: Record<Key, string> = {
   "cons.personaUnknown": "ペルソナ {id} はカタログにありません。エディタで別のものを選んでください",
   "cons.tzMismatch": "プロファイルは {profile} に固定されていますが、プロキシの出口は {exit} です。タイムゾーンを出口に合わせるか、プロキシを再確認してください",
   "cons.langCountry": "{country} の出口で第1言語が {lang} です。現地の一般ユーザーでは、これが第1言語であることはまれです",
-  "cons.sharedExit": "{n} 件のプロファイルがこの出口を使っています。サイトからは、よくても同じ世帯として見られます",
   "row.masked": "マスク済み",
   "row.proxyUnchecked": "未確認",
   "set.tab.general": "一般",

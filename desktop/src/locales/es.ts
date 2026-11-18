@@ -399,7 +399,6 @@ export const es: Record<Key, string> = {
   "cons.personaUnknown": "el dispositivo {id} ya no está en el catálogo: elige otro en el editor",
   "cons.tzMismatch": "el perfil fija {profile} mientras el proxy sale en {exit}: configura la zona horaria para que siga a la salida o vuelve a comprobar el proxy",
   "cons.langCountry": "primer idioma {lang} en una salida en {country}: los usuarios reales de allí rara vez lo tienen como primero",
-  "cons.sharedExit": "{n} perfiles salen por esta misma salida: los sitios los ven, en el mejor caso, como un solo hogar",
   "row.masked": "oculto",
   "row.proxyUnchecked": "aún sin comprobar",
   "set.tab.general": "General",

@@ -21,7 +21,7 @@ export type Level = "ok" | "warn" | "block";
 export interface Verdict {
   level: Level;
   /** i18n keys with their variables, for the row's hover and the disabled Open. */
-  notes: { key: "cons.personaUnknown" | "cons.tzMismatch" | "cons.langCountry" | "cons.sharedExit"; vars?: Record<string, string | number> }[];
+  notes: { key: "cons.personaUnknown" | "cons.tzMismatch" | "cons.langCountry"; vars?: Record<string, string | number> }[];
 }
 
 /** Languages a person in this country plausibly has FIRST in their list.
@@ -43,9 +43,15 @@ const FIRST_LANGUAGES: Record<string, string[]> = {
   ID: ["id"], VN: ["vi"], TH: ["th"], IN: ["hi"], PH: ["fil", "tl"],
 };
 
-/** Judge one row. `personas` is the catalogue's ids, or null while unknown;
- *  `sharing` is how many profiles come out of the same exit as this one. */
-export function assess(p: Profile, personas: Set<string> | null, sharing: number): Verdict {
+/** Judge one row. `personas` is the catalogue's ids, or null while unknown.
+ *
+ *  How many profiles share an exit is not judged here any more. It was a
+ *  warning from three on, and on a mobile proxy it was wrong: a carrier hands
+ *  one address to thousands of real subscribers, sites expect many accounts
+ *  behind it, and affiliates run 50 profiles on one US mobile exit (tester,
+ *  18.11.2026). The triangle then lit every row and hid the warnings that are
+ *  real. The count stays in the proxy cell as a plain fact (`exitSharing`). */
+export function assess(p: Profile, personas: Set<string> | null): Verdict {
   const notes: Verdict["notes"] = [];
   let level: Level = "ok";
   const raise = (to: Level) => {
@@ -76,24 +82,27 @@ export function assess(p: Profile, personas: Set<string> | null, sharing: number
     raise("warn");
   }
 
-  // Several accounts behind one exit is the oldest farm signature there is
-  // (docs/12 C). Two is a household; from three on it is said.
-  if (sharing >= 3) {
-    notes.push({ key: "cons.sharedExit", vars: { n: sharing } });
-    raise("warn");
-  }
-
   return { level, notes };
 }
 
 /** How many profiles share each exit. Keyed by the exit IP when the proxy has
  *  been checked — two proxies with the same exit are the same exit — and by
  *  the proxy otherwise. Counted over every profile, not the filtered view: the
- *  question is how many accounts a site sees from that address. */
+ *  question is how many accounts a site sees from that address.
+ *
+ *  A proxy with a rotation link is not counted: its exit changes, so the
+ *  address from the last check says nothing about where the next launch
+ *  comes out, and such proxies are mostly mobile, where a shared address is
+ *  normal anyway. */
 export function exitSharing(all: Profile[], proxies: LocalProxy[] | null): Map<string, number> {
   const ipOf = new Map<string, string>();
-  for (const x of proxies ?? []) if (x.last_ip) ipOf.set(x.id, x.last_ip);
-  const key = (p: Profile) => (p.proxy ? (ipOf.get(p.proxy.id) ?? `proxy:${p.proxy.id}`) : null);
+  const rotating = new Set<string>();
+  for (const x of proxies ?? []) {
+    if (x.last_ip) ipOf.set(x.id, x.last_ip);
+    if (x.rotate_url?.trim()) rotating.add(x.id);
+  }
+  const key = (p: Profile) =>
+    p.proxy && !rotating.has(p.proxy.id) ? (ipOf.get(p.proxy.id) ?? `proxy:${p.proxy.id}`) : null;
   const counts = new Map<string, number>();
   for (const p of all) {
     const k = key(p);

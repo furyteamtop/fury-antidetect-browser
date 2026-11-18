@@ -217,7 +217,7 @@ export function ProfileTable({
           // Open with the reason: the contradiction is the ban, not the
           // fingerprint, and a warning that scrolls past is not a guard.
           const shared = sharing?.get(p.id) ?? 0;
-          const verdict = assess(p, personas ?? null, shared);
+          const verdict = assess(p, personas ?? null);
           const verdictText = verdict.notes.map((n) => t(n.key, n.vars)).join(" · ");
 
           return (
@@ -315,10 +315,9 @@ export function ProfileTable({
                           bug rather than a boundary. */}
                       {!canReveal && ` · ${t("row.masked")}`}
                       {/* How many profiles a site sees from this exit (docs/12 C).
-                          Said from two; coloured from three. */}
-                      {shared >= 2 && (
-                        <span className={shared >= 3 ? "warn" : undefined}> · {t("row.sharedExit", { n: shared })}</span>
-                      )}
+                          Said from two, as a fact and not a warning: on a
+                          mobile exit fifty is normal (consistency.ts). */}
+                      {shared >= 2 && <span> · {t("row.sharedExit", { n: shared })}</span>}
                     </div>
                   </>
                 ) : (
