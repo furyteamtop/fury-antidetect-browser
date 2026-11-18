@@ -608,18 +608,47 @@ export function App() {
   // how many accounts a site sees from one address.
   const exitCounts = exitSharing(profiles, proxyList);
 
-  const runProxyCheck = async (origin: "local" | "team", proxyId: string): Promise<boolean> => {
+  const runProxyAction = async (
+    action: "check" | "rotate",
+    origin: "local" | "team",
+    proxyId: string,
+  ): Promise<boolean> => {
     const key = proxyActionKey(origin, proxyId);
     const scope = proxyScopeRef.current;
     const activeKey = `${scope}:${key}`;
     if (activeProxyActions.current.has(activeKey)) return false;
     activeProxyActions.current.add(activeKey);
+    const previousExit = proxyActions.get(key)?.exit;
     setProxyActions((actions) => new Map(actions).set(key, {
-      action: "check",
+      action,
       status: "pending",
-      exit: actions.get(key)?.exit,
+      exit: previousExit,
     }));
+    let rechecking = false;
     try {
+      if (action === "rotate") {
+        const rotated = await api.rotateProxy(proxyId, origin);
+        if (!rotated.ok) {
+          if (scope === proxyScopeRef.current) {
+            setProxyActions((actions) => new Map(actions).set(key, {
+              action,
+              status: "error",
+              exit: previousExit,
+              error: rotated.error ?? t("px.checkBad"),
+            }));
+          }
+          return false;
+        }
+        rechecking = true;
+        if (scope === proxyScopeRef.current) {
+          setProxyActions((actions) => new Map(actions).set(key, {
+            action: "check",
+            status: "pending",
+            exit: null,
+            afterRotation: true,
+          }));
+        }
+      }
       const result = await api.checkProxy("", null, proxyId, origin);
       if (scope === proxyScopeRef.current) {
         setProxyActions((actions) => new Map(actions).set(key, {
@@ -627,8 +656,9 @@ export function App() {
           status: result.ok ? "ok" : "error",
           exit: result.ok
             ? { ip: result.ip, country: result.country, timezone: result.timezone }
-            : actions.get(key)?.exit,
+            : rechecking ? null : previousExit,
           ms: result.ms,
+          checkerCountry: result.checker_country,
           error: result.ok
             ? undefined
             : say({
@@ -637,16 +667,15 @@ export function App() {
               vars: { why: result.error_detail ?? "" },
             }),
           errorCode: result.ok ? null : result.error_code,
-          checkerCountry: result.checker_country,
         }));
       }
       return result.ok;
     } catch (e) {
       if (scope === proxyScopeRef.current) {
         setProxyActions((actions) => new Map(actions).set(key, {
-          action: "check",
+          action: rechecking ? "check" : action,
           status: "error",
-          exit: actions.get(key)?.exit,
+          exit: rechecking ? null : previousExit,
           error: say(e),
         }));
       }
@@ -658,7 +687,12 @@ export function App() {
 
   const checkProfileProxy = async (p: Profile) => {
     if (!p.proxy || (p.origin !== "local" && p.origin !== "team")) return;
-    await runProxyCheck(p.origin, p.proxy.id);
+    await runProxyAction("check", p.origin, p.proxy.id);
+  };
+
+  const rotateProfileProxy = async (p: Profile) => {
+    if (!p.proxy || p.origin !== "local") return;
+    await runProxyAction("rotate", p.origin, p.proxy.id);
   };
 
   const toggle = (id: string) =>
@@ -1747,7 +1781,9 @@ export function App() {
             local={local}
             myEmail={me?.email ?? null}
             canCheck={local || me?.role === "owner" || me?.role === "admin"}
-            onCheckProxy={(proxy) => runProxyCheck(local ? "local" : "team", proxy.id)}
+            onCheckProxy={(proxy) => runProxyAction("check", local ? "local" : "team", proxy.id)}
+            onRotateProxy={(proxy) => runProxyAction("rotate", "local", proxy.id)}
+            canRotate={local}
             proxyActionFor={(proxy) => visibleProxyActions.get(proxyActionKey(local ? "local" : "team", proxy.id))}
             onProxySaved={(id) => {
               const key = proxyActionKey(local ? "local" : "team", id);
@@ -1829,6 +1865,7 @@ export function App() {
               onEdit={(p) => { setEditTab(undefined); setEditing(p); }}
               onEditProxy={(p) => { setEditTab("Proxy"); setEditing(p); }}
               onCheckProxy={checkProfileProxy}
+              onRotateProxy={rotateProfileProxy}
               proxyActions={visibleProxyActions}
               onExtensions={setExtFor}
               onShare={local ? undefined : (p) => setSharing([p])}

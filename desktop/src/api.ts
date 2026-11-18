@@ -41,6 +41,7 @@ export interface ProxySummary {
   /** Already masked by the server when the caller lacks reveal_secrets.
    *  Never masked in local mode — there is nobody to hide it from. */
   display: string;
+  has_rotation?: boolean;
   country: string | null;
   last_ip?: string | null;
   /** The exit's zone from the last check, if any — what "follow the exit" resolves to. */
@@ -1195,8 +1196,8 @@ export const api = {
    *  interface translates. See agent/src/diagnose.rs. */
   diagnoseProxy: (url: string, checkerUrl?: string | null, proxyId?: string | null): Promise<Diagnosis> =>
     cmd<Diagnosis>("diagnose_proxy", { url, checkerUrl: checkerUrl || null, proxyId: proxyId || null }),
-  rotateProxy: (id: string): Promise<{ ok: boolean; error?: string }> =>
-    cmd("rotate_proxy", { id }),
+  rotateProxy: (id: string, origin?: Origin): Promise<{ ok: boolean; error?: string }> =>
+    cmd("rotate_proxy", { id, origin: origin ?? null }),
   // ---- giving one profile to one person --------------------------------
 
   /** Seals the profile key to the recipient and posts it. All of that happens

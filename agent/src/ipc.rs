@@ -1661,10 +1661,8 @@ impl Agent {
                 let id = str_param(&params, "id")?;
                 let proxy = self
                     .store
-                    .proxies()
+                    .proxy(&id)
                     .await?
-                    .into_iter()
-                    .find(|p| p.id == id)
                     .ok_or_else(|| anyhow::anyhow!("no such proxy"))?;
 
                 let rotate = proxy
@@ -1685,8 +1683,14 @@ impl Agent {
                     .build()?;
 
                 match client.get(rotate).send().await {
-                    Ok(res) => Ok(json!({ "ok": res.status().is_success(), "status": res.status().as_u16() })),
-                    Err(e) => Ok(json!({ "ok": false, "error": format!("Rotation failed: {e}") })),
+                    Ok(res) => {
+                        let ok = res.status().is_success();
+                        if ok {
+                            self.store.record_exit(&id, None, None, None, None).await?;
+                        }
+                        Ok(json!({ "ok": ok, "status": res.status().as_u16() }))
+                    }
+                    Err(_) => Ok(json!({ "ok": false, "error": "Rotation failed" })),
                 }
             }
 
@@ -1717,6 +1721,7 @@ impl Agent {
                         matches!(entry.child.try_wait(), Ok(None)).then(|| id.clone())
                     })
                     .collect();
+                let rotating = self.store.rotating_proxy_ids().await?;
                 // The list is the only place the shell learns what is open, so
                 // the answer has to come from the supervisor rather than from a
                 // flag in the database that a crash would leave stale.
@@ -1725,6 +1730,9 @@ impl Agent {
                     .map(|p| {
                         let mut v = serde_json::to_value(&p).unwrap_or_default();
                         v["running"] = json!(running.contains(&p.id));
+                        if let Some(proxy) = &p.proxy {
+                            v["proxy"]["has_rotation"] = json!(rotating.contains(&proxy.id));
+                        }
                         v
                     })
                     .collect();

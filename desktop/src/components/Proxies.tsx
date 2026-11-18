@@ -12,7 +12,7 @@ import { ProxyPaste } from "./ProxyPaste";
 import { PartnerCard } from "./Partner";
 import { sortRows, useSort } from "../sort";
 import { SortTh } from "./SortTh";
-import type { ProxyAction } from "../proxyAction";
+import { proxyExit, type ProxyAction } from "../proxyAction";
 
 const SORT_KEYS = ["name", "address", "lastSeen", "usedBy"] as const;
 type SortKey = (typeof SORT_KEYS)[number];
@@ -29,7 +29,9 @@ export function Proxies({
   local,
   myEmail = null,
   canCheck,
+  canRotate,
   onCheckProxy,
+  onRotateProxy,
   proxyActionFor,
   onProxySaved,
 }: {
@@ -37,7 +39,9 @@ export function Proxies({
   local: boolean;
   myEmail?: string | null;
   canCheck: boolean;
+  canRotate: boolean;
   onCheckProxy: (proxy: LocalProxy) => Promise<boolean>;
+  onRotateProxy: (proxy: LocalProxy) => Promise<boolean>;
   proxyActionFor: (proxy: LocalProxy) => ProxyAction | undefined;
   onProxySaved: (id: string) => void;
 }) {
@@ -111,10 +115,9 @@ export function Proxies({
         // Where the exit is: country, then address. After "check all" the
         // result breaks ties within one exit, faster first, failed last.
         const action = proxyActionFor(p);
-        const exit = action?.exit === undefined
-          ? { country: p.last_country, ip: p.last_ip }
-          : action.exit;
-        return [exit?.country, exit?.ip, action?.status === "error" ? Number.MAX_SAFE_INTEGER : action?.ms ?? null];
+        const exit = proxyExit(action, { country: p.last_country, ip: p.last_ip });
+        const check = action?.action === "check" ? action : undefined;
+        return [exit?.country, exit?.ip, check?.status === "error" ? Number.MAX_SAFE_INTEGER : check?.ms ?? null];
       }
       case "usedBy":
         return usedBy(p.id);
@@ -192,15 +195,18 @@ export function Proxies({
               {shown.map((p) => {
                 const action = proxyActionFor(p);
                 const check = action?.action === "check" ? action : undefined;
-                const exit = action?.exit === undefined
-                  ? { ip: p.last_ip, country: p.last_country }
-                  : action.exit;
+                const rotation = action?.action === "rotate" ? action : undefined;
+                const exit = proxyExit(action, { ip: p.last_ip, country: p.last_country });
                 const checkLabel = check?.status === "pending" ? t("px.checking") : t("px.check");
                 const checkTitle = check?.status === "ok"
                   ? t("px.checkOk", { ms: check.ms ?? 0 })
                   : check?.status === "error"
                     ? check.error ?? t("px.checkBad")
                     : checkLabel;
+                const rotationLabel = rotation?.status === "pending" ? t("px.rotating") : t("px.rotateNow");
+                const rotationTitle = rotation?.status === "error"
+                    ? rotation.error ?? t("px.checkBad")
+                    : rotationLabel;
                 const locked = proxyLock(p, myEmail, t);
                 return (
                 <tr key={p.id}>
@@ -223,6 +229,7 @@ export function Proxies({
                         <span className="flag">{flag(exit.country)}</span> {exit.country}
                       </>
                     )}
+                    {check?.status === "pending" && check.afterRotation && <div>{t("px.checking")}</div>}
                     {check?.status === "ok" && <div className="ok">{t("px.checkOk", { ms: check.ms ?? 0 })}</div>}
                     {check?.checkerCountry && <div title={t("px.serverInWhy")}>{t("px.serverIn", { country: check.checkerCountry })}</div>}
                     {check?.status === "error" && (
@@ -230,6 +237,7 @@ export function Proxies({
                         {t(check.errorCode === "noIp" ? "px.checkNoIp" : "px.checkBad")}
                       </div>
                     )}
+                    {rotation?.status === "error" && <div className="warn" title={rotation.error}>{rotation.error ?? t("px.checkBad")}</div>}
                   </td>
                   <td className="muted">
                     {usedBy(p.id) === 0 ? "—" : t("px.usedByN", { n: usedBy(p.id) })}
@@ -245,6 +253,15 @@ export function Proxies({
                           title={checkTitle}
                           disabled={checking !== null || action?.status === "pending"}
                           onClick={() => void onCheckProxy(p)}
+                        />
+                      )}
+                      {canRotate && !!p.rotate_url && locked === null && (
+                        <IconButton
+                          icon="refresh"
+                          label={rotationLabel}
+                          title={rotationTitle}
+                          disabled={checking !== null || action?.status === "pending"}
+                          onClick={() => void onRotateProxy(p)}
                         />
                       )}
                       <IconButton icon="pencil" label={t("row.edit")} onClick={() => setEditing(p)} />

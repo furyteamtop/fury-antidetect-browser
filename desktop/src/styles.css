@@ -367,19 +367,24 @@ textarea {
   height: 22px;
 }
 
-.proxyCheck {
+.proxyCheck,
+.proxyRotate {
   flex: none;
 }
 
-.proxyCheck button.icon {
+.proxyCheck button.icon,
+.proxyRotate button.icon {
   width: 22px;
   height: 22px;
 }
 
 .proxyCheck-ok button.icon { color: var(--ok); }
 .proxyCheck-error button.icon { color: var(--warn); }
+.proxyRotate-ok button.icon { color: var(--ok); }
+.proxyRotate-error button.icon { color: var(--warn); }
 
-.proxyCheck-pending button.icon svg {
+.proxyCheck-pending button.icon svg,
+.proxyRotate-pending button.icon svg {
   animation: proxyCheckSpin 1s linear infinite;
 }
 
@@ -388,7 +393,8 @@ textarea {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .proxyCheck-pending button.icon svg { animation: none; }
+  .proxyCheck-pending button.icon svg,
+  .proxyRotate-pending button.icon svg { animation: none; }
 }
 
 .tags {

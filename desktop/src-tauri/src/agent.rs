@@ -57,6 +57,8 @@ pub struct LocalProxy {
     pub kind: String,
     pub host: String,
     pub port: u16,
+    #[serde(default)]
+    pub has_rotation: bool,
     pub last_country: Option<String>,
     #[serde(default)]
     pub last_ip: Option<String>,

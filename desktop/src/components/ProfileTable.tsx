@@ -11,7 +11,7 @@ import { assess } from "../consistency";
 import { isSuggested, statusHue } from "../status";
 import { sortRows, useSort } from "../sort";
 import { SortTh } from "./SortTh";
-import { proxyActionKey, type ProxyAction } from "../proxyAction";
+import { proxyActionKey, proxyExit, type ProxyAction } from "../proxyAction";
 
 const SORT_KEYS = ["name", "project", "proxy", "status", "lastOpened"] as const;
 type SortKey = (typeof SORT_KEYS)[number];
@@ -70,6 +70,7 @@ export function ProfileTable({
   onEdit,
   onEditProxy,
   onCheckProxy,
+  onRotateProxy,
   proxyActions,
   onDelete,
   onExtensions,
@@ -99,6 +100,7 @@ export function ProfileTable({
   onEditProxy?: (p: Profile) => void;
   /** Checks the proxy assigned to a visible profile. */
   onCheckProxy?: (p: Profile) => void;
+  onRotateProxy?: (p: Profile) => void;
   proxyActions?: Map<string, ProxyAction>;
   onDelete?: (p: Profile) => void;
   /** Extensions and disk usage — the two things beside the browser data. */
@@ -144,9 +146,14 @@ export function ProfileTable({
         return p.name;
       case "project":
         return [p.project_name, p.name];
-      case "proxy":
-        // Exit country first, then the saved label that now identifies it.
-        return [p.proxy?.country, p.proxy?.name || p.proxy?.display, p.name];
+      case "proxy": {
+        // Exit country first, then the saved label that identifies it.
+        const action = p.proxy && (p.origin === "local" || p.origin === "team")
+          ? proxyActions?.get(proxyActionKey(p.origin, p.proxy.id))
+          : undefined;
+        const exit = proxyExit(action, { country: p.proxy?.country, ip: p.proxy?.last_ip });
+        return [exit?.country, p.proxy?.name || p.proxy?.display, p.name];
+      }
       case "status": {
         // The account's stage first: that is what a farm sorts by. Then
         // open here, in use elsewhere, idle.
@@ -251,17 +258,21 @@ export function ProfileTable({
             ? proxyActions?.get(proxyActionKey(p.origin, p.proxy.id))
             : undefined;
           const check = proxyAction?.action === "check" ? proxyAction : undefined;
+          const rotation = proxyAction?.action === "rotate" ? proxyAction : undefined;
           const canCheckProxy = (p.origin === "local" || p.origin === "team")
             && (p.origin === "local" || me?.role === "owner" || me?.role === "admin");
+          const canRotateProxy = p.origin === "local" && !!p.proxy?.has_rotation && canEdit;
           const checkLabel = check?.status === "pending" ? t("px.checking") : t("px.check");
           const checkTitle = check?.status === "ok"
             ? t("px.checkOk", { ms: check.ms ?? 0 })
             : check?.status === "error"
               ? check.error ?? t("px.checkBad")
               : checkLabel;
-          const exit = proxyAction?.exit === undefined
-            ? { country: p.proxy?.country, ip: p.proxy?.last_ip }
-            : proxyAction.exit;
+          const rotationLabel = rotation?.status === "pending" ? t("px.rotating") : t("px.rotateNow");
+          const rotationTitle = rotation?.status === "error"
+              ? rotation.error ?? t("px.checkBad")
+              : rotationLabel;
+          const exit = proxyExit(proxyAction, { country: p.proxy?.country, ip: p.proxy?.last_ip });
           const locked = p.lock !== null;
           const open = isOpenHere(p, { local, userId: me?.user_id, machine: thisMachine });
           const starting = launching?.has(p.id) ?? false;
@@ -361,6 +372,17 @@ export function ProfileTable({
                           />
                         </span>
                       )}
+                      {onRotateProxy && canRotateProxy && (
+                        <span className={`proxyRotate proxyRotate-${rotation?.status ?? "idle"}`} onClick={(e) => e.stopPropagation()}>
+                          <IconButton
+                            icon="refresh"
+                            label={rotationLabel}
+                            title={rotationTitle}
+                            disabled={busy || proxyAction?.status === "pending"}
+                            onClick={() => onRotateProxy(p)}
+                          />
+                        </span>
+                      )}
                       <div className="proxyLabel" title={p.proxy.name}>
                         {p.proxy.name || p.proxy.display}
                       </div>
@@ -378,6 +400,15 @@ export function ProfileTable({
                         {!canReveal && <>{(exit?.country || exit?.ip) && " · "}{t("row.masked")}</>}
                         {shared >= 2 && <span>{(exit?.country || exit?.ip || !canReveal) && " · "}{t("row.sharedExit", { n: shared })}</span>}
                       </div>
+                    )}
+                    {check?.status === "pending" && check.afterRotation && <div className="muted small">{t("px.checking")}</div>}
+                    {check?.status === "error" && (
+                      <div className="warn small" title={check.error}>
+                        {t(check.errorCode === "noIp" ? "px.checkNoIp" : "px.checkBad")}
+                      </div>
+                    )}
+                    {rotation?.status === "error" && (
+                      <div className="warn small" title={rotation.error}>{rotation.error ?? t("px.checkBad")}</div>
                     )}
                   </div>
                 ) : (

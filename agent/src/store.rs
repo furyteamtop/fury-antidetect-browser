@@ -595,6 +595,16 @@ impl Store {
         Ok(row.as_ref().map(|row| self.open_proxy(row_to_proxy(row))))
     }
 
+    pub async fn rotating_proxy_ids(&self) -> anyhow::Result<std::collections::HashSet<String>> {
+        Ok(sqlx::query_scalar(
+            "SELECT id FROM proxies WHERE deleted_at IS NULL AND rotate_url IS NOT NULL AND rotate_url != ''",
+        )
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .collect())
+    }
+
     pub async fn upsert_proxy(&self, p: &Proxy) -> anyhow::Result<String> {
         let id = if p.id.is_empty() { new_id() } else { p.id.clone() };
         // A secret this machine cannot open right now was shown to the form as
