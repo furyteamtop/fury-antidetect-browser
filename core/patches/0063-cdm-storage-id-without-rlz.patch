@@ -1,0 +1,28 @@
+diff --git a/chrome/browser/media/cdm_storage_id.cc b/chrome/browser/media/cdm_storage_id.cc
+index 922cb15fde..72d9a9dc0c 100644
+--- a/chrome/browser/media/cdm_storage_id.cc
++++ b/chrome/browser/media/cdm_storage_id.cc
+@@ -23,8 +23,6 @@
+ #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
+ #if BUILDFLAG(ENABLE_RLZ)
+ #include "rlz/lib/machine_id.h"
+-#else
+-#error "RLZ must be enabled on Windows/Mac"
+ #endif  // BUILDFLAG(ENABLE_RLZ)
+ #endif  // BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
+ 
+@@ -97,7 +95,14 @@ void ComputeStorageId(const std::vector<uint8_t>& profile_salt,
+ #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
+   std::string machine_id;
+   std::string storage_id_key = GetCdmStorageIdKey();
++#if BUILDFLAG(ENABLE_RLZ)
+   rlz_lib::GetMachineId(&machine_id);
++#else
++  // Fury: no RLZ, and no machine identifier wanted. The ID still differs per
++  // profile (profile_salt is a random per-profile pref) and per origin, which
++  // is all the CDM needs it for (see core/args, enable_cdm_storage_id).
++  machine_id = "fury";
++#endif
+   std::move(callback).Run(
+       CalculateStorageId(storage_id_key, profile_salt, origin, machine_id));
+ 

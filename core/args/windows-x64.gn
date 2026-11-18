@@ -53,6 +53,23 @@ enable_hangout_services_extension = false
 # reason. See docs/10 for why the blob may not travel with us.
 enable_widevine = true
 
+# Widevine privacy mode needs both of these, and an unbranded build has neither
+# (media_options.gni ties them to is_chrome_branded). Measured 17.11.2026 on
+# Windows, core 157, the same CDM 4.10.3112.0 Chrome uses: without CDM host
+# verification the CDM put the device's ClientIdentification IN CLEAR in every
+# license request, the same bytes in every profile and on every site, so one
+# EME exchange linked every profile on a machine (and iphey called the browser
+# "inconsistent (whale)"). With VerifyCdmHost_0 called -- even with no host
+# signature files, as here, which is also what Chrome without its .sig files
+# does -- the CDM encrypts it to the license server's certificate, as Chrome
+# does: 3620 bytes, no field 1. The storage ID is what Chrome gives the CDM for
+# per-origin, per-profile storage; it is computed from the key below, the
+# origin and a random per-profile salt (patch 0063 drops the RLZ machine id).
+# The key is not a secret: it only has to be stable across releases.
+enable_cdm_host_verification = true
+enable_cdm_storage_id = true
+alternate_cdm_storage_id_key = "MIfsWgo4JShIFkSvy5MiOwdhnsGUifeyvcO0xOHPYB3oFG3T"
+
 # enable_nacl was removed upstream by M150; setting it only produces a warning
 enable_print_preview = true
 

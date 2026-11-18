@@ -237,6 +237,23 @@
 # entropy to spoof in the first place. Narrowing it per persona would not hide a
 # profile in a crowd, it would remove it from one.
 # 0061-media-codecs.patch
+#
+# Chrome's CDM storage ID, which core/args now turns on for Widevine (with CDM
+# host verification; the args say why). Upstream computes it from RLZ's machine
+# id and refuses to build without RLZ on Windows and macOS; RLZ is Google's
+# install tracking and stays off. The ID is still per profile and per origin
+# (a random per-profile salt and the origin go into the hash), and the CDM
+# needs nothing more from it.
+0063-cdm-storage-id-without-rlz.patch
+#
+# The build half of CDM host verification: enable_widevine_cdm_host_verification
+# signs the browser binaries with Google's Widevine certificate through
+# third_party/widevine/scripts/signature_generator.py, which is not in the
+# Chromium tree. On macOS the chrome target depends on that step, so the build
+# stopped at "missing and no known rule to make it". Signing stays a branded
+# build's job; the runtime call the CDM needs is unaffected (Windows, where no
+# target depends on the signature, was measured working without it).
+0064-no-widevine-signing.patch
 
 # --- webrtc -----------------------------------------------------------------
 # The most serious hole the product had, and it was hiding behind a switch that
