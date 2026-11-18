@@ -96,6 +96,12 @@ pub fn blocklists_dir() -> PathBuf {
     data_dir().join("blocklists")
 }
 
+/// The IP geolocation database the exit check reads country, city, zone and
+/// coordinates from (geodb.rs): DB-IP's free City Lite, refreshed monthly.
+pub fn geo_db_file() -> PathBuf {
+    data_dir().join("geo").join("dbip-city-lite.mmdb")
+}
+
 /// Saved profile templates (docs/16 5.6): one JSON file, a few kilobytes. A
 /// template is a named set of answers to the batch dialog — proxy, tags,
 /// stage, sites, languages — not a profile, and not a table.

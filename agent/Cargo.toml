@@ -90,7 +90,10 @@ smoltcp = { version = "0.12", default-features = false, features = [
 base64 = "0.22"
 # Issue #4: the checker field also takes a local MMDB path, consulted for
 # country/timezone once the exit IP is known. The file is never bundled.
-maxminddb = "0.28"
+maxminddb = { version = "0.28", features = ["mmap"] }
+# The time zone at a point, for a geo database that has coordinates but no
+# zone (DB-IP Lite). Its boundary data is compiled in (~4 MB); no network.
+tzf-rs = { version = "=2.3.0", default-features = false, features = ["bundled"] }
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["handshake", "connect"] }
 futures-util = { version = "0.3.33", default-features = false, features = ["sink"] }
 # A farming plan's hours are the profile's hours, not this machine's: a Berlin

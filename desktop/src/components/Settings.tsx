@@ -547,6 +547,23 @@ function About({ shell, support }: { shell: Shell; support: boolean }) {
         <h2>{t("about.licence")}</h2>
         <p>{t("about.licenceBody")}</p>
         <p className="hint">{t("about.licenceWhy")}</p>
+        {/* DB-IP Lite is CC BY 4.0: the attribution is a condition of using it
+            (agent/src/geodb.rs). */}
+        <p className="hint">
+          {t("about.geoData")}{" "}
+          <a
+            href="https://db-ip.com"
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => {
+              e.preventDefault();
+              void api.openUrl("https://db-ip.com");
+            }}
+          >
+            IP Geolocation by DB-IP
+          </a>{" "}
+          (CC BY 4.0)
+        </p>
       </div>
 
       <div className="settingsGroup">

@@ -28,7 +28,7 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
   const [shopping, setShopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Checking every proxy at once (5.7): per-row outcome, and how far along.
-  const [checks, setChecks] = useState<Map<string, { ok: boolean; ms?: number; error?: string }>>(new Map());
+  const [checks, setChecks] = useState<Map<string, { ok: boolean; ms?: number; error?: string; serverIn?: string | null }>>(new Map());
   const [checking, setChecking] = useState<{ done: number; total: number } | null>(null);
 
   /** The URL the single-proxy form would build. In team mode the password is
@@ -49,7 +49,7 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
         if (!p) return;
         try {
           const r = await api.checkProxy(urlOf(p), p.checker_url, p.id);
-          setChecks((m) => new Map(m).set(p.id, { ok: r.ok, ms: r.ms, error: r.ok ? undefined : r.error }));
+          setChecks((m) => new Map(m).set(p.id, { ok: r.ok, ms: r.ms, error: r.ok ? undefined : r.error, serverIn: r.checker_country }));
         } catch (e) {
           setChecks((m) => new Map(m).set(p.id, { ok: false, error: say(e) }));
         }
@@ -176,7 +176,10 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
                       const c = checks.get(p.id);
                       if (!c) return null;
                       return c.ok ? (
-                        <div className="ok">{t("px.checkOk", { ms: c.ms ?? 0 })}</div>
+                        <>
+                          <div className="ok">{t("px.checkOk", { ms: c.ms ?? 0 })}</div>
+                          {c.serverIn && <div title={t("px.serverInWhy")}>{t("px.serverIn", { country: c.serverIn })}</div>}
+                        </>
                       ) : (
                         <div className="warn" title={c.error}>{t("px.checkBad")}</div>
                       );

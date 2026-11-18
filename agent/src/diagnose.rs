@@ -174,7 +174,7 @@ pub async fn run(url: &str, checker_url: Option<&str>) -> Report {
 
     // 4. exit
     let started = Instant::now();
-    let exit = match fetch_exit(upstream, &endpoint).await {
+    let exit = match fetch_exit(upstream, checker_url).await {
         Ok(e) => {
             steps.push(step(
                 "exit",
@@ -329,34 +329,29 @@ fn classify_relay(e: &RelayError, target: &str) -> (&'static str, String) {
     }
 }
 
-async fn fetch_exit(upstream: crate::relay::Upstream, endpoint: &str) -> anyhow::Result<Exit> {
-    let (endpoint, geo_db) = crate::geoip::split_checker(endpoint);
+async fn fetch_exit(upstream: crate::relay::Upstream, checker_url: Option<&str>) -> anyhow::Result<Exit> {
+    let checker = crate::geoip::checker(checker_url);
     // Through the profile's own handshake, as the tunnel step above: see
     // `relay::via` for the second SOCKS5 client this used to be.
     // The same upstream, not the URL parsed again: for WireGuard that keeps
     // the step on the tunnel the steps above used (`wg_stack::Shared`).
     let via = crate::relay::via(upstream, Duration::from_secs(15)).await?;
-    let body: serde_json::Value = via.client().get(&endpoint).send().await?.json().await?;
+    let body: serde_json::Value = via.client().get(&checker.endpoint).send().await?.json().await?;
     let s = |k: &str| body.get(k).and_then(|v| v.as_str()).map(str::to_string);
-    // Same overlay as the check: a pasted database path resolves geo here
-    // too rather than only where the button is.
-    let (country, city, timezone) = match (&geo_db, s("ip")) {
-        (Some(db), Some(ref ip)) => {
-            let geo = crate::geoip::lookup(db, ip)?;
-            (
-                geo.country.or_else(|| s("country")),
-                geo.city.or_else(|| s("city")),
-                geo.timezone.or_else(|| s("timezone")),
-            )
-        }
-        _ => (s("country"), s("city"), s("timezone")),
-    };
+    // Same overlay as the check: the database resolves geo here too rather
+    // than only where the button is. A database the operator named and that
+    // fails is this step's failure; the fetched one falls back quietly.
+    let geo = crate::geoip::overlay(&body, &checker);
+    if let Some(e) = &geo.db_error {
+        anyhow::ensure!(checker.bundled, "{e}");
+        tracing::warn!(error = %e, "the geo database was not used");
+    }
     Ok(Exit {
-        ip: s("ip"),
-        country,
+        ip: geo.ip,
+        country: geo.country,
         region: s("region"),
-        city,
-        timezone,
+        city: geo.city,
+        timezone: geo.timezone,
         org: s("org"),
     })
 }

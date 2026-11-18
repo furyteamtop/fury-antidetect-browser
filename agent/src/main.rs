@@ -22,6 +22,7 @@ mod core_download;
 mod logging;
 mod ext;
 mod geoip;
+mod geodb;
 mod http;
 mod import_browser;
 mod import_antidetect;
@@ -94,6 +95,10 @@ async fn main() -> anyhow::Result<()> {
             let agent = ipc::Agent::new().await?;
             // Farming plans run whether or not a window is open. See farm.rs.
             agent.start_farming();
+            // The exit check's geo database, fetched and kept fresh in the
+            // background. Until it is here the check answers from ipinfo.io
+            // alone, as it always did. See geodb.rs.
+            geodb::spawn_refresher();
 
             // Only when asked for. See http.rs: a loopback port is reachable
             // from a page the browser itself opens, and the defences are worth

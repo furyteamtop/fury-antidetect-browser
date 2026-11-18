@@ -1435,16 +1435,11 @@ impl Agent {
                 // than as an opaque transport error thirty seconds later.
                 tracing::info!(?upstream, "checking proxy");
 
-                let endpoint = params
-                    .get("checker_url")
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.trim().is_empty())
-                    .map(str::to_string)
-                    .or_else(|| std::env::var("FURY_IP_CHECK").ok())
-                    .unwrap_or_else(|| "https://ipinfo.io/json".to_string());
-                // A local MMDB path in the checker field (issue #4): the
-                // exit IP still comes from the far end, geo from the file.
-                let (endpoint, geo_db) = crate::geoip::split_checker(&endpoint);
+                // A local MMDB path in the checker field (issue #4), or by
+                // default the fetched DB-IP file (geodb.rs): the exit IP
+                // still comes from the far end, geo from the file.
+                let checker = crate::geoip::checker(params.get("checker_url").and_then(|v| v.as_str()));
+                let endpoint = checker.endpoint.clone();
 
                 // Through the relay a profile uses, not reqwest's own SOCKS5
                 // client: see `relay::via`. Short timeout: a proxy that takes
@@ -1504,52 +1499,42 @@ impl Agent {
                 // Remembered, so a profile that follows its exit does not pay
                 // for this round trip again at launch. With a local database
                 // the file wins per field and the checker is the fallback.
-                let s = |k: &str| body.get(k).and_then(|v| v.as_str());
-                let (country, city, timezone, location) = match (&geo_db, s("ip")) {
-                    (Some(db), Some(ip)) => match crate::geoip::lookup(db, ip) {
-                        Ok(geo) => (
-                            geo.country.or_else(|| s("country").map(str::to_string)),
-                            geo.city.or_else(|| s("city").map(str::to_string)),
-                            geo.timezone.or_else(|| s("timezone").map(str::to_string)),
-                            geo.location
-                                .filter(|v| parse_location(v).is_some())
-                                .or_else(|| s("loc").map(str::to_string)),
-                        ),
-                        Err(e) => {
-                            return Ok(json!({
-                                "ok": false,
-                                "error": e.to_string(),
-                                "suggested_kind": serde_json::Value::Null,
-                            }))
-                        }
-                    },
-                    _ => (
-                        s("country").map(str::to_string),
-                        s("city").map(str::to_string),
-                        s("timezone").map(str::to_string),
-                        s("loc").map(str::to_string),
-                    ),
-                };
+                let exit = crate::geoip::overlay(&body, &checker);
+                if let Some(e) = &exit.db_error {
+                    // The operator's own file: say so here, where the path
+                    // was typed. The fetched one: the checker's answer stands.
+                    if !checker.bundled {
+                        return Ok(json!({
+                            "ok": false,
+                            "error": e,
+                            "suggested_kind": serde_json::Value::Null,
+                        }));
+                    }
+                    tracing::warn!(error = %e, "the geo database was not used for this check");
+                }
                 if let Some(id) = params.get("id").and_then(|v| v.as_str()) {
                     let _ = self
                         .store
                         .record_exit(
                             id,
-                            s("ip"),
-                            country.as_deref(),
-                            timezone.as_deref(),
-                            location.as_deref(),
+                            exit.ip.as_deref(),
+                            exit.country.as_deref(),
+                            exit.timezone.as_deref(),
+                            exit.location.as_deref(),
                         )
                         .await;
                 }
 
                 Ok(json!({
                     "ok": true,
-                    "ip": body.get("ip"),
-                    "country": country,
-                    "city": city,
-                    "timezone": timezone,
+                    "ip": exit.ip,
+                    "country": exit.country,
+                    "city": exit.city,
+                    "timezone": exit.timezone,
                     "org": body.get("org"),
+                    // ipinfo.io's country when the database places the exit
+                    // elsewhere: where the server physically stands.
+                    "checker_country": exit.checker_country,
                     "ms": started.elapsed().as_millis() as u64,
                 }))
             }
@@ -2752,12 +2737,7 @@ impl Agent {
         upstream: Option<crate::relay::Upstream>,
         checker_url: Option<&str>,
     ) -> anyhow::Result<ExitFacts> {
-        let endpoint = checker_url
-            .map(str::to_string)
-            .filter(|s| !s.trim().is_empty())
-            .or_else(|| std::env::var("FURY_IP_CHECK").ok())
-            .unwrap_or_else(|| "https://ipinfo.io/json".to_string());
-        let (endpoint, geo_db) = crate::geoip::split_checker(&endpoint);
+        let checker = crate::geoip::checker(checker_url);
 
         // Through the relay, as the profile's own traffic and the check go:
         // see `relay::via`. Held in `via` until the body is read.
@@ -2778,8 +2758,7 @@ impl Agent {
             }
         };
 
-        let body: serde_json::Value = client.get(&endpoint).send().await?.json().await?;
-        let s = |k: &str| body.get(k).and_then(|v| v.as_str()).map(str::to_string);
+        let body: serde_json::Value = client.get(&checker.endpoint).send().await?.json().await?;
         // `loc` is "lat,lng" and was being thrown away. It comes from the same
         // request as the timezone and describes the same place, which is exactly
         // the property geolocation needs: a profile whose clock follows Berlin
@@ -2787,37 +2766,21 @@ impl Agent {
         // timezone work existed to remove, one field over.
         //
         // Same overlay as `proxies.check` so a launch and a check can never
-        // disagree about an exit.
-        // A database that will not open, or has no record for this exit, does
-        // not throw away the checker's answer, which is already in hand: the
-        // launch carries on with that and the log says why the file was not
-        // used. (The check button, by contrast, reports the failure, because
-        // that is where the operator is looking at the path.)
-        let local = match (&geo_db, s("ip")) {
-            (Some(db), Some(ref ip)) => match crate::geoip::lookup(db, ip) {
-                Ok(geo) => Some(geo),
-                Err(e) => {
-                    tracing::warn!(error = format!("{e:#}"), "the local GeoIP database was not used for this launch");
-                    None
-                }
-            },
-            _ => None,
-        };
-        let (country, timezone, location) = match local {
-            Some(geo) => (
-                geo.country.or_else(|| s("country")),
-                geo.timezone.or_else(|| s("timezone")),
-                geo.location
-                    .filter(|v| parse_location(v).is_some())
-                    .or_else(|| s("loc")),
-            ),
-            None => (s("country"), s("timezone"), s("loc")),
-        };
+        // disagree about an exit. A database that will not open, or has no
+        // record for this exit, does not throw away the checker's answer,
+        // which is already in hand: the launch carries on with that and the
+        // log says why the file was not used. (The check button, by contrast,
+        // reports a failing file the operator named, because that is where
+        // they are looking at the path.)
+        let exit = crate::geoip::overlay(&body, &checker);
+        if let Some(e) = &exit.db_error {
+            tracing::warn!(error = %e, "the GeoIP database was not used for this launch");
+        }
         Ok(ExitFacts {
-            ip: s("ip"),
-            country,
-            timezone,
-            location: location.filter(|v| parse_location(v).is_some()),
+            ip: exit.ip,
+            country: exit.country,
+            timezone: exit.timezone,
+            location: exit.location,
         })
     }
 

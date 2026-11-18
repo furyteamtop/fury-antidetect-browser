@@ -119,3 +119,13 @@ font from country-flag-emoji-polyfill 0.1.8 (Copyright (c) 2022 TalkJS, MIT).
 The flag artwork in it comes from Twemoji, Copyright Twitter, Inc and other
 contributors, used and redistributed under CC-BY 4.0:
 https://creativecommons.org/licenses/by/4.0/
+
+
+8. IP GEOLOCATION DATA
+-----------------------
+
+The agent downloads DB-IP's "IP to City Lite" database from db-ip.com at run time
+and reads country, city and coordinates of a proxy exit from it
+(agent/src/geodb.rs). The data is not part of this repository or of any release.
+IP Geolocation by DB-IP (https://db-ip.com), licensed under CC BY 4.0:
+https://creativecommons.org/licenses/by/4.0/

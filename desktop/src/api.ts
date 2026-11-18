@@ -1177,6 +1177,9 @@ export const api = {
   checkProxy: (url: string, checkerUrl?: string | null, proxyId?: string | null): Promise<{
     ok: boolean; error?: string; ip?: string; country?: string;
     city?: string; timezone?: string; org?: string; ms?: number;
+    /** ipinfo.io's country when the IP database places the exit elsewhere:
+     *  where the server physically is (agent/src/geodb.rs). */
+    checker_country?: string | null;
     /** Why it failed, for the interface's own sentence (ipc.rs check_failure). */
     error_code?: string | null;
     /** A protocol this address DOES answer on, when the one it was given got
