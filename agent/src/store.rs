@@ -582,6 +582,19 @@ impl Store {
         Ok(rows.iter().map(|r| self.open_proxy(row_to_proxy(r))).collect())
     }
 
+    /// One saved proxy, opened only for an action that needs its credential.
+    pub async fn proxy(&self, id: &str) -> anyhow::Result<Option<Proxy>> {
+        let row = sqlx::query(
+            "SELECT id, name, kind, host, port, username, password, last_country, last_ip, \
+                    last_timezone, rotate_url, checker_url \
+             FROM proxies WHERE id = ? AND deleted_at IS NULL",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.as_ref().map(|row| self.open_proxy(row_to_proxy(row))))
+    }
+
     pub async fn upsert_proxy(&self, p: &Proxy) -> anyhow::Result<String> {
         let id = if p.id.is_empty() { new_id() } else { p.id.clone() };
         // A secret this machine cannot open right now was shown to the form as

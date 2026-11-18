@@ -42,6 +42,7 @@ export interface ProxySummary {
    *  Never masked in local mode — there is nobody to hide it from. */
   display: string;
   country: string | null;
+  last_ip?: string | null;
   /** The exit's zone from the last check, if any — what "follow the exit" resolves to. */
   last_timezone?: string | null;
 }
@@ -1174,7 +1175,7 @@ export const api = {
     cmd<{ id: string }>("save_proxy", { proxy, origin: origin ?? null }),
   deleteProxy: (id: string, origin?: Origin): Promise<unknown> =>
     cmd("delete_proxy", { id, origin: origin ?? null }),
-  checkProxy: (url: string, checkerUrl?: string | null, proxyId?: string | null): Promise<{
+  checkProxy: (url: string, checkerUrl?: string | null, proxyId?: string | null, origin?: Origin): Promise<{
     ok: boolean; error?: string; ip?: string; country?: string;
     city?: string; timezone?: string; org?: string; ms?: number;
     /** ipinfo.io's country when the IP database places the exit elsewhere:
@@ -1189,7 +1190,7 @@ export const api = {
      *  nothing. Present only on a failure, and only when the other family
      *  actually worked — see agent/src/diagnose.rs `speaks_instead`. */
     suggested_kind?: string | null;
-  }> => cmd("check_proxy", { url, checkerUrl: checkerUrl || null, proxyId: proxyId || null }),
+  }> => cmd("check_proxy", { url, checkerUrl: checkerUrl || null, proxyId: proxyId || null, origin: origin ?? null }),
   /** The check step by step; the first failing step carries a `code` the
    *  interface translates. See agent/src/diagnose.rs. */
   diagnoseProxy: (url: string, checkerUrl?: string | null, proxyId?: string | null): Promise<Diagnosis> =>

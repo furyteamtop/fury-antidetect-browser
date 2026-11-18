@@ -11,6 +11,7 @@ import { assess } from "../consistency";
 import { isSuggested, statusHue } from "../status";
 import { sortRows, useSort } from "../sort";
 import { SortTh } from "./SortTh";
+import { proxyActionKey, type ProxyAction } from "../proxyAction";
 
 const SORT_KEYS = ["name", "project", "proxy", "status", "lastOpened"] as const;
 type SortKey = (typeof SORT_KEYS)[number];
@@ -68,6 +69,8 @@ export function ProfileTable({
   onStop,
   onEdit,
   onEditProxy,
+  onCheckProxy,
+  proxyActions,
   onDelete,
   onExtensions,
   onShare,
@@ -94,6 +97,9 @@ export function ProfileTable({
   onEdit?: (p: Profile) => void;
   /** Opens the profile editor on its saved-proxy tab. */
   onEditProxy?: (p: Profile) => void;
+  /** Checks the proxy assigned to a visible profile. */
+  onCheckProxy?: (p: Profile) => void;
+  proxyActions?: Map<string, ProxyAction>;
   onDelete?: (p: Profile) => void;
   /** Extensions and disk usage — the two things beside the browser data. */
   onExtensions?: (p: Profile) => void;
@@ -139,9 +145,8 @@ export function ProfileTable({
       case "project":
         return [p.project_name, p.name];
       case "proxy":
-        // By exit country, unchecked ones after the checked, rows with no
-        // proxy at all last.
-        return [p.proxy?.country, p.proxy?.display, p.name];
+        // Exit country first, then the saved label that now identifies it.
+        return [p.proxy?.country, p.proxy?.name || p.proxy?.display, p.name];
       case "status": {
         // The account's stage first: that is what a farm sorts by. Then
         // open here, in use elsewhere, idle.
@@ -242,6 +247,21 @@ export function ProfileTable({
           const canReveal = p.permissions.includes("reveal_secrets");
           const canDelete = p.permissions.includes("delete_profile");
           const canEdit = p.permissions.includes("edit_profile");
+          const proxyAction = p.proxy && (p.origin === "local" || p.origin === "team")
+            ? proxyActions?.get(proxyActionKey(p.origin, p.proxy.id))
+            : undefined;
+          const check = proxyAction?.action === "check" ? proxyAction : undefined;
+          const canCheckProxy = (p.origin === "local" || p.origin === "team")
+            && (p.origin === "local" || me?.role === "owner" || me?.role === "admin");
+          const checkLabel = check?.status === "pending" ? t("px.checking") : t("px.check");
+          const checkTitle = check?.status === "ok"
+            ? t("px.checkOk", { ms: check.ms ?? 0 })
+            : check?.status === "error"
+              ? check.error ?? t("px.checkBad")
+              : checkLabel;
+          const exit = proxyAction?.exit === undefined
+            ? { country: p.proxy?.country, ip: p.proxy?.last_ip }
+            : proxyAction.exit;
           const locked = p.lock !== null;
           const open = isOpenHere(p, { local, userId: me?.user_id, machine: thisMachine });
           const starting = launching?.has(p.id) ?? false;
@@ -330,6 +350,17 @@ export function ProfileTable({
                 {p.proxy ? (
                   <div className="proxyCell">
                     <div className="proxyLabelRow">
+                      {onCheckProxy && canCheckProxy && (
+                        <span className={`proxyCheck proxyCheck-${check?.status ?? "idle"}`} onClick={(e) => e.stopPropagation()}>
+                          <IconButton
+                            icon="check"
+                            label={checkLabel}
+                            title={checkTitle}
+                            disabled={busy || proxyAction?.status === "pending"}
+                            onClick={() => onCheckProxy(p)}
+                          />
+                        </span>
+                      )}
                       <div className="proxyLabel" title={p.proxy.name}>
                         {p.proxy.name || p.proxy.display}
                       </div>
@@ -339,13 +370,13 @@ export function ProfileTable({
                         </span>
                       )}
                     </div>
-                    {(p.proxy.country || p.proxy.last_ip || !canReveal || shared >= 2) && (
+                    {(exit?.country || exit?.ip || !canReveal || shared >= 2) && (
                       <div className="muted small">
-                        {p.proxy.country && <><span className="flag">{flag(p.proxy.country)}</span> {p.proxy.country}</>}
-                        {p.proxy.country && p.proxy.last_ip && " · "}
-                        {p.proxy.last_ip && <span className="mono">{p.proxy.last_ip}</span>}
-                        {!canReveal && <>{(p.proxy.country || p.proxy.last_ip) && " · "}{t("row.masked")}</>}
-                        {shared >= 2 && <span>{(p.proxy.country || p.proxy.last_ip || !canReveal) && " · "}{t("row.sharedExit", { n: shared })}</span>}
+                        {exit?.country && <><span className="flag">{flag(exit.country)}</span> {exit.country}</>}
+                        {exit?.country && exit?.ip && " · "}
+                        {exit?.ip && <span className="mono">{exit.ip}</span>}
+                        {!canReveal && <>{(exit?.country || exit?.ip) && " · "}{t("row.masked")}</>}
+                        {shared >= 2 && <span>{(exit?.country || exit?.ip || !canReveal) && " · "}{t("row.sharedExit", { n: shared })}</span>}
                       </div>
                     )}
                   </div>

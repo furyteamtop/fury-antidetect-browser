@@ -10,9 +10,9 @@ import { useAsk } from "./Ask";
 import { ProxyForm, addedByMe, proxyLock } from "./ProxyForm";
 import { ProxyPaste } from "./ProxyPaste";
 import { PartnerCard } from "./Partner";
-import { proxyUrl } from "../proxyUrl";
 import { sortRows, useSort } from "../sort";
 import { SortTh } from "./SortTh";
+import type { ProxyAction } from "../proxyAction";
 
 const SORT_KEYS = ["name", "address", "lastSeen", "usedBy"] as const;
 type SortKey = (typeof SORT_KEYS)[number];
@@ -24,7 +24,23 @@ type SortKey = (typeof SORT_KEYS)[number];
  *  three accounts, and the place to see that is here — the "used by" column is
  *  the one number that matters, since several accounts behind one address is
  *  the oldest farm signal there is. */
-export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile[]; local: boolean; myEmail?: string | null }) {
+export function Proxies({
+  profiles,
+  local,
+  myEmail = null,
+  canCheck,
+  onCheckProxy,
+  proxyActionFor,
+  onProxySaved,
+}: {
+  profiles: Profile[];
+  local: boolean;
+  myEmail?: string | null;
+  canCheck: boolean;
+  onCheckProxy: (proxy: LocalProxy) => Promise<boolean>;
+  proxyActionFor: (proxy: LocalProxy) => ProxyAction | undefined;
+  onProxySaved: (id: string) => void;
+}) {
   const { t, say } = useI18n();
   const { ask, dialog } = useAsk();
   const [rows, setRows] = useState<LocalProxy[]>([]);
@@ -32,17 +48,11 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
   const [pasting, setPasting] = useState(false);
   const [shopping, setShopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Checking every proxy at once (5.7): per-row outcome, and how far along.
-  const [checks, setChecks] = useState<Map<string, { ok: boolean; ms?: number; error?: string; noIp?: boolean; serverIn?: string | null }>>(new Map());
   const [checking, setChecking] = useState<{ done: number; total: number } | null>(null);
 
-  /** The URL the single-proxy form would build. In team mode the password is
-   *  not here, and check_proxy fetches it by id instead. */
-  const urlOf = (p: LocalProxy) => proxyUrl(p.kind, p.host, p.port, p.username, p.password);
-
   const checkAll = async () => {
-    const list = rows;
-    setChecks(new Map());
+    const list = rows.filter((proxy) => proxyActionFor(proxy)?.status !== "pending");
+    if (!canCheck || list.length === 0) return;
     setChecking({ done: 0, total: list.length });
     let done = 0;
     // Three at a time: the checker is a third party, and forty simultaneous
@@ -52,19 +62,7 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
       for (;;) {
         const p = queue.shift();
         if (!p) return;
-        try {
-          const r = await api.checkProxy(urlOf(p), p.checker_url, p.id);
-          setChecks((m) => new Map(m).set(p.id, {
-            ok: r.ok,
-            ms: r.ms,
-            error: r.ok ? undefined : say({ code: r.error_code ? `pxc.${r.error_code}` : null, message: r.error, vars: { why: r.error_detail ?? "" } }),
-            // Answered, but named no exit (issue 39): not "no answer".
-            noIp: r.error_code === "noIp",
-            serverIn: r.checker_country,
-          }));
-        } catch (e) {
-          setChecks((m) => new Map(m).set(p.id, { ok: false, error: say(e) }));
-        }
+        await onCheckProxy(p);
         done++;
         setChecking({ done, total: list.length });
       }
@@ -112,8 +110,11 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
       case "lastSeen": {
         // Where the exit is: country, then address. After "check all" the
         // result breaks ties within one exit, faster first, failed last.
-        const c = checks.get(p.id);
-        return [p.last_country, p.last_ip, c ? (c.ok ? (c.ms ?? 0) : Number.MAX_SAFE_INTEGER) : null];
+        const action = proxyActionFor(p);
+        const exit = action?.exit === undefined
+          ? { country: p.last_country, ip: p.last_ip }
+          : action.exit;
+        return [exit?.country, exit?.ip, action?.status === "error" ? Number.MAX_SAFE_INTEGER : action?.ms ?? null];
       }
       case "usedBy":
         return usedBy(p.id);
@@ -128,14 +129,17 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
           {t("px.newOne")}
         </button>
         <button onClick={() => setPasting(true)}>{t("pp.paste")}</button>
-        {rows.length > 0 && (
+        {canCheck && rows.length > 0 && (
           <button className="ghost" disabled={checking !== null} onClick={() => void checkAll()}>
             {checking ? t("px.checkingN", { done: checking.done, total: checking.total }) : t("px.checkAll", { n: rows.length })}
           </button>
         )}
-        {!checking && checks.size > 0 && (
+        {!checking && rows.some((p) => proxyActionFor(p)?.action === "check") && (
           <span className="muted small">
-            {t("px.checkSummary", { ok: [...checks.values()].filter((c) => c.ok).length, bad: [...checks.values()].filter((c) => !c.ok).length })}
+            {t("px.checkSummary", {
+              ok: rows.filter((p) => proxyActionFor(p)?.action === "check" && proxyActionFor(p)?.status === "ok").length,
+              bad: rows.filter((p) => proxyActionFor(p)?.action === "check" && proxyActionFor(p)?.status === "error").length,
+            })}
           </span>
         )}
         <div className="spacer" />
@@ -185,7 +189,20 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
               </tr>
             </thead>
             <tbody>
-              {shown.map((p) => (
+              {shown.map((p) => {
+                const action = proxyActionFor(p);
+                const check = action?.action === "check" ? action : undefined;
+                const exit = action?.exit === undefined
+                  ? { ip: p.last_ip, country: p.last_country }
+                  : action.exit;
+                const checkLabel = check?.status === "pending" ? t("px.checking") : t("px.check");
+                const checkTitle = check?.status === "ok"
+                  ? t("px.checkOk", { ms: check.ms ?? 0 })
+                  : check?.status === "error"
+                    ? check.error ?? t("px.checkBad")
+                    : checkLabel;
+                const locked = proxyLock(p, myEmail, t);
+                return (
                 <tr key={p.id}>
                   <td>
                     <div className="name">{p.name}</div>
@@ -199,25 +216,20 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
                     {p.username && <div className="muted small">{p.username}</div>}
                   </td>
                   <td className="muted small">
-                    {p.last_ip ?? "—"}
-                    {p.last_country && (
+                    {exit?.ip ?? "—"}
+                    {exit?.country && (
                       <>
                         {" · "}
-                        <span className="flag">{flag(p.last_country)}</span> {p.last_country}
+                        <span className="flag">{flag(exit.country)}</span> {exit.country}
                       </>
                     )}
-                    {(() => {
-                      const c = checks.get(p.id);
-                      if (!c) return null;
-                      return c.ok ? (
-                        <>
-                          <div className="ok">{t("px.checkOk", { ms: c.ms ?? 0 })}</div>
-                          {c.serverIn && <div title={t("px.serverInWhy")}>{t("px.serverIn", { country: c.serverIn })}</div>}
-                        </>
-                      ) : (
-                        <div className="warn" title={c.error}>{t(c.noIp ? "px.checkNoIp" : "px.checkBad")}</div>
-                      );
-                    })()}
+                    {check?.status === "ok" && <div className="ok">{t("px.checkOk", { ms: check.ms ?? 0 })}</div>}
+                    {check?.checkerCountry && <div title={t("px.serverInWhy")}>{t("px.serverIn", { country: check.checkerCountry })}</div>}
+                    {check?.status === "error" && (
+                      <div className="warn" title={check.error}>
+                        {t(check.errorCode === "noIp" ? "px.checkNoIp" : "px.checkBad")}
+                      </div>
+                    )}
                   </td>
                   <td className="muted">
                     {usedBy(p.id) === 0 ? "—" : t("px.usedByN", { n: usedBy(p.id) })}
@@ -226,13 +238,22 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
                     <div>
                       {/* The same two icons a profile row has, in the same
                           places: one table's pencil is every table's pencil. */}
+                      {canCheck && (
+                        <IconButton
+                          icon="check"
+                          label={checkLabel}
+                          title={checkTitle}
+                          disabled={checking !== null || action?.status === "pending"}
+                          onClick={() => void onCheckProxy(p)}
+                        />
+                      )}
                       <IconButton icon="pencil" label={t("row.edit")} onClick={() => setEditing(p)} />
                       <IconButton
                         icon="trash"
                         danger
                         label={t("row.delete")}
-                        title={proxyLock(p, myEmail, t) ?? undefined}
-                        disabled={proxyLock(p, myEmail, t) !== null}
+                        title={locked ?? undefined}
+                        disabled={locked !== null}
                         onClick={async () => {
                           const go = await ask({
                             title: t("row.delete"),
@@ -252,7 +273,8 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -263,7 +285,8 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
           editing={editing}
           myEmail={myEmail}
           onClose={() => setEditing(undefined)}
-          onSaved={async () => {
+          onSaved={async (id) => {
+            onProxySaved(id);
             setEditing(undefined);
             await load();
           }}

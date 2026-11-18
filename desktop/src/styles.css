@@ -367,6 +367,30 @@ textarea {
   height: 22px;
 }
 
+.proxyCheck {
+  flex: none;
+}
+
+.proxyCheck button.icon {
+  width: 22px;
+  height: 22px;
+}
+
+.proxyCheck-ok button.icon { color: var(--ok); }
+.proxyCheck-error button.icon { color: var(--warn); }
+
+.proxyCheck-pending button.icon svg {
+  animation: proxyCheckSpin 1s linear infinite;
+}
+
+@keyframes proxyCheckSpin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .proxyCheck-pending button.icon svg { animation: none; }
+}
+
 .tags {
   display: flex;
   flex-wrap: wrap;

@@ -1434,6 +1434,8 @@ pub struct UiProxy {
     /// hide it from and the operator has to be able to check what they typed.
     pub display: String,
     pub country: Option<String>,
+    #[serde(default)]
+    pub last_ip: Option<String>,
     /// From the last exit check, when there was one.
     #[serde(default)]
     pub last_timezone: Option<String>,
@@ -1575,6 +1577,7 @@ async fn local_profiles() -> R<Vec<UiProfile>> {
             proxy: p.proxy.map(|x| UiProxy {
                 display: format!("{}:{}", x.host, x.port),
                 country: x.last_country,
+                last_ip: x.last_ip,
                 last_timezone: x.last_timezone,
                 id: x.id,
                 name: x.name,
@@ -1627,6 +1630,7 @@ pub async fn profiles(
                 proxy: p.proxy.map(|x| UiProxy {
                     display: format!("{}:{}", x.host, x.port),
                     country: x.last_country,
+                    last_ip: x.last_ip,
                     last_timezone: None,
                     id: x.id,
                     name: x.name,
@@ -1674,6 +1678,7 @@ pub async fn profiles(
                 proxy: p.proxy.map(|x| UiProxy {
                     display: format!("{}:{}", x.host, x.port),
                     country: x.last_country,
+                    last_ip: x.last_ip,
                     last_timezone: None,
                     id: x.id,
                     name: x.name,
@@ -1743,6 +1748,7 @@ pub async fn profiles(
                 kind: x.kind,
                 display: x.display,
                 country: x.country,
+                last_ip: None,
                 last_timezone: None,
             }),
             permissions: p.permissions.iter().map(|v| perm_name(v)).collect(),
@@ -2947,8 +2953,9 @@ async fn resolve_proxy_url(
     state: &State<'_, AppState>,
     url: String,
     proxy_id: Option<String>,
+    origin: Option<&str>,
 ) -> R<String> {
-    let url = match proxy_id.filter(|_| mode_of(&state) != "local") {
+    let url = match proxy_id.filter(|_| !local_for(state, origin)) {
         None => url,
         Some(id) => {
             let org_key = state.org_key().ok_or_else(|| {
@@ -2978,9 +2985,11 @@ pub async fn check_proxy(
     // interface has no password to build a URL from, so the credentials are
     // fetched and opened here instead.
     proxy_id: Option<String>,
+    origin: Option<String>,
 ) -> R<serde_json::Value> {
-    let stored_id = proxy_id.clone();
-    let url = resolve_proxy_url(&state, url, proxy_id).await?;
+    let local = local_for(&state, origin.as_deref());
+    let stored_id = proxy_id.clone().filter(|_| local);
+    let url = resolve_proxy_url(&state, url, proxy_id, origin.as_deref()).await?;
     // The check itself always runs on this machine, in both modes: it is the
     // machine whose exit the answer describes.
     Ok(crate::agent::call(
@@ -3002,7 +3011,7 @@ pub async fn diagnose_proxy(
     proxy_id: Option<String>,
 ) -> R<serde_json::Value> {
     let stored_id = proxy_id.clone();
-    let url = resolve_proxy_url(&state, url, proxy_id).await?;
+    let url = resolve_proxy_url(&state, url, proxy_id, None).await?;
     Ok(crate::agent::call(
         "proxies.diagnose",
         serde_json::json!({ "url": url, "checker_url": checker_url, "id": stored_id }),
@@ -3229,6 +3238,7 @@ pub async fn trash(state: State<'_, AppState>) -> R<Vec<UiProfile>> {
             proxy: p.proxy.map(|x| UiProxy {
                 display: format!("{}:{}", x.host, x.port),
                 country: x.last_country,
+                last_ip: x.last_ip,
                 last_timezone: None,
                 id: x.id,
                 name: x.name,
@@ -4539,6 +4549,7 @@ pub async fn shared_with_me(state: State<'_, AppState>) -> R<Vec<UiProfile>> {
                 kind: String::new(),
                 display,
                 country: None,
+                last_ip: None,
                 last_timezone: None,
             }),
             timezone: None,
