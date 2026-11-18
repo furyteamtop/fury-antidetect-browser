@@ -525,10 +525,14 @@ pub fn core_outdated(exe: &std::path::Path) -> Option<String> {
 /// encrypted, as Chrome does (CDM host verification and storage ID on, patches
 /// 0063 and 0064). Before it, any page could read one identifier shared by
 /// every profile on the machine, and iphey called the browser "whale".
+///
+/// 0.6.1 rebuilds macOS only: the CDM runs in "Fury Helper (Plugin)", signed
+/// without library validation (0065), because no other helper may load a
+/// Google-signed library and DRM never played on a Mac. Windows keeps 0.6.0.
 #[cfg(windows)]
 pub const CORE_BUILD: &str = "0.6.0";
 #[cfg(not(windows))]
-pub const CORE_BUILD: &str = "0.6.0";
+pub const CORE_BUILD: &str = "0.6.1";
 
 /// `0.2.10` as (0, 2, 10); None for anything else.
 pub fn parse_release(s: &str) -> Option<(u32, u32, u32)> {
@@ -585,7 +589,7 @@ pub fn core_stale(exe: &std::path::Path) -> Option<Option<String>> {
 #[cfg(target_os = "macos")]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = Some((
     "../Frameworks/Fury Framework.framework/Versions/Current/Fury Framework",
-    "01614752cf9f1d2a47e97345dc262036659928ba3b8758caa6b986f3e72bfdf8",
+    "f0ec29c35c39720ba23265c3a7eb9c80f7d17d91bd04215729586895318ddce4",
 ));
 #[cfg(windows)]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = Some((

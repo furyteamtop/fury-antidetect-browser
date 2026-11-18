@@ -53,6 +53,13 @@
 //! gets it there just before it launches (`stage_into_profile`), and the core
 //! is never written to. On APFS `fs::copy` is a clone, so 19 MB per profile
 //! costs nothing. Windows has no seal to break and keeps the core directory.
+//!
+//! "Answers available" was all that was measured, and it was not enough: the
+//! CDM is Google-signed, and until core 0.6.1 every helper of a Developer-ID
+//! core validated libraries, so createMediaKeys failed ("CreateCdmFunc not
+//! available", dlopen: "different Team IDs") and no DRM ever played on a Mac.
+//! Core patch 0065 runs the CDM in "Fury Helper (Plugin)", signed without
+//! library validation; measured 18.11.2026, a license with usable keys.
 
 use std::path::{Path, PathBuf};
 
