@@ -335,6 +335,38 @@ textarea {
   white-space: nowrap;
 }
 
+.proxyCell {
+  min-width: 0;
+}
+
+.proxyLabelRow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.proxyLabel {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Editing a proxy assignment is occasional. Keep the label easy to scan, but
+   reveal its shortcut both on hover and while tabbing through the cell. */
+.proxyEdit {
+  flex: none;
+  opacity: 0;
+}
+
+.proxyCell:hover .proxyEdit,
+.proxyCell:focus-within .proxyEdit {
+  opacity: 1;
+}
+
+.proxyEdit button.icon {
+  width: 22px;
+  height: 22px;
+}
+
 .tags {
   display: flex;
   flex-wrap: wrap;

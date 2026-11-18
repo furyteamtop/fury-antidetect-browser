@@ -1740,7 +1740,8 @@ export function App() {
               launching={launching}
               onLaunch={onLaunch}
               onStop={onStop}
-              onEdit={setEditing}
+              onEdit={(p) => { setEditTab(undefined); setEditing(p); }}
+              onEditProxy={(p) => { setEditTab("Proxy"); setEditing(p); }}
               onExtensions={setExtFor}
               onShare={local ? undefined : (p) => setSharing([p])}
               onNetwork={setNetFor}

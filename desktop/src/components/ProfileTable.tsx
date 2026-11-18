@@ -67,6 +67,7 @@ export function ProfileTable({
   onLaunch,
   onStop,
   onEdit,
+  onEditProxy,
   onDelete,
   onExtensions,
   onShare,
@@ -91,6 +92,8 @@ export function ProfileTable({
   /** Local mode only: with a server, editing belongs where the permissions
    *  live, and that screen does not exist yet. */
   onEdit?: (p: Profile) => void;
+  /** Opens the profile editor on its saved-proxy tab. */
+  onEditProxy?: (p: Profile) => void;
   onDelete?: (p: Profile) => void;
   /** Extensions and disk usage — the two things beside the browser data. */
   onExtensions?: (p: Profile) => void;
@@ -325,30 +328,27 @@ export function ProfileTable({
                 onClick={() => p.proxy && onNetwork?.(p)}
               >
                 {p.proxy ? (
-                  <>
-                    <div className="mono">{p.proxy.display}</div>
-                    {/* A country appears once the proxy has been checked. Until
-                        then the line says so — it used to render a bare "?",
-                        which reads as a broken value rather than a fact not yet
-                        known. */}
-                    <div className="muted small">
-                      {p.proxy.country ? (
-                        <>
-                          <span className="flag">{flag(p.proxy.country)}</span> {p.proxy.country}
-                        </>
-                      ) : (
-                        t("row.proxyUnchecked")
+                  <div className="proxyCell">
+                    <div className="proxyLabelRow">
+                      <div className="proxyLabel" title={p.proxy.name}>
+                        {p.proxy.name || p.proxy.display}
+                      </div>
+                      {onEditProxy && canEdit && (
+                        <span className="proxyEdit" onClick={(e) => e.stopPropagation()}>
+                          <IconButton icon="pencil" label={t("px.edit")} disabled={busy} onClick={() => onEditProxy(p)} />
+                        </span>
                       )}
-                      {/* The server masks the host for anyone without
-                          reveal_secrets; say so, or a masked value reads like a
-                          bug rather than a boundary. */}
-                      {!canReveal && ` · ${t("row.masked")}`}
-                      {/* How many profiles a site sees from this exit (docs/12 C).
-                          Said from two, as a fact and not a warning: on a
-                          mobile exit fifty is normal (consistency.ts). */}
-                      {shared >= 2 && <span> · {t("row.sharedExit", { n: shared })}</span>}
                     </div>
-                  </>
+                    {(p.proxy.country || p.proxy.last_ip || !canReveal || shared >= 2) && (
+                      <div className="muted small">
+                        {p.proxy.country && <><span className="flag">{flag(p.proxy.country)}</span> {p.proxy.country}</>}
+                        {p.proxy.country && p.proxy.last_ip && " · "}
+                        {p.proxy.last_ip && <span className="mono">{p.proxy.last_ip}</span>}
+                        {!canReveal && <>{(p.proxy.country || p.proxy.last_ip) && " · "}{t("row.masked")}</>}
+                        {shared >= 2 && <span>{(p.proxy.country || p.proxy.last_ip || !canReveal) && " · "}{t("row.sharedExit", { n: shared })}</span>}
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   // Not cosmetic: the agent refuses to launch without one,
                   // unless this profile has been given permission — and then
