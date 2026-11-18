@@ -377,7 +377,15 @@ impl Relay {
         // Except what the profile's own lists put there in as many words: a
         // `@local` entry (fury_shared::domains, "The local network").
         let local = self.blocked.reached_locally(&host);
-        if !local && !self.allow_local && is_local_target(&host) {
+        // And one more exception: the browser itself going to a page on this
+        // machine, which is how a desktop app or CLI signs in (RFC 8252): it
+        // opens the provider's login page, and the provider sends the browser
+        // back to `http://localhost:<port>/…?code=…`, where the app listens.
+        // Refused, the login never finishes (tester, 18.11.2026: "in a normal
+        // browser it works, in Fury it does not"). See `loopback_navigation`
+        // for why a page still cannot use it to look at this machine.
+        let loopback_nav = !local && method != "CONNECT" && loopback_navigation(&method, &host, &head);
+        if !local && !loopback_nav && !self.allow_local && is_local_target(&host) {
             tracing::debug!(target = %host, "local address refused");
             let _ = client
                 .write_all(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
@@ -388,7 +396,13 @@ impl Relay {
         // Kill-switch lives here: a failure to reach upstream produces an error
         // response, never a direct connection. And a local host that cannot be
         // reached locally is refused too, never handed to the proxy.
-        let dialled = if local { dial_local(&host, port).await } else { self.dial(&host, port).await };
+        let dialled = if local {
+            dial_local(&host, port).await
+        } else if loopback_nav {
+            dial_loopback(&host, port).await
+        } else {
+            self.dial(&host, port).await
+        };
         let mut upstream = match dialled {
             Ok(s) => s,
             Err(e) => {
@@ -406,7 +420,15 @@ impl Relay {
                 .await?;
         } else {
             // Replay the request we already consumed, minus proxy-only headers.
-            let cleaned = strip_proxy_headers(&head);
+            let mut cleaned = strip_proxy_headers(&head);
+            if loopback_nav {
+                // One request, then the connection ends. From here on the
+                // client socket is piped to the local server as it is, and
+                // Chromium may send its next request over the same proxy
+                // connection — one a page made, which the check above never
+                // sees. Asking the server to close keeps it to this one.
+                cleaned = connection_close(&cleaned);
+            }
             upstream.write_all(cleaned.as_bytes()).await?;
             if !leftover.is_empty() {
                 upstream.write_all(&leftover).await?;
@@ -1243,6 +1265,84 @@ pub(crate) fn is_local_target(host: &str) -> bool {
         return true;
     }
     h.parse::<std::net::IpAddr>().is_ok_and(is_local_ip)
+}
+
+/// Is this the browser opening a page on this machine, rather than a page
+/// reaching into it?
+///
+/// Only plain-HTTP GETs to a loopback host (`localhost`, `*.localhost`,
+/// 127.0.0.0/8, ::1) — never the LAN, never CONNECT — and only when the
+/// browser says, in `Sec-Fetch-*`, that it is:
+///
+/// - a top-level navigation (`Sec-Fetch-Mode: navigate` and
+///   `Sec-Fetch-Dest: document`): an address typed or pasted, a link, or a
+///   provider's redirect at the end of a login. Not an iframe, not fetch(),
+///   not an image: those carry another Dest or Mode;
+/// - or a request a page on that same local origin makes for itself
+///   (`Sec-Fetch-Site: same-origin`), so the page that opened can load its
+///   own scripts.
+///
+/// A page cannot write these headers (they are forbidden request headers),
+/// and Chromium sends them to loopback because loopback is a potentially
+/// trustworthy origin. So `fetch("http://127.0.0.1:35000/")` from any site
+/// is refused exactly as before, and an open port still looks like a closed
+/// one to it. What a site CAN do is navigate the whole tab to a local
+/// address, as it can in Chrome; it gives up its page to do it and reads
+/// nothing back.
+fn loopback_navigation(method: &str, host: &str, head: &str) -> bool {
+    if !method.eq_ignore_ascii_case("GET") || !is_loopback_host(host) {
+        return false;
+    }
+    let header = |name: &str| {
+        head.lines().skip(1).find_map(|l| {
+            let (k, v) = l.split_once(':')?;
+            k.trim().eq_ignore_ascii_case(name).then(|| v.trim().to_ascii_lowercase())
+        })
+    };
+    let top_level =
+        header("sec-fetch-mode").as_deref() == Some("navigate") && header("sec-fetch-dest").as_deref() == Some("document");
+    top_level || header("sec-fetch-site").as_deref() == Some("same-origin")
+}
+
+/// `localhost`, a name under it, or a loopback address — this machine and
+/// nothing else (`is_local_target` also covers the LAN and `.local`).
+fn is_loopback_host(host: &str) -> bool {
+    let h = host.trim_start_matches('[').trim_end_matches(']').to_ascii_lowercase();
+    let h = h.trim_end_matches('.');
+    h == "localhost" || h.ends_with(".localhost") || h.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
+}
+
+/// A loopback host from `loopback_navigation`, dialled here and never sent
+/// to the proxy. Names are not resolved: `localhost` and `*.localhost` mean
+/// this machine (as Chromium treats them), whatever a hosts file says.
+async fn dial_loopback(host: &str, port: u16) -> Result<Conn, RelayError> {
+    let h = host.trim_start_matches('[').trim_end_matches(']');
+    let addrs: Vec<SocketAddr> = match h.parse::<std::net::IpAddr>() {
+        Ok(ip) => vec![SocketAddr::new(ip, port)],
+        Err(_) => vec![
+            SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, port)),
+            SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, port)),
+        ],
+    };
+    debug_assert!(addrs.iter().all(|a| a.ip().is_loopback()));
+    Ok(Conn::Tcp(connect_resolved(host, port, &addrs).await?))
+}
+
+/// The request head with `Connection: close` in place of whatever it had.
+fn connection_close(head: &str) -> String {
+    let mut out = String::with_capacity(head.len() + 20);
+    for (i, line) in head.split("\r\n").enumerate() {
+        if line.is_empty() {
+            continue;
+        }
+        if i > 0 && line.to_ascii_lowercase().starts_with("connection:") {
+            continue;
+        }
+        out.push_str(line);
+        out.push_str("\r\n");
+    }
+    out.push_str("Connection: close\r\n\r\n");
+    out
 }
 
 /// The address half of `is_local_target`, for addresses a name resolved to.
@@ -2268,5 +2368,89 @@ mod tests {
     fn finds_end_of_headers() {
         assert_eq!(find_headers_end(b"GET / HTTP/1.1\r\n\r\nbody"), Some(18));
         assert_eq!(find_headers_end(b"GET / HTTP/1.1\r\n"), None);
+    }
+
+    #[test]
+    fn a_navigation_to_this_machine_is_told_from_a_page_reaching_into_it() {
+        let h = |extra: &str| format!("GET http://localhost:59957/auth/ HTTP/1.1\r\nHost: localhost:59957\r\n{extra}\r\n");
+        let nav = "Sec-Fetch-Site: cross-site\r\nSec-Fetch-Mode: navigate\r\nSec-Fetch-Dest: document\r\n";
+        // The login redirect, a pasted address, and the page loading itself.
+        assert!(loopback_navigation("GET", "localhost", &h(nav)));
+        assert!(loopback_navigation("GET", "127.0.0.1", &h("sec-fetch-site: none\r\nsec-fetch-mode: navigate\r\nsec-fetch-dest: document\r\n")));
+        assert!(loopback_navigation("GET", "[::1]", &h(nav)));
+        assert!(loopback_navigation("GET", "app.localhost", &h(nav)));
+        assert!(loopback_navigation("GET", "localhost", &h("Sec-Fetch-Site: same-origin\r\nSec-Fetch-Mode: cors\r\nSec-Fetch-Dest: empty\r\n")));
+        // What a page could do with it: fetch, an iframe, an image, a form post.
+        assert!(!loopback_navigation("GET", "localhost", &h("Sec-Fetch-Site: cross-site\r\nSec-Fetch-Mode: cors\r\nSec-Fetch-Dest: empty\r\n")));
+        assert!(!loopback_navigation("GET", "localhost", &h("Sec-Fetch-Site: cross-site\r\nSec-Fetch-Mode: navigate\r\nSec-Fetch-Dest: iframe\r\n")));
+        assert!(!loopback_navigation("GET", "localhost", &h("Sec-Fetch-Site: cross-site\r\nSec-Fetch-Mode: no-cors\r\nSec-Fetch-Dest: image\r\n")));
+        assert!(!loopback_navigation("POST", "localhost", &h(nav)));
+        // No headers at all (not Chromium, or an old one): refused.
+        assert!(!loopback_navigation("GET", "localhost", &h("")));
+        // Not this machine: the LAN and .local stay closed even to navigation.
+        assert!(!loopback_navigation("GET", "192.168.1.10", &h(nav)));
+        assert!(!loopback_navigation("GET", "printer.local", &h(nav)));
+        assert!(!loopback_navigation("GET", "localhost.evil.com", &h(nav)));
+    }
+
+    #[test]
+    fn connection_close_replaces_keep_alive() {
+        let out = connection_close("GET /a HTTP/1.1\r\nHost: x\r\nConnection: keep-alive\r\n\r\n");
+        assert_eq!(out, "GET /a HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+    }
+
+    /// The tester's case end to end: a login that ends on
+    /// `http://localhost:<port>/auth/?code=…`. The navigation reaches the
+    /// app on this machine directly (the proxy here is dead, so anything sent
+    /// to it would fail), and a page's fetch to the same port does not.
+    #[tokio::test]
+    async fn a_login_redirect_to_localhost_reaches_the_app_and_a_page_fetch_does_not() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let app = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let aport = app.local_addr().unwrap().port();
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let s2 = seen.clone();
+        tokio::spawn(async move {
+            while let Ok((mut c, _)) = app.accept().await {
+                let mut buf = vec![0u8; 4096];
+                let n = c.read(&mut buf).await.unwrap_or(0);
+                s2.lock().unwrap().push(String::from_utf8_lossy(&buf[..n]).to_string());
+                let _ = c.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok").await;
+            }
+        });
+        let dead = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let dport = dead.local_addr().unwrap().port();
+        drop(dead);
+        let relay = Relay::new(Upstream::Socks5 { host: "127.0.0.1".into(), port: dport, auth: None });
+        let (rport, task) = relay.serve(0).await.unwrap();
+
+        let ask = |extra: &'static str| async move {
+            let mut s = tokio::net::TcpStream::connect(("127.0.0.1", rport)).await.unwrap();
+            let req = format!(
+                "GET http://localhost:{aport}/auth/?code=abc HTTP/1.1\r\nHost: localhost:{aport}\r\n\
+                 Proxy-Connection: keep-alive\r\nConnection: keep-alive\r\n{extra}\r\n"
+            );
+            s.write_all(req.as_bytes()).await.unwrap();
+            let mut out = String::new();
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), s.read_to_string(&mut out)).await;
+            out
+        };
+
+        let answer = ask("Sec-Fetch-Site: cross-site\r\nSec-Fetch-Mode: navigate\r\nSec-Fetch-Dest: document\r\n").await;
+        assert!(answer.starts_with("HTTP/1.1 200") && answer.ends_with("ok"), "{answer:?}");
+        {
+            let seen = seen.lock().unwrap();
+            assert_eq!(seen.len(), 1);
+            assert!(seen[0].starts_with("GET /auth/?code=abc HTTP/1.1\r\n"), "{:?}", seen[0]);
+            assert!(seen[0].contains("\r\nConnection: close\r\n"), "{:?}", seen[0]);
+            assert!(!seen[0].to_ascii_lowercase().contains("keep-alive"), "{:?}", seen[0]);
+        }
+
+        let answer = ask("Sec-Fetch-Site: cross-site\r\nSec-Fetch-Mode: cors\r\nSec-Fetch-Dest: empty\r\n").await;
+        assert!(answer.starts_with("HTTP/1.1 502"), "{answer:?}");
+        let answer = ask("Sec-Fetch-Site: cross-site\r\nSec-Fetch-Mode: navigate\r\nSec-Fetch-Dest: iframe\r\n").await;
+        assert!(answer.starts_with("HTTP/1.1 502"), "{answer:?}");
+        assert_eq!(seen.lock().unwrap().len(), 1, "a page's request reached the app");
+        task.abort();
     }
 }
