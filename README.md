@@ -397,7 +397,7 @@ and a machine to rebuild the core against every Chromium release
 ([docs/11](docs/11-budget.md) itemises it). If the project is useful to you and
 you want to put something toward that:
 
-**USDT (TRC20)** — `TBdbQDuUKHf14gvuyjSWevuL6FMS19ABzG`
+**USDT (TRC20)** — `TNvKC6tXKtsxA4tDrjU86zbmwMGuxfmatq`
 
 Nothing is gated behind it, now or later. And a persona measured on your own
 machine is still worth more than money — see [Contributing](#contributing).

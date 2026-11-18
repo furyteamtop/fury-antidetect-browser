@@ -9,4 +9,4 @@
  *  public repository is not a break-in but one changed character in a pull
  *  request or a fork; a mismatch has to stop CI rather than wait for somebody
  *  to notice. */
-export const USDT_TRC20 = "TBdbQDuUKHf14gvuyjSWevuL6FMS19ABzG";
+export const USDT_TRC20 = "TNvKC6tXKtsxA4tDrjU86zbmwMGuxfmatq";

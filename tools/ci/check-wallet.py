@@ -21,7 +21,7 @@ import re
 import sys
 from pathlib import Path
 
-REFERENCE = "TBdbQDuUKHf14gvuyjSWevuL6FMS19ABzG"
+REFERENCE = "TNvKC6tXKtsxA4tDrjU86zbmwMGuxfmatq"
 FILES = ["desktop/src/donate.ts", "README.md", "README.ru.md", "site/index.html"]
 TRON = re.compile(r"(?<![1-9A-HJ-NP-Za-km-z])T[1-9A-HJ-NP-Za-km-z]{33}(?![1-9A-HJ-NP-Za-km-z])")
 
