@@ -1,0 +1,137 @@
+diff --git a/chrome/app/helper-plugin-entitlements.plist b/chrome/app/helper-plugin-entitlements.plist
+new file mode 100644
+index 0000000000..8cc185af8d
+--- /dev/null
++++ b/chrome/app/helper-plugin-entitlements.plist
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
++<plist version="1.0">
++<dict>
++	<key>com.apple.security.cs.disable-library-validation</key>
++	<true/>
++</dict>
++</plist>
+diff --git a/chrome/installer/mac/BUILD.gn b/chrome/installer/mac/BUILD.gn
+index dc338faaaf..69864e59e3 100644
+--- a/chrome/installer/mac/BUILD.gn
++++ b/chrome/installer/mac/BUILD.gn
+@@ -142,6 +142,7 @@ copy("copies") {
+     "$root_out_dir/dmg_tool",
+     "$root_out_dir/hfs_tool",
+     "//chrome/app/helper-gpu-entitlements.plist",
++    "//chrome/app/helper-plugin-entitlements.plist",
+     "//chrome/app/helper-renderer-entitlements.plist",
+     "pkg-dmg",
+     "pkg_postinstall.in",
+diff --git a/chrome/installer/mac/signing/parts.py b/chrome/installer/mac/signing/parts.py
+index 0a3ba9233e..eacace9d74 100644
+--- a/chrome/installer/mac/signing/parts.py
++++ b/chrome/installer/mac/signing/parts.py
+@@ -91,6 +91,20 @@ def get_parts(config):
+             entitlements='helper-gpu-entitlements.plist',
+             verify_options=verify_options,
+         ),
++        # Fury: runs only the CDM process. Library validation is off so that a
++        # CDM signed by its vendor (Widevine: Google) can be loaded into a
++        # browser signed with another Team ID.
++        'helper-plugin-app': CodeSignedProduct(
++            '{0.framework_dir}/Helpers/{0.product} Helper (Plugin).app'.format(
++                config
++            ),
++            '{}.helper.plugin'.format(uncustomized_bundle_id),
++            options=CodeSignOptions.RESTRICT
++            | CodeSignOptions.KILL
++            | CodeSignOptions.HARDENED_RUNTIME,
++            entitlements='helper-plugin-entitlements.plist',
++            verify_options=verify_options,
++        ),
+         'helper-aperitif-app': CodeSignedProduct(
+             '{0.framework_dir}/Helpers/{0.product} Helper (Aperitif).app'.format(
+                 config
+diff --git a/content/browser/child_process_host_impl.cc b/content/browser/child_process_host_impl.cc
+index 6bc72f9962..5bcfecaf93 100644
+--- a/content/browser/child_process_host_impl.cc
++++ b/content/browser/child_process_host_impl.cc
+@@ -96,6 +96,8 @@ base::FilePath ChildProcessHost::GetChildPath(int flags) {
+         child_suffix = " (Aperitif Renderer)";
+       } else if (flags == CHILD_GPU) {
+         child_suffix = " (Aperitif GPU)";
++      } else if (flags == CHILD_PLUGIN) {
++        child_suffix = kMacHelperSuffix_plugin;
+       } else {
+         NOTREACHED();
+       }
+@@ -104,6 +106,8 @@ base::FilePath ChildProcessHost::GetChildPath(int flags) {
+         child_suffix = kMacHelperSuffix_renderer;
+       } else if (flags == CHILD_GPU) {
+         child_suffix = kMacHelperSuffix_gpu;
++      } else if (flags == CHILD_PLUGIN) {
++        child_suffix = kMacHelperSuffix_plugin;
+       } else if (flags != CHILD_NORMAL) {
+         NOTREACHED();
+       }
+diff --git a/content/browser/media/service_factory.cc b/content/browser/media/service_factory.cc
+index 4dbb58350b..094fb8cefb 100644
+--- a/content/browser/media/service_factory.cc
++++ b/content/browser/media/service_factory.cc
+@@ -14,6 +14,7 @@
+ #include "base/threading/sequence_local_storage_slot.h"
+ #include "base/time/time.h"
+ #include "build/build_config.h"
++#include "content/public/browser/child_process_host.h"
+ #include "content/public/browser/content_browser_client.h"
+ #include "content/public/browser/service_process_host.h"
+ #include "content/public/common/content_client.h"
+@@ -251,6 +252,11 @@ T& GetService(const media::CdmType& cdm_type,
+     if (base::FeatureList::IsEnabled(media::kCdmProcessPriorityElevation)) {
+       options.WithPriority(base::Process::Priority::kUserBlocking);
+     }
++#if BUILDFLAG(IS_MAC)
++    // Fury: the CDM is signed by its vendor, not by us, so it is loaded in the
++    // helper that does not validate libraries (see CHILD_PLUGIN).
++    options.WithChildFlags(ChildProcessHost::CHILD_PLUGIN);
++#endif  // BUILDFLAG(IS_MAC)
+     ServiceProcessHost::Launch(broker_remote.BindNewPipeAndPassReceiver(),
+                                options.Pass());
+ 
+diff --git a/content/public/app/mac_helpers.gni b/content/public/app/mac_helpers.gni
+index fee0e6ca01..a30e04e9aa 100644
+--- a/content/public/app/mac_helpers.gni
++++ b/content/public/app/mac_helpers.gni
+@@ -45,6 +45,17 @@ content_mac_helpers = [
+     "",
+     " (GPU)",
+   ],
++
++  # Fury: a helper with library validation off, used only to run the CDM
++  # process. The Widevine CDM is signed by Google; a browser signed by anyone
++  # else cannot load it into a helper that validates libraries. Chrome had this
++  # helper while plugins existed and dropped it once its own CDM shared Chrome's
++  # Team ID.
++  [
++    "plugin",
++    ".plugin",
++    " (Plugin)",
++  ],
+ ]
+ 
+ content_mac_aperitif_helpers = [
+diff --git a/content/public/browser/child_process_host.h b/content/public/browser/child_process_host.h
+index 6bf077b077..9eb8a431ff 100644
+--- a/content/public/browser/child_process_host.h
++++ b/content/public/browser/child_process_host.h
+@@ -100,6 +100,13 @@ class CONTENT_EXPORT ChildProcessHost {
+     // allow-jit entitlement instead.
+     CHILD_GPU,
+ 
++    // Fury: starts a child process in the helper signed without library
++    // validation, so that it can load a CDM signed by another Team ID. Only the
++    // CDM service uses it. Always the plain helper, never an Aperitif one: an
++    // Aperitif helper links libaperitif through @executable_path, which dyld
++    // refuses to expand once library validation is off.
++    CHILD_PLUGIN,
++
+     // Marker for the start of embedder-specific helper child process types.
+     // Values greater than CHILD_EMBEDDER_FIRST are reserved for embedder
+     // process types. Content provides no fallback resolution for these types;

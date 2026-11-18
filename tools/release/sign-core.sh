@@ -172,7 +172,8 @@ for f in sign_chrome.py rebrand_chrome.py universalizer.py pkg-dmg pkg_preinstal
   cp "$src/chrome/installer/mac/$f" "$packaging/$f"
 done
 cp "$src/chrome/app/helper-gpu-entitlements.plist" \
-   "$src/chrome/app/helper-renderer-entitlements.plist" "$packaging/"
+   "$src/chrome/app/helper-renderer-entitlements.plist" \
+   "$src/chrome/app/helper-plugin-entitlements.plist" "$packaging/"
 cp "$out_dir/gen/chrome/app-entitlements.plist" "$packaging/"
 
 # Gatekeeper is asked AFTER notarisation, not before. The pipeline's default

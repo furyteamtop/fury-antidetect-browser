@@ -254,6 +254,18 @@
 # build's job; the runtime call the CDM needs is unaffected (Windows, where no
 # target depends on the signature, was measured working without it).
 0064-no-widevine-signing.patch
+#
+# macOS: the CDM process runs in a helper of its own, "Fury Helper (Plugin)",
+# signed without library validation. Every other helper validates libraries,
+# so it may only load code with our Team ID, and the Widevine CDM is Google's
+# (EQHXZ8M8AV). Measured 18.11.2026 on the signed 0.5.7 and 0.6.0 cores: dlopen
+# refused it ("different Team IDs"), createMediaKeys failed with "CreateCdmFunc
+# not available", and DRM never played on a Mac. Chrome gets away without this
+# because its CDM shares Chrome's Team ID; Chrome had the same Plugin helper
+# while it needed one. The helper is never an Aperitif one: with library
+# validation off, dyld refuses the @executable_path load of libaperitif and the
+# process dies. Only the CDM service asks for it (service_factory.cc).
+0065-mac-cdm-plugin-helper.patch
 
 # --- webrtc -----------------------------------------------------------------
 # The most serious hole the product had, and it was hiding behind a switch that
