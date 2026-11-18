@@ -520,10 +520,15 @@ pub fn core_outdated(exe: &std::path::Path) -> Option<String> {
 /// fonts the profile shows (0052), built-in AI answers "downloadable" as
 /// Chrome does (0123), and WebRTC gathers Chrome's host and srflx candidates
 /// carrying the proxy's exit address (0071). Issues 31-33.
+///
+/// 0.6.0 rebuilds both on the same Chrome: Widevine sends the device ID
+/// encrypted, as Chrome does (CDM host verification and storage ID on, patches
+/// 0063 and 0064). Before it, any page could read one identifier shared by
+/// every profile on the machine, and iphey called the browser "whale".
 #[cfg(windows)]
-pub const CORE_BUILD: &str = "0.5.4";
+pub const CORE_BUILD: &str = "0.6.0";
 #[cfg(not(windows))]
-pub const CORE_BUILD: &str = "0.5.4";
+pub const CORE_BUILD: &str = "0.6.0";
 
 /// `0.2.10` as (0, 2, 10); None for anything else.
 pub fn parse_release(s: &str) -> Option<(u32, u32, u32)> {
@@ -580,12 +585,12 @@ pub fn core_stale(exe: &std::path::Path) -> Option<Option<String>> {
 #[cfg(target_os = "macos")]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = Some((
     "../Frameworks/Fury Framework.framework/Versions/Current/Fury Framework",
-    "51d91a29610580e961f0623c1d91351e3d6178e0a3d6644fd9008e1e5d99ec2f",
+    "01614752cf9f1d2a47e97345dc262036659928ba3b8758caa6b986f3e72bfdf8",
 ));
 #[cfg(windows)]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = Some((
     "chrome.dll",
-    "58946137333cb62ae17aeb03a28b3ab790b5eca2fa871036bec7d2e3ad9ad59a",
+    "7e4b251a4f6d9cdeebbba689774c1004aec95ea860436ec106fd74d7ca2cc412",
 ));
 #[cfg(not(any(target_os = "macos", windows)))]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = None;
