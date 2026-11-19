@@ -336,7 +336,11 @@ async fn fetch_exit(upstream: crate::relay::Upstream, checker_url: Option<&str>)
     // The same upstream, not the URL parsed again: for WireGuard that keeps
     // the step on the tunnel the steps above used (`wg_stack::Shared`).
     let via = crate::relay::via(upstream, Duration::from_secs(15)).await?;
-    let body: serde_json::Value = via.client().get(&checker.endpoint).send().await?.json().await?;
+    let res = via.client().get(&checker.endpoint).send().await?;
+    let status = res.status().as_u16();
+    let text = res.text().await?;
+    // No IP is no exit, however well the proxy carried the request (issue 39).
+    let (body, _) = crate::geoip::exit_ip(status, &text)?;
     let s = |k: &str| body.get(k).and_then(|v| v.as_str()).map(str::to_string);
     // Same overlay as the check: the database resolves geo here too rather
     // than only where the button is. A database the operator named and that

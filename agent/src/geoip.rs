@@ -77,6 +77,66 @@ pub struct Exit {
     pub db_error: Option<String>,
 }
 
+/// The exit IP out of a checker's answer, or why there is none (issue 39).
+/// A rate-limit page, an error JSON or a captive portal comes back through a
+/// working proxy with no `ip`, and used to read as a pass with an empty
+/// verdict: a checkmark that names no exit. The reason is what the operator
+/// can act on: the HTTP status, the checker's own error text, or the start
+/// of whatever it sent.
+pub fn exit_ip(status: u16, text: &str) -> Result<(serde_json::Value, String), NoIp> {
+    let body: serde_json::Value = serde_json::from_str(text).unwrap_or(serde_json::Value::Null);
+    if let Some(ip) = body.get("ip").and_then(|v| v.as_str()).map(str::trim).filter(|ip| !ip.is_empty()) {
+        let ip = ip.to_string();
+        return Ok((body, ip));
+    }
+    let said = body
+        .get("error")
+        .map(|e| match e {
+            serde_json::Value::String(s) => s.clone(),
+            other => ["title", "message", "detail"]
+                .iter()
+                .find_map(|k| other.get(*k).and_then(|v| v.as_str()).map(str::to_string))
+                .unwrap_or_else(|| other.to_string()),
+        })
+        .or_else(|| body.get("message").and_then(|v| v.as_str()).map(str::to_string))
+        .unwrap_or_else(|| {
+            let flat: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+            let mut cut: String = flat.chars().take(80).collect();
+            if flat.chars().count() > 80 {
+                cut.push('…');
+            }
+            if cut.is_empty() { "an empty answer".to_string() } else { format!("\"{cut}\"") }
+        });
+    Err(NoIp { status, said: said.chars().take(120).collect() })
+}
+
+/// A checker answer with no IP in it: the HTTP status and the checker's own
+/// words, short enough to sit inside the interface's sentence.
+#[derive(Debug)]
+pub struct NoIp {
+    pub status: u16,
+    pub said: String,
+}
+
+impl NoIp {
+    /// "HTTP 429: Rate limit exceeded", or just the words on a 200.
+    pub fn short(&self) -> String {
+        if (200..300).contains(&self.status) {
+            self.said.clone()
+        } else {
+            format!("HTTP {}: {}", self.status, self.said)
+        }
+    }
+}
+
+impl std::fmt::Display for NoIp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "The IP checker answered without an IP address ({}).", self.short())
+    }
+}
+
+impl std::error::Error for NoIp {}
+
 /// Merge the checker's JSON with the database: per field the database wins
 /// when it has an answer, the checker is the fallback.
 pub fn overlay(body: &serde_json::Value, checker: &Checker) -> Exit {
@@ -201,6 +261,40 @@ pub fn lookup(db: &str, ip: &str) -> anyhow::Result<Geo> {
         }
     }
     anyhow::bail!("{db:?} has no record for {ip}")
+}
+
+#[cfg(test)]
+mod exit_ip_tests {
+    use super::exit_ip;
+
+    #[test]
+    fn an_answer_with_an_ip_passes() {
+        let (_, ip) = exit_ip(200, r#"{"ip":"38.110.1.246","country":"US"}"#).unwrap();
+        assert_eq!(ip, "38.110.1.246");
+    }
+
+    #[test]
+    fn a_rate_limit_names_the_status_and_the_checkers_words() {
+        let e = exit_ip(429, r#"{"status":429,"error":{"title":"Rate limit exceeded","message":"Upgrade"}}"#).unwrap_err();
+        let e = e.to_string();
+        assert!(e.contains("HTTP 429"), "{e}");
+        assert!(e.contains("Rate limit exceeded"), "{e}");
+    }
+
+    #[test]
+    fn a_page_that_is_not_json_is_quoted_short() {
+        let page = format!("<html><body>{}</body></html>", "x".repeat(500));
+        let e = exit_ip(200, &page).unwrap_err().to_string();
+        assert!(e.starts_with("The IP checker answered without an IP address (\"<html>"), "{e}");
+        assert!(e.chars().count() < 200, "{e}");
+    }
+
+    #[test]
+    fn an_empty_or_blank_ip_is_no_ip() {
+        assert_eq!(exit_ip(200, "").unwrap_err().short(), "an empty answer");
+        assert!(exit_ip(200, r#"{"ip":"  "}"#).is_err());
+        assert!(exit_ip(200, r#"{"ip":null,"error":"bogon"}"#).unwrap_err().short().contains("bogon"));
+    }
 }
 
 #[cfg(test)]

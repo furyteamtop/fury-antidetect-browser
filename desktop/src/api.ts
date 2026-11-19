@@ -1182,6 +1182,9 @@ export const api = {
     checker_country?: string | null;
     /** Why it failed, for the interface's own sentence (ipc.rs check_failure). */
     error_code?: string | null;
+    /** The checker's own words when it answered without an IP (error_code
+     *  noIp, issue 39): "HTTP 429: Rate limit exceeded". */
+    error_detail?: string | null;
     /** A protocol this address DOES answer on, when the one it was given got
      *  nothing. Present only on a failure, and only when the other family
      *  actually worked — see agent/src/diagnose.rs `speaks_instead`. */

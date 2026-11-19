@@ -904,6 +904,7 @@ const en = {
   "px.kindSniffed": "Set to {kind}: that is what this address answered on. The line itself did not say.",
   "px.checkOk": "✓ {ms} ms",
   "px.checkBad": "✗ no answer",
+  "px.checkNoIp": "✗ no IP from the checker",
   "bar.proxyTo": "Proxy →",
   "bar.proxyEach": "Each its own ({n} unused)",
   "bar.proxyNone": "No proxy",
@@ -1260,6 +1261,7 @@ const en = {
   "pxc.tlsCert": "The proxy speaks TLS, but its certificate is not trusted on this computer, so the login was not sent.",
   "pxc.wgSilent": "The WireGuard server did not answer. A wrong key, an expired config or a blocked UDP port all look like this: WireGuard stays silent to a handshake it does not accept. Download a fresh config from your provider.",
   "pxc.wgTunnel": "The tunnel came up but could not reach the IP checker. Check the DNS line in the config: names are resolved through the tunnel, by those servers.",
+  "pxc.noIp": "The proxy carried the request, but the IP checker answered without an IP address ({why}), so the exit is unknown. Often a rate limit: wait a minute and check again, or set another checker for this proxy.",
   "pp.shape.Url": "scheme://user:pass@host:port",
   "pp.shape.HostPort": "host:port",
   "pp.shape.HostPortUserPass": "host:port:user:pass",
@@ -2299,6 +2301,7 @@ const ru: Record<Key, string> = {
   "px.kindSniffed": "Выставлен {kind}: адрес ответил именно так. В самой строке тип не был указан.",
   "px.checkOk": "✓ {ms} мс",
   "px.checkBad": "✗ не отвечает",
+  "px.checkNoIp": "✗ сервис проверки не дал IP",
   "bar.proxyTo": "Прокси →",
   "bar.proxyEach": "Каждому свой ({n} свободных)",
   "bar.proxyNone": "Без прокси",
@@ -2637,6 +2640,7 @@ const ru: Record<Key, string> = {
   "pxc.tlsCert": "Прокси работает по TLS, но этот компьютер не доверяет его сертификату, поэтому логин не отправлен.",
   "pxc.wgSilent": "Сервер WireGuard не ответил. Так выглядят неверный ключ, просроченный конфиг или закрытый UDP-порт: на рукопожатие, которое он не принял, WireGuard просто молчит. Скачайте у провайдера свежий конфиг.",
   "pxc.wgTunnel": "Туннель поднялся, но до сервиса проверки IP не дошёл. Проверьте строку DNS в конфиге: имена разрешаются через туннель, этими серверами.",
+  "pxc.noIp": "Прокси пропустил запрос, но сервис проверки IP ответил без IP-адреса ({why}), поэтому выход неизвестен. Часто это лимит запросов: подождите минуту и проверьте снова или укажите для этого прокси другой сервис проверки.",
   "pp.shape.Url": "scheme://user:pass@host:port",
   "pp.shape.HostPort": "host:port",
   "pp.shape.HostPortUserPass": "host:port:user:pass",
@@ -3626,6 +3630,7 @@ const zh: Record<Key, string> = {
   "px.kindSniffed": "已设为 {kind}：这是该地址响应的协议。原始代理行中并未注明。",
   "px.checkOk": "✓ {ms} ms",
   "px.checkBad": "✗ 无响应",
+  "px.checkNoIp": "✗ 检测服务未返回 IP",
   "bar.proxyTo": "代理 →",
   "bar.proxyEach": "各用各的（{n} 个未使用）",
   "bar.proxyNone": "无代理",
@@ -3944,6 +3949,7 @@ const zh: Record<Key, string> = {
   "pxc.tlsCert": "代理支持 TLS，但本机不信任其证书，因此未发送登录信息。",
   "pxc.wgSilent": "WireGuard 服务器无响应。密钥错误、配置过期或 UDP 端口被封都会表现为这样：WireGuard 对不接受的握手不做任何回应。请从供应商处下载新的配置。",
   "pxc.wgTunnel": "隧道已建立，但无法访问 IP 检测地址。请检查配置中的 DNS 行：域名会通过隧道由这些服务器解析。",
+  "pxc.noIp": "代理已转发请求，但 IP 检测服务的回复中没有 IP 地址（{why}），因此无法得知出口。通常是请求频率限制：请等一分钟再检测，或为此代理设置其他检测服务。",
   "pp.shape.Url": "scheme://user:pass@host:port",
   "pp.shape.HostPort": "host:port",
   "pp.shape.HostPortUserPass": "host:port:user:pass",
@@ -4210,7 +4216,9 @@ export function useI18n(): {
     t,
     say: (e) => {
       const code = (e as { code?: unknown } | null)?.code;
-      if (typeof code === "string" && code in dict) return t(code as Key);
+      // `vars` fills a code's sentence with what only the agent knows, such
+      // as the checker's own words for pxc.noIp (issue 39).
+      if (typeof code === "string" && code in dict) return t(code as Key, (e as { vars?: Record<string, string | number> }).vars);
       // A missing right is named by its key; the operator knows it by the
       // words on the checkbox their admin ticks.
       const body = (e as { body?: { error?: unknown; missing_permission?: unknown } } | null)?.body;

@@ -1464,7 +1464,27 @@ impl Agent {
                             "suggested_kind": serde_json::Value::Null,
                         }));
                     }
-                    Ok(res) => res.json().await.unwrap_or(serde_json::Value::Null),
+                    Ok(res) => {
+                        let status = res.status().as_u16();
+                        let text = res.text().await.unwrap_or_default();
+                        match crate::geoip::exit_ip(status, &text) {
+                            Ok((body, _)) => body,
+                            // The proxy carried the request; the checker did
+                            // not say which exit it came from (issue 39).
+                            Err(why) => {
+                                tracing::warn!(status, why = %why, "the IP checker answered without an IP");
+                                return Ok(json!({
+                                    "ok": false,
+                                    "error": why.to_string(),
+                                    "error_code": "noIp",
+                                    // The checker's own words, for the
+                                    // interface's translated sentence.
+                                    "error_detail": why.short(),
+                                    "suggested_kind": serde_json::Value::Null,
+                                }));
+                            }
+                        }
+                    }
                     Err(e) => {
                         // Before reporting silence, find out whether the far
                         // end is simply being addressed in the wrong protocol.
@@ -2758,7 +2778,13 @@ impl Agent {
             }
         };
 
-        let body: serde_json::Value = client.get(&checker.endpoint).send().await?.json().await?;
+        let res = client.get(&checker.endpoint).send().await?;
+        let status = res.status().as_u16();
+        let text = res.text().await?;
+        // An answer with no IP is an error here, not empty facts: the caller
+        // keeps the exit it remembered rather than recording blanks over it
+        // (issue 39).
+        let (body, _) = crate::geoip::exit_ip(status, &text)?;
         // `loc` is "lat,lng" and was being thrown away. It comes from the same
         // request as the timezone and describes the same place, which is exactly
         // the property geolocation needs: a profile whose clock follows Berlin

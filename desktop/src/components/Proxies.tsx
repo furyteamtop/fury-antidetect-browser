@@ -28,7 +28,7 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
   const [shopping, setShopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Checking every proxy at once (5.7): per-row outcome, and how far along.
-  const [checks, setChecks] = useState<Map<string, { ok: boolean; ms?: number; error?: string; serverIn?: string | null }>>(new Map());
+  const [checks, setChecks] = useState<Map<string, { ok: boolean; ms?: number; error?: string; noIp?: boolean; serverIn?: string | null }>>(new Map());
   const [checking, setChecking] = useState<{ done: number; total: number } | null>(null);
 
   /** The URL the single-proxy form would build. In team mode the password is
@@ -49,7 +49,14 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
         if (!p) return;
         try {
           const r = await api.checkProxy(urlOf(p), p.checker_url, p.id);
-          setChecks((m) => new Map(m).set(p.id, { ok: r.ok, ms: r.ms, error: r.ok ? undefined : r.error, serverIn: r.checker_country }));
+          setChecks((m) => new Map(m).set(p.id, {
+            ok: r.ok,
+            ms: r.ms,
+            error: r.ok ? undefined : say({ code: r.error_code ? `pxc.${r.error_code}` : null, message: r.error, vars: { why: r.error_detail ?? "" } }),
+            // Answered, but named no exit (issue 39): not "no answer".
+            noIp: r.error_code === "noIp",
+            serverIn: r.checker_country,
+          }));
         } catch (e) {
           setChecks((m) => new Map(m).set(p.id, { ok: false, error: say(e) }));
         }
@@ -181,7 +188,7 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
                           {c.serverIn && <div title={t("px.serverInWhy")}>{t("px.serverIn", { country: c.serverIn })}</div>}
                         </>
                       ) : (
-                        <div className="warn" title={c.error}>{t("px.checkBad")}</div>
+                        <div className="warn" title={c.error}>{t(c.noIp ? "px.checkNoIp" : "px.checkBad")}</div>
                       );
                     })()}
                   </td>
