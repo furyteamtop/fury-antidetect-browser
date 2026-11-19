@@ -257,6 +257,21 @@ pub fn build_args(spec: &LaunchSpec) -> Vec<String> {
         format!("--lang={}", spec.ui_locale),
     ];
 
+    // Windows: never let the browser relaunch itself (issue 38).
+    //
+    // A browser started elevated while UAC is on restarts itself through
+    // Explorer as the plain user (MaybeAutoDeElevate, chrome_main_delegate.cc)
+    // and exits. The new process is Explorer's child, not ours, so it inherits
+    // none of our handles: the config slot named by --fury-fp-file-handle is
+    // empty there, and patch 0001 stops it on purpose. Seen in a tester's
+    // dumps: the relaunched command line ends in --do-not-de-elevate, which
+    // Chrome appends itself; LastError 6 on the read, no File handle with that
+    // number in the process. It happens whenever Fury runs "as administrator",
+    // which is why it came and went for him. The browser keeps the rights the
+    // agent has; one that loses its persona is the worse outcome.
+    #[cfg(windows)]
+    args.push("--do-not-de-elevate".to_string());
+
     // Extensions, and the pair is not decoration.
     //
     // `--load-extension` on its own has been progressively restricted upstream
@@ -599,6 +614,10 @@ mod tests {
         // Not networking, but the same class of problem: a build setting that
         // silently makes this browser behave unlike the one it claims to be.
         assert!(args.iter().any(|a| a == "--disable-field-trial-config"));
+        // An elevated browser must not relaunch itself away from the
+        // handles it inherited (issue 38).
+        #[cfg(windows)]
+        assert!(args.iter().any(|a| a == "--do-not-de-elevate"));
     }
 
     #[test]
