@@ -270,10 +270,10 @@ browser and writes nothing. Finder and `du` count every clone at full size, so
 40 profiles show as 13 GB while the free space on the disk barely moves.
 Measured: five clones of the 326 MB core took 0 MB of free space, one ordinary
 copy took 325 MB. The clones live in
-`~/Library/Application Support/Fury/dock.noindex` and are made again on each
-launch, so with all profiles closed the folder is safe to delete. One real cost:
-after an update, a profile not opened since still holds the old browser version,
-one copy per old version, not per profile; opening those profiles releases it.
+`~/Library/Application Support/Fury/dock.noindex`, are made on each launch and
+deleted when the profile closes, so only open profiles have one. Since 0.6.5:
+before that a copy stayed for every profile ever opened, and Finder's "Open With"
+listed each of them as a separate Fury; the agent clears those out when it starts.
 What really takes space is the `profiles` folder: cookies, cache, history.
 
 **Forgot the team account password.** It cannot be recovered. The owner or an

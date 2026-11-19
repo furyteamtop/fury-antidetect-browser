@@ -560,6 +560,11 @@ impl Agent {
     /// Listen until the process is stopped.
     pub async fn serve(self: Arc<Self>) -> anyhow::Result<()> {
         self.start_reaper();
+        // What earlier runs and earlier versions left in dock.noindex: one copy
+        // per profile ever opened, each one listed by Finder's Open With.
+        // Safe beside another agent: tidy keeps any copy a process runs from.
+        #[cfg(target_os = "macos")]
+        tokio::task::spawn_blocking(crate::dock::tidy);
         let endpoint = paths::ipc_endpoint();
 
         // Ask before binding. A Unix socket file left by a crash makes bind()
@@ -3485,6 +3490,17 @@ impl Agent {
         }
         let _ = entry.child.kill();
         let _ = entry.child.wait();
+
+        // Its copy of the core goes too, so Finder's Open With does not list a
+        // Fury per profile (dock.rs). Not awaited: closing does not wait on it.
+        // A few seconds late because the browser's helpers run from the same
+        // copy and can outlive it briefly; tidy leaves a copy anything still
+        // runs from, and the next close or start picks it up.
+        #[cfg(target_os = "macos")]
+        tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            let _ = tokio::task::spawn_blocking(crate::dock::tidy).await;
+        });
 
         // The lock stops being renewed the moment the browser is gone, not when
         // the next request happens to notice.

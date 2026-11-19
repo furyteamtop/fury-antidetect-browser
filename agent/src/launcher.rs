@@ -404,19 +404,22 @@ pub fn spawn(spec: &LaunchSpec) -> Result<std::process::Child, LaunchError> {
     }
 
     // After the CDM: both are best effort, and neither may stop a launch.
+    // Kept to the end of this function, past the spawn: until the browser runs
+    // from the copy, dock::tidy would see a copy nothing uses and delete it.
     #[cfg(target_os = "macos")]
     let named = spec.dock_name.and_then(|(id, name)| {
         match crate::dock::named_core(spec.core_binary, id, name) {
-            Ok(exe) => Some(exe),
+            Ok(named) => Some(named),
             Err(e) => {
                 tracing::warn!(error = %e, "running the core under its own name; the Dock will say Fury");
                 None
             }
         }
     });
+    #[cfg(target_os = "macos")]
+    let core_binary = named.as_ref().map_or(spec.core_binary, |n| n.exe.as_path());
     #[cfg(not(target_os = "macos"))]
-    let named: Option<PathBuf> = None;
-    let core_binary = named.as_deref().unwrap_or(spec.core_binary);
+    let core_binary = spec.core_binary;
 
     let mut cmd = std::process::Command::new(core_binary);
     cmd.args(build_args(spec)).stdin(Stdio::null());

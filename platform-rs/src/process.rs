@@ -111,9 +111,59 @@ mod win {
     }
 }
 
+/// The executable of every process this user can see, or None when the list
+/// could not be read.
+///
+/// None and not an empty list: the caller deletes what no process runs from,
+/// and "could not look" must not read as "nothing is running".
+///
+/// Paths are as the kernel has them, with symlinks resolved (/tmp is
+/// /private/tmp here), so compare against a canonicalised path. Processes of
+/// other users (root's, mostly) refuse proc_pidpath and are skipped; a
+/// browser the agent started is this user's.
+#[cfg(target_os = "macos")]
+pub fn executables() -> Option<Vec<std::path::PathBuf>> {
+    use std::os::unix::ffi::OsStrExt;
+    // SAFETY: a null buffer asks for the count only.
+    let n = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
+    if n <= 0 {
+        return None;
+    }
+    // Room for processes started between the two calls.
+    let mut pids: Vec<libc::pid_t> = vec![0; n as usize + 256];
+    let bytes = (pids.len() * std::mem::size_of::<libc::pid_t>()) as libc::c_int;
+    // SAFETY: the buffer is `bytes` long; the call writes at most that and
+    // returns how many pids it wrote.
+    let n = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), bytes) };
+    if n <= 0 {
+        return None;
+    }
+    pids.truncate((n as usize).min(pids.len()));
+    let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    let mut out = Vec::with_capacity(pids.len());
+    for pid in pids.into_iter().filter(|&p| p > 0) {
+        // SAFETY: the buffer is PROC_PIDPATHINFO_MAXSIZE long, as the call
+        // requires; it returns the length written, or <= 0.
+        let len = unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr().cast(), buf.len() as u32) };
+        if len > 0 {
+            let path = std::ffi::OsStr::from_bytes(&buf[..len as usize]);
+            out.push(std::path::PathBuf::from(path));
+        }
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn this_process_is_among_the_executables() {
+        let me = std::env::current_exe().unwrap().canonicalize().unwrap();
+        let all = executables().expect("the process list");
+        assert!(all.contains(&me), "{} not in {} paths", me.display(), all.len());
+    }
 
     /// Closing must be a request the child can act on, not a kill.
     ///

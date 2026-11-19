@@ -32,8 +32,41 @@
 //! one, and a profile is never launched twice at once, so its clone is never
 //! replaced under a running browser. Any failure here is not a failed launch:
 //! the original core runs, and the Dock says Fury, as before.
+//!
+//! And gone once the browser is (tidy). A clone carries the core's Info.plist
+//! whole, document types and http/https/file included, so LaunchServices took
+//! every clone it had seen for a browser, and Finder's "Open With" listed one
+//! "Fury" per profile -- 109 of them for a tester, 20.11.2026, along with the
+//! clones of profiles renamed since. Taking the types out of the clone's
+//! Info.plist is not open to us: the Info.plist is sealed by the signature
+//! (codesign: "invalid Info.plist (plist or signature have been modified)",
+//! measured on a clone), and a clone that fails its signature is a core the
+//! keychain no longer trusts. Deleting the bundle is not enough on its own
+//! either: LaunchServices kept records of clones deleted days before (lsregister
+//! -dump), so each one is unregistered first, while it is still there to scan.
 
 use std::path::{Path, PathBuf};
+
+/// Held from the clone until the browser runs from it, and by tidy for its
+/// whole pass, so that tidy never deletes a clone that a launch has made and
+/// not yet started (no process runs from it yet, and it looks unused).
+#[cfg(target_os = "macos")]
+static CLONES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(target_os = "macos")]
+fn hold() -> std::sync::MutexGuard<'static, ()> {
+    // Nothing behind the lock can be left half-changed by a panic that tidy
+    // or a launch would trip over: it guards the directory, not data.
+    CLONES.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// A profile's named copy of the core. Keep it until the browser has been
+/// spawned from `exe`: until then, tidy is held off.
+#[cfg(target_os = "macos")]
+pub struct NamedCore {
+    pub exe: PathBuf,
+    _held: std::sync::MutexGuard<'static, ()>,
+}
 
 /// The name as the Dock will show it, or None to leave it "Fury".
 ///
@@ -57,8 +90,108 @@ pub fn display_name(name: &str) -> Option<String> {
 /// `core_binary` is `<X>.app/Contents/MacOS/<exe>`; the copy is
 /// `dock.noindex/<profile id>/<name>.app` with the same path inside.
 #[cfg(target_os = "macos")]
-pub fn named_core(core_binary: &Path, profile_id: &str, name: &str) -> std::io::Result<PathBuf> {
-    named_core_in(&crate::paths::dock_dir(), core_binary, profile_id, name)
+pub fn named_core(core_binary: &Path, profile_id: &str, name: &str) -> std::io::Result<NamedCore> {
+    let held = hold();
+    let exe = named_core_in(&crate::paths::dock_dir(), core_binary, profile_id, name)?;
+    Ok(NamedCore { exe, _held: held })
+}
+
+/// Unregister and delete every clone no process runs from.
+///
+/// Run when a browser closes, and once when the agent starts, which also takes
+/// care of what earlier versions left: a clone per profile ever opened, a
+/// renamed profile's clone under its old name, and the clones of deleted
+/// profiles. A clone some process still runs from stays, whoever started it --
+/// a browser that outlived its agent included: deleting its bundle would leave
+/// it unable to start a renderer. Best effort and quiet, like the clone.
+#[cfg(target_os = "macos")]
+pub fn tidy() {
+    let _held = hold();
+    let Some(running) = fury_platform::process::executables() else {
+        tracing::warn!("could not list processes; the profiles' Dock copies stay for now");
+        return;
+    };
+    let removed = tidy_in(&crate::paths::dock_dir(), &running, unregister);
+    if removed > 0 {
+        tracing::info!(removed, "Dock copies of closed profiles removed");
+    }
+}
+
+/// Every `<profile id>/` under `dock_dir` that no path in `running` is inside:
+/// its bundles handed to `unregister`, then the directory deleted. Returns how
+/// many directories went.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn tidy_in(dock_dir: &Path, running: &[PathBuf], unregister: impl Fn(&[PathBuf])) -> usize {
+    // The kernel reports resolved paths; FURY_HOME under /tmp is /private/tmp.
+    let Ok(root) = dock_dir.canonicalize() else {
+        return 0;
+    };
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        return 0;
+    };
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let dir = entry.path();
+        if !dir.is_dir() || running.iter().any(|p| p.starts_with(&dir)) {
+            continue;
+        }
+        let bundles: Vec<PathBuf> = std::fs::read_dir(&dir)
+            .map(|it| {
+                it.flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.extension().is_some_and(|e| e == "app"))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !bundles.is_empty() {
+            unregister(&bundles);
+        }
+        match std::fs::remove_dir_all(&dir) {
+            Ok(()) => removed += 1,
+            Err(e) => tracing::warn!(dir = %dir.display(), error = %e, "could not remove a Dock copy"),
+        }
+    }
+    removed
+}
+
+/// Forget these bundles in LaunchServices, and the helper apps inside them.
+///
+/// lsregister rather than an API: there is no public call that unregisters,
+/// only LSRegisterURL. One process for all of them. Measured: `-u` takes a
+/// bundle's record out of `lsregister -dump`, in 6 ms. The helpers (Renderer,
+/// GPU, Alerts...) are registered on their own and declare no document types,
+/// so they were never in Open With, but their records would stay forever;
+/// named here one by one, since `-R` scans the whole 300 MB clone and took
+/// 1.4 s a clone, minutes for a hundred with launches waiting on the lock.
+#[cfg(target_os = "macos")]
+fn unregister(bundles: &[PathBuf]) {
+    const LSREGISTER: &str = "/System/Library/Frameworks/CoreServices.framework/Frameworks/\
+                              LaunchServices.framework/Support/lsregister";
+    // <X>.app/Contents/Frameworks/<F>.framework/Versions/<v>/Helpers/<H>.app
+    let list = |p: &Path| -> Vec<PathBuf> {
+        std::fs::read_dir(p).map(|it| it.flatten().map(|e| e.path()).collect()).unwrap_or_default()
+    };
+    let mut all = bundles.to_vec();
+    for app in bundles {
+        for framework in list(&app.join("Contents/Frameworks")) {
+            for version in list(&framework.join("Versions")) {
+                all.extend(
+                    list(&version.join("Helpers")).into_iter().filter(|h| h.extension().is_some_and(|e| e == "app")),
+                );
+            }
+        }
+    }
+    let out = std::process::Command::new(LSREGISTER)
+        .arg("-u")
+        .args(&all)
+        .stdin(std::process::Stdio::null())
+        .output();
+    // The status says little: lsregister exits 1 for a path it has no record
+    // of (-10814), which most helpers are, so only failing to run it is news.
+    match out {
+        Ok(o) => tracing::debug!(status = %o.status, paths = all.len(), "lsregister -u"),
+        Err(e) => tracing::warn!(error = %e, "could not run lsregister; Open With may still list them"),
+    }
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -138,6 +271,34 @@ mod tests {
 
         assert!(named_core_in(&dock, &core.join("Fury"), "../x", "n").is_err());
         assert!(named_core_in(&dock, Path::new("/usr/bin/true"), "p-2", "n").is_err());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn tidy_takes_only_the_copies_nothing_runs_from() {
+        let root = std::env::temp_dir().join(format!("fury-dock-tidy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dock = root.join("dock.noindex");
+        for (id, name) in [("open", "A"), ("closed", "B"), ("renamed", "Old"), ("renamed", "New")] {
+            std::fs::create_dir_all(dock.join(id).join(format!("{name}.app/Contents/MacOS"))).unwrap();
+        }
+        // As the kernel reports it: resolved.
+        let real = dock.canonicalize().unwrap();
+        let running = vec![real.join("open/A.app/Contents/MacOS/Fury"), PathBuf::from("/usr/bin/true")];
+
+        let seen = std::cell::RefCell::new(Vec::new());
+        let removed = tidy_in(&dock, &running, |b| seen.borrow_mut().extend(b.iter().cloned()));
+        assert_eq!(removed, 2);
+        assert!(dock.join("open/A.app").exists());
+        assert!(!dock.join("closed").exists());
+        assert!(!dock.join("renamed").exists());
+        let mut seen: Vec<String> =
+            seen.into_inner().iter().map(|p| p.strip_prefix(&real).unwrap().display().to_string()).collect();
+        seen.sort();
+        assert_eq!(seen, ["closed/B.app", "renamed/New.app", "renamed/Old.app"]);
+
+        // Nothing there at all is not an error.
+        assert_eq!(tidy_in(&root.join("missing"), &[], |_| panic!("nothing to unregister")), 0);
         std::fs::remove_dir_all(&root).unwrap();
     }
 }
