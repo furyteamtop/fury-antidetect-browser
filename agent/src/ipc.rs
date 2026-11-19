@@ -252,6 +252,11 @@ impl Drop for Running {
 pub struct Agent {
     store: Store,
     running: Mutex<HashMap<String, Running>>,
+    /// Profiles whose launch has begun and whose browser is not in `running`
+    /// yet. Checked and taken under the `running` lock, with it, so that two
+    /// launches of one profile cannot both get past "already open" in the
+    /// seconds a launch takes (exit check, bundle pull). See [`Opening`].
+    opening: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     /// Deliberately NOT a field holding the path. See [`Self::core`].
     /// Progress of a core download, if one was asked for. Shared rather than
     /// owned because the download outlives the IPC call that started it: 134 MB
@@ -271,6 +276,31 @@ pub struct Agent {
     /// The shell quit while profiles were open: go once the last one has
     /// closed (and pushed its bundle). See `agent.shutdown`.
     exit_when_idle: std::sync::atomic::AtomicBool,
+}
+
+/// A profile's place in [`Agent::opening`], given back when dropped.
+///
+/// Dropped on every way out of a launch: success (the browser is in `running`
+/// by then), an error at any of its `?`, and a launch future dropped half way
+/// -- an IPC client that went away -- which an explicit release at each
+/// return would miss.
+struct Opening {
+    set: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    id: String,
+}
+
+impl Opening {
+    /// None when a launch of this profile is already under way.
+    fn take(set: &Arc<std::sync::Mutex<std::collections::HashSet<String>>>, id: &str) -> Option<Self> {
+        let fresh = set.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_string());
+        fresh.then(|| Self { set: Arc::clone(set), id: id.to_string() })
+    }
+}
+
+impl Drop for Opening {
+    fn drop(&mut self) {
+        self.set.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.id);
+    }
 }
 
 /// What the exit checker can tell us about where a proxy comes out.
@@ -381,6 +411,7 @@ impl Agent {
         let agent = Arc::new(Self {
             store,
             running: Mutex::new(HashMap::new()),
+            opening: Default::default(),
             core_download: Default::default(),
             mirror: crate::mirror::Hub::new(),
             warmer: crate::warm::Warmer::new(),
@@ -2847,9 +2878,11 @@ impl Agent {
             )),
             _ => None,
         });
-        let closed_unseen = {
+        // Held to the end of this function: by then the browser is in
+        // `running`, or the launch failed and the profile is free again.
+        let (closed_unseen, _opening) = {
             let mut running = self.running.lock().await;
-            match running.get_mut(profile_id) {
+            let closed_unseen = match running.get_mut(profile_id) {
                 // try_wait rather than a stored flag: the browser may have been
                 // closed from its own window, and reporting it as open would
                 // leave the operator with a profile they cannot start.
@@ -2860,7 +2893,11 @@ impl Agent {
                     true
                 }
                 None => false,
-            }
+            };
+            // The same sentence: to whoever clicked twice, it is open.
+            let opening = Opening::take(&self.opening, profile_id)
+                .ok_or_else(|| anyhow::anyhow!("this profile is already open"))?;
+            (closed_unseen, opening)
         };
         // Closed from its own window and not yet reaped. The whole teardown,
         // not just the relay: this used to abort the relay and drop the entry,
@@ -4125,5 +4162,85 @@ mod exit_check_tests {
                 || msg.contains("timed out"),
             "failed for an unclear reason: {msg}"
         );
+    }
+}
+
+#[cfg(test)]
+mod double_launch_tests {
+    /// A second launch of a profile whose first launch has not finished is
+    /// refused, not run beside it.
+    ///
+    /// "Already open" was checked at the start of a launch and the profile
+    /// entered the open set only once its browser had spawned, seconds later:
+    /// the exit check, a bundle pull and the clone all lie between. Two
+    /// launches in that window both passed, and started two browsers on one
+    /// user-data-dir -- how a cookie jar is corrupted -- each re-making the
+    /// profile's Dock copy under it (a tester found two in one folder,
+    /// 20.11.2026). Here the first launch hangs in its exit check, on a proxy
+    /// that accepts and never answers, and the second is asked meanwhile.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn a_launch_in_flight_refuses_a_second_one() {
+        let _guard = crate::ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let home = std::env::temp_dir().join(format!("fury-double-launch-{}", std::process::id()));
+        std::fs::remove_dir_all(&home).ok();
+        // SAFETY: the mutex above is what makes this single-threaded.
+        unsafe {
+            std::env::set_var("FURY_HOME", &home);
+            // Exists and is never run: the launch is stopped long before.
+            std::env::set_var("FURY_CORE", "/usr/bin/true");
+        }
+        let agent = super::Agent::new().await.expect("an agent in a scratch home");
+
+        // A proxy that takes the connection and says nothing.
+        let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = silent.local_addr().unwrap().port();
+        let hold = tokio::spawn(async move {
+            let mut kept = Vec::new();
+            while let Ok((s, _)) = silent.accept().await {
+                kept.push(s);
+            }
+        });
+        let persona = crate::personas::all().into_iter().next().expect("a persona").id;
+        let profile: super::Profile = serde_json::from_value(serde_json::json!({
+            "id": "p-double", "project_id": null, "name": "double", "notes": "", "tags": [],
+            "persona_id": persona, "fp_seed": 1, "proxy_id": "px",
+            "proxy": {
+                "id": "px", "name": "px", "kind": "socks5", "host": "127.0.0.1", "port": port,
+                "username": null, "password": null, "last_country": null, "last_ip": null,
+                "last_timezone": null, "last_location": null, "rotate_url": null, "checker_url": null
+            },
+            "timezone": null, "languages": null, "start_urls": [], "last_opened_at": null
+        }))
+        .unwrap();
+        let launch = || agent.launch("p-double", None, None, Some(profile.clone()), None, false, false);
+
+        // Boxed, so that dropping it below drops the launch and not a pin.
+        let mut first = Box::pin(launch());
+        // Far enough in to be waiting on the proxy.
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(500), &mut first).await.is_err(),
+            "the first launch should still be waiting on the silent proxy"
+        );
+        let second = tokio::time::timeout(std::time::Duration::from_secs(2), launch())
+            .await
+            .expect("the second launch must answer at once, not wait on the proxy too");
+        let err = format!("{:#}", second.expect_err("a second launch of a profile being opened"));
+        assert!(err.contains("already open"), "{err}");
+
+        // A launch that goes away -- here dropped, in life failed -- frees the
+        // profile: the next one gets as far as the proxy again.
+        drop(first);
+        let third = tokio::time::timeout(std::time::Duration::from_millis(500), launch()).await;
+        assert!(
+            third.is_err(),
+            "after the first launch is gone, a new one must be let through: {:?}",
+            third.map(|r| r.map_err(|e| format!("{e:#}")))
+        );
+
+        hold.abort();
+        // SAFETY: as above.
+        unsafe { std::env::remove_var("FURY_CORE") };
+        std::fs::remove_dir_all(&home).ok();
     }
 }
