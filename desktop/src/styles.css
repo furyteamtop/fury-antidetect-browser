@@ -1158,6 +1158,8 @@ input::placeholder {
 }
 
 .personaCard .sub .otherOs { color: var(--warn); }
+/* Taken by another profile on this computer (issue #40). */
+.personaCard .sub .inUse { color: var(--accent); }
 .personaCard .sub .gpu {
   flex: 1;
   min-width: 0;

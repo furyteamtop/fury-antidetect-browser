@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useI18n } from "../i18n";
 import { spreadPastedProxy } from "../proxyLine";
 import { proxyUrl, wgEndpoint } from "../proxyUrl";
@@ -248,6 +248,16 @@ export function ProfileDialog({
   const [tags, setTags] = useState((editing?.tags ?? []).join(", "));
   const [personaId, setPersonaId] = useState(editing?.persona_id ?? "");
   const chosenPersona = personas.find((p) => p.id === personaId);
+  // Every other profile on this computer, for "this machine is taken".
+  const [others, setOthers] = useState<Profile[]>([]);
+  const usedBy = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const r of others) m.set(r.persona_id, [...(m.get(r.persona_id) ?? []), r.name]);
+    return m;
+  }, [others]);
+  const sharedWith = usedBy.get(personaId) ?? [];
+  // The same pool a new profile is given from: this computer's OS, not taken.
+  const unused = personas.filter((p) => !foreign(p) && !usedBy.has(p.id) && p.id !== personaId);
   const [proxyId, setProxyId] = useState(editing?.proxy?.id ?? "");
   /** Permission for THIS profile to open with none. Off unless it was already
    *  on: the refusal is the default and stays the default. */
@@ -293,10 +303,20 @@ export function ProfileDialog({
   const [blocklists, setBlocklists] = useState<string[]>(editing?.blocklists ?? []);
 
   useEffect(() => {
-    void api.personas().then((p) => {
+    // The other profiles on this computer, for which machines are taken
+    // (issue #40): two profiles from one machine report the same screen, GPU,
+    // cores and memory, and nothing on screen said so. A failed list costs the
+    // marks, not the dialog.
+    void Promise.all([api.personas(), api.profiles().catch(() => [] as Profile[])]).then(([p, rows]) => {
       setPersonas(p);
+      setOthers(rows.filter((r) => r.id !== editing?.id));
+      // A new profile gets a machine no other profile has, while one is left:
+      // one machine per profile by default.
+      const taken = new Set(rows.filter((r) => r.id !== editing?.id).map((r) => r.persona_id));
       const here = p.filter((x) => !foreign(x));
-      setPersonaId((current) => current || pickWeighted(here.length ? here : p) || "");
+      const pool = here.length ? here : p;
+      const fresh = pool.filter((x) => !taken.has(x.id));
+      setPersonaId((current) => current || pickWeighted(fresh.length ? fresh : pool) || "");
     });
     void api.blocklists().then(setLists).catch(() => setLists([]));
   }, []);
@@ -876,6 +896,11 @@ export function ProfileDialog({
                                     : t("pd.share", { pct: (p.weight * 100).toFixed(1) })}
                                   {p.source === "measured" ? ` · ${t("pd.measured")}` : ""}
                                   {foreign(p) && <span className="otherOs">{` · ${t("pd.otherOs")}`}</span>}
+                                  {usedBy.has(p.id) && (
+                                    <span className="inUse" title={usedBy.get(p.id)!.join(", ")}>
+                                      {` · ${t("pd.inUse", { n: usedBy.get(p.id)!.length })}`}
+                                    </span>
+                                  )}
                                 </span>
                               </div>
                             </button>
@@ -1188,6 +1213,37 @@ export function ProfileDialog({
               <div className="verdict bad" style={{ marginBottom: "var(--s-3)" }}>
                 {t("pd.osMismatch", { host: HOST_OS ?? "", os: osOf(chosenPersona) })}
               </div>
+            )}
+            {chosenPersona && sharedWith.length > 0 && (
+              <div className="verdict bad" style={{ marginBottom: "var(--s-3)" }}>
+                {t("pd.machineShared", { names: sharedWith.join(", ") })}
+                {!machineLocked && unused.length > 0 && (
+                  <div style={{ marginTop: "var(--s-2)" }}>
+                    <button
+                      className="ghost"
+                      onClick={() => {
+                        const id = pickWeighted(unused);
+                        if (!id) return;
+                        const was = chosenPersona ? osOf(chosenPersona) : undefined;
+                        const next = personas.find((x) => x.id === id);
+                        if (was && next && was !== osOf(next)) setOv({ gpu: undefined, screen: undefined });
+                        setPersonaId(id);
+                      }}
+                    >
+                      {t("pd.pickUnused")}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            {chosenPersona && (
+              <dl className="kv" style={{ marginBottom: "var(--s-2)" }}>
+                <dt>{t("pd.ovMachine")}</dt>
+                <dd className="small">
+                  {chosenPersona.os} · {chosenPersona.screen} · {chosenPersona.gpu}
+                  <div className="muted mono small">{chosenPersona.id}</div>
+                </dd>
+              </dl>
             )}
             {preview ? (
               <>
