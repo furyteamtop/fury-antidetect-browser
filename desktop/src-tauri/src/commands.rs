@@ -1433,7 +1433,11 @@ pub struct UiProxy {
     /// without `reveal_secrets`; never masked locally, where there is nobody to
     /// hide it from and the operator has to be able to check what they typed.
     pub display: String,
+    #[serde(default)]
+    pub has_rotation: bool,
     pub country: Option<String>,
+    #[serde(default)]
+    pub last_ip: Option<String>,
     /// From the last exit check, when there was one.
     #[serde(default)]
     pub last_timezone: Option<String>,
@@ -1574,7 +1578,9 @@ async fn local_profiles() -> R<Vec<UiProfile>> {
         .map(|p| UiProfile {
             proxy: p.proxy.map(|x| UiProxy {
                 display: format!("{}:{}", x.host, x.port),
+                has_rotation: x.has_rotation,
                 country: x.last_country,
+                last_ip: x.last_ip,
                 last_timezone: x.last_timezone,
                 id: x.id,
                 name: x.name,
@@ -1626,7 +1632,9 @@ pub async fn profiles(
             .map(|p| UiProfile {
                 proxy: p.proxy.map(|x| UiProxy {
                     display: format!("{}:{}", x.host, x.port),
+                    has_rotation: x.has_rotation,
                     country: x.last_country,
+                    last_ip: x.last_ip,
                     last_timezone: None,
                     id: x.id,
                     name: x.name,
@@ -1673,7 +1681,9 @@ pub async fn profiles(
             .map(|p| UiProfile {
                 proxy: p.proxy.map(|x| UiProxy {
                     display: format!("{}:{}", x.host, x.port),
+                    has_rotation: x.has_rotation,
                     country: x.last_country,
+                    last_ip: x.last_ip,
                     last_timezone: None,
                     id: x.id,
                     name: x.name,
@@ -1742,7 +1752,9 @@ pub async fn profiles(
                 name: x.name,
                 kind: x.kind,
                 display: x.display,
+                has_rotation: false,
                 country: x.country,
+                last_ip: None,
                 last_timezone: None,
             }),
             permissions: p.permissions.iter().map(|v| perm_name(v)).collect(),
@@ -2947,8 +2959,9 @@ async fn resolve_proxy_url(
     state: &State<'_, AppState>,
     url: String,
     proxy_id: Option<String>,
+    origin: Option<&str>,
 ) -> R<String> {
-    let url = match proxy_id.filter(|_| mode_of(&state) != "local") {
+    let url = match proxy_id.filter(|_| !local_for(state, origin)) {
         None => url,
         Some(id) => {
             let org_key = state.org_key().ok_or_else(|| {
@@ -2978,9 +2991,11 @@ pub async fn check_proxy(
     // interface has no password to build a URL from, so the credentials are
     // fetched and opened here instead.
     proxy_id: Option<String>,
+    origin: Option<String>,
 ) -> R<serde_json::Value> {
-    let stored_id = proxy_id.clone();
-    let url = resolve_proxy_url(&state, url, proxy_id).await?;
+    let local = local_for(&state, origin.as_deref());
+    let stored_id = proxy_id.clone().filter(|_| local);
+    let url = resolve_proxy_url(&state, url, proxy_id, origin.as_deref()).await?;
     // The check itself always runs on this machine, in both modes: it is the
     // machine whose exit the answer describes.
     Ok(crate::agent::call(
@@ -3002,7 +3017,7 @@ pub async fn diagnose_proxy(
     proxy_id: Option<String>,
 ) -> R<serde_json::Value> {
     let stored_id = proxy_id.clone();
-    let url = resolve_proxy_url(&state, url, proxy_id).await?;
+    let url = resolve_proxy_url(&state, url, proxy_id, None).await?;
     Ok(crate::agent::call(
         "proxies.diagnose",
         serde_json::json!({ "url": url, "checker_url": checker_url, "id": stored_id }),
@@ -3011,8 +3026,8 @@ pub async fn diagnose_proxy(
 }
 
 #[tauri::command]
-pub async fn rotate_proxy(state: State<'_, AppState>, id: String) -> R<serde_json::Value> {
-    if mode_of(&state) != "local" {
+pub async fn rotate_proxy(state: State<'_, AppState>, id: String, origin: Option<String>) -> R<serde_json::Value> {
+    if !local_for(&state, origin.as_deref()) {
         return Err(ApiErr::coded(
             "err.proxyCheckNotBuilt",
             "Checking a proxy on a team server is not built yet — its credentials are sealed, and \
@@ -3228,7 +3243,9 @@ pub async fn trash(state: State<'_, AppState>) -> R<Vec<UiProfile>> {
             allow_no_proxy: p.allow_no_proxy,
             proxy: p.proxy.map(|x| UiProxy {
                 display: format!("{}:{}", x.host, x.port),
+                has_rotation: x.has_rotation,
                 country: x.last_country,
+                last_ip: x.last_ip,
                 last_timezone: None,
                 id: x.id,
                 name: x.name,
@@ -4538,7 +4555,9 @@ pub async fn shared_with_me(state: State<'_, AppState>) -> R<Vec<UiProfile>> {
                 name: String::new(),
                 kind: String::new(),
                 display,
+                has_rotation: false,
                 country: None,
+                last_ip: None,
                 last_timezone: None,
             }),
             timezone: None,

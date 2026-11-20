@@ -36,6 +36,7 @@ import { countryPrefix } from "./flag";
 import { isSuggested, setStage as saveStage } from "./status";
 import { Select } from "./components/Select";
 import { OUR_SERVERS, versionNewer } from "./defaults";
+import { proxyActionKey, type ProxyAction } from "./proxyAction";
 
 /** What the browser build the agent asks for changes, for the bar that offers
  *  it. One sentence for every build told a Mac being offered 0.3.8 about a
@@ -75,6 +76,10 @@ export function App() {
   // agent already keeps; refreshed with the rows.
   const [personaIds, setPersonaIds] = useState<Set<string> | null>(null);
   const [proxyList, setProxyList] = useState<LocalProxy[] | null>(null);
+  const [proxyActions, setProxyActions] = useState<Map<string, ProxyAction>>(new Map());
+  const proxyScope = `${shell?.mode ?? "boot"}:${shell?.server_url ?? ""}:${shell?.signed_in ?? false}:${me?.org_id ?? ""}:${me?.user_id ?? ""}`;
+  const proxyScopeRef = useRef(proxyScope);
+  const activeProxyActions = useRef(new Set<string>());
   const [shared, setShared] = useState<Profile[]>([]);
   /** The profiles a share dialog is open for, or null. */
   const [sharing, setSharing] = useState<Profile[] | null>(null);
@@ -289,6 +294,16 @@ export function App() {
   const { ask, dialog: askDialog } = useAsk();
 
   const [fatal, setFatal] = useState<string | null>(null);
+
+  // A team check cannot be stored on the server yet, so keep its observation
+  // while this account is open. A different server, account or organisation
+  // starts a new scope instead of showing an old account's exit beside a new
+  // one.
+  useEffect(() => {
+    proxyScopeRef.current = proxyScope;
+    setProxyActions(new Map());
+  }, [proxyScope]);
+  const visibleProxyActions = proxyScopeRef.current === proxyScope ? proxyActions : new Map<string, ProxyAction>();
 
   useEffect(() => {
     // Caught, because this is the one call with nothing behind it. Without a
@@ -592,6 +607,93 @@ export function App() {
   // Exit sharing over EVERY profile, not the filtered view: the question is
   // how many accounts a site sees from one address.
   const exitCounts = exitSharing(profiles, proxyList);
+
+  const runProxyAction = async (
+    action: "check" | "rotate",
+    origin: "local" | "team",
+    proxyId: string,
+  ): Promise<boolean> => {
+    const key = proxyActionKey(origin, proxyId);
+    const scope = proxyScopeRef.current;
+    const activeKey = `${scope}:${key}`;
+    if (activeProxyActions.current.has(activeKey)) return false;
+    activeProxyActions.current.add(activeKey);
+    const previousExit = proxyActions.get(key)?.exit;
+    setProxyActions((actions) => new Map(actions).set(key, {
+      action,
+      status: "pending",
+      exit: previousExit,
+    }));
+    let rechecking = false;
+    try {
+      if (action === "rotate") {
+        const rotated = await api.rotateProxy(proxyId, origin);
+        if (!rotated.ok) {
+          if (scope === proxyScopeRef.current) {
+            setProxyActions((actions) => new Map(actions).set(key, {
+              action,
+              status: "error",
+              exit: previousExit,
+              error: rotated.error ?? t("px.checkBad"),
+            }));
+          }
+          return false;
+        }
+        rechecking = true;
+        if (scope === proxyScopeRef.current) {
+          setProxyActions((actions) => new Map(actions).set(key, {
+            action: "check",
+            status: "pending",
+            exit: null,
+            afterRotation: true,
+          }));
+        }
+      }
+      const result = await api.checkProxy("", null, proxyId, origin);
+      if (scope === proxyScopeRef.current) {
+        setProxyActions((actions) => new Map(actions).set(key, {
+          action: "check",
+          status: result.ok ? "ok" : "error",
+          exit: result.ok
+            ? { ip: result.ip, country: result.country, timezone: result.timezone }
+            : rechecking ? null : previousExit,
+          ms: result.ms,
+          checkerCountry: result.checker_country,
+          error: result.ok
+            ? undefined
+            : say({
+              code: result.error_code ? `pxc.${result.error_code}` : null,
+              message: result.error,
+              vars: { why: result.error_detail ?? "" },
+            }),
+          errorCode: result.ok ? null : result.error_code,
+        }));
+      }
+      return result.ok;
+    } catch (e) {
+      if (scope === proxyScopeRef.current) {
+        setProxyActions((actions) => new Map(actions).set(key, {
+          action: rechecking ? "check" : action,
+          status: "error",
+          exit: rechecking ? null : previousExit,
+          error: say(e),
+        }));
+      }
+      return false;
+    } finally {
+      activeProxyActions.current.delete(activeKey);
+    }
+  };
+
+  const checkProfileProxy = async (p: Profile) => {
+    if (!p.proxy || (p.origin !== "local" && p.origin !== "team")) return;
+    await runProxyAction("check", p.origin, p.proxy.id);
+  };
+
+  const rotateProfileProxy = async (p: Profile) => {
+    if (!p.proxy || p.origin !== "local") return;
+    await runProxyAction("rotate", p.origin, p.proxy.id);
+  };
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -1673,7 +1775,27 @@ export function App() {
         {/* No project selected is not the same as a project with no profiles,
             and saying the latter to someone who has been granted nothing sends
             them looking for a profile list that was never theirs. */}
-        {view === "proxies" && <Proxies profiles={profiles} local={local} myEmail={me?.email ?? null} />}
+        {view === "proxies" && (
+          <Proxies
+            profiles={profiles}
+            local={local}
+            myEmail={me?.email ?? null}
+            canCheck={local || me?.role === "owner" || me?.role === "admin"}
+            onCheckProxy={(proxy) => runProxyAction("check", local ? "local" : "team", proxy.id)}
+            onRotateProxy={(proxy) => runProxyAction("rotate", "local", proxy.id)}
+            canRotate={local}
+            proxyActionFor={(proxy) => visibleProxyActions.get(proxyActionKey(local ? "local" : "team", proxy.id))}
+            onProxySaved={(id) => {
+              const key = proxyActionKey(local ? "local" : "team", id);
+              setProxyActions((actions) => {
+                if (!actions.has(key)) return actions;
+                const next = new Map(actions);
+                next.delete(key);
+                return next;
+              });
+            }}
+          />
+        )}
         {view === "extensions" && <ExtensionsView profiles={profiles} />}
         {view === "bookmarks" && <BookmarksView profiles={profiles} />}
         {view === "assistants" && <AssistantsView />}
@@ -1740,7 +1862,11 @@ export function App() {
               launching={launching}
               onLaunch={onLaunch}
               onStop={onStop}
-              onEdit={setEditing}
+              onEdit={(p) => { setEditTab(undefined); setEditing(p); }}
+              onEditProxy={(p) => { setEditTab("Proxy"); setEditing(p); }}
+              onCheckProxy={checkProfileProxy}
+              onRotateProxy={rotateProfileProxy}
+              proxyActions={visibleProxyActions}
               onExtensions={setExtFor}
               onShare={local ? undefined : (p) => setSharing([p])}
               onNetwork={setNetFor}

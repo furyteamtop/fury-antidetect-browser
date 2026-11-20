@@ -239,11 +239,14 @@ export function BulkProfiles({
                         id="bp-proxy"
                         value={proxyId}
                         onChange={(e) => setProxyId(e.target.value)}
+                        searchable
+                        searchPlaceholder={t("px.saved")}
+                        emptySearchText={t("cmd.nothing")}
                       >
                         <option value="">{t("bp.noProxy")}</option>
                         {proxies.map((p) => (
                           <option key={p.id} value={p.id}>
-                            {countryPrefix(p.last_country)}{p.name}
+                            {countryPrefix(p.last_country)}{p.name} · {p.kind}://{p.host}:{p.port}
                           </option>
                         ))}
                       </Select>
