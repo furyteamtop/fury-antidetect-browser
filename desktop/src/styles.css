@@ -2327,3 +2327,41 @@ button.partnerBuy svg {
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
 }
+
+/* Sortable column headers (sort.ts). The button is the header's own text,
+   not a control drawn on top of it: same size, same caps, no box. */
+.grid th .sortHead {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+}
+
+.grid th .sortHead:hover,
+.grid th .sortHead.on {
+  color: var(--text);
+}
+
+.grid th .sortHead:focus-visible {
+  outline: 2px solid var(--accent, currentColor);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.grid th .sortArrow {
+  font-size: 8px;
+  opacity: 0;
+}
+
+.grid th .sortHead:hover .sortArrow {
+  opacity: 0.45;
+}
+
+.grid th .sortHead.on .sortArrow {
+  opacity: 1;
+}

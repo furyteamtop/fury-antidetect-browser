@@ -11,6 +11,11 @@ import { ProxyForm, addedByMe, proxyLock } from "./ProxyForm";
 import { ProxyPaste } from "./ProxyPaste";
 import { PartnerCard } from "./Partner";
 import { proxyUrl } from "../proxyUrl";
+import { sortRows, useSort } from "../sort";
+import { SortTh } from "./SortTh";
+
+const SORT_KEYS = ["name", "address", "lastSeen", "usedBy"] as const;
+type SortKey = (typeof SORT_KEYS)[number];
 
 /** The proxies this machine knows about.
  *
@@ -91,7 +96,29 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
     void load();
   }, [load]);
 
-  const usedBy = (id: string) => profiles.filter((p) => p.proxy?.id === id).length;
+  // Counted once, not once per row per render: forty proxies over two
+  // thousand profiles is eighty thousand comparisons on every sort.
+  const used = new Map<string, number>();
+  for (const p of profiles) if (p.proxy) used.set(p.proxy.id, (used.get(p.proxy.id) ?? 0) + 1);
+  const usedBy = (id: string) => used.get(id) ?? 0;
+
+  const sort = useSort<SortKey>("fury.sort.proxies", SORT_KEYS);
+  const shown = sortRows(rows, sort, (p, key) => {
+    switch (key) {
+      case "name":
+        return p.name;
+      case "address":
+        return [p.host, p.port];
+      case "lastSeen": {
+        // Where the exit is: country, then address. After "check all" the
+        // result breaks ties within one exit, faster first, failed last.
+        const c = checks.get(p.id);
+        return [p.last_country, p.last_ip, c ? (c.ok ? (c.ms ?? 0) : Number.MAX_SAFE_INTEGER) : null];
+      }
+      case "usedBy":
+        return usedBy(p.id);
+    }
+  });
 
   return (
     <>
@@ -150,15 +177,15 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
           <table className="grid">
             <thead>
               <tr>
-                <th>{t("px.label")}</th>
-                <th>{t("px.address")}</th>
-                <th>{t("px.lastSeen")}</th>
-                <th>{t("px.usedBy")}</th>
+                <SortTh k="name" sort={sort}>{t("px.label")}</SortTh>
+                <SortTh k="address" sort={sort}>{t("px.address")}</SortTh>
+                <SortTh k="lastSeen" sort={sort}>{t("px.lastSeen")}</SortTh>
+                <SortTh k="usedBy" sort={sort} first="desc">{t("px.usedBy")}</SortTh>
                 <th />
               </tr>
             </thead>
             <tbody>
-              {rows.map((p) => (
+              {shown.map((p) => (
                 <tr key={p.id}>
                   <td>
                     <div className="name">{p.name}</div>

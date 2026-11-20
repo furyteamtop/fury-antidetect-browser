@@ -9,6 +9,11 @@ import type { Me, Profile } from "../api";
 import { platformOf } from "../platform";
 import { assess } from "../consistency";
 import { isSuggested, statusHue } from "../status";
+import { sortRows, useSort } from "../sort";
+import { SortTh } from "./SortTh";
+
+const SORT_KEYS = ["name", "project", "proxy", "status", "lastOpened"] as const;
+type SortKey = (typeof SORT_KEYS)[number];
 
 /** Every row's controls follow the permissions the SERVER resolved. Hiding a
  *  button is presentation, not protection — the server refuses regardless — but
@@ -53,7 +58,7 @@ function formatSize(bytes: number): string {
 }
 
 export function ProfileTable({
-  profiles,
+  profiles: given,
   me,
   thisMachine,
   local,
@@ -120,6 +125,30 @@ export function ProfileTable({
   // answers is "is this on the server", and that question exists as soon as
   // there is a server.
   const hasServer = !local;
+
+  // Sorted here, before windowing, so the window is a slice of the sorted
+  // list. Selection is by id, so a re-sort keeps what was ticked.
+  const sort = useSort<SortKey>("fury.sort.profiles", SORT_KEYS);
+  const profiles = sortRows(given, sort, (p, key) => {
+    switch (key) {
+      case "name":
+        return p.name;
+      case "project":
+        return [p.project_name, p.name];
+      case "proxy":
+        // By exit country, unchecked ones after the checked, rows with no
+        // proxy at all last.
+        return [p.proxy?.country, p.proxy?.display, p.name];
+      case "status": {
+        // The account's stage first: that is what a farm sorts by. Then
+        // open here, in use elsewhere, idle.
+        const open = isOpenHere(p, { local, userId: me?.user_id, machine: thisMachine });
+        return [(p.status ?? "").trim().toLowerCase(), open ? 0 : p.lock ? 1 : 2, p.name];
+      }
+      case "lastOpened":
+        return p.last_opened_at ? Date.parse(p.last_opened_at) : null;
+    }
+  });
 
   // Windowing (docs/16 5.8). Measured before it was written: a full render
   // of 2 000 rows cost ~120 ms and 4 MB of DOM, and the list re-renders on
@@ -188,13 +217,13 @@ export function ProfileTable({
               onChange={onToggleAll}
             />
           </th>
-          <th>{t("col.name")}</th>
+          <SortTh k="name" sort={sort}>{t("col.name")}</SortTh>
           {/* Only when the list spans projects. Inside one project the column
               would repeat the same value on every row. */}
-          {showProject && <th>{t("col.project")}</th>}
-          <th>{t("col.proxy")}</th>
-          <th>{t("col.status")}</th>
-          <th>{t("col.lastOpened")}</th>
+          {showProject && <SortTh k="project" sort={sort}>{t("col.project")}</SortTh>}
+          <SortTh k="proxy" sort={sort}>{t("col.proxy")}</SortTh>
+          <SortTh k="status" sort={sort}>{t("col.status")}</SortTh>
+          <SortTh k="lastOpened" sort={sort} first="desc">{t("col.lastOpened")}</SortTh>
           <th />
         </tr>
       </thead>
