@@ -154,6 +154,32 @@ GATE = """
 """
 
 
+# #42: BrowserScan reads UNMASKED_RENDERER_WEBGL for 5 ms and calls more than
+# 100 reads a millisecond "WebGL exception". Real Chrome makes a GetString round
+# trip to the GPU process on every read (8-11 a ms on the Windows build box); a
+# string answered from the config was about 250 times faster. Its own loop,
+# copied: ten reads per check of the clock.
+RATE = """
+(() => {
+  const gl = document.createElement('canvas').getContext('webgl2')
+          || document.createElement('canvas').getContext('webgl');
+  const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+  const rate = (p) => {
+    let h = performance.now(), n = 0;
+    while (5 > performance.now() - h) {
+      for (let k = 0; k < 10; k++) gl.getParameter(p);
+      n += 10;
+    }
+    return Math.round(n / (performance.now() - h));
+  };
+  const r = [], v = [];
+  for (let i = 0; i < 5; i++) { r.push(rate(dbg.UNMASKED_RENDERER_WEBGL)); v.push(rate(dbg.UNMASKED_VENDOR_WEBGL)); }
+  r.sort((a, b) => a - b); v.sort((a, b) => a - b);
+  return JSON.stringify({renderer: r[2], vendor: v[2]});
+})()
+"""
+
+
 def main():
     claims = Claims("0031 — WebGL parameters and pixels", CORE)
 
@@ -182,6 +208,13 @@ def main():
                      f"and so are the UNMASKED_* pair behind "
                      f"WEBGL_debug_renderer_info, which is where every library "
                      f"actually looks")
+
+        rate = json.loads(s.js(RATE))
+        print(f"  unmasked reads per ms (median of 5): {rate}")
+        claims.check(rate["renderer"] <= 100 and rate["vendor"] <= 100,
+                     f"the configured UNMASKED_* pair costs a GPU round trip like "
+                     f"upstream's: at most 100 reads a ms, BrowserScan's line "
+                     f"(#42; got {rate})")
 
         g = json.loads(s.js(GATE))
         print(f"  unmasked before/after the extension: {json.dumps(g)}")
@@ -246,6 +279,12 @@ def main():
     with launch(CORE, None) as s:
         bare = json.loads(s.js(PROBE))
         print(f"  unconfigured renderer: {bare['renderer']}")
+        bare_rate = json.loads(s.js(RATE))
+        print(f"  unconfigured unmasked reads per ms: {bare_rate}")
+        claims.check(rate["renderer"] <= 3 * max(bare_rate["renderer"], 1),
+                     f"and within 3x of what this machine's own driver answers "
+                     f"unconfigured (got {rate['renderer']}, native "
+                     f"{bare_rate['renderer']})")
         print(f"  unconfigured extensions: {len(bare['extensions'])}")
         # Not MAX_TEXTURE_SIZE: this Mac reports 16384 as well, and a control
         # that happens to agree with the persona proves nothing.

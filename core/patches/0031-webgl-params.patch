@@ -1,5 +1,5 @@
 diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
-index b452298c24..f9bafb42bd 100644
+index e72f6f7ca6..a69a55880d 100644
 --- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 +++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 @@ -25,8 +25,17 @@
@@ -20,7 +20,7 @@ index b452298c24..f9bafb42bd 100644
  #include <memory>
  #include <utility>
  
-@@ -3888,6 +3897,29 @@ bool WebGLRenderingContextBase::TimerQueryExtensionsEnabled() {
+@@ -3891,6 +3900,29 @@ bool WebGLRenderingContextBase::TimerQueryExtensionsEnabled() {
                .IsWorkaroundEnabled(gpu::ENABLE_WEBGL_TIMER_QUERY_EXTENSIONS));
  }
  
@@ -50,7 +50,7 @@ index b452298c24..f9bafb42bd 100644
  ScriptObject WebGLRenderingContextBase::getExtension(ScriptState* script_state,
                                                       const String& name) {
    ExecutionContext* context = ExecutionContext::From(script_state);
-@@ -3896,6 +3928,24 @@ ScriptObject WebGLRenderingContextBase::getExtension(ScriptState* script_state,
+@@ -3899,6 +3931,24 @@ ScriptObject WebGLRenderingContextBase::getExtension(ScriptState* script_state,
      UseCounter::Count(context, WebFeature::kWebGLDebugRendererInfo);
    }
  
@@ -75,7 +75,7 @@ index b452298c24..f9bafb42bd 100644
    WebGLExtension* extension = EnableExtensionIfSupported(name, context);
    return ScriptObject(
        script_state->GetIsolate(),
-@@ -4003,10 +4053,149 @@ void WebGLRenderingContextBase::RecordANGLEImplementation() {
+@@ -4006,10 +4056,161 @@ void WebGLRenderingContextBase::RecordANGLEImplementation() {
                              webgl_angle_implementation);
  }
  
@@ -177,6 +177,18 @@ index b452298c24..f9bafb42bd 100644
 +        name && !unmasked_without_extension) {
 +      if (std::optional<std::string> value = config->GetString(
 +              std::string("gpu.webglParams.") + name)) {
++        // Upstream answers the unmasked pair with a synchronous GetString
++        // round trip to the GPU process on every call; a string from the
++        // config came back about 250 times faster, and that speed is itself
++        // the tell. BrowserScan times 5 ms of UNMASKED_RENDERER_WEBGL reads
++        // and reports "WebGL exception" above 100 a millisecond: real Chrome
++        // 157 on the build box made 8-11, Fury 0.6.7 1850-2530 (#42,
++        // 21.11.2026). So the real call is still made, and its answer dropped.
++        if (pname == WebGLDebugRendererInfo::kUnmaskedRendererWebgl) {
++          ContextGL()->GetString(GL_RENDERER);
++        } else if (pname == WebGLDebugRendererInfo::kUnmaskedVendorWebgl) {
++          ContextGL()->GetString(GL_VENDOR);
++        }
 +        return WebGLAny(script_state, String::FromUtf8(*value));
 +      }
 +    }
@@ -225,7 +237,7 @@ index b452298c24..f9bafb42bd 100644
    const int kIntZero = 0;
    switch (pname) {
      case GL_ACTIVE_TEXTURE:
-@@ -4526,6 +4715,55 @@ WebGLShaderPrecisionFormat* WebGLRenderingContextBase::getShaderPrecisionFormat(
+@@ -4529,6 +4730,55 @@ WebGLShaderPrecisionFormat* WebGLRenderingContextBase::getShaderPrecisionFormat(
    GLint precision = 0;
    ContextGL()->GetShaderPrecisionFormat(shader_type, precision_type, range,
                                          &precision);
@@ -281,7 +293,7 @@ index b452298c24..f9bafb42bd 100644
    return MakeGarbageCollected<WebGLShaderPrecisionFormat>(range[0], range[1],
                                                            precision);
  }
-@@ -4549,6 +4787,29 @@ WebGLRenderingContextBase::getSupportedExtensions() {
+@@ -4552,6 +4802,29 @@ WebGLRenderingContextBase::getSupportedExtensions() {
      }
    }
  
@@ -311,7 +323,7 @@ index b452298c24..f9bafb42bd 100644
    return result;
  }
  
-@@ -5372,6 +5633,42 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
+@@ -5376,6 +5649,42 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
      }
      ContextGL()->ReadPixels(x, y, width, height, format, type, data);
    }
