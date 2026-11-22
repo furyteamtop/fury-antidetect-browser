@@ -243,11 +243,14 @@ export function Select({
         e.preventDefault();
         setActive((a) => step(a, -1));
         return;
+      // In the search field Home and End move the caret, as in any text box.
       case "Home":
+        if (typing) return;
         e.preventDefault();
         setActive(step(-1, 1));
         return;
       case "End":
+        if (typing) return;
         e.preventDefault();
         setActive(step(shown.length, -1));
         return;
@@ -268,6 +271,10 @@ export function Select({
         if (typing) button.current?.focus();
         return;
       case "Tab":
+        // The search field is portaled to the end of <body>; Tab from there
+        // would leave the dialog. Back to the button first, so Tab moves on
+        // from where the list was opened.
+        if (typing) button.current?.focus();
         setOpen(false);
         setSearch("");
         return;

@@ -681,7 +681,7 @@ export function ProfileDialog({
                         value={proxyId}
                         onChange={(e) => setProxyId(e.target.value)}
                         searchable
-                        searchPlaceholder={t("px.saved")}
+                        searchPlaceholder={t("px.searchSaved")}
                         emptySearchText={t("cmd.nothing")}
                       >
                         <option value="">{t("pd.proxyNone")}</option>

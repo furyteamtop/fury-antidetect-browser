@@ -1682,15 +1682,32 @@ impl Agent {
                     .timeout(std::time::Duration::from_secs(30))
                     .build()?;
 
+                // Codes, not sentences: the shell says them in the operator's
+                // language (px.rotateRefused / px.rotateFailed). The request
+                // error itself is not passed on, since reqwest can quote the
+                // link, and the link carries the provider's API key.
                 match client.get(rotate).send().await {
-                    Ok(res) => {
-                        let ok = res.status().is_success();
-                        if ok {
-                            self.store.record_exit(&id, None, None, None, None).await?;
+                    Ok(res) if res.status().is_success() => {
+                        // The provider has rotated by now, whatever the store
+                        // says: a failed write must not report the rotation as
+                        // failed. The old exit is cleared so nothing shows it as
+                        // current; launch resolves the exit again anyway.
+                        if let Err(e) = self.store.record_exit(&id, None, None, None, None).await {
+                            tracing::warn!(proxy = %id, error = %e, "rotated, but the old exit could not be cleared");
                         }
-                        Ok(json!({ "ok": ok, "status": res.status().as_u16() }))
+                        Ok(json!({ "ok": true, "status": res.status().as_u16() }))
                     }
-                    Err(_) => Ok(json!({ "ok": false, "error": "Rotation failed" })),
+                    Ok(res) => Ok(json!({
+                        "ok": false,
+                        "status": res.status().as_u16(),
+                        "error_code": "rotateRefused",
+                        "error": format!("The provider refused the rotation (HTTP {})", res.status().as_u16()),
+                    })),
+                    Err(_) => Ok(json!({
+                        "ok": false,
+                        "error_code": "rotateFailed",
+                        "error": "The rotation link could not be reached through this proxy",
+                    })),
                 }
             }
 

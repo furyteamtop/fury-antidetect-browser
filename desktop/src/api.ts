@@ -1196,7 +1196,7 @@ export const api = {
    *  interface translates. See agent/src/diagnose.rs. */
   diagnoseProxy: (url: string, checkerUrl?: string | null, proxyId?: string | null): Promise<Diagnosis> =>
     cmd<Diagnosis>("diagnose_proxy", { url, checkerUrl: checkerUrl || null, proxyId: proxyId || null }),
-  rotateProxy: (id: string, origin?: Origin): Promise<{ ok: boolean; error?: string }> =>
+  rotateProxy: (id: string, origin?: Origin): Promise<{ ok: boolean; status?: number; error?: string; error_code?: string }> =>
     cmd("rotate_proxy", { id, origin: origin ?? null }),
   // ---- giving one profile to one person --------------------------------
 

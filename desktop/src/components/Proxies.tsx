@@ -205,7 +205,7 @@ export function Proxies({
                     : checkLabel;
                 const rotationLabel = rotation?.status === "pending" ? t("px.rotating") : t("px.rotateNow");
                 const rotationTitle = rotation?.status === "error"
-                    ? rotation.error ?? t("px.checkBad")
+                    ? rotation.error ?? t("px.rotateFailed")
                     : rotationLabel;
                 const locked = proxyLock(p, myEmail, t);
                 return (
@@ -237,7 +237,7 @@ export function Proxies({
                         {t(check.errorCode === "noIp" ? "px.checkNoIp" : "px.checkBad")}
                       </div>
                     )}
-                    {rotation?.status === "error" && <div className="warn" title={rotation.error}>{rotation.error ?? t("px.checkBad")}</div>}
+                    {rotation?.status === "error" && <div className="warn" title={rotation.error}>{rotation.error ?? t("px.rotateFailed")}</div>}
                   </td>
                   <td className="muted">
                     {usedBy(p.id) === 0 ? "—" : t("px.usedByN", { n: usedBy(p.id) })}
@@ -248,7 +248,7 @@ export function Proxies({
                           places: one table's pencil is every table's pencil. */}
                       {canCheck && (
                         <IconButton
-                          icon="check"
+                          icon="probe"
                           label={checkLabel}
                           title={checkTitle}
                           disabled={checking !== null || action?.status === "pending"}

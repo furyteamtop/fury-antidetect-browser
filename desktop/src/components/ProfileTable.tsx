@@ -270,7 +270,7 @@ export function ProfileTable({
               : checkLabel;
           const rotationLabel = rotation?.status === "pending" ? t("px.rotating") : t("px.rotateNow");
           const rotationTitle = rotation?.status === "error"
-              ? rotation.error ?? t("px.checkBad")
+              ? rotation.error ?? t("px.rotateFailed")
               : rotationLabel;
           const exit = proxyExit(proxyAction, { country: p.proxy?.country, ip: p.proxy?.last_ip });
           const locked = p.lock !== null;
@@ -364,7 +364,7 @@ export function ProfileTable({
                       {onCheckProxy && canCheckProxy && (
                         <span className={`proxyCheck proxyCheck-${check?.status ?? "idle"}`} onClick={(e) => e.stopPropagation()}>
                           <IconButton
-                            icon="check"
+                            icon="probe"
                             label={checkLabel}
                             title={checkTitle}
                             disabled={busy || proxyAction?.status === "pending"}
@@ -392,6 +392,12 @@ export function ProfileTable({
                         </span>
                       )}
                     </div>
+                    {/* Until the proxy has been checked the line says so: a
+                        label alone reads as a broken value rather than a fact
+                        not yet known. */}
+                    {!exit?.country && !exit?.ip && canReveal && shared < 2 && !check && !rotation && (
+                      <div className="muted small">{t("row.proxyUnchecked")}</div>
+                    )}
                     {(exit?.country || exit?.ip || !canReveal || shared >= 2) && (
                       <div className="muted small">
                         {exit?.country && <><span className="flag">{flag(exit.country)}</span> {exit.country}</>}
@@ -408,7 +414,7 @@ export function ProfileTable({
                       </div>
                     )}
                     {rotation?.status === "error" && (
-                      <div className="warn small" title={rotation.error}>{rotation.error ?? t("px.checkBad")}</div>
+                      <div className="warn small" title={rotation.error}>{rotation.error ?? t("px.rotateFailed")}</div>
                     )}
                   </div>
                 ) : (

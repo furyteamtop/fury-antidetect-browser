@@ -634,7 +634,11 @@ export function App() {
               action,
               status: "error",
               exit: previousExit,
-              error: rotated.error ?? t("px.checkBad"),
+              error: say({
+                code: rotated.error_code ? `px.${rotated.error_code}` : null,
+                message: rotated.error ?? t("px.rotateFailed"),
+                vars: { status: rotated.status ?? "" },
+              }),
             }));
           }
           return false;

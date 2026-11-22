@@ -29,7 +29,7 @@ const P = {
     "M21 12a9 9 0 1 1-9-9 3 3 0 0 0 3 3 3 3 0 0 0 3 3 3 3 0 0 0 3 3ZM9 10h.01M8 15h.01M13 15h.01M15 11h.01",
   trash: "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6",
   close: "M18 6 6 18M6 6l12 12",
-  check: "M4 7h12M12 3l4 4-4 4M20 17H8M12 13l-4 4 4 4",
+  probe: "M4 7h12M12 3l4 4-4 4M20 17H8M12 13l-4 4 4 4",
   refresh: "M20 11a8 8 0 1 0-.6 4M20 5v6h-6",
   pencil: "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z",
   /** A puzzle piece: extensions, and what else sits on disk beside the profile. */

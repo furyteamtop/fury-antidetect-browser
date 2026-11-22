@@ -240,7 +240,7 @@ export function BulkProfiles({
                         value={proxyId}
                         onChange={(e) => setProxyId(e.target.value)}
                         searchable
-                        searchPlaceholder={t("px.saved")}
+                        searchPlaceholder={t("px.searchSaved")}
                         emptySearchText={t("cmd.nothing")}
                       >
                         <option value="">{t("bp.noProxy")}</option>
