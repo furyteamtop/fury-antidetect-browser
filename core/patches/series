@@ -909,7 +909,16 @@
 # profile's window cannot be pinned -- a pinned window relaunches this
 # executable with no config, a profile with no persona and no proxy. Every
 # profile was "Fury" on the taskbar (tester, 12.10.2026). Windows only: the
-# title code is under !IS_MAC and the rest is a _win.cc file, so the macOS
-# core is unchanged. Reads window.profileName, which the agent adds at
-# launch; a config without it changes nothing but the pinning.
+# title code is under !IS_MAC and the rest is a _win.cc file. Reads
+# window.profileName, which the agent adds at launch; a config without it
+# changes nothing but the pinning. Since 22.11.2026 the macOS title carries
+# the name too (Mission Control, the Window menu, Cmd-`), where Chromium
+# leaves the product name out.
 0904-windows-profile-name.patch
+
+# The profile's name as a badge at the leading edge of the tab strip, beside
+# the window controls, on both platforms. Five windows of one site (a
+# tester's five Ads Managers, 21.11.2026) looked the same from inside. Laid
+# out like the leading buttons there; browser UI that no page can read.
+# Reads window.profileName; without it nothing is added.
+0905-profile-badge.patch

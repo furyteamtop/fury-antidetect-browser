@@ -1,0 +1,205 @@
+diff --git a/chrome/browser/ui/views/frame/horizontal_tab_strip_region_view.cc b/chrome/browser/ui/views/frame/horizontal_tab_strip_region_view.cc
+index ba82864fa3..33dd306a33 100644
+--- a/chrome/browser/ui/views/frame/horizontal_tab_strip_region_view.cc
++++ b/chrome/browser/ui/views/frame/horizontal_tab_strip_region_view.cc
+@@ -4,6 +4,10 @@
+ 
+ #include "chrome/browser/ui/views/frame/horizontal_tab_strip_region_view.h"
+ 
++#include <algorithm>
++
++#include "components/fury/fury_config.h"
++
+ #include "base/feature_list.h"
+ #include "base/functional/bind.h"
+ #include "base/task/single_thread_task_runner.h"
+@@ -58,7 +62,11 @@
+ #include "ui/compositor/layer.h"
+ #include "ui/gfx/geometry/insets.h"
+ #include "ui/gfx/geometry/point.h"
++#include "base/strings/utf_string_conversions.h"
++#include "chrome/browser/ui/color/chrome_color_id.h"
+ #include "ui/views/accessible_pane_view.h"
++#include "ui/views/background.h"
++#include "ui/views/controls/label.h"
+ #include "ui/views/actions/action_view_controller.h"
+ #include "ui/views/border.h"
+ #include "ui/views/cascading_property.h"
+@@ -75,6 +83,93 @@ inline constexpr int kTabStripRegionInternalPaddingMac = 12;
+ 
+ namespace {
+ 
++// Fury patch 0905: the profile's name at the leading edge of the tab strip,
++// beside the window controls.
++//
++// Every profile is the same core with the same icon, so five windows of one
++// site (five Ads Managers, measured by a tester on 21.11.2026) could be told
++// apart by nothing on screen. The name is the operator's, from the app
++// (window.profileName, the same key patch 0904 puts in the title); it is
++// browser UI, which no page can read.
++//
++// It is laid out like the leading buttons beside it: ignored by the flex
++// layout and placed by hand, to the left of them, with its width added to the
++// tab strip's leading margin. Found by id rather than kept in a member, so the
++// class header, which half the browser includes, stays untouched.
++constexpr int kFuryProfileBadgeId = 0x46555259;  // "FURY"
++constexpr int kFuryProfileBadgeMaxWidth = 180;
++
++void MaybeAddFuryProfileBadge(views::View* region,
++                              BrowserWindowInterface* browser) {
++  if (!browser ||
++      browser->GetType() != BrowserWindowInterface::Type::TYPE_NORMAL) {
++    return;
++  }
++  const fury::FuryConfig* config = fury::FuryConfig::Get();
++  if (!config) {
++    return;
++  }
++  const std::optional<std::string> name =
++      config->GetString("window.profileName");
++  if (!name || name->empty()) {
++    return;
++  }
++  auto badge = std::make_unique<views::Label>(base::UTF8ToUTF16(*name));
++  badge->SetID(kFuryProfileBadgeId);
++  badge->SetElideBehavior(gfx::ELIDE_TAIL);
++  badge->SetMaximumWidthSingleLine(kFuryProfileBadgeMaxWidth);
++  badge->SetEnabledColor(kColorTabForegroundActiveFrameActive);
++  badge->SetBackground(views::CreateRoundedRectBackground(
++      kColorTabBackgroundActiveFrameActive, 6));
++  badge->SetBorder(views::CreateEmptyBorder(gfx::Insets::VH(3, 8)));
++  // On a layer of its own, as the leading buttons are: the tab strip paints to
++  // a layer that spans this space, and a badge painted into the region's own
++  // canvas was laid out, took its room, and never showed (22.11.2026).
++  badge->SetPaintToLayer();
++  badge->layer()->SetFillsBoundsOpaquely(false);
++  // Clicks and drags fall through to the strip, as on its empty space.
++  badge->SetCanProcessEventsWithinSubtree(false);
++  badge->SetProperty(views::kViewIgnoredByLayoutKey, true);
++  region->AddChildView(std::move(badge));
++}
++
++const views::View* FuryProfileBadge(const views::View* region) {
++  const views::View* badge = region->GetViewByID(kFuryProfileBadgeId);
++  return badge && badge->GetVisible() ? badge : nullptr;
++}
++
++// Whether UpdateTabStripMargin counts the combo button as a leading button:
++// the same test it makes, so the badge lands beside it and not under it.
++bool FuryComboButtonCounted(TabStripComboButton* combo) {
++  return combo && ((combo->start_button() && combo->start_button()->GetVisible()) ||
++                   (combo->end_button() && combo->end_button()->GetVisible()));
++}
++
++// The room the badge takes, padding included, or 0 without one.
++int FuryProfileBadgeWidth(const views::View* region) {
++  const views::View* badge = FuryProfileBadge(region);
++  return badge ? badge->GetPreferredSize().width() +
++                     GetLayoutConstant(LayoutConstant::kTabStripPadding)
++               : 0;
++}
++
++// Left of everything else before the tab strip: `offset` is the width the
++// leading buttons already take, measured from the strip as they are.
++void PlaceFuryProfileBadge(views::View* region,
++                           const views::View* tab_strip,
++                           int offset) {
++  views::View* badge = region->GetViewByID(kFuryProfileBadgeId);
++  if (!badge || !badge->GetVisible() || !tab_strip) {
++    return;
++  }
++  const gfx::Size size = badge->GetPreferredSize();
++  const int x = tab_strip->x() + TabStyle::Get()->GetBottomCornerRadius() -
++                GetLayoutConstant(LayoutConstant::kTabStripPadding) -
++                size.width() - offset;
++  const int y = std::max(0, (region->height() - size.height()) / 2);
++  badge->SetBoundsRect(gfx::Rect(gfx::Point(x, y), size));
++}
++
+ class FrameGrabHandle : public views::View {
+   METADATA_HEADER(FrameGrabHandle, views::View)
+ 
+@@ -222,6 +317,7 @@ HorizontalTabStripRegionViewOld::HorizontalTabStripRegionViewOld(
+     }
+   }
+ 
++  MaybeAddFuryProfileBadge(this, browser);
+   tab_strip_ = AddChildView(CreateTabStrip(this, browser_view));
+ 
+   // Allow the |tab_strip_| to grow into the free space available in
+@@ -379,7 +475,12 @@ void HorizontalTabStripRegionViewOld::Layout(PassKey) {
+ 
+   if (combo_button_) {
+     AdjustViewBoundsRect(combo_button_, leading_offset);
++    if (FuryComboButtonCounted(combo_button_)) {
++      leading_offset += combo_button_->GetPreferredSize().width() +
++                        GetLayoutConstant(LayoutConstant::kTabStripPadding);
++    }
+   }
++  PlaceFuryProfileBadge(this, tab_strip_, leading_offset);
+ 
+   views::View* button_to_paint_to_layer = new_tab_button_;
+ 
+@@ -602,6 +703,9 @@ HorizontalTabStripRegionViewOld::GetExpandOnHoverLock(
+ }
+ 
+ bool HorizontalTabStripRegionViewOld::HasLeadingButtons() const {
++  if (FuryProfileBadge(this)) {
++    return true;
++  }
+   if (combo_button_ && combo_button_->GetVisible() &&
+       ((combo_button_->start_button() &&
+         combo_button_->start_button()->GetVisible()) ||
+@@ -706,6 +810,8 @@ void HorizontalTabStripRegionViewOld::UpdateTabStripMargin() {
+         GetLayoutConstant(LayoutConstant::kTabStripPadding);
+   }
+ 
++  current_leading_width += FuryProfileBadgeWidth(this);
++
+   if (current_leading_width > 0) {
+     tab_strip_left_margin = current_leading_width +
+                             GetLayoutConstant(LayoutConstant::kTabStripPadding);
+@@ -805,6 +911,8 @@ HorizontalTabStripRegionViewNew::HorizontalTabStripRegionViewNew(
+                                  views::LayoutAlignment::kCenter);
+   }
+ 
++  MaybeAddFuryProfileBadge(this, browser);
++
+   reserved_grab_handle_space_ =
+       AddChildView(std::make_unique<FrameGrabHandle>());
+   reserved_grab_handle_space_->SetProperty(
+@@ -883,6 +991,9 @@ void HorizontalTabStripRegionViewNew::ChildPreferredSizeChanged(
+ }
+ 
+ bool HorizontalTabStripRegionViewNew::HasLeadingButtons() const {
++  if (FuryProfileBadge(this)) {
++    return true;
++  }
+   if (combo_button_ && combo_button_->GetVisible() &&
+       ((combo_button_->start_button() &&
+         combo_button_->start_button()->GetVisible()) ||
+@@ -897,9 +1008,15 @@ void HorizontalTabStripRegionViewNew::Layout(PassKey) {
+   UpdateTabStripMargin();
+   LayoutSuperclass<BaseTabStripRegionView>(this);
+ 
++  int leading_offset = 0;
+   if (combo_button_) {
+     AdjustViewBoundsRect(combo_button_, 0);
++    if (FuryComboButtonCounted(combo_button_)) {
++      leading_offset += combo_button_->GetPreferredSize().width() +
++                        GetLayoutConstant(LayoutConstant::kTabStripPadding);
++    }
+   }
++  PlaceFuryProfileBadge(this, tab_strip_view(), leading_offset);
+ }
+ 
+ gfx::Size HorizontalTabStripRegionViewNew::GetMinimumSize() const {
+@@ -1101,6 +1218,8 @@ void HorizontalTabStripRegionViewNew::UpdateTabStripMargin() {
+     combo_button_->ClearProperty(views::kViewIgnoredByLayoutKey);
+   }
+ 
++  current_leading_width += FuryProfileBadgeWidth(this);
++
+   if (current_leading_width > 0) {
+     tab_strip_left_margin = current_leading_width +
+                             GetLayoutConstant(LayoutConstant::kTabStripPadding);
