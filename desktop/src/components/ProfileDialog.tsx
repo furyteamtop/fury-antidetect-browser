@@ -1214,8 +1214,13 @@ export function ProfileDialog({
                 {t("pd.osMismatch", { host: HOST_OS ?? "", os: osOf(chosenPersona) })}
               </div>
             )}
+            {/* A fact, not a warning: a catalogue machine is a model many real
+                computers share, and the profiles that use it still differ in
+                canvas and audio seed and proxy. What links accounts is a shared
+                exit, cookies or an ad account. The amber box read as a defect
+                to a tester with five profiles on one MacBook model (22.11.2026). */}
             {chosenPersona && sharedWith.length > 0 && (
-              <div className="verdict bad" style={{ marginBottom: "var(--s-3)" }}>
+              <div className="muted small" style={{ marginBottom: "var(--s-3)" }}>
                 {t("pd.machineShared", { names: sharedWith.join(", ") })}
                 {!machineLocked && unused.length > 0 && (
                   <div style={{ marginTop: "var(--s-2)" }}>
