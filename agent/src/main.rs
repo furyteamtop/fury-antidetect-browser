@@ -534,10 +534,11 @@ pub fn core_outdated(exe: &std::path::Path) -> Option<String> {
 /// 0.6.1 rebuilds macOS only: the CDM runs in "Fury Helper (Plugin)", signed
 /// without library validation (0065), because no other helper may load a
 /// Google-signed library and DRM never played on a Mac. Windows keeps 0.6.0.
-#[cfg(windows)]
-pub const CORE_BUILD: &str = "0.6.0";
-#[cfg(not(windows))]
-pub const CORE_BUILD: &str = "0.6.1";
+///
+/// 0.6.8 rebuilds both: the unmasked WebGL strings cost a GPU round trip as in
+/// Chrome (0031, BrowserScan's "WebGL exception", #42), and the window shows
+/// the profile's name beside its controls and in its title (0904, 0905).
+pub const CORE_BUILD: &str = "0.6.8";
 
 /// `0.2.10` as (0, 2, 10); None for anything else.
 pub fn parse_release(s: &str) -> Option<(u32, u32, u32)> {
@@ -594,12 +595,12 @@ pub fn core_stale(exe: &std::path::Path) -> Option<Option<String>> {
 #[cfg(target_os = "macos")]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = Some((
     "../Frameworks/Fury Framework.framework/Versions/Current/Fury Framework",
-    "f0ec29c35c39720ba23265c3a7eb9c80f7d17d91bd04215729586895318ddce4",
+    "9a2f5c18ea79a0313d651374d115c760f178536ff597d052626f83c78c36509e",
 ));
 #[cfg(windows)]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = Some((
     "chrome.dll",
-    "7e4b251a4f6d9cdeebbba689774c1004aec95ea860436ec106fd74d7ca2cc412",
+    "40ce25f12a0243c7d065a5f7420fce8b29c896043c6c0aadec0de9e9b08f71e6",
 ));
 #[cfg(not(any(target_os = "macos", windows)))]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = None;

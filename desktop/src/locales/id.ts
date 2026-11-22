@@ -73,6 +73,7 @@ export const id: Record<Key, string> = {
   "app.coreStale": "Browser yang terpasang adalah build dari Fury {have}; versi ini membutuhkan build dari {need} atau yang lebih baru.",
   "app.coreStaleUnknown": "Browser yang terpasang mungkin build yang lebih lama; versi ini membutuhkan build dari Fury {need} atau yang lebih baru.",
   "app.coreStaleHow": "{what} Profil tetap berfungsi dengan build lama sampai Anda memperbarui. Tutup profil yang terbuka, lalu tekan tombolnya; profil tetap utuh.",
+  "app.coreWhat068": "Build baru menampilkan nama profil di jendelanya, di samping tombol jendela dan di judul, dan WebGL menjawab secepat Chrome, yang diperiksa BrowserScan.",
   "app.coreWhat054": "Build baru menjawab seperti Chrome di tiga tempat lagi: halaman yang diizinkan mendaftar font hanya melihat font profil, AI bawaan tampil siap diunduh, dan WebRTC menampilkan kandidat Chrome yang biasa dengan alamat proxy alih-alih kosong.",
   "app.coreWhat0414": "Pada build baru, setiap frame halaman melaporkan ukuran jendela yang sama, seperti di Chrome. Sebelumnya frame tertanam melaporkan ukurannya sendiri ditambah bingkai jendela, dan halaman bisa membandingkannya.",
   "app.coreWhat0412": "Build baru terlihat lebih mirip Chrome biasa bagi pemeriksa seperti fingerprint.com: pengukuran teks tidak lagi membawa pecahan yang mencurigakan, suara Google bawaan Chrome tersedia, dan WebGL mencantumkan ekstensinya dalam urutan Chrome.",
