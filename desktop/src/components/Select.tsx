@@ -87,6 +87,9 @@ export function Select({
   style,
   title,
   autoFocus,
+  searchable = false,
+  searchPlaceholder,
+  emptySearchText,
   "aria-label": ariaLabel,
 }: {
   value?: string | number;
@@ -98,6 +101,11 @@ export function Select({
   style?: CSSProperties;
   title?: string;
   autoFocus?: boolean;
+  /** A filter for long, saved-item lists. The native type-ahead remains for
+   * ordinary selects, whose short menus do not need a field of their own. */
+  searchable?: boolean;
+  searchPlaceholder?: string;
+  emptySearchText?: string;
   "aria-label"?: string;
 }) {
   const options = collect(children);
@@ -105,32 +113,68 @@ export function Select({
   const selected = options.findIndex((o) => o.value === current);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
+  const [search, setSearch] = useState("");
   const [place, setPlace] = useState<{ left: number; top: number; width: number; maxHeight: number; up: boolean } | null>(null);
   const button = useRef<HTMLButtonElement>(null);
+  const popup = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
   const typed = useRef({ text: "", at: 0 });
   const listId = useId();
 
+  const shown = (() => {
+    const query = searchable ? search.trim().toLowerCase() : "";
+    if (!query) return options;
+    const filtered: Opt[] = [];
+    let heading: Opt | null = null;
+    for (const option of options) {
+      if (option.heading) {
+        heading = option;
+      } else if (option.label.toLowerCase().includes(query)) {
+        if (heading) filtered.push(heading);
+        heading = null;
+        filtered.push(option);
+      }
+    }
+    return filtered;
+  })();
+
   const choose = (i: number) => {
-    const o = options[i];
+    const o = shown[i];
     if (!o || o.disabled) return;
     setOpen(false);
+    setSearch("");
     button.current?.focus();
     if (o.value !== current) onChange?.({ target: { value: o.value }, currentTarget: { value: o.value } });
   };
 
   const step = (from: number, dir: 1 | -1) => {
-    for (let i = from + dir; i >= 0 && i < options.length; i += dir) {
-      if (!options[i].disabled) return i;
+    for (let i = from + dir; i >= 0 && i < shown.length; i += dir) {
+      if (!shown[i].disabled) return i;
     }
     return from;
   };
 
   const show = () => {
     if (disabled || options.length === 0) return;
+    setSearch("");
     setActive(selected >= 0 ? selected : step(-1, 1));
     setOpen(true);
   };
+
+  // A selected proxy remains selected while filtering. The active menu row
+  // follows it when it matches, or the first match when it does not.
+  useEffect(() => {
+    if (!open) return;
+    const matching = shown.findIndex((o) => o.value === current);
+    setActive(matching >= 0 ? matching : step(-1, 1));
+  // `shown` is rebuilt from the option children and search text.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, search, current, options.length]);
+
+  useEffect(() => {
+    if (open && searchable) searchInput.current?.focus();
+  }, [open, searchable, place]);
 
   // Placed before paint, so the list never flashes at the wrong spot.
   useLayoutEffect(() => {
@@ -138,7 +182,7 @@ export function Select({
     const r = button.current.getBoundingClientRect();
     const below = window.innerHeight - r.bottom - 8;
     const above = r.top - 8;
-    const want = Math.min(320, options.length * 30 + 10);
+    const want = Math.min(320, shown.length * 30 + (searchable ? 48 : 10));
     const up = below < want && above > below;
     setPlace({
       left: r.left,
@@ -147,18 +191,18 @@ export function Select({
       maxHeight: Math.max(120, Math.min(320, up ? above : below)),
       up,
     });
-  }, [open, options.length]);
+  }, [open, shown.length, searchable]);
 
   // Closed by anything that would leave it floating over the wrong place.
   useEffect(() => {
     if (!open) return;
     const away = (e: MouseEvent) => {
       const t = e.target as Node;
-      if (list.current?.contains(t) || button.current?.contains(t)) return;
+      if (popup.current?.contains(t) || button.current?.contains(t)) return;
       setOpen(false);
     };
     const scrolled = (e: Event) => {
-      if (list.current && e.target instanceof Node && list.current.contains(e.target)) return;
+      if (popup.current && e.target instanceof Node && popup.current.contains(e.target)) return;
       setOpen(false);
     };
     const resized = () => setOpen(false);
@@ -180,8 +224,9 @@ export function Select({
     list.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" });
   }, [open, active, place]);
 
-  const onKey = (e: React.KeyboardEvent) => {
+  const onKey = (e: React.KeyboardEvent<HTMLElement>) => {
     if (disabled) return;
+    const typing = e.currentTarget === searchInput.current;
     if (!open) {
       if (["ArrowDown", "ArrowUp", "Enter", " "].includes(e.key)) {
         e.preventDefault();
@@ -204,10 +249,14 @@ export function Select({
         return;
       case "End":
         e.preventDefault();
-        setActive(step(options.length, -1));
+        setActive(step(shown.length, -1));
         return;
       case "Enter":
+        e.preventDefault();
+        choose(active);
+        return;
       case " ":
+        if (typing) return;
         e.preventDefault();
         choose(active);
         return;
@@ -215,18 +264,21 @@ export function Select({
         e.preventDefault();
         e.stopPropagation();
         setOpen(false);
+        setSearch("");
+        if (typing) button.current?.focus();
         return;
       case "Tab":
         setOpen(false);
+        setSearch("");
         return;
     }
     // Type to jump, as a native menu does.
-    if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    if (!typing && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
       const now = Date.now();
       const t = typed.current;
       t.text = (now - t.at < 700 ? t.text : "") + e.key.toLowerCase();
       t.at = now;
-      const i = options.findIndex((o) => !o.disabled && o.label.toLowerCase().startsWith(t.text));
+      const i = shown.findIndex((o) => !o.disabled && o.label.toLowerCase().startsWith(t.text));
       if (i >= 0) setActive(i);
     }
   };
@@ -277,10 +329,8 @@ export function Select({
         place &&
         createPortal(
           <div
-            ref={list}
-            id={listId}
-            role="listbox"
-            className="selectList"
+            ref={popup}
+            className="selectPop"
             style={{
               left: place.left,
               minWidth: place.width,
@@ -288,29 +338,52 @@ export function Select({
               ...(place.up ? { bottom: window.innerHeight - place.top } : { top: place.top }),
             }}
           >
-            {options.map((o, i) =>
-              o.heading ? (
-                <div key={i} role="presentation" className="selectHeading">
-                  {o.label}
-                </div>
-              ) : (
-              <div
-                key={i}
-                id={`${listId}-${i}`}
-                data-index={i}
-                role="option"
-                aria-selected={i === selected}
-                aria-disabled={o.disabled || undefined}
-                className={"selectOption" + (i === active ? " active" : "") + (o.disabled ? " disabled" : "")}
-                onMouseMove={() => !o.disabled && active !== i && setActive(i)}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => choose(i)}
-              >
-                <span className="selectCheck">{i === selected ? "✓" : ""}</span>
-                <span className="selectLabel">{o.label || " "}</span>
-              </div>
-            ),
+            {searchable && (
+              <input
+                ref={searchInput}
+                className="selectSearch"
+                value={search}
+                placeholder={searchPlaceholder}
+                aria-label={searchPlaceholder}
+                role="combobox"
+                aria-controls={listId}
+                aria-expanded="true"
+                aria-activedescendant={active >= 0 ? `${listId}-${active}` : undefined}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={onKey}
+                onBlur={() => {
+                  requestAnimationFrame(() => {
+                    if (!popup.current?.contains(document.activeElement)) setOpen(false);
+                  });
+                }}
+              />
             )}
+            <div ref={list} id={listId} role="listbox" className="selectList">
+              {shown.length === 0 && <div className="selectEmpty">{emptySearchText}</div>}
+              {shown.map((o, i) =>
+                o.heading ? (
+                  <div key={i} role="presentation" className="selectHeading">
+                    {o.label}
+                  </div>
+                ) : (
+                <div
+                  key={i}
+                  id={`${listId}-${i}`}
+                  data-index={i}
+                  role="option"
+                  aria-selected={o.value === current}
+                  aria-disabled={o.disabled || undefined}
+                  className={"selectOption" + (i === active ? " active" : "") + (o.disabled ? " disabled" : "")}
+                  onMouseMove={() => !o.disabled && active !== i && setActive(i)}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => choose(i)}
+                >
+                  <span className="selectCheck">{o.value === current ? "✓" : ""}</span>
+                  <span className="selectLabel">{o.label || " "}</span>
+                </div>
+              ),
+              )}
+            </div>
           </div>,
           document.body,
         )}

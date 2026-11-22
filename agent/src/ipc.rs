@@ -1465,7 +1465,16 @@ impl Agent {
             // want to tell ipinfo.io that this proxy exists can point
             // FURY_IP_CHECK at their own.
             "proxies.check" => {
-                let url = str_param(&params, "url")?;
+                let mut url = str_param(&params, "url")?;
+                let stored = if url.is_empty() {
+                    let id = str_param(&params, "id")?;
+                    Some(self.store.proxy(&id).await?.ok_or_else(|| anyhow::anyhow!("no such proxy"))?)
+                } else {
+                    None
+                };
+                if let Some(proxy) = &stored {
+                    url = proxy.url();
+                }
                 let upstream = crate::parse_upstream(&url)?;
                 // Parsed first so a malformed proxy string fails here rather
                 // than as an opaque transport error thirty seconds later.
@@ -1474,7 +1483,12 @@ impl Agent {
                 // A local MMDB path in the checker field (issue #4), or by
                 // default the fetched DB-IP file (geodb.rs): the exit IP
                 // still comes from the far end, geo from the file.
-                let checker = crate::geoip::checker(params.get("checker_url").and_then(|v| v.as_str()));
+                let checker_url = params
+                    .get("checker_url")
+                    .and_then(|v| v.as_str())
+                    .filter(|url| !url.trim().is_empty())
+                    .or_else(|| stored.as_ref().and_then(|proxy| proxy.checker_url.as_deref()));
+                let checker = crate::geoip::checker(checker_url);
                 let endpoint = checker.endpoint.clone();
 
                 // Through the relay a profile uses, not reqwest's own SOCKS5
@@ -1531,7 +1545,7 @@ impl Agent {
                         // was fine.
                         let suggested = crate::diagnose::speaks_instead(
                             &url,
-                            params.get("checker_url").and_then(|v| v.as_str()),
+                            checker_url,
                         )
                         .await;
                         if let Some(kind) = suggested {
@@ -1647,10 +1661,8 @@ impl Agent {
                 let id = str_param(&params, "id")?;
                 let proxy = self
                     .store
-                    .proxies()
+                    .proxy(&id)
                     .await?
-                    .into_iter()
-                    .find(|p| p.id == id)
                     .ok_or_else(|| anyhow::anyhow!("no such proxy"))?;
 
                 let rotate = proxy
@@ -1671,8 +1683,14 @@ impl Agent {
                     .build()?;
 
                 match client.get(rotate).send().await {
-                    Ok(res) => Ok(json!({ "ok": res.status().is_success(), "status": res.status().as_u16() })),
-                    Err(e) => Ok(json!({ "ok": false, "error": format!("Rotation failed: {e}") })),
+                    Ok(res) => {
+                        let ok = res.status().is_success();
+                        if ok {
+                            self.store.record_exit(&id, None, None, None, None).await?;
+                        }
+                        Ok(json!({ "ok": ok, "status": res.status().as_u16() }))
+                    }
+                    Err(_) => Ok(json!({ "ok": false, "error": "Rotation failed" })),
                 }
             }
 
@@ -1703,6 +1721,7 @@ impl Agent {
                         matches!(entry.child.try_wait(), Ok(None)).then(|| id.clone())
                     })
                     .collect();
+                let rotating = self.store.rotating_proxy_ids().await?;
                 // The list is the only place the shell learns what is open, so
                 // the answer has to come from the supervisor rather than from a
                 // flag in the database that a crash would leave stale.
@@ -1711,6 +1730,9 @@ impl Agent {
                     .map(|p| {
                         let mut v = serde_json::to_value(&p).unwrap_or_default();
                         v["running"] = json!(running.contains(&p.id));
+                        if let Some(proxy) = &p.proxy {
+                            v["proxy"]["has_rotation"] = json!(rotating.contains(&proxy.id));
+                        }
                         v
                     })
                     .collect();

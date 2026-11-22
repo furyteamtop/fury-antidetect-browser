@@ -680,6 +680,9 @@ export function ProfileDialog({
                         id="p-proxy"
                         value={proxyId}
                         onChange={(e) => setProxyId(e.target.value)}
+                        searchable
+                        searchPlaceholder={t("px.saved")}
+                        emptySearchText={t("cmd.nothing")}
                       >
                         <option value="">{t("pd.proxyNone")}</option>
                         {proxies.map((p) => (

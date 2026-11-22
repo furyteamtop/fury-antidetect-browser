@@ -335,6 +335,68 @@ textarea {
   white-space: nowrap;
 }
 
+.proxyCell {
+  min-width: 0;
+}
+
+.proxyLabelRow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.proxyLabel {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Editing a proxy assignment is occasional. Keep the label easy to scan, but
+   reveal its shortcut both on hover and while tabbing through the cell. */
+.proxyEdit {
+  flex: none;
+  opacity: 0;
+}
+
+.proxyCell:hover .proxyEdit,
+.proxyCell:focus-within .proxyEdit {
+  opacity: 1;
+}
+
+.proxyEdit button.icon {
+  width: 22px;
+  height: 22px;
+}
+
+.proxyCheck,
+.proxyRotate {
+  flex: none;
+}
+
+.proxyCheck button.icon,
+.proxyRotate button.icon {
+  width: 22px;
+  height: 22px;
+}
+
+.proxyCheck-ok button.icon { color: var(--ok); }
+.proxyCheck-error button.icon { color: var(--warn); }
+.proxyRotate-ok button.icon { color: var(--ok); }
+.proxyRotate-error button.icon { color: var(--warn); }
+
+.proxyCheck-pending button.icon svg,
+.proxyRotate-pending button.icon svg {
+  animation: proxyCheckSpin 1s linear infinite;
+}
+
+@keyframes proxyCheckSpin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .proxyCheck-pending button.icon svg,
+  .proxyRotate-pending button.icon svg { animation: none; }
+}
+
 .tags {
   display: flex;
   flex-wrap: wrap;
@@ -1908,16 +1970,34 @@ button.selectBtn:disabled {
   visibility: hidden;
 }
 
-.selectList {
+.selectPop {
   position: fixed;
   z-index: 1000;
   max-width: min(560px, 92vw);
-  overflow-y: auto;
   padding: 4px;
   border: 1px solid var(--line-strong);
   border-radius: var(--r);
   background: var(--surface);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+}
+
+.selectList {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.selectSearch {
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+.selectEmpty {
+  padding: 8px 12px;
+  color: var(--text-faint);
+  font-size: 12px;
 }
 
 .selectOption {

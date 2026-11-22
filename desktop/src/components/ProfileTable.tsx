@@ -11,6 +11,7 @@ import { assess } from "../consistency";
 import { isSuggested, statusHue } from "../status";
 import { sortRows, useSort } from "../sort";
 import { SortTh } from "./SortTh";
+import { proxyActionKey, proxyExit, type ProxyAction } from "../proxyAction";
 
 const SORT_KEYS = ["name", "project", "proxy", "status", "lastOpened"] as const;
 type SortKey = (typeof SORT_KEYS)[number];
@@ -67,6 +68,10 @@ export function ProfileTable({
   onLaunch,
   onStop,
   onEdit,
+  onEditProxy,
+  onCheckProxy,
+  onRotateProxy,
+  proxyActions,
   onDelete,
   onExtensions,
   onShare,
@@ -91,6 +96,12 @@ export function ProfileTable({
   /** Local mode only: with a server, editing belongs where the permissions
    *  live, and that screen does not exist yet. */
   onEdit?: (p: Profile) => void;
+  /** Opens the profile editor on its saved-proxy tab. */
+  onEditProxy?: (p: Profile) => void;
+  /** Checks the proxy assigned to a visible profile. */
+  onCheckProxy?: (p: Profile) => void;
+  onRotateProxy?: (p: Profile) => void;
+  proxyActions?: Map<string, ProxyAction>;
   onDelete?: (p: Profile) => void;
   /** Extensions and disk usage — the two things beside the browser data. */
   onExtensions?: (p: Profile) => void;
@@ -135,10 +146,14 @@ export function ProfileTable({
         return p.name;
       case "project":
         return [p.project_name, p.name];
-      case "proxy":
-        // By exit country, unchecked ones after the checked, rows with no
-        // proxy at all last.
-        return [p.proxy?.country, p.proxy?.display, p.name];
+      case "proxy": {
+        // Exit country first, then the saved label that identifies it.
+        const action = p.proxy && (p.origin === "local" || p.origin === "team")
+          ? proxyActions?.get(proxyActionKey(p.origin, p.proxy.id))
+          : undefined;
+        const exit = proxyExit(action, { country: p.proxy?.country, ip: p.proxy?.last_ip });
+        return [exit?.country, p.proxy?.name || p.proxy?.display, p.name];
+      }
       case "status": {
         // The account's stage first: that is what a farm sorts by. Then
         // open here, in use elsewhere, idle.
@@ -239,6 +254,25 @@ export function ProfileTable({
           const canReveal = p.permissions.includes("reveal_secrets");
           const canDelete = p.permissions.includes("delete_profile");
           const canEdit = p.permissions.includes("edit_profile");
+          const proxyAction = p.proxy && (p.origin === "local" || p.origin === "team")
+            ? proxyActions?.get(proxyActionKey(p.origin, p.proxy.id))
+            : undefined;
+          const check = proxyAction?.action === "check" ? proxyAction : undefined;
+          const rotation = proxyAction?.action === "rotate" ? proxyAction : undefined;
+          const canCheckProxy = (p.origin === "local" || p.origin === "team")
+            && (p.origin === "local" || me?.role === "owner" || me?.role === "admin");
+          const canRotateProxy = p.origin === "local" && !!p.proxy?.has_rotation && canEdit;
+          const checkLabel = check?.status === "pending" ? t("px.checking") : t("px.check");
+          const checkTitle = check?.status === "ok"
+            ? t("px.checkOk", { ms: check.ms ?? 0 })
+            : check?.status === "error"
+              ? check.error ?? t("px.checkBad")
+              : checkLabel;
+          const rotationLabel = rotation?.status === "pending" ? t("px.rotating") : t("px.rotateNow");
+          const rotationTitle = rotation?.status === "error"
+              ? rotation.error ?? t("px.checkBad")
+              : rotationLabel;
+          const exit = proxyExit(proxyAction, { country: p.proxy?.country, ip: p.proxy?.last_ip });
           const locked = p.lock !== null;
           const open = isOpenHere(p, { local, userId: me?.user_id, machine: thisMachine });
           const starting = launching?.has(p.id) ?? false;
@@ -325,30 +359,58 @@ export function ProfileTable({
                 onClick={() => p.proxy && onNetwork?.(p)}
               >
                 {p.proxy ? (
-                  <>
-                    <div className="mono">{p.proxy.display}</div>
-                    {/* A country appears once the proxy has been checked. Until
-                        then the line says so — it used to render a bare "?",
-                        which reads as a broken value rather than a fact not yet
-                        known. */}
-                    <div className="muted small">
-                      {p.proxy.country ? (
-                        <>
-                          <span className="flag">{flag(p.proxy.country)}</span> {p.proxy.country}
-                        </>
-                      ) : (
-                        t("row.proxyUnchecked")
+                  <div className="proxyCell">
+                    <div className="proxyLabelRow">
+                      {onCheckProxy && canCheckProxy && (
+                        <span className={`proxyCheck proxyCheck-${check?.status ?? "idle"}`} onClick={(e) => e.stopPropagation()}>
+                          <IconButton
+                            icon="check"
+                            label={checkLabel}
+                            title={checkTitle}
+                            disabled={busy || proxyAction?.status === "pending"}
+                            onClick={() => onCheckProxy(p)}
+                          />
+                        </span>
                       )}
-                      {/* The server masks the host for anyone without
-                          reveal_secrets; say so, or a masked value reads like a
-                          bug rather than a boundary. */}
-                      {!canReveal && ` · ${t("row.masked")}`}
-                      {/* How many profiles a site sees from this exit (docs/12 C).
-                          Said from two, as a fact and not a warning: on a
-                          mobile exit fifty is normal (consistency.ts). */}
-                      {shared >= 2 && <span> · {t("row.sharedExit", { n: shared })}</span>}
+                      {onRotateProxy && canRotateProxy && (
+                        <span className={`proxyRotate proxyRotate-${rotation?.status ?? "idle"}`} onClick={(e) => e.stopPropagation()}>
+                          <IconButton
+                            icon="refresh"
+                            label={rotationLabel}
+                            title={rotationTitle}
+                            disabled={busy || proxyAction?.status === "pending"}
+                            onClick={() => onRotateProxy(p)}
+                          />
+                        </span>
+                      )}
+                      <div className="proxyLabel" title={p.proxy.name}>
+                        {p.proxy.name || p.proxy.display}
+                      </div>
+                      {onEditProxy && canEdit && (
+                        <span className="proxyEdit" onClick={(e) => e.stopPropagation()}>
+                          <IconButton icon="pencil" label={t("px.edit")} disabled={busy} onClick={() => onEditProxy(p)} />
+                        </span>
+                      )}
                     </div>
-                  </>
+                    {(exit?.country || exit?.ip || !canReveal || shared >= 2) && (
+                      <div className="muted small">
+                        {exit?.country && <><span className="flag">{flag(exit.country)}</span> {exit.country}</>}
+                        {exit?.country && exit?.ip && " · "}
+                        {exit?.ip && <span className="mono">{exit.ip}</span>}
+                        {!canReveal && <>{(exit?.country || exit?.ip) && " · "}{t("row.masked")}</>}
+                        {shared >= 2 && <span>{(exit?.country || exit?.ip || !canReveal) && " · "}{t("row.sharedExit", { n: shared })}</span>}
+                      </div>
+                    )}
+                    {check?.status === "pending" && check.afterRotation && <div className="muted small">{t("px.checking")}</div>}
+                    {check?.status === "error" && (
+                      <div className="warn small" title={check.error}>
+                        {t(check.errorCode === "noIp" ? "px.checkNoIp" : "px.checkBad")}
+                      </div>
+                    )}
+                    {rotation?.status === "error" && (
+                      <div className="warn small" title={rotation.error}>{rotation.error ?? t("px.checkBad")}</div>
+                    )}
+                  </div>
                 ) : (
                   // Not cosmetic: the agent refuses to launch without one,
                   // unless this profile has been given permission — and then

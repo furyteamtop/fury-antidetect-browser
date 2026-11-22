@@ -47,7 +47,7 @@ export function ProxyForm({
   editing: LocalProxy | null;
   myEmail?: string | null;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (id: string) => void;
 }) {
   const { t, say } = useI18n();
   const locked = editing ? proxyLock(editing, myEmail, t) : null;
@@ -265,7 +265,7 @@ export function ProxyForm({
               setBusy(true);
               setError(null);
               try {
-                await api.saveProxy({
+                const saved = await api.saveProxy({
                   id: editing?.id ?? "",
                   name: name.trim() || `${host.trim()}:${port}`,
                   kind, host: host.trim(), port: Number(port),
@@ -276,7 +276,7 @@ export function ProxyForm({
                   rotate_url: wg ? null : (rotate.trim() || null),
                   checker_url: checker.trim() || null,
                 });
-                onSaved();
+                onSaved(saved.id);
               } catch (e) {
                 setError(say(e));
               } finally {
