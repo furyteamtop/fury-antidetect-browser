@@ -592,7 +592,18 @@ impl Persona {
         // this audit set out to close — and closing it is a data job, not a code
         // one: `shared/personas/*.json` ship with `voices: []` and
         // `media_devices: []` and need capturing on real machines.
-        if !self.voices.is_empty() {
+        //
+        // A list with no voice of the system's own narrows to nothing but the
+        // 19 "Google ..." network voices, which every Chrome has (patch 0042),
+        // and hides the "Microsoft ..." or macOS voices that every real
+        // machine also lists. Issue #44, measured 23.11.2026 on the Windows
+        // box: the contributed windows-19-radeon-rx persona, whose capture
+        // read the list before the system's voices had arrived, scored
+        // tampering 0.997 on fingerprint.com in 2 launches of 4 (the filter
+        // applies to whichever list arrives first), and 0.11-0.22 in 4 of 4
+        // with the list left out. Profiles keep a copy of their persona, so
+        // the fix is here and not only in the persona file.
+        if has_system_voice(&self.voices) {
             config["speech"] = serde_json::json!({ "voices": self.voices });
         }
 
@@ -994,6 +1005,17 @@ impl Persona {
             errs.push(format!("desktop font {f:?} on an Android persona"));
         }
     }
+}
+
+/// Whether a desktop voice list names any voice the system itself provides,
+/// rather than only the "Google ..." network voices Chrome adds on every
+/// machine. Only such a list is worth narrowing to (see `derive_core_config`).
+/// Two of Chrome's own names put a no-break space after "Google"
+/// ("Google\u{a0}普通话（中国大陆）"), so either space counts.
+pub fn has_system_voice(voices: &[String]) -> bool {
+    voices
+        .iter()
+        .any(|v| !(v.starts_with("Google ") || v.starts_with("Google\u{a0}")))
 }
 
 /// " (0x" + eight hex digits + ")", as ANGLE formats a DXGI DeviceId.
@@ -1421,6 +1443,26 @@ mod tests {
             "CORE_CONFIG_KEYS lists these and no patch reads them — either the patch \
              was dropped or the key was renamed: {stale:?}"
         );
+    }
+
+    #[test]
+    fn a_voice_list_of_only_network_voices_is_not_a_filter() {
+        // Issue #44: narrowing to the "Google ..." voices hides the system's.
+        let mut p = load("windows-11-rtx4060-1920x1080");
+        p.voices = vec!["Google US English".into(), "Google Deutsch".into()];
+        assert!(p.derive_core_config(1, &ctx()).get("speech").is_none());
+
+        p.voices.push("Microsoft Zira - English (United States)".into());
+        let config = p.derive_core_config(1, &ctx());
+        assert_eq!(config["speech"]["voices"].as_array().map(Vec::len), Some(3));
+        crate::fingerprint::check_core_config(&config).unwrap_or_else(|e| panic!("{e:?}"));
+
+        for name in [
+            "contributed/windows-19-radeon-rx-2560x1440",
+            "contributed/macos-26-apple-m5-1512x982",
+        ] {
+            assert!(load(name).derive_core_config(1, &ctx()).get("speech").is_none(), "{name}");
+        }
     }
 
     #[test]

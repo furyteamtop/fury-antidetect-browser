@@ -73,7 +73,7 @@ index 09bc575008..12df31869b 100644
  void ChromeContentBrowserClient::OverrideWebPreferences(
      WebContents* web_contents,
      content::SiteInstance& main_frame_site,
-@@ -5072,6 +5129,36 @@ void ChromeContentBrowserClient::OverrideWebPreferences(
+@@ -5072,6 +5129,59 @@ void ChromeContentBrowserClient::OverrideWebPreferences(
  
    web_prefs->is_xslt_deprecation_banner_suppressed =
        prefs->GetBoolean(prefs::kXSLTDeprecationBannerSuppressed);
@@ -106,11 +106,34 @@ index 09bc575008..12df31869b 100644
 +        static_cast<int>(blink::mojom::HoverType::kHoverNone);
 +    web_prefs->primary_hover_type = blink::mojom::HoverType::kHoverNone;
 +    FuryMobileLayout(web_prefs, !FuryIsBrowserPage(web_contents));
++  } else if (std::optional<int> touch_points =
++                 config ? config->GetInt("navigator.maxTouchPoints")
++                        : std::nullopt) {
++    // A desktop persona's input devices are its own too (issue #43). Patch
++    // 0010 answers navigator.maxTouchPoints from the persona, and these came
++    // from the host: on a Windows laptop with a touchscreen a profile said
++    // maxTouchPoints 0 next to (any-pointer: coarse), which no machine says.
++    // The values are the ones GetAvailablePointerAndHoverTypesImpl gives a
++    // Windows PC with a mouse, plus a coarse pointer when there is a
++    // touchscreen. Touch event feature detection stays as the host has it,
++    // which on a desktop is off with or without a touchscreen.
++    int pointers = static_cast<int>(blink::mojom::PointerType::kPointerFineType);
++    if (*touch_points > 0) {
++      pointers |=
++          static_cast<int>(blink::mojom::PointerType::kPointerCoarseType);
++    }
++    web_prefs->pointer_events_max_touch_points = *touch_points;
++    web_prefs->available_pointer_types = pointers;
++    web_prefs->primary_pointer_type =
++        blink::mojom::PointerType::kPointerFineType;
++    web_prefs->available_hover_types =
++        static_cast<int>(blink::mojom::HoverType::kHoverHoverType);
++    web_prefs->primary_hover_type = blink::mojom::HoverType::kHoverHoverType;
 +  }
  }
  
  bool ChromeContentBrowserClientParts::OverrideWebPreferencesAfterNavigation(
-@@ -5087,6 +5174,14 @@ bool ChromeContentBrowserClient::OverrideWebPreferencesAfterNavigation(
+@@ -5087,6 +5197,14 @@ bool ChromeContentBrowserClient::OverrideWebPreferencesAfterNavigation(
      WebPreferences* web_prefs) {
    bool prefs_changed = false;
  

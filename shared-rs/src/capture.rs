@@ -180,6 +180,9 @@ pub fn from_capture(dump: &Value, id: &str, weight: f64) -> Result<Value, String
                 .collect()
         })
         .unwrap_or_default();
+    // Read before the system's voices arrived: only Chrome's network voices.
+    // As a filter that would hide the system's (issue #44), so leave it out.
+    let voices = if crate::persona::has_system_voice(&voices) { voices } else { Vec::new() };
 
     let media_devices: Vec<Value> = s(dump, "mediaDevices.kinds")
         .map(|kinds| {

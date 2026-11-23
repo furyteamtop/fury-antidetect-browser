@@ -858,10 +858,23 @@
               defaultVoice: (v.find((x) => x.default) || {}).name || null,
             };
           };
-          const now = read();
-          if (now) return resolve(now);
-          speechSynthesis.onvoiceschanged = () => resolve(read() || { count: 0 });
-          setTimeout(() => resolve(read() || { count: 0, __empty: true }), 1500);
+          // The system's voices and Chrome's 19 "Google ..." network voices
+          // arrive separately, each with its own voiceschanged, in either
+          // order. The first non-empty list can be only the Google ones; a
+          // persona captured from it hid the system's voices (issue #44). So
+          // wait until the list stops growing.
+          let last = read();
+          let quiet = 0;
+          speechSynthesis.onvoiceschanged = () => { last = read() || last; quiet = 0; };
+          const tick = setInterval(() => {
+            const now = read();
+            if (now && (!last || now.count !== last.count)) { last = now; quiet = 0; }
+            else quiet++;
+            if ((last && quiet >= 6) || quiet >= 15) {
+              clearInterval(tick);
+              resolve(last || { count: 0, __empty: true });
+            }
+          }, 250);
         })
     );
   }
