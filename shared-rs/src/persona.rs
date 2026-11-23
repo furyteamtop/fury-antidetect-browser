@@ -597,11 +597,12 @@ impl Persona {
         // 19 "Google ..." network voices, which every Chrome has (patch 0042),
         // and hides the "Microsoft ..." or macOS voices that every real
         // machine also lists. Issue #44, measured 23.11.2026 on the Windows
-        // box: the contributed windows-19-radeon-rx persona, whose capture
-        // read the list before the system's voices had arrived, scored
-        // tampering 0.997 on fingerprint.com in 2 launches of 4 (the filter
-        // applies to whichever list arrives first), and 0.11-0.22 in 4 of 4
-        // with the list left out. Profiles keep a copy of their persona, so
+        // box, six seeds, same core and agent: with the contributed
+        // windows-19-radeon-rx list sent, the page saw 19 voices and no local
+        // one in 4 launches of 6, and fingerprint.com flagged exactly those
+        // (0.99); in the other 2 the filter did not take effect (22 voices).
+        // With the list left out, 22 voices, 3 of them Microsoft's, and 0 of
+        // 6 flagged (0.20-0.36). Profiles keep a copy of their persona, so
         // the fix is here and not only in the persona file.
         if has_system_voice(&self.voices) {
             config["speech"] = serde_json::json!({ "voices": self.voices });
