@@ -538,7 +538,10 @@ pub fn core_outdated(exe: &std::path::Path) -> Option<String> {
 /// 0.6.8 rebuilds both: the unmasked WebGL strings cost a GPU round trip as in
 /// Chrome (0031, BrowserScan's "WebGL exception", #42), and the window shows
 /// the profile's name beside its controls and in its title (0904, 0905).
-pub const CORE_BUILD: &str = "0.6.8";
+///
+/// 0.6.9 rebuilds both: a desktop profile's pointer and hover media queries
+/// follow its touch points instead of the host's input devices (0130, #43).
+pub const CORE_BUILD: &str = "0.6.9";
 
 /// `0.2.10` as (0, 2, 10); None for anything else.
 pub fn parse_release(s: &str) -> Option<(u32, u32, u32)> {
@@ -595,12 +598,12 @@ pub fn core_stale(exe: &std::path::Path) -> Option<Option<String>> {
 #[cfg(target_os = "macos")]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = Some((
     "../Frameworks/Fury Framework.framework/Versions/Current/Fury Framework",
-    "9a2f5c18ea79a0313d651374d115c760f178536ff597d052626f83c78c36509e",
+    "f8fb49c7692bbb612d4ba925063914b0b674e55786d66e15f42c944a594875d1",
 ));
 #[cfg(windows)]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = Some((
     "chrome.dll",
-    "40ce25f12a0243c7d065a5f7420fce8b29c896043c6c0aadec0de9e9b08f71e6",
+    "1c9938bed399208ddc87df0c7a2b1f12dee1e7c3a7439eb21d4c710bd2360c98",
 ));
 #[cfg(not(any(target_os = "macos", windows)))]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = None;

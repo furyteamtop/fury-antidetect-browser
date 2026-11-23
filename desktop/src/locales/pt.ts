@@ -74,6 +74,7 @@ export const pt: Record<Key, string> = {
   "app.coreStaleUnknown": "O navegador instalado pode ser de uma versão mais antiga; esta versão requer o do Fury {need} ou mais recente.",
   "app.coreStaleHow": "{what} Os perfis continuam funcionando na versão antiga até você atualizar. Feche os perfis abertos e clique no botão; os perfis continuam como estão.",
   "app.coreWhat068": "A nova versão mostra o nome do perfil na janela, ao lado dos botões da janela e no título, e o WebGL responde na velocidade do Chrome, algo que o BrowserScan verifica.",
+  "app.coreWhat069": "A nova versão mostra à página o mouse e a entrada por toque da máquina do perfil, e não os deste computador, então uma tela sensível ao toque não aparece mais num perfil que não tem uma.",
   "app.coreWhat054": "A nova versão responde como o Chrome em mais três pontos: uma página com permissão para listar fontes vê só as fontes do perfil, a IA integrada aparece como pronta para baixar e o WebRTC mostra os candidatos habituais do Chrome com o endereço do proxy em vez de nenhum.",
   "app.coreWhat0414": "Na nova versão, todos os frames de uma página informam o mesmo tamanho de janela, como o Chrome faz. Antes, um frame incorporado informava o próprio tamanho mais a borda da janela, e uma página podia comparar os valores.",
   "app.coreWhat0412": "A nova versão se parece mais com o Chrome comum para verificadores como o fingerprint.com: as medidas de texto não têm mais frações reveladoras, as vozes do Google do próprio Chrome estão presentes e o WebGL lista suas extensões na ordem do Chrome.",

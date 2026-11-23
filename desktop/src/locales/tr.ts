@@ -74,6 +74,7 @@ export const tr: Record<Key, string> = {
   "app.coreStaleUnknown": "Kurulu tarayıcı eski bir yapı olabilir; bu sürüm Fury {need} veya daha yeni bir yapı bekliyor.",
   "app.coreStaleHow": "{what} Profiller siz güncelleyene kadar eski yapıyla çalışmaya devam eder. Açık profilleri kapatın, ardından düğmeye basın; profiller olduğu gibi kalır.",
   "app.coreWhat068": "Yeni sürüm profilin adını penceresinde, pencere düğmelerinin yanında ve başlıkta gösterir; WebGL de Chrome hızında yanıt verir, BrowserScan bunu kontrol eder.",
+  "app.coreWhat069": "Yeni sürüm sayfaya bu bilgisayarın değil, profilin makinesinin fare ve dokunma girişini gösterir; böylece dokunmatik ekranı olmayan bir profilde dokunmatik ekran artık görünmez.",
   "app.coreWhat054": "Yeni sürüm üç yerde daha Chrome gibi yanıt veriyor: yazı tiplerini listeleme izni olan bir sayfa yalnızca profilin yazı tiplerini görür, yerleşik yapay zekâ indirilebilir görünür ve WebRTC boş liste yerine proxy adresiyle Chrome'un olağan adaylarını gösterir.",
   "app.coreWhat0414": "Yeni yapıda bir sayfanın her çerçevesi, Chrome'da olduğu gibi aynı pencere boyutunu bildirir. Gömülü bir çerçeve daha önce kendi boyutunu ve pencere kenarlığını bildiriyordu; bir sayfa bunu karşılaştırabilirdi.",
   "app.coreWhat0412": "Yeni yapı, fingerprint.com gibi denetleyicilere sade Chrome'a daha çok benzer görünür: metin ölçümleri artık ele veren kesirler taşımaz, Chrome'un kendi Google sesleri yerindedir ve WebGL uzantılarını Chrome'un sırasıyla listeler.",
