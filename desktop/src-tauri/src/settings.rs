@@ -100,7 +100,15 @@ pub struct Settings {
     /// it the handle opens nothing (docs/25).
     #[serde(default)]
     pub pending_recovery: Option<PendingRecovery>,
+
+    /// Automation configuration, captcha service keys and AI API credentials.
+    #[serde(default)]
+    pub automation: AutomationSettings,
 }
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AutomationSettings {}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PendingRecovery {
@@ -142,6 +150,7 @@ impl Settings {
                 ork_generations: Default::default(),
                 remember_org_key: true,
                 pending_recovery: None,
+                automation: Default::default(),
                 server_url: None,
                 machine_id: new_machine_id(),
             },

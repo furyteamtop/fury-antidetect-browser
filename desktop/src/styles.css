@@ -650,6 +650,16 @@ textarea {
   background: var(--bg);
 }
 
+input[type="checkbox"],
+input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
 input:focus,
 select:focus,
 textarea:focus {

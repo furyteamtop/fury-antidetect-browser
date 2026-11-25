@@ -101,6 +101,7 @@ export const vi: Record<Key, string> = {
   "nav.profiles": "Hồ sơ",
   "nav.proxies": "Proxy",
   "nav.extensions": "Tiện ích mở rộng",
+  "nav.automations": "Tự động hóa",
   "nav.assistants": "Trợ lý AI",
   "ai.what": "Cho phép Claude, Cursor hoặc bất kỳ trợ lý nào hỗ trợ MCP làm việc với các hồ sơ của bạn: mở hồ sơ, vào trang web, đọc trang, nhấp và gõ, làm nóng hồ sơ, đóng hồ sơ. Hãy yêu cầu bằng lời thường, ví dụ:",
   "ai.example1": "\"Mở mọi hồ sơ gắn thẻ warm, kiểm tra xem còn đăng nhập vào nền tảng không, rồi đóng lại\"",

@@ -283,6 +283,79 @@ export interface WarmProgress {
   started_at_ms: number;
 }
 
+export interface AutomationInputOption {
+  value: string;
+  label: string;
+}
+
+export interface AutomationInputDef {
+  key?: string;
+  label?: string;
+  type: string;
+  default?: any;
+  help_text?: string;
+  placeholder?: string;
+  required?: boolean;
+  min?: number;
+  max?: number;
+  step?: number;
+  multi?: boolean;
+  allow_bulk?: boolean;
+  options?: AutomationInputOption[];
+  category?: string;
+  providers?: string[];
+  title?: string;
+  description?: string;
+  fields?: AutomationInputDef[];
+}
+
+export interface AutomationManifest {
+  id: string;
+  name: string;
+  summary: string;
+  description?: string;
+  version?: string;
+  author: string;
+  runtime?: string;
+  drives?: string[];
+  requires: string[];
+  entry: string;
+  licence: string;
+  fury: string;
+  path: string;
+  is_builtin: boolean;
+  inputs?: AutomationInputDef[];
+}
+
+export interface AutomationSettings {}
+
+
+export interface RunAutomationRequest {
+  automation_id: string;
+  profile_ids: string[];
+  proxy_mode?: string;
+  bulk_proxies?: string;
+  concurrency?: number;
+  run_count?: number;
+  custom_user_agent?: string;
+  dwell_seconds?: [number, number];
+  custom_urls?: string[];
+  background?: boolean;
+  headless?: boolean;
+  custom_inputs?: Record<string, any>;
+}
+
+export interface ActiveJobInfo {
+  id: string;
+  automation_id: string;
+  automation_name: string;
+  profile_ids: string[];
+  started_at_ms: number;
+  status: "running" | "finished" | "failed" | "stopped";
+  logs: string[];
+  error?: string;
+}
+
 /** A role the organisation named itself: a set of project rights given to
  *  people project by project. Changing it changes everyone on it. */
 export interface AccessRole {
@@ -1434,4 +1507,23 @@ export const api = {
     cmd("delete_project", { id, origin: origin ?? null }),
   createProject: (name: string): Promise<{ id: string }> =>
     cmd<{ id: string }>("create_project", { name }),
+
+  // ---- automations --------------------------------------------------------
+  automationsList: (): Promise<AutomationManifest[]> => cmd("automations_list"),
+  automationsGetSettings: (): Promise<AutomationSettings> => cmd("automations_get_settings"),
+  automationsSaveSettings: (settings: AutomationSettings): Promise<unknown> =>
+    cmd("automations_save_settings", { automation: settings }),
+  automationsRun: (req: RunAutomationRequest): Promise<ActiveJobInfo> =>
+    cmd("automations_run", { req }),
+  automationsStop: (jobId: string): Promise<unknown> =>
+    cmd("automations_stop", { jobId }),
+  automationsStatus: (): Promise<ActiveJobInfo[]> => cmd("automations_status"),
+  automationsImport: (archivePath: string): Promise<AutomationManifest> =>
+    cmd("automations_import", { archivePath }),
+  automationsExport: (automationId: string, targetPath: string): Promise<string> =>
+    cmd("automations_export", { automationId, targetPath }),
+  automationsImportB64: (name: string, dataB64: string): Promise<AutomationManifest> =>
+    cmd("automations_import_b64", { name, dataB64 }),
+  automationsExportB64: (automationId: string): Promise<string> =>
+    cmd("automations_export_b64", { automationId }),
 };

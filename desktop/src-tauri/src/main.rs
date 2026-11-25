@@ -15,6 +15,7 @@
 
 mod agent;
 mod assistants;
+mod automations;
 mod commands;
 mod crypto;
 mod session;
@@ -166,6 +167,16 @@ fn main() {
             assistants::assistants_connect,
             assistants::assistants_disconnect,
             assistants::assistants_install_skill,
+            automations::automations_list,
+            automations::automations_get_settings,
+            automations::automations_save_settings,
+            automations::automations_run,
+            automations::automations_stop,
+            automations::automations_status,
+            automations::automations_import,
+            automations::automations_export,
+            automations::automations_import_b64,
+            automations::automations_export_b64,
             update::open_url,
             commands::set_remember_org_key,
             commands::audit,

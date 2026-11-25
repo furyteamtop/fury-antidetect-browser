@@ -101,6 +101,7 @@ export const ko: Record<Key, string> = {
   "nav.profiles": "프로필",
   "nav.proxies": "프록시",
   "nav.extensions": "확장 프로그램",
+  "nav.automations": "자동화",
   "nav.assistants": "AI 어시스턴트",
   "ai.what": "Claude, Cursor 등 MCP를 지원하는 어시스턴트가 프로필로 작업하게 하세요. 프로필 열기, 사이트 이동, 페이지 읽기, 클릭과 입력, 워밍업, 닫기를 맡길 수 있습니다. 평소 말투로 요청하면 됩니다. 예를 들면 다음과 같습니다.",
   "ai.example1": "\"warm 태그가 달린 프로필을 모두 열고, 플랫폼에 아직 로그인되어 있는지 확인한 다음 닫아 줘\"",

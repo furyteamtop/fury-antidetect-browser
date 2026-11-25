@@ -218,7 +218,19 @@ pub async fn call<T: DeserializeOwned>(method: &str, params: Value) -> Result<T,
 pub async fn ensure_running() -> Result<(), AgentError> {
     if fury_platform::Stream::connect(&ipc_endpoint()).await.is_ok() {
         if !retire_other_version().await {
-            return Ok(());
+            let api_port = std::env::var("FURY_API_PORT").unwrap_or_else(|_| "35000".to_string());
+            let target_addr = format!("127.0.0.1:{}", api_port);
+            if tokio::net::TcpStream::connect(&target_addr).await.is_err() {
+                let _ = call::<Value>("agent.shutdown", serde_json::json!({})).await;
+                for _ in 0..30 {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    if fury_platform::Stream::connect(&ipc_endpoint()).await.is_err() {
+                        break;
+                    }
+                }
+            } else {
+                return Ok(());
+            }
         }
     }
     // Mid-update the agent is stopped on purpose, and the binary beside this
@@ -229,7 +241,9 @@ pub async fn ensure_running() -> Result<(), AgentError> {
 
     let binary = agent_binary().ok_or(AgentError::NotRunning)?;
     let mut cmd = std::process::Command::new(&binary);
+    let api_port = std::env::var("FURY_API_PORT").unwrap_or_else(|_| "35000".to_string());
     cmd.arg("serve")
+        .env("FURY_API_PORT", api_port)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());

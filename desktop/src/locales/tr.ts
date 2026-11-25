@@ -101,6 +101,7 @@ export const tr: Record<Key, string> = {
   "nav.profiles": "Profiller",
   "nav.proxies": "Proxy'ler",
   "nav.extensions": "Uzantılar",
+  "nav.automations": "Otomasyonlar",
   "nav.assistants": "Yapay zekâ asistanları",
   "ai.what": "Claude, Cursor veya MCP konuşan herhangi bir asistan profillerinizle çalışsın: profilleri açsın, sitelere gitsin, sayfaları okusun, tıklasın ve yazsın, profilleri ısıtsın, kapatsın. Sade bir dille isteyin, örneğin:",
   "ai.example1": "\"warm etiketli tüm profilleri aç, platformda hâlâ oturumlarının açık olup olmadığını kontrol et, sonra kapat\"",

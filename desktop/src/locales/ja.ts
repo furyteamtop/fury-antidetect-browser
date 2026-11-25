@@ -101,6 +101,7 @@ export const ja: Record<Key, string> = {
   "nav.profiles": "プロファイル",
   "nav.proxies": "プロキシ",
   "nav.extensions": "拡張機能",
+  "nav.automations": "自動化",
   "nav.assistants": "AIアシスタント",
   "ai.what": "Claude、Cursor、MCP に対応するアシスタントに、プロファイルを操作させることができます。開く、サイトへ移動する、ページを読む、クリックや入力をする、ウォームアップする、閉じる、といった操作です。普通の言葉で頼んでください。例:",
   "ai.example1": "「warm タグが付いたプロファイルをすべて開いて、プラットフォームにまだログインしているか確認し、閉じて」",
