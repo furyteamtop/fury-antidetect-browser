@@ -60,11 +60,66 @@
     }
   }
 
-  function withTimeout(promise, ms, label) {
+  /* Whichever comes first. `cleanup` runs only when time is up: what the
+   * collector opened and has not closed itself (a worker, a peer connection).
+   * The loser of the race resolves into nothing, so an answer that arrives
+   * late cannot change a dump that is already finished. */
+  function withTimeout(promise, ms, label, cleanup) {
+    let timer;
     return Promise.race([
       promise,
-      new Promise((resolve) => setTimeout(() => resolve({ __timeout: label }), ms)),
-    ]);
+      new Promise((resolve) => {
+        timer = setTimeout(() => {
+          try { if (cleanup) cleanup(); } catch (e) { /* closing is best effort */ }
+          resolve({ __timeout: label });
+        }, ms);
+      }),
+    ]).finally(() => clearTimeout(timer));
+  }
+
+  /* No vector may hold up the dump, whatever its API does (issue #48): a
+   * Promise that never settles used to leave the page at "working" for ever,
+   * with everything else already measured.
+   *
+   * Each vector gets its own deadline and an entry in `report`:
+   *   ok       a value
+   *   absent   the API is not there
+   *   blocked  the API is there and refused (NotAllowedError, SecurityError)
+   *   error    it threw anything else
+   *   timeout  it did not answer in time; `ms` says how long it was given
+   * A deadline here is the outer one. Collectors that know more about what
+   * they wait for keep a shorter one of their own. */
+  const VECTOR_MS = 8000;
+
+  function statusOf(v) {
+    if (v && typeof v === 'object') {
+      if (v.__timeout) return 'timeout';
+      if (v.__absent) return 'absent';
+      if (v.__error) return /NotAllowedError|SecurityError/.test(v.__error) ? 'blocked' : 'error';
+      // One part that never answered (a DRM system, a permission) leaves the
+      // rest of the vector standing, and the vector incomplete.
+      if (Object.values(v).some((x) => x && x.__timeout)) return 'timeout';
+    }
+    return 'ok';
+  }
+
+  async function vector(report, name, fn, ms) {
+    const started = Date.now();
+    const value = await withTimeout(safeAsync(fn), ms || VECTOR_MS, name);
+    const entry = { status: statusOf(value), ms: Date.now() - started };
+    if (entry.status === 'error' || entry.status === 'blocked') entry.error = value.__error;
+    report[name] = Object.assign(entry, report[name]);
+    return value;
+  }
+
+  /* The synchronous half. Nothing can interrupt it, but one that throws must
+   * not take the dump with it either. */
+  function vectorSync(report, name, fn) {
+    const started = Date.now();
+    const value = safe(fn);
+    report[name] = { status: statusOf(value), ms: Date.now() - started };
+    if (value && value.__error) report[name].error = value.__error;
+    return value;
   }
 
   // ---------------------------------------------------------------------------
@@ -691,10 +746,14 @@
     const systems = ['com.widevine.alpha', 'com.microsoft.playready', 'org.w3.clearkey'];
     const out = {};
     for (const sys of systems) {
-      out[sys] = await safeAsync(async () => {
-        const access = await navigator.requestMediaKeySystemAccess(sys, config);
-        return { available: true, keySystem: access.keySystem };
-      });
+      out[sys] = await withTimeout(
+        safeAsync(async () => {
+          const access = await navigator.requestMediaKeySystemAccess(sys, config);
+          return { available: true, keySystem: access.keySystem };
+        }),
+        5000,
+        sys
+      );
     }
     // Real Chrome answers yes to Widevine. A build with enable_widevine=false
     // says no, which is a detection unless patch 0061 fakes it. See docs/10.
@@ -707,11 +766,12 @@
 
   async function collectWebrtc() {
     if (!window.RTCPeerConnection) return { __absent: true };
+    let pc = null;
     return await withTimeout(
       safeAsync(
         () =>
-          new Promise((resolve) => {
-            const pc = new RTCPeerConnection({
+          new Promise((resolve, reject) => {
+            pc = new RTCPeerConnection({
               iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
             });
             const candidates = [];
@@ -741,7 +801,7 @@
               candidates.push(e.candidate.candidate);
             };
             pc.createDataChannel('fury');
-            pc.createOffer().then((o) => pc.setLocalDescription(o));
+            pc.createOffer().then((o) => pc.setLocalDescription(o)).catch(reject);
           })
       ),
       /* 12s, not 6. Gathering runs through the profile's proxy, and a slow
@@ -750,7 +810,8 @@
        * `completed: true, candidateCount: 0` means blocked, a bare `__timeout`
        * means we simply did not wait long enough. */
       12000,
-      'webrtc'
+      'webrtc',
+      () => pc && pc.close()
     );
   }
 
@@ -796,7 +857,11 @@
     ];
     const out = {};
     for (const name of names) {
-      out[name] = await safeAsync(async () => (await navigator.permissions.query({ name })).state);
+      out[name] = await withTimeout(
+        safeAsync(async () => (await navigator.permissions.query({ name })).state),
+        2000,
+        name
+      );
     }
     /* Classic headless tell: the two APIs report different states for
      * notifications. But they use different vocabularies for the same states —
@@ -841,40 +906,69 @@
     });
   }
 
-  async function collectSpeech() {
+  const SPEECH_QUIET_MS = 1500;   // no new list for this long: settled
+  const SPEECH_EMPTY_MS = 3750;   // nothing at all by then: there are none
+  const SPEECH_MAX_MS = 8000;     // still changing by then: say so and stop
+
+  async function collectSpeech(report) {
     if (!window.speechSynthesis) return { __absent: true };
+    const started = Date.now();
+    const history = [];
+    let events = 0;
+    let last = null;
+    let changedAt = started;
+    const read = () => {
+      const v = speechSynthesis.getVoices();
+      if (!v.length) return;
+      const now = {
+        count: v.length,
+        // Platform-specific voice list. Windows ships "Microsoft ..."
+        // voices, macOS ships different ones. Rarely spoofed, often read.
+        names: v.map((x) => `${x.name}|${x.lang}|${x.localService}`).sort().join('~'),
+        hash: hash(v.map((x) => x.name + x.lang).sort().join(',')),
+        defaultVoice: (v.find((x) => x.default) || {}).name || null,
+      };
+      // The same list again is not news: an event that repeats it is counted
+      // and does not restart the quiet window (issue #48).
+      if (last && last.hash === now.hash) return;
+      last = now;
+      changedAt = Date.now();
+      if (history.length < 20) history.push({ ms: changedAt - started, count: now.count, hash: now.hash });
+    };
+    const onEvent = () => { events++; read(); };
+    // The system's voices and Chrome's 19 "Google ..." network voices arrive
+    // separately, each with its own voiceschanged, in either order. The first
+    // non-empty list can be only the Google ones; a persona captured from it
+    // hid the system's voices (issue #44). So wait until the list stops
+    // growing.
+    const finish = (status) => {
+      report.speech = {
+        ...(status ? { status } : {}),
+        events,
+        history,
+        stableAfterMs: status ? null : (history.length ? history[history.length - 1].ms : null),
+      };
+      return last ? { ...last } : { count: 0, __empty: true };
+    };
     return await safeAsync(
       () =>
-        new Promise((resolve) => {
-          const read = () => {
-            const v = speechSynthesis.getVoices();
-            if (!v.length) return null;
-            return {
-              count: v.length,
-              // Platform-specific voice list. Windows ships "Microsoft ..."
-              // voices, macOS ships different ones. Rarely spoofed, often read.
-              names: v.map((x) => `${x.name}|${x.lang}|${x.localService}`).sort().join('~'),
-              hash: hash(v.map((x) => x.name + x.lang).sort().join(',')),
-              defaultVoice: (v.find((x) => x.default) || {}).name || null,
-            };
+        new Promise((resolve, reject) => {
+          let tick = null;
+          const stop = (status) => {
+            clearInterval(tick);
+            speechSynthesis.removeEventListener('voiceschanged', onEvent);
+            resolve(finish(status));
           };
-          // The system's voices and Chrome's 19 "Google ..." network voices
-          // arrive separately, each with its own voiceschanged, in either
-          // order. The first non-empty list can be only the Google ones; a
-          // persona captured from it hid the system's voices (issue #44). So
-          // wait until the list stops growing.
-          let last = read();
-          let quiet = 0;
-          speechSynthesis.onvoiceschanged = () => { last = read() || last; quiet = 0; };
-          const tick = setInterval(() => {
-            const now = read();
-            if (now && (!last || now.count !== last.count)) { last = now; quiet = 0; }
-            else quiet++;
-            if ((last && quiet >= 6) || quiet >= 15) {
-              clearInterval(tick);
-              resolve(last || { count: 0, __empty: true });
-            }
-          }, 250);
+          const step = () => {
+            try { read(); } catch (e) { clearInterval(tick); reject(e); return; }
+            const now = Date.now();
+            if (last ? now - changedAt >= SPEECH_QUIET_MS : now - started >= SPEECH_EMPTY_MS) stop(null);
+            // The list it had is kept, and marked: it may not be the whole one.
+            else if (now - started >= SPEECH_MAX_MS) stop('timeout');
+          };
+          speechSynthesis.addEventListener('voiceschanged', onEvent);
+          tick = setInterval(step, 250);
+          step();
         })
     );
   }
@@ -1250,13 +1344,14 @@
   }
 
   async function collectFromWorker() {
+    let w = null;
     return await withTimeout(
       safeAsync(
         () =>
           new Promise((resolve, reject) => {
             const blob = new Blob([WORKER_PROBE_SRC], { type: 'application/javascript' });
             const url = URL.createObjectURL(blob);
-            const w = new Worker(url);
+            w = new Worker(url);
             w.onmessage = (e) => {
               w.terminate();
               URL.revokeObjectURL(url);
@@ -1271,7 +1366,8 @@
           })
       ),
       5000,
-      'worker'
+      'worker',
+      () => w && w.terminate()
     );
   }
 
@@ -1293,6 +1389,7 @@
    */
   async function collectFromSharedWorker() {
     if (!window.SharedWorker) return { __absent: true };
+    let w = null;
     return await withTimeout(
       safeAsync(
         () =>
@@ -1306,7 +1403,7 @@
               { type: 'application/javascript' }
             );
             const url = URL.createObjectURL(blob);
-            const w = new SharedWorker(url);
+            w = new SharedWorker(url);
             w.port.onmessage = (e) => {
               URL.revokeObjectURL(url);
               resolve(e.data);
@@ -1320,12 +1417,14 @@
           })
       ),
       8000,
-      'sharedWorker'
+      'sharedWorker',
+      () => w && w.port.close()
     );
   }
 
   async function collectFromServiceWorker() {
     if (!navigator.serviceWorker) return { __absent: true };
+    let reg = null;
     return await withTimeout(
       safeAsync(async () => {
         // A ServiceWorker script must be same-origin and cannot be a blob:, so
@@ -1338,7 +1437,7 @@
         // arbitrary page — the fetch fails and the context records why.
         const url = 'sw-probe.js';
         try {
-          const reg = await navigator.serviceWorker.register(url, { scope: './' });
+          reg = await navigator.serviceWorker.register(url, { scope: './' });
           const sw = reg.installing || reg.waiting || reg.active;
           if (!sw) return { __absent: true, why: 'no worker instance' };
           const answer = await new Promise((resolve) => {
@@ -1355,15 +1454,17 @@
         }
       }),
       10000,
-      'serviceWorker'
+      'serviceWorker',
+      () => reg && reg.unregister().catch(() => {})
     );
   }
 
   async function collectFromAudioWorklet() {
     if (!window.AudioContext) return { __absent: true };
+    let ctx = null;
     return await withTimeout(
       safeAsync(async () => {
-        const ctx = new AudioContext();
+        ctx = new AudioContext();
         try {
           const src = `
             registerProcessor('fury-probe', class extends AudioWorkletProcessor {
@@ -1395,11 +1496,12 @@
           });
           return answer;
         } finally {
-          void ctx.close();
+          if (ctx.state !== 'closed') void ctx.close();
         }
       }),
       8000,
-      'audioWorklet'
+      'audioWorklet',
+      () => ctx && ctx.state !== 'closed' && ctx.close()
     );
   }
 
@@ -1471,13 +1573,15 @@
     if (location.protocol === 'file:') return { __absent: true, why: 'file:' };
     const origin = location.protocol + '//' + twin + (location.port ? ':' + location.port : '');
     const nonce = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    let f = null;
+    let onMessage = null;
     return await withTimeout(
       safeAsync(
         () =>
           new Promise((resolve) => {
-            const f = document.createElement('iframe');
+            f = document.createElement('iframe');
             f.style.cssText = 'position:absolute;left:-9999px;width:100px;height:100px';
-            const onMessage = (e) => {
+            onMessage = (e) => {
               if (e.origin !== origin) return;
               if (!e.data || e.data.__furyFrame !== nonce) return;
               window.removeEventListener('message', onMessage);
@@ -1498,7 +1602,11 @@
           })
       ),
       6000,
-      'iframe:cross-origin'
+      'iframe:cross-origin',
+      () => {
+        window.removeEventListener('message', onMessage);
+        if (f) f.remove();
+      }
     );
   }
 
@@ -1601,6 +1709,7 @@
 
   async function furyProbe() {
     const started = Date.now();
+    const report = {};
 
     const [
       clientHints, webgpu, audio, mediaDevices, drm, webrtc,
@@ -1608,34 +1717,36 @@
       worker, sharedWorker, serviceWorker, audioWorklet,
       iframeSameOrigin, iframeBlank, iframeSrcdoc, iframeCrossOrigin,
     ] = await Promise.all([
-      collectClientHints(),
-      collectWebgpu(),
-      collectAudio(),
-      collectMediaDevices(),
-      collectDrm(),
-      collectWebrtc(),
-      collectPermissions(),
-      collectSpeech(),
-      collectKeyboard(),
-      collectBattery(),
-      collectStorage(),
-      collectMotion(),
-      collectFromWorker(),
-      collectFromSharedWorker(),
-      collectFromServiceWorker(),
-      collectFromAudioWorklet(),
-      collectFromIframe('same-origin'),
-      collectFromIframe('blank'),
-      collectFromIframe('srcdoc'),
-      collectFromCrossOriginFrame(),
+      vector(report, 'clientHints', () => collectClientHints()),
+      vector(report, 'webgpu', () => collectWebgpu()),
+      vector(report, 'audio', () => collectAudio()),
+      vector(report, 'mediaDevices', () => collectMediaDevices()),
+      vector(report, 'drm', () => collectDrm(), 16000),
+      vector(report, 'webrtc', () => collectWebrtc(), 14000),
+      vector(report, 'permissions', () => collectPermissions(), 10000),
+      vector(report, 'speech', () => collectSpeech(report), 10000),
+      vector(report, 'keyboard', () => collectKeyboard()),
+      vector(report, 'battery', () => collectBattery()),
+      vector(report, 'storage', () => collectStorage()),
+      vector(report, 'motion', () => collectMotion()),
+      vector(report, 'worker', () => collectFromWorker()),
+      vector(report, 'sharedWorker', () => collectFromSharedWorker(), 10000),
+      vector(report, 'serviceWorker', () => collectFromServiceWorker(), 12000),
+      vector(report, 'audioWorklet', () => collectFromAudioWorklet(), 10000),
+      vector(report, 'iframe:same-origin', () => collectFromIframe('same-origin')),
+      vector(report, 'iframe:about:blank', () => collectFromIframe('blank')),
+      vector(report, 'iframe:srcdoc', () => collectFromIframe('srcdoc')),
+      vector(report, 'iframe:cross-origin', () => collectFromCrossOriginFrame()),
     ]);
 
-    const engine = collectEngine();
-    engine.misc.keyboardLayout = keyboard;
-    engine.misc.battery = battery;
+    const engine = vectorSync(report, 'engine', collectEngine);
+    if (engine.misc) {
+      engine.misc.keyboardLayout = keyboard;
+      engine.misc.battery = battery;
+    }
 
     const contexts = {
-      main: collectFromMainRealm(),
+      main: vectorSync(report, 'main', collectFromMainRealm),
       worker,
       sharedWorker,
       serviceWorker,
@@ -1646,28 +1757,28 @@
       'iframe:cross-origin': iframeCrossOrigin,
     };
 
-    return {
+    const dump = {
       __schema: SCHEMA,
       __probeVersion: '0.3.0',
       __collectedInMs: Date.now() - started,
 
-      navigator: collectNavigator(),
+      navigator: vectorSync(report, 'navigator', collectNavigator),
       clientHints,
       motion,
-      screen: collectScreen(),
-      canvas2d: collectCanvas2d(),
-      clientRects: collectClientRects(),
-      webgl: collectWebgl(),
+      screen: vectorSync(report, 'screen', collectScreen),
+      canvas2d: vectorSync(report, 'canvas2d', collectCanvas2d),
+      clientRects: vectorSync(report, 'clientRects', collectClientRects),
+      webgl: vectorSync(report, 'webgl', collectWebgl),
       webgpu,
       audio,
-      fonts: collectFonts(),
+      fonts: vectorSync(report, 'fonts', collectFonts),
       mediaDevices,
-      codecs: collectCodecs(),
+      codecs: vectorSync(report, 'codecs', collectCodecs),
       drm,
       webrtc,
-      locale: collectLocale(),
+      locale: vectorSync(report, 'locale', collectLocale),
       permissions,
-      css: collectCss(),
+      css: vectorSync(report, 'css', collectCss),
       speech,
       storage,
       engine,
@@ -1675,6 +1786,18 @@
       crossContext: compareContexts(contexts),
       contexts,
     };
+
+    // Last, once every vector above has reported. A dump with a timeout in it
+    // is still a dump and still saves, and says which part of it is missing.
+    const incomplete = Object.keys(report)
+      .filter((k) => report[k].status === 'timeout' || report[k].status === 'error')
+      .sort();
+    dump.__capture = {
+      status: incomplete.length ? 'partial' : 'complete',
+      incomplete,
+      vectors: Object.freeze(report),
+    };
+    return dump;
   }
 
   if (typeof window !== 'undefined') {
@@ -1682,6 +1805,6 @@
     answerAsFrame();
   }
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { furyProbe };
+    module.exports = { furyProbe, withTimeout, vector, collectSpeech };
   }
 })();
