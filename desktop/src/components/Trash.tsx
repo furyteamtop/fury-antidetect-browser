@@ -6,6 +6,7 @@ import { api, type Profile } from "../api";
 import { useI18n } from "../i18n";
 import { useAsk } from "./Ask";
 import { withStepUp } from "../stepUp";
+import { useWhenStyle, when } from "../when";
 
 /** Deleted profiles, and the two things you can do with one.
  *
@@ -14,7 +15,8 @@ import { withStepUp } from "../stepUp";
  *  the cost of keeping a row nobody wanted. Emptying is the destructive
  *  operation, so it is the one that names what goes: the browser data too. */
 export function Trash({ onChanged }: { onChanged: () => void }) {
-  const { t, say } = useI18n();
+  const { t, say, resolved } = useI18n();
+  const [whenStyle] = useWhenStyle();
   const [rows, setRows] = useState<Profile[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -137,7 +139,10 @@ export function Trash({ onChanged }: { onChanged: () => void }) {
                 </td>
                 <td className="mono muted">{p.persona_id}</td>
                 <td className="muted small">
-                  {p.last_opened_at ? new Date(p.last_opened_at).toLocaleString() : ""}
+                  {p.last_opened_at && (() => {
+                    const w = when(p.last_opened_at, whenStyle, resolved);
+                    return <span title={w.title}>{w.text}</span>;
+                  })()}
                 </td>
                 <td className="actions">
                   <div>

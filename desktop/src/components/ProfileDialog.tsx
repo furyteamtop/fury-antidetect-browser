@@ -886,7 +886,10 @@ export function ProfileDialog({
                                 setPersonaId(p.id);
                               }}
                             >
-                              <div className="name">
+                              <div
+                                className="name"
+                                title={osOf(p) === "Android" ? undefined : t("pd.ovScreenBase", { size: p.screen })}
+                              >
                                 {p.os} · {p.screen}
                               </div>
                               <div className="muted small sub">
@@ -1272,6 +1275,13 @@ export function ProfileDialog({
                         ? t("pd.ovScreenDetail", { avail: preview.avail ?? "", dpr: preview.device_pixel_ratio ?? "", depth: preview.color_depth })
                         : t("pd.ovScreenDepth", { depth: preview.color_depth })}
                     </span>
+                    {/* The machine above is named with a screen of its own, and
+                        nothing said that sites do not see it (issues #45, #47). */}
+                    {!preview.screen && preview.base && (
+                      <div className="muted small">
+                        {t("pd.ovScreenBase", { size: `${preview.base.screen[0]}×${preview.base.screen[1]}` })}
+                      </div>
+                    )}
                   </dd>
                   <dt>{t("pd.ovGpu")}</dt>
                   <dd className="small">

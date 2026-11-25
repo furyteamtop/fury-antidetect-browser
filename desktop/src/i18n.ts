@@ -817,6 +817,7 @@ const en = {
   "pd.ovFollowsExit": "the proxy's exit at launch — {tz} by the last check",
   "pd.ovScreenDetail": "usable {avail} · ×{dpr} · {depth}-bit",
   "pd.ovScreenMonitor": "this computer's monitor",
+  "pd.ovScreenBase": "The machine's own screen, {size}, is not what sites see: by default a desktop profile reports the monitor it runs on. Choose a size in the settings to report that one instead.",
   "pd.ovScreenDepth": "· {depth}-bit",
   "pd.ovWebglExt": "{n} WebGL extensions",
   "pd.ovWebgpu": "WebGPU",
@@ -1027,6 +1028,7 @@ const en = {
   "set.languageHint":
     "The interface only. A profile's languages come from its own settings and never follow this — working in one language on a profile that speaks another is the normal case.",
   "set.langSystem": "System",
+  "set.whenHint": "How the profile list says when a profile was last opened. The other form appears on hover.",
   "set.teamServer": "Team server",
   "set.notConnected":
     "Not connected. Everything is on this machine: no account, no database, nothing leaves. Connect a server when there is a team to share projects with.",
@@ -2224,6 +2226,7 @@ const ru: Record<Key, string> = {
   "pd.ovChrome": "Chrome",
   "pd.ovScreenDetail": "доступно {avail} · ×{dpr} · {depth} бит",
   "pd.ovScreenMonitor": "монитор этого компьютера",
+  "pd.ovScreenBase": "Собственный экран этой машины, {size}, сайтам не виден: по умолчанию десктопный профиль сообщает монитор, на котором запущен. Чтобы сообщать другой размер, выберите его в настройках профиля.",
   "pd.ovScreenDepth": "· {depth} бит",
   "pd.ovWebglExt": "расширений WebGL: {n}",
   "pd.ovWebgpu": "WebGPU",
@@ -2427,6 +2430,7 @@ const ru: Record<Key, string> = {
   "set.languageHint":
     "Только интерфейс. Языки профиля берутся из его собственных настроек и за этим никогда не следуют — работать на одном языке с профилем, говорящим на другом, это норма.",
   "set.langSystem": "Системный",
+  "set.whenHint": "Как список профилей показывает, когда профиль запускали в последний раз. Второй вариант виден при наведении.",
   "set.teamServer": "Командный сервер",
   "set.notConnected":
     "Не подключён. Всё на этой машине: ни аккаунта, ни базы, ничего не уходит. Сервер нужен, когда появляется команда, с которой надо делить проекты.",
@@ -3506,6 +3510,7 @@ const zh: Record<Key, string> = {
   "pd.ovUserAgent": "User Agent",
   "pd.ovScreen": "屏幕",
   "pd.ovScreenMonitor": "本机显示器",
+  "pd.ovScreenBase": "网站看不到该机型自带的屏幕（{size}）：默认情况下，桌面环境报告其运行所在的显示器。如需报告其他尺寸，请在设置中选择。",
   "pd.ovScreenDepth": "· {depth} 位",
   "pd.ovGpu": "GPU",
   "pd.ovCpuRam": "CPU · 内存",
@@ -3769,6 +3774,7 @@ const zh: Record<Key, string> = {
   "set.language": "语言",
   "set.languageHint": "仅影响界面。环境的语言来自其自身设置，永远不会跟随此项——用一种语言操作说另一种语言的环境是很常见的情况。",
   "set.langSystem": "跟随系统",
+  "set.whenHint": "环境列表如何显示上次打开的时间。另一种形式在悬停时显示。",
   "set.teamServer": "团队服务器",
   "set.notConnected": "未连接。一切都在本机：无需账号，没有数据库，什么都不会外传。有团队需要共享项目时再连接服务器。",
   "set.notConnectedHint": "连接本身不会上传任何内容。在此创建的环境会一直留在本机，直到支持打包同步为止。",
