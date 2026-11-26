@@ -94,13 +94,14 @@ diff --git a/third_party/blink/renderer/core/frame/screen_metrics_emulator.cc b/
 index 034fb7e51d..6ca250c0ad 100644
 --- a/third_party/blink/renderer/core/frame/screen_metrics_emulator.cc
 +++ b/third_party/blink/renderer/core/frame/screen_metrics_emulator.cc
-@@ -5,11 +5,29 @@
+@@ -5,11 +5,30 @@
  #include "third_party/blink/renderer/core/frame/screen_metrics_emulator.h"
  
  #include "base/numerics/safe_conversions.h"
 +#include "components/fury/fury_config.h"
  #include "third_party/blink/public/common/widget/visual_properties.h"
  #include "third_party/blink/renderer/core/frame/web_frame_widget_impl.h"
++#include "ui/gfx/geometry/size_conversions.h"
  
  namespace blink {
  

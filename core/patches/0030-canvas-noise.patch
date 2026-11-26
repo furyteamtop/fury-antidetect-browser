@@ -1,5 +1,5 @@
 diff --git a/third_party/blink/renderer/core/html/canvas/canvas_async_blob_creator.cc b/third_party/blink/renderer/core/html/canvas/canvas_async_blob_creator.cc
-index 8e9d842904..4ded23674e 100644
+index e2a22f203b..9ed46c720e 100644
 --- a/third_party/blink/renderer/core/html/canvas/canvas_async_blob_creator.cc
 +++ b/third_party/blink/renderer/core/html/canvas/canvas_async_blob_creator.cc
 @@ -4,6 +4,9 @@
@@ -12,7 +12,7 @@ index 8e9d842904..4ded23674e 100644
  #include "base/location.h"
  #include "base/metrics/histogram_functions.h"
  #include "base/metrics/histogram_macros.h"
-@@ -237,6 +240,39 @@ CanvasAsyncBlobCreator::CanvasAsyncBlobCreator(
+@@ -234,6 +237,19 @@ CanvasAsyncBlobCreator::CanvasAsyncBlobCreator(
  
  CanvasAsyncBlobCreator::~CanvasAsyncBlobCreator() = default;
  
@@ -22,29 +22,9 @@ index 8e9d842904..4ded23674e 100644
 +      !fury::GetCanvasNoiseSeed(&seed)) {
 +    return;
 +  }
-+  const SkColorType type = src_data_.colorType();
-+  if (!src_data_.addr() || src_data_.rowBytes() == 0 ||
-+      src_data_.height() <= 0 ||
-+      (type != kBGRA_8888_SkColorType && type != kRGBA_8888_SkColorType)) {
++  if (!fury_flat::NoiseForEncoder(seed, src_data_, fury_noised_pixels_)) {
 +    return;
 +  }
-+  const size_t total =
-+      src_data_.rowBytes() * static_cast<size_t>(src_data_.height());
-+  fury_noised_pixels_.resize(static_cast<wtf_size_t>(total));
-+  // SAFETY: src_data_ describes exactly `total` bytes owned by skia_image_.
-+  UNSAFE_BUFFERS(
-+      memcpy(fury_noised_pixels_.data(), src_data_.addr(), total));
-+  // Premultiplied, as src_data_ is; see fury_flat.h. src_data_ still points
-+  // at the source here.
-+  fury_flat::ApplyEdgeNoise(
-+      seed,
-+      // SAFETY: src_data_ describes exactly `total` bytes.
-+      UNSAFE_BUFFERS(base::span(static_cast<const uint8_t*>(src_data_.addr()),
-+                                total)),
-+      base::span(fury_noised_pixels_), src_data_.rowBytes(), 0, 0,
-+      src_data_.width(), src_data_.height(), 0, 0, src_data_.width(),
-+      src_data_.height(), src_data_.width(), src_data_.height(),
-+      type == kBGRA_8888_SkColorType);
 +  src_data_.reset(src_data_.info(), fury_noised_pixels_.data(),
 +                  src_data_.rowBytes());
 +}
@@ -83,7 +63,7 @@ index 625c3204a0..57433c9d50 100644
    Vector<unsigned char> encoded_image_;
    int num_rows_completed_;
 diff --git a/third_party/blink/renderer/core/html/canvas/canvas_rendering_context_host.h b/third_party/blink/renderer/core/html/canvas/canvas_rendering_context_host.h
-index 674d3dd157..d256877dc5 100644
+index 8863f81607..2ef9705750 100644
 --- a/third_party/blink/renderer/core/html/canvas/canvas_rendering_context_host.h
 +++ b/third_party/blink/renderer/core/html/canvas/canvas_rendering_context_host.h
 @@ -123,6 +123,30 @@ class CORE_EXPORT CanvasRenderingContextHost : public GarbageCollectedMixin,
@@ -117,7 +97,7 @@ index 674d3dd157..d256877dc5 100644
    PlainTextPainter& GetPlainTextPainter();
  
    // Actual RasterMode used for rendering 2d primitives.
-@@ -187,6 +211,7 @@ class CORE_EXPORT CanvasRenderingContextHost : public GarbageCollectedMixin,
+@@ -185,6 +209,7 @@ class CORE_EXPORT CanvasRenderingContextHost : public GarbageCollectedMixin,
  
   private:
  
@@ -126,10 +106,10 @@ index 674d3dd157..d256877dc5 100644
    HostType host_type_ = HostType::kNone;
    RasterModeHint preferred_2d_raster_mode_ = RasterModeHint::kPreferCPU;
 diff --git a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
-index 13c0ced1be..00490b026c 100644
+index 5d9d963d79..580cc15e84 100644
 --- a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
 +++ b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
-@@ -1439,6 +1439,9 @@ String HTMLCanvasElement::ToDataURLInternal(
+@@ -1442,6 +1442,9 @@ String HTMLCanvasElement::ToDataURLInternal(
          ImageDataBuffer::Create(image_bitmap);
      if (!data_buffer)
        return String("data:,");
@@ -139,7 +119,7 @@ index 13c0ced1be..00490b026c 100644
  
      String data_url = data_buffer->ToDataURL(encoding_mime_type, quality);
      base::TimeDelta elapsed_time = base::TimeTicks::Now() - start_time;
-@@ -1545,6 +1548,7 @@ void HTMLCanvasElement::toBlob(V8BlobCallback* callback,
+@@ -1548,6 +1551,7 @@ void HTMLCanvasElement::toBlob(V8BlobCallback* callback,
          image_bitmap, options,
          CanvasAsyncBlobCreator::kHTMLCanvasToBlobCallback, callback, start_time,
          GetExecutionContext());
@@ -148,10 +128,10 @@ index 13c0ced1be..00490b026c 100644
  
    if (async_creator) {
 diff --git a/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc b/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
-index 41ed6d0c21..f3987d4928 100644
+index c312b115c9..40933b5343 100644
 --- a/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
 +++ b/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
-@@ -596,6 +596,7 @@ ScriptPromise<Blob> OffscreenCanvas::convertToBlob(
+@@ -578,6 +578,7 @@ ScriptPromise<Blob> OffscreenCanvas::convertToBlob(
      auto* async_creator = MakeGarbageCollected<CanvasAsyncBlobCreator>(
          image_bitmap, options, function_type, start_time, execution_context,
          resolver);
@@ -160,7 +140,7 @@ index 41ed6d0c21..f3987d4928 100644
      return resolver->Promise();
    }
 diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
-index ba2dcc2f2f..c1ee201f8f 100644
+index eaa71b910d..7d446bcb3e 100644
 --- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
 +++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
 @@ -6,6 +6,9 @@
@@ -173,7 +153,7 @@ index ba2dcc2f2f..c1ee201f8f 100644
  #include <cmath>
  #include <cstdint>
  #include <cstdlib>
-@@ -873,6 +876,73 @@ ImageData* BaseRenderingContext2D::getImageDataInternal(
+@@ -935,6 +938,73 @@ ImageData* BaseRenderingContext2D::getImageDataInternal(
            snapshot->PaintImageForCurrentFrame().GetSkImageInfo().bounds();
        DCHECK(!bounds.intersect(SkIRect::MakeXYWH(sx, sy, sw, sh)));
      }
@@ -201,10 +181,11 @@ index ba2dcc2f2f..c1ee201f8f 100644
 +        (!fury_host || fury_host->FuryWantsCanvasNoise())) {
 +      SkPixmap out = image_data->GetSkPixmap();
 +      // The region with a one-pixel margin, clipped to the canvas, read
-+      // PREMULTIPLIED from the same snapshot, noised there (fury_flat.h), and
-+      // converted to ImageData's unpremultiplied RGBA by Skia -- the same
-+      // arithmetic toDataURL's encoder applies to the same noised pixels, so
-+      // the two agree byte for byte.
++      // PREMULTIPLIED from the same snapshot and noised there (fury_flat.h).
++      // Only the pixels the noise moved are written over what the browser
++      // already read into the ImageData, converted the way toDataURL's
++      // encoder path converts the same noised pixels, so the two agree byte
++      // for byte and every other pixel is Chrome's own.
 +      const int cw = snapshot->Size().width();
 +      const int ch = snapshot->Size().height();
 +      const int ox = std::max(0, sx - 1);
@@ -230,17 +211,16 @@ index ba2dcc2f2f..c1ee201f8f 100644
 +                                    base::span(noised_premul),
 +                                    premul_row_bytes, ox, oy, ow, oh, ix, iy,
 +                                    iw, ih, cw, ch, /*bgra=*/false);
-+          SkPixmap noised_pixmap(premul, noised_premul.data(),
-+                                 premul_row_bytes);
-+          const SkImageInfo dst_info = out.info().makeWH(iw, ih);
 +          // SAFETY: (ix - sx, iy - sy) lies inside the ImageData, and iw x ih
 +          // fits in what remains of it.
 +          uint8_t* dst = UNSAFE_BUFFERS(
 +              static_cast<uint8_t*>(out.writable_addr()) +
 +              static_cast<size_t>(iy - sy) * out.rowBytes() +
 +              static_cast<size_t>(ix - sx) * 4);
-+          noised_pixmap.readPixels(dst_info, dst, out.rowBytes(), ix - ox,
-+                                   iy - oy);
++          fury_flat::WriteNoised(
++              base::span(original), base::span(noised_premul),
++              premul_row_bytes, ix - ox, iy - oy, iw, ih, dst, out.rowBytes(),
++              out.alphaType() != kPremul_SkAlphaType);
 +        }
 +      }
 +    }
@@ -248,10 +228,10 @@ index ba2dcc2f2f..c1ee201f8f 100644
  
    return image_data;
 diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
-index 0d2d48606e..670a0b81d9 100644
+index 96cee8f261..80bae6f69e 100644
 --- a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
 +++ b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.cc
-@@ -850,6 +850,61 @@ void Canvas2DRecorderContext::ResetInternal() {
+@@ -851,6 +851,12 @@ void Canvas2DRecorderContext::ResetState() {
  
    ValidateStateStack();
    origin_tainted_by_content_ = false;
@@ -261,8 +241,13 @@ index 0d2d48606e..670a0b81d9 100644
 +  if (CanvasRenderingContextHost* host = GetCanvasRenderingContextHost()) {
 +    host->FuryResetDraws();
 +  }
-+}
-+
+ }
+ 
+ void Canvas2DRecorderContext::ClearCanvas(gfx::Size size) {
+@@ -869,6 +875,55 @@ void Canvas2DRecorderContext::ResetInternal() {
+   }
+ }
+ 
 +void Canvas2DRecorderContext::FuryNoteDraw(
 +    const CanvasRenderingContext2DState& state,
 +    CanvasRenderingContext2DState::PaintType paint_type,
@@ -310,10 +295,12 @@ index 0d2d48606e..670a0b81d9 100644
 +        state.GlobalComposite() != SkBlendMode::kSrcOver;
 +  }
 +  host->FuryNoteDraw(platform_dependent);
- }
- 
++}
++
  void Canvas2DRecorderContext::reset() {
-@@ -2325,6 +2380,25 @@ void Canvas2DRecorderContext::drawImage(CanvasImageSource* image_source,
+   UseCounter::Count(GetTopExecutionContext(),
+                     WebFeature::kCanvasRenderingContext2DReset);
+@@ -2347,6 +2402,25 @@ void Canvas2DRecorderContext::drawImage(CanvasImageSource* image_source,
      SetOriginTaintedByContent();
    }
  
@@ -339,7 +326,7 @@ index 0d2d48606e..670a0b81d9 100644
    Draw<OverdrawOp::kDrawImage>(
        /*draw_func=*/
        [this, image_source, image, src_rect, dst_rect, respect_orientation](
-@@ -2344,6 +2418,7 @@ void Canvas2DRecorderContext::drawImage(CanvasImageSource* image_source,
+@@ -2366,6 +2440,7 @@ void Canvas2DRecorderContext::drawImage(CanvasImageSource* image_source,
        image_source->IsOpaque() ? CanvasRenderingContext2DState::kOpaqueImage
                                 : CanvasRenderingContext2DState::kNonOpaqueImage,
        CanvasPerformanceMonitor::DrawType::kImage);
@@ -348,10 +335,10 @@ index 0d2d48606e..670a0b81d9 100644
  
  bool Canvas2DRecorderContext::RectContainsTransformedRect(
 diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.h b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.h
-index d85e3d2174..08b4f73d71 100644
+index 620f58d3a3..f5a58c8495 100644
 --- a/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.h
 +++ b/third_party/blink/renderer/modules/canvas/canvas2d/canvas_2d_recorder_context.h
-@@ -490,6 +490,17 @@ class MODULES_EXPORT Canvas2DRecorderContext : public CanvasPath {
+@@ -492,6 +492,17 @@ class MODULES_EXPORT Canvas2DRecorderContext : public CanvasPath {
      return nullptr;
    }
  
@@ -369,9 +356,9 @@ index d85e3d2174..08b4f73d71 100644
    virtual bool HasAlpha() const = 0;
  
    virtual bool IsDesynchronized() const { NOTREACHED(); }
-@@ -802,6 +813,7 @@ void Canvas2DRecorderContext::DrawInternal(
-     }
+@@ -800,6 +811,7 @@ void Canvas2DRecorderContext::Draw(
    }
+ 
    const CanvasRenderingContext2DState& state = GetState();
 +  FuryNoteDraw(state, paint_type, draw_type, bounds);
    SkBlendMode global_composite = state.GlobalComposite();
@@ -379,10 +366,10 @@ index d85e3d2174..08b4f73d71 100644
      WillDraw(gfx::SkIRectToRect(clip_bounds), draw_type);
 diff --git a/third_party/blink/renderer/platform/graphics/fury_flat.h b/third_party/blink/renderer/platform/graphics/fury_flat.h
 new file mode 100644
-index 0000000000..dc799e7463
+index 0000000000..9ef9fde28f
 --- /dev/null
 +++ b/third_party/blink/renderer/platform/graphics/fury_flat.h
-@@ -0,0 +1,162 @@
+@@ -0,0 +1,299 @@
 +// Copyright 2026 The Fury Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -390,12 +377,17 @@ index 0000000000..dc799e7463
 +#ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_FURY_FLAT_H_
 +#define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_FURY_FLAT_H_
 +
++#include <algorithm>
 +#include <array>
 +#include <cstddef>
 +#include <cstdint>
 +#include <utility>
 +
++#include "base/compiler_specific.h"
 +#include "base/containers/span.h"
++#include "third_party/blink/renderer/platform/wtf/vector.h"
++#include "third_party/skia/include/core/SkImageInfo.h"
++#include "third_party/skia/include/core/SkPixmap.h"
 +
 +// Canvas noise that looks like a different rasteriser, not like noise.
 +//
@@ -412,7 +404,12 @@ index 0000000000..dc799e7463
 +//   - transparent pixels are never touched;
 +//   - a partly covered pixel (0 < alpha < 255) gets its coverage moved by one
 +//     step, in premultiplied space, which is exactly what another rasteriser
-+//     produces there -- the colour stays the fill colour;
++//     produces there -- the colour stays the fill colour -- and only where it
++//     is different from every neighbour. "Different from some neighbour" also
++//     took in the background of a half-transparent fill next to a glyph, where
++//     nothing was drawn and no rasteriser differs: BrowserScan draws one
++//     letter on such a fill and reads the pixels around it (issue 46,
++//     26.11.2026, 22 of them moved);
 +//   - an opaque pixel is touched only where it is a transition inside opaque
 +//     content: different from every neighbour, and every neighbour opaque, as
 +//     antialiased text over a filled rect or overlapping blended shapes are;
@@ -425,9 +422,11 @@ index 0000000000..dc799e7463
 +// alone (measured on the Windows build box, 29.09.2026). Coverage at the
 +// edges is what differs between GPUs there, so that is all WebGL moves.
 +//
-+// Pixels are PREMULTIPLIED here, on every path. toDataURL and toBlob encode
-+// from premultiplied pixels, and getImageData converts its noised premultiplied
-+// copy with Skia, so all three agree byte for byte. Coordinates are absolute
++// Pixels are PREMULTIPLIED here, on every path. getImageData noises a
++// premultiplied copy, NoiseForEncoder below does the same for what toDataURL
++// and toBlob are about to encode, whichever way those pixels arrived, and
++// WriteNoised puts back only the pixels the noise moved, so all three agree
++// byte for byte. Coordinates are absolute
 +// canvas coordinates; a neighbour outside the canvas is not considered, so a
 +// partial read decides every pixel as a whole-canvas read does.
 +namespace fury_flat {
@@ -437,6 +436,29 @@ index 0000000000..dc799e7463
 +  z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
 +  z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
 +  return z ^ (z >> 31);
++}
++
++// One premultiplied 8-bit channel unpremultiplied, rounding half up, and back.
++inline int Unpremul(int c, int a) {
++  if (a <= 0) {
++    return 0;
++  }
++  const int u = (c * 255 + a / 2) / a;
++  return u > 255 ? 255 : u;
++}
++inline int Premul(int u, int a) {
++  return (u * a + 127) / 255;
++}
++
++// Whether a noised half-transparent pixel survives what a page does with it:
++// unpremultiplied by getImageData or the PNG, premultiplied again when that PNG
++// is drawn onto another canvas, and read back. A channel exactly between two
++// unpremultiplied values is left alone too, since GPU and CPU readbacks round
++// that one differently. Unchecked, 20 such pixels of a line of text read back
++// changed from their own PNG, which real Chrome never does and BrowserScan
++// tests (issue 46, measured on core 158, 26.11.2026).
++inline bool RoundTrips(int c, int a) {
++  return (c * 255 % a) * 2 != a && Premul(Unpremul(c, a), a) == c;
 +}
 +
 +// `original` and `noised` are the same premultiplied 4-byte pixels covering
@@ -515,6 +537,9 @@ index 0000000000..dc799e7463
 +        continue;
 +      }
 +      if (alpha < 255) {
++        if (!none_equal) {
++          continue;
++        }
 +        // Coverage, one step, and the SAME colour at the new coverage: the
 +        // premultiplied channels scale with alpha, as they would out of a
 +        // rasteriser that covered this pixel a little more or less.
@@ -532,6 +557,12 @@ index 0000000000..dc799e7463
 +          const int scaled = (original[p + c] * a2 + alpha / 2) / alpha;
 +          noised[p + c] = static_cast<uint8_t>(scaled > a2 ? a2 : scaled);
 +        }
++        if (!RoundTrips(noised[p], a2) || !RoundTrips(noised[p + 1], a2) ||
++            !RoundTrips(noised[p + 2], a2)) {
++          for (size_t c = 0; c < 4; ++c) {
++            noised[p + c] = original[p + c];
++          }
++        }
 +      } else if (opaque_blends && none_equal && all_opaque) {
 +        const size_t colour = (h >> 3) % 3;
 +        const size_t channel = (bgra && colour != 1) ? 2 - colour : colour;
@@ -542,11 +573,104 @@ index 0000000000..dc799e7463
 +  }
 +}
 +
++// Writes into `dst` the pixels the noise moved, and nothing else. `original`
++// and `noised` are premultiplied, `src_row_bytes` apart, and the pixel at
++// (sx, sy) in them is the first of `dst`, which holds w x h pixels of the same
++// 8-bit layout, `dst_row_bytes` apart, unpremultiplied when `dst_unpremul`.
++//
++// `dst` already holds what the browser itself read back, and every pixel the
++// noise left alone has to stay exactly that. Converting the whole region from
++// premultiplied ourselves did not: a flat rgba(102,102,102,0.4) fill is
++// premultiplied 41 at alpha 102, exactly between 102 and 103 unpremultiplied,
++// and Chrome reads 103 where Skia's conversion on the CPU gives 102. Every
++// half-transparent pixel of a noised canvas moved (7103 of 7200 in
++// verify-0030's veil scene, core 158, 26.11.2026).
++inline void WriteNoised(base::span<const uint8_t> original,
++                        base::span<const uint8_t> noised,
++                        size_t src_row_bytes,
++                        int sx,
++                        int sy,
++                        int w,
++                        int h,
++                        uint8_t* dst,
++                        size_t dst_row_bytes,
++                        bool dst_unpremul) {
++  for (int y = 0; y < h; ++y) {
++    for (int x = 0; x < w; ++x) {
++      const size_t s = static_cast<size_t>(sy + y) * src_row_bytes +
++                       static_cast<size_t>(sx + x) * 4;
++      if (s + 3 >= original.size() || s + 3 >= noised.size()) {
++        continue;
++      }
++      if (original[s] == noised[s] && original[s + 1] == noised[s + 1] &&
++          original[s + 2] == noised[s + 2] &&
++          original[s + 3] == noised[s + 3]) {
++        continue;
++      }
++      // SAFETY: (x, y) lies inside the w x h pixels `dst` holds.
++      uint8_t* d = UNSAFE_BUFFERS(dst + static_cast<size_t>(y) * dst_row_bytes +
++                                  static_cast<size_t>(x) * 4);
++      const int a = noised[s + 3];
++      for (size_t c = 0; c < 3; ++c) {
++        UNSAFE_BUFFERS(d[c]) = static_cast<uint8_t>(
++            dst_unpremul && a < 255 ? Unpremul(noised[s + c], a) : noised[s + c]);
++      }
++      UNSAFE_BUFFERS(d[3]) = static_cast<uint8_t>(a);
++    }
++  }
++}
++
++// Noises the pixels an encoder is about to read, into `out`, in the encoder's
++// own format. False, with nothing written, when there is nothing to noise in
++// them (not 8-bit RGBA or BGRA).
++//
++// The encoder's pixels may be unpremultiplied: ImageDataBuffer converts them
++// before encoding and CanvasAsyncBlobCreator leaves it to the encoder, and
++// which of the two does what has changed between milestones. Noising
++// unpremultiplied numbers as if they were premultiplied clamped each channel
++// to alpha, and a PNG's half-transparent pixels came out a different colour
++// from getImageData's -- (0, 106, 149, 12) there and (0, 21, 21, 12) in the
++// PNG, on core 157 (measured 26.11.2026). So: a premultiplied copy to decide
++// and noise in, and WriteNoised to put the moved pixels into a copy of the
++// encoder's own.
++inline bool NoiseForEncoder(uint64_t seed,
++                            const SkPixmap& src,
++                            blink::Vector<uint8_t>& out) {
++  const SkColorType type = src.colorType();
++  if (!src.addr() || src.rowBytes() == 0 || src.width() <= 0 ||
++      src.height() <= 0 ||
++      (type != kBGRA_8888_SkColorType && type != kRGBA_8888_SkColorType)) {
++    return false;
++  }
++  const size_t row_bytes = src.rowBytes();
++  const size_t total = row_bytes * static_cast<size_t>(src.height());
++  const bool unpremul = src.alphaType() == kUnpremul_SkAlphaType;
++  const SkImageInfo premul =
++      unpremul ? src.info().makeAlphaType(kPremul_SkAlphaType) : src.info();
++  blink::Vector<uint8_t> original(static_cast<blink::wtf_size_t>(total));
++  SkPixmap original_pixmap(premul, original.data(), row_bytes);
++  if (!src.readPixels(original_pixmap)) {
++    return false;
++  }
++  blink::Vector<uint8_t> noised = original;
++  ApplyEdgeNoise(seed, base::span(original), base::span(noised), row_bytes, 0,
++                 0, src.width(), src.height(), 0, 0, src.width(), src.height(),
++                 src.width(), src.height(), type == kBGRA_8888_SkColorType);
++  out.resize(static_cast<blink::wtf_size_t>(total));
++  // SAFETY: `src` holds `total` bytes, rowBytes() apart for height() rows.
++  UNSAFE_BUFFERS(std::copy(static_cast<const uint8_t*>(src.addr()),
++                           static_cast<const uint8_t*>(src.addr()) + total,
++                           out.data()));
++  WriteNoised(base::span(original), base::span(noised), row_bytes, 0, 0,
++              src.width(), src.height(), out.data(), row_bytes, unpremul);
++  return true;
++}
++
 +}  // namespace fury_flat
 +
 +#endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_FURY_FLAT_H_
 diff --git a/third_party/blink/renderer/platform/graphics/image_data_buffer.cc b/third_party/blink/renderer/platform/graphics/image_data_buffer.cc
-index 89f8fff042..378acb64b2 100644
+index 89f8fff042..32128a1cff 100644
 --- a/third_party/blink/renderer/platform/graphics/image_data_buffer.cc
 +++ b/third_party/blink/renderer/platform/graphics/image_data_buffer.cc
 @@ -32,6 +32,9 @@
@@ -559,7 +683,7 @@ index 89f8fff042..378acb64b2 100644
  #include "base/compiler_specific.h"
  #include "base/logging.h"
  #include "base/memory/ptr_util.h"
-@@ -123,6 +126,48 @@ std::unique_ptr<ImageDataBuffer> ImageDataBuffer::Create(
+@@ -123,6 +126,30 @@ std::unique_ptr<ImageDataBuffer> ImageDataBuffer::Create(
    return buffer;
  }
  
@@ -577,30 +701,12 @@ index 89f8fff042..378acb64b2 100644
 +  if (!fury::GetCanvasNoiseSeed(&seed)) {
 +    return;
 +  }
-+  if (!is_valid_ || pixmap_.rowBytes() == 0 || pixmap_.height() <= 0) {
++  // See fury_flat.h for what is noised and why, and for why the alpha type of
++  // this pixmap is asked and not assumed.
++  if (!is_valid_ ||
++      !fury_flat::NoiseForEncoder(seed, pixmap_, fury_noised_pixels_)) {
 +    return;
 +  }
-+
-+  const size_t total = pixmap_.rowBytes() * static_cast<size_t>(pixmap_.height());
-+  fury_noised_pixels_.resize(static_cast<wtf_size_t>(total));
-+  // SAFETY: pixmap_ is valid and describes exactly `total` bytes.
-+  UNSAFE_BUFFERS(memcpy(fury_noised_pixels_.data(), pixmap_.addr(), total));
-+
-+  // Not RGBA here: this pixmap is the canvas's own backing store, which is N32
-+  // — BGRA8888 on macOS and Windows. Asking it rather than assuming is what
-+  // keeps the encoded PNG agreeing with getImageData.
-+  // Premultiplied here, as the canvas's backing store is; see fury_flat.h for
-+  // what is noised and why. pixmap_ still points at the original.
-+  fury_flat::ApplyEdgeNoise(
-+      seed,
-+      // SAFETY: pixmap_ describes exactly `total` bytes.
-+      UNSAFE_BUFFERS(base::span(static_cast<const uint8_t*>(pixmap_.addr()),
-+                                total)),
-+      base::span(fury_noised_pixels_), pixmap_.rowBytes(), 0, 0,
-+      pixmap_.width(), pixmap_.height(), 0, 0, pixmap_.width(),
-+      pixmap_.height(), pixmap_.width(), pixmap_.height(),
-+      pixmap_.colorType() == kBGRA_8888_SkColorType);
-+
 +  pixmap_.reset(pixmap_.info(), fury_noised_pixels_.data(),
 +                pixmap_.rowBytes());
 +}

@@ -1,5 +1,5 @@
 diff --git a/third_party/blink/renderer/core/dom/element.cc b/third_party/blink/renderer/core/dom/element.cc
-index 6816436412..98e35ed98a 100644
+index 19f2e8bf67..85cce72a84 100644
 --- a/third_party/blink/renderer/core/dom/element.cc
 +++ b/third_party/blink/renderer/core/dom/element.cc
 @@ -26,6 +26,8 @@
@@ -11,7 +11,7 @@ index 6816436412..98e35ed98a 100644
  #include <algorithm>
  #include <bitset>
  #include <limits>
-@@ -3432,6 +3434,23 @@ DOMPoint* Element::convertPointFromNode(
+@@ -3520,6 +3522,23 @@ DOMPoint* Element::convertPointFromNode(
                                                exception_state);
  }
  
@@ -35,7 +35,7 @@ index 6816436412..98e35ed98a 100644
  Vector<gfx::RectF> Element::GetClientRectsNoAdjustment() {
    // TODO(crbug.com/1499981): This should be removed once synchronized scrolling
    // impact is understood.
-@@ -3448,6 +3467,16 @@ Vector<gfx::RectF> Element::GetClientRectsNoAdjustment() {
+@@ -3536,6 +3555,16 @@ Vector<gfx::RectF> Element::GetClientRectsNoAdjustment() {
    for (auto& quad : quads) {
      result.emplace_back(quad.BoundingBox());
    }
@@ -52,7 +52,7 @@ index 6816436412..98e35ed98a 100644
    return result;
  }
  
-@@ -3471,6 +3500,14 @@ gfx::RectF Element::GetBoundingClientRectNoLifecycleUpdate() const {
+@@ -3559,6 +3588,14 @@ gfx::RectF Element::GetBoundingClientRectNoLifecycleUpdate() const {
      return result;
    }
  
@@ -68,7 +68,7 @@ index 6816436412..98e35ed98a 100644
    DCHECK(element_layout_object);
    GetDocument().AdjustRectForScrollAndAbsoluteZoom(result,
 diff --git a/third_party/blink/renderer/core/dom/range.cc b/third_party/blink/renderer/core/dom/range.cc
-index fcea0d9667..506fa4aeb8 100644
+index 4b6baabc2a..833500f18a 100644
 --- a/third_party/blink/renderer/core/dom/range.cc
 +++ b/third_party/blink/renderer/core/dom/range.cc
 @@ -25,6 +25,8 @@
@@ -77,10 +77,10 @@ index fcea0d9667..506fa4aeb8 100644
  
 +#include "components/fury/fury_noise.h"
 +
+ #include "base/check.h"
  #include "third_party/blink/renderer/core/display_lock/display_lock_document_state.h"
  #include "third_party/blink/renderer/core/display_lock/display_lock_utilities.h"
- #include "third_party/blink/renderer/core/dom/character_data.h"
-@@ -1699,6 +1701,33 @@ DOMRect* Range::getBoundingClientRect() const {
+@@ -1678,6 +1680,33 @@ DOMRect* Range::getBoundingClientRect() const {
    return DOMRect::FromRectF(BoundingRect());
  }
  
@@ -114,7 +114,7 @@ index fcea0d9667..506fa4aeb8 100644
  // TODO(editing-dev): We should make
  // |Document::AdjustQuadsForScrollAndAbsoluteZoom()| as const function
  // and takes |const LayoutObject&|.
-@@ -1708,6 +1737,7 @@ static Vector<gfx::QuadF> ComputeTextQuads(const Document& owner_document,
+@@ -1687,6 +1716,7 @@ static Vector<gfx::QuadF> ComputeTextQuads(const Document& owner_document,
                                             unsigned end_offset) {
    Vector<gfx::QuadF> text_quads;
    layout_text.AbsoluteQuadsForRange(text_quads, start_offset, end_offset);
@@ -122,7 +122,7 @@ index fcea0d9667..506fa4aeb8 100644
    const_cast<Document&>(owner_document)
        .AdjustQuadsForScrollAndAbsoluteZoom(
            text_quads, const_cast<LayoutText&>(layout_text));
-@@ -1747,6 +1777,7 @@ void Range::GetBorderAndTextQuads(Vector<gfx::QuadF>& quads) const {
+@@ -1740,6 +1770,7 @@ void Range::GetBorderAndTextQuads(Vector<gfx::QuadF>& quads) const {
          continue;
        Vector<gfx::QuadF> element_quads;
        layout_object->AbsoluteQuads(element_quads);

@@ -208,9 +208,19 @@ def measure_pinch(config):
                                                          "gestureSourceType": "mouse"}, session=s)
             else:
                 ws.call("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": 190, "y": 300}, session=s)
+                # From 158 DevTools multiplies a synthetic wheel's delta by the
+                # page's scale (CreateWebMouseEvent), so each notch after the
+                # first came in larger by the zoom already made: 4.22x for
+                # four notches. A real wheel does not pass through there; the
+                # notch is sent as 120 at whatever the scale is now, which
+                # makes this check fail on a 157 core (1.99x), where it passed.
                 for _ in range(4):
+                    zoom = ws.call("Runtime.evaluate", {"expression": "visualViewport.scale",
+                                                        "returnByValue": True},
+                                   session=s)["result"]["value"]
                     ws.call("Input.dispatchMouseEvent", {"type": "mouseWheel", "x": 190, "y": 300,
-                                                         "deltaX": 0, "deltaY": -120, "modifiers": 2},
+                                                         "deltaX": 0, "deltaY": -120 / zoom,
+                                                         "modifiers": 2},
                             session=s)
                     time.sleep(0.05)
             time.sleep(1.5)

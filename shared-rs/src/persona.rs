@@ -1605,6 +1605,11 @@ mod tests {
             chrome_brand_list(155, "155", false),
             ["Google Chrome/155", "Chromium/155", "Not(A:Brand/24"]
         );
+        // Measured: the capture in issue 54, real Chrome 158 on Windows.
+        assert_eq!(
+            chrome_brand_list(158, "158.0.8127.37", true),
+            ["Chromium/158.0.8127.37", "Not.A/Brand/24.0.0.0", "Google Chrome/158.0.8127.37"]
+        );
     }
 
     /// The three checks added when docs/16 asked for a persona that refuses to
