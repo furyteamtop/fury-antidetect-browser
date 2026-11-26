@@ -351,7 +351,7 @@ pub fn build_args(spec: &LaunchSpec) -> Vec<String> {
     // on one machine today can be shared or restored tomorrow, and by then its
     // sessions would already be bound.
     args.push("--enable-features=BoundSessionCredentialsKillSwitch".to_string());
-    args.push("--disable-features=DeviceBoundSessions".to_string());
+    args.push(format!("--disable-features={}", DISABLED_FEATURES.join(",")));
 
     // CDP is full cookie access, so it is gated by export_cookies upstream of here.
     match spec.debug_port {
@@ -457,6 +457,30 @@ pub fn spawn(spec: &LaunchSpec) -> Result<std::process::Child, LaunchError> {
 /// Only the slot is visible in argv — a descriptor number on macOS, a handle
 /// value on Windows. That is the whole point of the carrier; see
 /// `fury_platform::carrier`.
+/// Chromium features every launch turns off, in ONE --disable-features: the
+/// browser keeps only the last of that switch, so a second one would undo the
+/// first.
+///
+/// DeviceBoundSessions: see build_args (a profile travels, a TPM does not).
+///
+/// KeychainKeyProviderUserDataDirProtection (macOS, on by default from
+/// Chromium 158): for a user-data-dir that is not Chrome's default one -- every
+/// Fury profile -- it marks the keychain's "v10" key unavailable and encrypts
+/// with a new "v11" key instead. A cookie the browser cannot decrypt is DELETED,
+/// so the first launch on the 0.7.0 core wiped the cookie jar of every local
+/// (non-team) profile on a Mac: reported 26.11.2026 after the update to 0.7.1,
+/// "every cookie gone, only Outlook survived" (Outlook keeps its login in
+/// localStorage). Measured on the release cores with --use-mock-keychain: 157
+/// writes v10, 158 deletes the row; 158 with this feature off reads it back.
+/// The price, also measured: a v11 cookie written by 0.7.0/0.7.1 is not
+/// readable with the feature off and goes the same way once. Team profiles
+/// carry their own key ("f10", patch 0110) and were never affected; Windows
+/// keeps v10 on 158 (measured on the box, with and without a key).
+#[cfg(target_os = "macos")]
+const DISABLED_FEATURES: &[&str] = &["DeviceBoundSessions", "KeychainKeyProviderUserDataDirProtection"];
+#[cfg(not(target_os = "macos"))]
+const DISABLED_FEATURES: &[&str] = &["DeviceBoundSessions"];
+
 fn carrier_switches(config: &Carrier, oscrypt: Option<&Carrier>) -> Vec<String> {
     let mut out = vec![config.switch("fury-fp")];
     if let Some(key) = oscrypt {
@@ -554,6 +578,9 @@ mod tests {
         let enable: Vec<_> = args.iter().filter(|a| a.starts_with("--enable-features=")).collect();
         let disable: Vec<_> = args.iter().filter(|a| a.starts_with("--disable-features=")).collect();
         assert_eq!(enable, ["--enable-features=BoundSessionCredentialsKillSwitch"]);
+        #[cfg(target_os = "macos")]
+        assert_eq!(disable, ["--disable-features=DeviceBoundSessions,KeychainKeyProviderUserDataDirProtection"]);
+        #[cfg(not(target_os = "macos"))]
         assert_eq!(disable, ["--disable-features=DeviceBoundSessions"]);
     }
 
