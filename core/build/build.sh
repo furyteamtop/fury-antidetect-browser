@@ -207,12 +207,11 @@ fi
 # and one without, were both indexed. Written anyway because it costs nothing
 # and older systems honour it, but it is not the fix and this says so.
 #
-# What does work is a package extension — Spotlight indexes a bundle as one item
-# and does not look inside — which is why real Chrome shows a single result
-# despite carrying five helpers, and why an installed core now lives in
-# core.bundle (agent/src/paths.rs). ninja's output layout is not ours to
-# rename, so on a build machine the honest answer is System Settings →
-# Spotlight → Privacy, with core/src/out added to it.
+# What does work is a directory ending in .noindex: Spotlight lists nothing
+# under one, which is where an installed core lives since 0.7.0
+# (agent/src/paths.rs; a package extension, core.bundle, was tried first and
+# Spotlight still listed the app inside). ninja's output directory here is
+# out/<name>.noindex for the same reason.
 if [ ! -f "$SRC/out/.metadata_never_index" ]; then
   : > "$SRC/out/.metadata_never_index"
 fi

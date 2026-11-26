@@ -38,18 +38,29 @@ pub fn db_path() -> PathBuf {
 /// So the shell is a signed bundle that stays as it was shipped, and the core
 /// is data next to the profiles. `fury-agent install-core` puts it here.
 ///
-/// The `.bundle` extension is not decoration. Spotlight indexes a top-level
-/// `.app` as an application, so an installed core showed up in search as a
-/// second thing called Fury, beside the one the user actually opens. It does
-/// NOT index inside a package, which is why real Chrome shows one result and
-/// not six despite carrying five helper applications.
+/// On macOS the directory ends in `.noindex`, because Spotlight indexes a
+/// `.app` as an application and the core showed up in search as a second
+/// thing called Fury beside the one the user opens. Spotlight lists nothing
+/// under a `.noindex` directory (dock_dir has relied on that since 12.10.2026).
 ///
-/// Measured rather than assumed, because the obvious fix does not work: a
-/// `.metadata_never_index` file is the documented way to ask, and on macOS 26
-/// two identical bundles — one with the marker, one without — were both
-/// indexed. A package extension was tried the same way and hid its contents.
+/// It was `core.bundle` from 0.2.x to 0.7.0, on the belief that Spotlight does
+/// not look inside a package. It does: on 26.11.2026 `mdfind` listed
+/// core.bundle/Fury.app as an application, and the 0.7.0 core, the first with
+/// Fury's own icon, would have made that a second Fury in every search. A
+/// `.metadata_never_index` file does not help either (macOS 26 indexed a
+/// bundle with one). install_core::migrate_legacy_dir moves an existing core.
+///
+/// Elsewhere it stays `core.bundle`: there is no Spotlight there, and on
+/// Windows a rename fails while any file in the directory is open.
 pub fn core_dir() -> PathBuf {
-    data_dir().join("core.bundle")
+    #[cfg(target_os = "macos")]
+    {
+        data_dir().join("core.noindex")
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        data_dir().join("core.bundle")
+    }
 }
 
 /// Which release the installed core came from, written by install_core.
@@ -60,13 +71,22 @@ pub fn core_release_file() -> PathBuf {
     data_dir().join("core.release")
 }
 
-/// Where a core installed by an earlier version sits.
+/// Where a core installed by an earlier version may sit, oldest first:
+/// `core` until 0.2.x everywhere, and on macOS `core.bundle` until 0.7.0.
 ///
 /// Renamed rather than left: two copies of a 544 MB browser is not a tidy way
 /// to change a directory name, and a core the agent no longer looks at is a
 /// browser that silently stops being used.
-pub fn legacy_core_dir() -> PathBuf {
-    data_dir().join("core")
+pub fn legacy_core_dirs() -> Vec<PathBuf> {
+    let core = data_dir().join("core");
+    #[cfg(target_os = "macos")]
+    {
+        vec![core, data_dir().join("core.bundle")]
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        vec![core]
+    }
 }
 
 /// Where each profile's copy of the core, named after the profile, is made
@@ -183,15 +203,17 @@ mod tests {
     // only place that computes it.
 
     #[test]
-    fn the_core_lives_in_a_package_so_search_shows_one_fury() {
+    fn the_core_is_out_of_spotlight_so_search_shows_one_fury() {
         // The whole reason for the extension. Losing it silently would put a
         // second "Fury" in everybody's Spotlight and nobody would connect the
         // two.
+        let want = if cfg!(target_os = "macos") { "noindex" } else { "bundle" };
         assert_eq!(
             core_dir().extension().and_then(|e| e.to_str()),
-            Some("bundle"),
-            "core_dir must keep a package extension — see the note on it"
+            Some(want),
+            "core_dir must keep its extension — see the note on it"
         );
+        assert!(!legacy_core_dirs().contains(&core_dir()));
     }
 
     #[test]

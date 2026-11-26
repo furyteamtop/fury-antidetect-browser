@@ -71,7 +71,7 @@ macOS-фреймворк, снимает карантинный флаг, кот
 
 ```
 installed Fury 158.0.8127.89
-  /Users/you/Library/Application Support/Fury/core.bundle/Fury.app/Contents/MacOS/Fury
+  /Users/you/Library/Application Support/Fury/core.noindex/Fury.app/Contents/MacOS/Fury
 ```
 
 Спросить, что установлено, можно в любой момент:
@@ -206,8 +206,9 @@ Rust под Linux по-прежнему компилируется — там р
 ~/Library/Application Support/Fury/
   fury.db          профили, прокси, персоны, проекты
   profiles/        данные браузера по профилям — куки, вкладки, закладки
-  core.bundle/     установленный браузер (пакет, чтобы в поиске
-                   был один Fury, а не два)
+  core.noindex/    установленный браузер (вне Spotlight, чтобы в поиске
+                   был один Fury, а не два; до 0.7.0 лежал в core.bundle
+                   и переезжает при первом запуске новой версии)
   dock.noindex/    macOS: клон браузера на каждый открытый профиль, с его именем
                    для Dock; клоны APFS, реального места не занимают
 ```

@@ -72,7 +72,7 @@ If it prints a version, it is installed:
 
 ```
 installed Fury 158.0.8127.89
-  /Users/you/Library/Application Support/Fury/core.bundle/Fury.app/Contents/MacOS/Fury
+  /Users/you/Library/Application Support/Fury/core.noindex/Fury.app/Contents/MacOS/Fury
 ```
 
 Ask it at any time what is installed:
@@ -211,8 +211,9 @@ each one operation:
 ~/Library/Application Support/Fury/
   fury.db          profiles, proxies, personas, projects
   profiles/        each profile's browser data — cookies, tabs, bookmarks
-  core.bundle/     the installed browser (a package, so search
-                   shows one Fury rather than two)
+  core.noindex/    the installed browser (out of Spotlight, so search
+                   shows one Fury rather than two; core.bundle until 0.7.0,
+                   moved on the first start of a newer version)
   dock.noindex/    macOS: one clone of the browser per open profile, named
                    after it for the Dock; APFS clones, so no real space
 ```

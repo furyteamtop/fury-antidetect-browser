@@ -695,8 +695,8 @@ pub fn core_binary() -> Option<std::path::PathBuf> {
     // did not build the browser: the shell is 12 MB and downloads with the
     // application, the core is 134 MB and arrives separately.
     //
-    // The directory gained a `.bundle` extension so that Spotlight stops
-    // offering the browser as a second application called Fury; anything
+    // The directory was renamed so that Spotlight stops offering the browser
+    // as a second application called Fury (paths::core_dir); anything
     // installed before that has to be brought along, or it silently stops
     // being found.
     crate::install_core::migrate_legacy_dir();
@@ -825,7 +825,7 @@ fn core_leaves() -> &'static [&'static str] {
     {
         // The subdirectory is not decoration and not a mistake: the Windows
         // archive carries a top-level `Fury\` exactly as the macOS one carries
-        // `Fury.app`, so the leaf is relative to core.bundle and includes it.
+        // `Fury.app`, so the leaf is relative to core_dir and includes it.
         //
         // Without the first two entries `install-core` unpacks a perfectly good
         // core, reports "installed 150.0.7871.187", and every launch afterwards

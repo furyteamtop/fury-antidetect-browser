@@ -23,10 +23,9 @@
 # entry survives the unmount in the LaunchServices database. Three of them had
 # accumulated.
 #
-# What is deliberately NOT touched: core.bundle. That is the browser itself, it
-# is registered too, and it is genuinely a second application -- see
-# core/build/build.sh for why hiding it properly needs a package extension
-# rather than a delete.
+# What is deliberately NOT touched: core.noindex (core.bundle before 0.7.0).
+# That is the browser itself; the agent keeps it out of Spotlight and forgets
+# it in LaunchServices (agent/src/paths.rs core_dir, dock.rs unregister_core).
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

@@ -32,14 +32,21 @@ use std::path::{Path, PathBuf};
 ///
 /// A rename, not a copy: the core is 544 MB and both are on the same volume.
 pub fn migrate_legacy_dir() {
-    let (old, new) = (crate::paths::legacy_core_dir(), crate::paths::core_dir());
-    if !old.is_dir() || new.exists() {
+    let new = crate::paths::core_dir();
+    if new.exists() {
         return;
     }
+    let Some(old) = crate::paths::legacy_core_dirs().into_iter().rev().find(|d| d.is_dir()) else {
+        return;
+    };
+    // LaunchServices keys its records by path, so the old one is forgotten
+    // while that path still exists; after the rename it would stay forever.
+    #[cfg(target_os = "macos")]
+    crate::dock::unregister_core(&old);
     match std::fs::rename(&old, &new) {
         Ok(()) => tracing::info!(
             from = %old.display(), to = %new.display(),
-            "moved the installed core into a package so search shows one Fury"
+            "moved the installed core out of Spotlight so search shows one Fury"
         ),
         // Not fatal. The next install-core writes the new location anyway, and
         // failing to start over a directory name would be a poor trade.
@@ -117,6 +124,14 @@ pub fn install(src: &Path) -> Result<PathBuf> {
     // Only now is the old one worth losing.
     let previous = dest.with_extension("previous");
     let _ = std::fs::remove_dir_all(&previous);
+    // Both bundles are forgotten by LaunchServices at the paths they have now:
+    // the old core's record would otherwise outlive it, and the new one was
+    // just run from the staging directory (dock::unregister_core says why).
+    #[cfg(target_os = "macos")]
+    {
+        crate::dock::unregister_core(&dest);
+        crate::dock::unregister_core(&staging);
+    }
     if dest.exists() {
         std::fs::rename(&dest, &previous)
             .with_context(|| format!("moving the existing core aside from {}", dest.display()))?;
