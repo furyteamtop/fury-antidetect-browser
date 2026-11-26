@@ -1,0 +1,4 @@
+# The "Sponsor" button on the repository page. Fury has no company and
+# nothing to sell; the only way to give money is the USDT address on the
+# site and in the READMEs (tools/ci/check-wallet.py keeps them equal).
+custom: ["https://furybrowser.dev/#support-en"]

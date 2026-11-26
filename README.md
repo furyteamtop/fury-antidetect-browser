@@ -9,10 +9,17 @@ team. No seats, no per-profile pricing, no telemetry.
 
 **[furybrowser.dev](https://furybrowser.dev)** · *[Русская версия](README.ru.md)*
 
+**If Fury is useful to you, please give it a star** (the ⭐ button at the top
+right of this page). That is how people find a free project in a search full
+of paid ones, and it costs you one click. If you want to help with money, it
+pays for the signing certificate and the machine that rebuilds the core for
+every Chrome release: **USDT (TRC20)** `TNvKC6tXKtsxA4tDrjU86zbmwMGuxfmatq`
+([more about it](#support)).
+
 > **Status: in development, and now on both macOS and Windows.** The core builds
 > and spoofs; the agent launches profiles; the server and desktop shell work.
 > Builds are on the [Releases](https://github.com/furyteamtop/fury-antidetect-browser/releases)
-> page, marked pre-release. **macOS builds are signed and notarised since
+> page. **macOS builds are signed and notarised since
 > 21.09.2026; Windows is not** — see below.
 >
 > **Windows works, as of 16.08.2026.** The Chromium core built (57 528 targets),
