@@ -710,6 +710,33 @@ input::placeholder {
   border-left-color: var(--warn);
 }
 
+/* The donation request after an update: a notice that reads as a letter, so
+ * stacked rather than in a row. */
+.donateBanner {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--s-2);
+  padding: var(--s-3);
+}
+
+.donateBanner p,
+.donateBanner ul {
+  margin: 0;
+  max-width: 72ch;
+  line-height: 1.5;
+}
+
+.donateBanner ul {
+  padding-left: 1.2em;
+}
+
+.donateHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+
 /* Something that happened, as against something that went wrong.
  *
  * Notices and failures were the same bar with the same accent stripe: "Opened

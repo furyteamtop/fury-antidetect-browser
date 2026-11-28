@@ -30,6 +30,7 @@ import { ShareDialog } from "./components/ShareDialog";
 import { CsvImport } from "./components/CsvImport";
 import { AntidetectImport } from "./components/AntidetectImport";
 import { IconButton } from "./components/Icon";
+import { DonateBanner, takeDonateTurn } from "./components/DonateBanner";
 import { useTheme } from "./theme";
 import { exitSharing } from "./consistency";
 import { countryPrefix } from "./flag";
@@ -61,6 +62,12 @@ export function App() {
   // and whether there is a live session. In local mode there is no session and
   // no account — that is the point of it.
   const [shell, setShell] = useState<Shell | null>(null);
+  // The request for donations, once after an update and at most every two
+  // weeks (components/DonateBanner.tsx).
+  const [donate, setDonate] = useState(false);
+  useEffect(() => {
+    if (shell?.version) setDonate(takeDonateTurn(shell.version));
+  }, [shell?.version]);
   // Redeeming an invitation is reachable from the sign-in screen and, unlike
   // it, works before this machine has a server configured — the code carries
   // the address. So it is its own state rather than a branch of `signed_in`.
@@ -1193,6 +1200,8 @@ export function App() {
             </button>
           </div>
         )}
+
+        {donate && <DonateBanner onClose={() => setDonate(false)} />}
 
         {/* A newer Fury. The check used to sit behind a button on the About
             screen, so nobody saw a release unless they went looking: the
