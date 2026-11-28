@@ -189,6 +189,12 @@ mod tests {
             eprintln!("SKIPPED: not an Apple silicon Mac");
             return;
         };
+        // CI's macOS runner is a virtual machine whose brand string the
+        // renderer refuses to carry (0.7.4: the test failed there, not here).
+        if !fury_shared::persona::plausible_chip(chip) {
+            eprintln!("SKIPPED: {chip:?} is not a chip a real Mac reports");
+            return;
+        }
         let cores = std::thread::available_parallelism().unwrap().get() as u32;
         for mut p in all() {
             let was = p.clone();

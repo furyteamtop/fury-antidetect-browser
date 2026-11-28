@@ -427,10 +427,7 @@ impl Persona {
     /// alone. Returns whether the name changed.
     pub fn name_the_host_chip(&mut self, chip: &str) -> bool {
         const AT: &str = "Metal Renderer: ";
-        let plausible = chip.starts_with("Apple ")
-            && chip.len() <= 40
-            && chip.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ');
-        if self.os.name != "macOS" || !plausible {
+        if self.os.name != "macOS" || !plausible_chip(chip) {
             return false;
         }
         let r = &self.gpu.webgl_renderer;
@@ -1736,4 +1733,11 @@ mod tests {
             p.validate().unwrap();
         }
     }
+}
+
+/// Whether a sysctl brand string is one `Persona::name_the_host_chip` will
+/// put into a renderer string: "Apple M5" is, a virtual machine's
+/// "Apple M1 (Virtual)" is not, since no real Mac's Chrome reports that.
+pub fn plausible_chip(chip: &str) -> bool {
+    chip.starts_with("Apple ") && chip.len() <= 40 && chip.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ')
 }
