@@ -181,7 +181,7 @@ const TOOLS: &[Tool] = &[
             "profile": profile_arg(),
             "max_chars": { "type": "integer", "description": "Text to return, default 8000, at most 100000" },
             "within": { "type": "integer", "description": "Only the text and elements inside element N" },
-            "filter": { "type": "string", "description": "Only elements whose label contains this text (any case)" },
+            "filter": { "type": "string", "description": "Only elements whose label, or the text beside a nameless control (`near`), contains this text (any case)" },
         }, "required": ["profile"] }),
     },
     Tool {

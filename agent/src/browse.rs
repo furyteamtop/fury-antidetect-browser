@@ -45,8 +45,13 @@ const MAX_ELEMENTS: usize = 200;
 /// switch, combobox, listbox, option, slider and the like. Each comes back
 /// with its state (`checked`, `selected`, `expanded`), so an assistant can
 /// tell whether a click did what it meant without a screenshot.
+///
+/// `[aria-checked]` with no role is there because a state is a control: an
+/// element that says whether it is checked can be checked, whatever its role
+/// says. YouTube Studio's "I understand that deleting is permanent" box was
+/// reached with Tab and Space and was in no list (28.11.2026).
 const ELEMENTS: &str = r#"(() => {
-  const sel = 'a[href], button, input:not([type=hidden]), textarea, select, summary, [role=button], [role=link], [role=tab], [role=menuitem], [role=menuitemradio], [role=menuitemcheckbox], [role=checkbox], [role=radio], [role=switch], [role=combobox], [role=listbox], [role=option], [role=slider], [role=spinbutton], [role=textbox], [role=searchbox], [role=treeitem], [contenteditable=""], [contenteditable=true]';
+  const sel = 'a[href], button, input:not([type=hidden]), textarea, select, summary, [role=button], [role=link], [role=tab], [role=menuitem], [role=menuitemradio], [role=menuitemcheckbox], [role=checkbox], [role=radio], [role=switch], [role=combobox], [role=listbox], [role=option], [role=slider], [role=spinbutton], [role=textbox], [role=searchbox], [role=treeitem], [aria-checked], [contenteditable=""], [contenteditable=true]';
   const found = [];
   const visit = root => {
     for (const e of root.querySelectorAll('*')) {
@@ -516,17 +521,35 @@ impl Page {
   const scope = within === null ? null : els[within];
   if (within !== null && !scope) throw new Error('there is no element ' + within + ' on the page now; read_page again, the page may have changed');
   const inside = (e, c) => {{ for (let n = e.parentNode || e.host; n; n = n.parentNode || n.host) if (n === c) return true; return false; }};
-  const label = e => (e.getAttribute('aria-label') || (e.labels && e.labels[0] && e.labels[0].innerText) || (e.tagName === 'SELECT' ? '' : e.innerText) || e.getAttribute('placeholder') || e.getAttribute('title') || e.getAttribute('name') || '').replace(/\s+/g, ' ').trim().slice(0, 100);
+  const byId = e => {{ const ids = (e.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean); const root = e.getRootNode(); return ids.map(id => {{ const t = root.getElementById ? root.getElementById(id) : document.getElementById(id); return t ? t.innerText : ''; }}).join(' '); }};
+  const label = e => (e.getAttribute('aria-label') || byId(e) || (e.labels && e.labels[0] && e.labels[0].innerText) || (e.tagName === 'SELECT' ? '' : e.innerText) || e.getAttribute('placeholder') || e.getAttribute('title') || e.getAttribute('name') || '').replace(/\s+/g, ' ').trim().slice(0, 100);
   const text = ((scope || document.body) ? (scope || document.body).innerText : '').replace(/\n{{3,}}/g, '\n\n');
-  const picked = els.map((e, i) => [e, i]).filter(([e]) => !scope || inside(e, scope)).filter(([e]) => !filter || label(e).toLowerCase().includes(filter));
+  // A control with no name of its own, whose words are beside it: the box of
+  // a checkbox component with the sentence next to it, in the host or in the
+  // row. Those words come back as `near`, not as the label, because they are
+  // what a person reads beside the control, not its name; three levels up at
+  // most, and only text short enough to be about this one control.
+  const near = e => {{
+    let n = e;
+    for (let i = 0; i < 3; i++) {{
+      n = n.parentNode instanceof ShadowRoot ? n.parentNode.host : n.parentElement;
+      if (!n) return '';
+      const t = (n.innerText || '').replace(/\s+/g, ' ').trim();
+      if (t) return t.length <= 200 ? t : '';
+    }}
+    return '';
+  }};
+  const words = e => {{ const l = label(e); return l ? [l, ''] : [l, near(e)]; }};
+  const picked = els.map((e, i) => [e, i, words(e)]).filter(([e]) => !scope || inside(e, scope)).filter(([, , w]) => !filter || (w[0] + ' ' + w[1]).toLowerCase().includes(filter));
   const files = {FILE_INPUTS};
   const out = {{
     url: location.href,
     title: document.title,
     text: text.slice(0, {max_chars}),
     text_truncated: text.length > {max_chars},
-    elements: picked.slice(0, {MAX_ELEMENTS}).map(([e, i]) => {{
-      const o = {{ n: i, tag: e.tagName.toLowerCase(), label: label(e) }};
+    elements: picked.slice(0, {MAX_ELEMENTS}).map(([e, i, w]) => {{
+      const o = {{ n: i, tag: e.tagName.toLowerCase(), label: w[0] }};
+      if (w[1]) o.near = w[1];
       if (e.type && e.tagName !== 'BUTTON') o.type = e.type;
       if (e.getAttribute('role')) o.role = e.getAttribute('role');
       if (e.href) o.href = e.href;
@@ -549,6 +572,9 @@ impl Page {
     }}),
     elements_total: picked.length,
   }};
+  // An empty list on its own reads as "the page has none"; say what was asked
+  // of which element, so a wrong number is seen as one.
+  if (!picked.length && (scope || filter)) out.note = 'no element' + (filter ? ' whose label or nearby text contains "' + filter + '"' : '') + (scope ? ' inside element ' + within + ' (' + scope.tagName.toLowerCase() + (label(scope) ? ' "' + label(scope) + '"' : '') + ')' : '') + '; read_page with neither gives the numbers';
   if (files.length) out.file_inputs = files.map((e, i) => {{
     const o = {{ input: i, label: (e.getAttribute('aria-label') || (e.labels && e.labels[0] && e.labels[0].innerText) || e.getAttribute('name') || e.id || (e.getRootNode().host ? e.getRootNode().host.tagName.toLowerCase() : '')).trim().slice(0, 100) }};
     if (e.accept) o.accept = e.accept;
@@ -1039,7 +1065,13 @@ mod tests {
 <div id=dialog role=dialog><button>Cancelar</button><button>Salvar</button></div>
 <nav id=nav style="height:200px;overflow:auto;scroll-behavior:smooth;border:1px solid"><div style="height:150px">menu</div><div role=button style="height:40px" onclick="document.body.dataset.opened='settings'">Configurações</div><div role=button style="height:40px" onclick="document.body.dataset.opened='feedback'">Enviar feedback</div><div style="height:300px"></div></nav>
 <x-uploader></x-uploader>
+<div role=dialog id=danger><x-check>Entendo que a exclusão é permanente</x-check><div class=row><div tabindex=0 aria-checked=false style="width:16px;height:16px;border:1px solid" onclick="this.setAttribute('aria-checked','true')"></div><span>Também apagar os comentários</span></div></div>
 <script>
+customElements.define('x-check', class extends HTMLElement { connectedCallback() {
+  const r = this.attachShadow({ mode: 'open' });
+  r.innerHTML = '<div role=checkbox aria-checked=false tabindex=0 style="display:inline-block;width:16px;height:16px;border:1px solid"></div><slot></slot>';
+  const box = r.querySelector('div'); box.onclick = () => box.setAttribute('aria-checked', 'true');
+}});
 customElements.define('x-radio-group', class extends HTMLElement { connectedCallback() {
   const r = this.attachShadow({ mode: 'open' });
   r.innerHTML = ['Sim', 'Não', 'Revisar'].map((t, i) => `<x-r role=radio aria-checked=${i == 2} tabindex=0 style="display:block">${t}</x-r>`).join('');
@@ -1211,6 +1243,25 @@ document.addEventListener('keydown', e => { document.body.dataset.keys = (docume
             assert!(rests_at.as_f64().unwrap() > 0.0, "the menu had to scroll");
             assert_eq!(pressed_at, rests_at, "the press arrived while the menu was still moving");
             assert_eq!(opened, "settings");
+
+            // Nameless boxes with their sentence beside them: one inside a
+            // component with the words in its host, one with no role at all.
+            let r = go("page.read", json!({ "filter": "permanente" })).await?;
+            assert_eq!(r["elements_total"], 1, "{r}");
+            let confirm = &r["elements"][0];
+            assert_eq!((confirm["role"].as_str(), confirm["checked"].as_bool(), confirm["label"].as_str()), (Some("checkbox"), Some(false), Some("")));
+            assert_eq!(confirm["near"], "Entendo que a exclusão é permanente");
+            go("page.click", json!({ "element": confirm["n"] })).await?;
+            let r = go("page.read", json!({ "filter": "comentários" })).await?;
+            assert_eq!(r["elements_total"], 1, "{r}");
+            assert_eq!(r["elements"][0]["checked"], false);
+            let r = go("page.read", json!({ "filter": "permanente" })).await?;
+            assert_eq!(r["elements"][0]["checked"], true);
+            // An empty answer says what it was asked of which element.
+            let r = go("page.read", json!({ "within": 0, "filter": "permanente" })).await?;
+            assert_eq!(r["elements_total"], 0);
+            let note = r["note"].as_str().unwrap_or_default();
+            assert!(note.contains("inside element 0 (input \"Nome\")"), "{r}");
 
             // A file into a hidden input inside a shadow root.
             let r = go("page.upload", json!({ "path": clip.to_string_lossy() })).await?;
