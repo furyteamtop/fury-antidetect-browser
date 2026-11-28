@@ -642,6 +642,7 @@ export const ko: Record<Key, string> = {
   "pd.memoryHint": "navigator.deviceMemory가 보고하는 값입니다. JS 힙 한도가 이 값을 따릅니다.",
   "pd.gpu": "그래픽 카드",
   "pd.gpuHint": "이 OS의 카드만 표시되며, 각 카드는 측정되었거나 문서화된 WebGL 및 WebGPU 값과 함께 제공됩니다. 렌더러 이름이 다른 카드의 한계값과 짝지어지는 일은 없습니다.",
+  "pd.gpuHostChip": "이 Mac에서는 실제 Chrome처럼 페이지가 이 Mac 자체의 칩 {chip}을(를) 봅니다. 다른 칩을 내세우는 Mac 머신은 fingerprint.com이 변조로 표시합니다.",
   "pd.geo": "위치 정보",
   "pd.geoHint": "위도, 경도 순서입니다. 예: 52.52, 13.405. 비워 두면 프록시 출구 주소를 따릅니다.",
   "pd.geoBad": "쉼표로 구분한 두 숫자(위도, 경도)여야 합니다.",

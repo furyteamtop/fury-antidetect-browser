@@ -642,6 +642,7 @@ export const tr: Record<Key, string> = {
   "pd.memoryHint": "navigator.deviceMemory'nin bildirdiği değer. JS yığın sınırı bunu izler.",
   "pd.gpu": "Ekran kartı",
   "pd.gpuHint": "Yalnızca bu işletim sistemine ait kartlar; her biri ölçüldüğü veya belgelendiği WebGL ve WebGPU değerleriyle gelir. Bir oluşturucu adı asla başka bir kartın sınırlarıyla yan yana gelmez.",
+  "pd.gpuHostChip": "Bu Mac'te sayfa, gerçek bir Chrome'daki gibi bu Mac'in kendi çipini, {chip}, görür. Başka bir çip bildiren bir Mac makinesini fingerprint.com kurcalama olarak işaretler.",
   "pd.geo": "Konum",
   "pd.geoHint": "Enlem, boylam; örneğin 52.52, 13.405. Boş bırakılırsa proxy çıkışı izlenir.",
   "pd.geoBad": "Virgülle ayrılmış iki sayı: enlem, boylam.",

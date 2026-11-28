@@ -642,6 +642,7 @@ export const id: Record<Key, string> = {
   "pd.memoryHint": "Yang dilaporkan navigator.deviceMemory. Batas heap JS mengikutinya.",
   "pd.gpu": "Kartu grafis",
   "pd.gpuHint": "Hanya kartu untuk OS ini, masing-masing dengan nilai WebGL dan WebGPU yang diukur atau didokumentasikan untuknya — tidak pernah nama renderer di samping batas kartu lain.",
+  "pd.gpuHostChip": "Di Mac ini halaman melihat chip milik Mac ini sendiri, {chip}, seperti di Chrome asli. Mesin Mac yang menyebut chip lain adalah yang ditandai fingerprint.com sebagai manipulasi.",
   "pd.geo": "Geolokasi",
   "pd.geoHint": "Lintang, bujur — misalnya 52.52, 13.405. Kosong berarti mengikuti jalur keluar proxy.",
   "pd.geoBad": "Dua angka dipisahkan koma: lintang, bujur.",

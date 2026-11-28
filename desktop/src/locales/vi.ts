@@ -642,6 +642,7 @@ export const vi: Record<Key, string> = {
   "pd.memoryHint": "Giá trị navigator.deviceMemory báo cáo. Giới hạn heap JS đi theo nó.",
   "pd.gpu": "Card đồ họa",
   "pd.gpuHint": "Chỉ các card của hệ điều hành này, mỗi card kèm giá trị WebGL và WebGPU mà nó được đo hoặc có tài liệu — không bao giờ có tên renderer đi cùng giới hạn của card khác.",
+  "pd.gpuHostChip": "Trên máy Mac này, trang thấy chip của chính máy, {chip}, như với Chrome thật. Một máy Mac khai một chip khác là điều fingerprint.com đánh dấu là giả mạo.",
   "pd.geo": "Vị trí địa lý",
   "pd.geoHint": "Vĩ độ, kinh độ — ví dụ 52.52, 13.405. Để trống thì theo lối ra của proxy.",
   "pd.geoBad": "Hai số cách nhau bằng dấu phẩy: vĩ độ, kinh độ.",

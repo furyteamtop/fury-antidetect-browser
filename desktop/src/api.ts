@@ -522,6 +522,8 @@ export interface Preview {
    *  an inconsistent profile stands out more than an un-spoofed one. */
   problems: string[];
   options: OverrideOptions;
+  /** This Mac's chip, named by a Mac persona whatever card is picked (issue #56). */
+  host_chip?: string | null;
   /** The persona's own values, for "as the machine has it". */
   base: {
     screen: [number, number];

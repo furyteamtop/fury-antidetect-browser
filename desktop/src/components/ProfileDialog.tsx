@@ -1107,17 +1107,28 @@ export function ProfileDialog({
                 <div className="field">
                   <label htmlFor="p-gpu">{t("pd.gpu")}</label>
                   <div>
-                    <Select
-                      id="p-gpu"
-                      value={overrides.gpu ?? ""}
-                      onChange={(e) => setOv({ gpu: e.target.value || undefined })}
-                    >
-                      <option value="">{t("pd.asMachine", { v: preview?.base ? gpuName(preview.base.gpu) : "…" })}</option>
-                      {(preview?.options?.gpus ?? []).map((g) => (
-                        <option key={g.id} value={g.id}>{gpuName(g.renderer)}</option>
-                      ))}
-                    </Select>
-                    <p className="hint">{t("pd.gpuHint")}</p>
+                    {preview?.host_chip && !overrides.gpu ? (
+                      <>
+                        <Select id="p-gpu" value="" disabled onChange={() => {}}>
+                          <option value="">{preview.host_chip}</option>
+                        </Select>
+                        <p className="hint">{t("pd.gpuHostChip", { chip: preview.host_chip })}</p>
+                      </>
+                    ) : (
+                      <>
+                        <Select
+                          id="p-gpu"
+                          value={overrides.gpu ?? ""}
+                          onChange={(e) => setOv({ gpu: e.target.value || undefined })}
+                        >
+                          <option value="">{t("pd.asMachine", { v: preview?.base ? gpuName(preview.base.gpu) : "…" })}</option>
+                          {(preview?.options?.gpus ?? []).map((g) => (
+                            <option key={g.id} value={g.id}>{gpuName(g.renderer)}</option>
+                          ))}
+                        </Select>
+                        <p className="hint">{t("pd.gpuHint")}</p>
+                      </>
+                    )}
                   </div>
                 </div>
                 {Object.keys(overrides).length > 0 && (

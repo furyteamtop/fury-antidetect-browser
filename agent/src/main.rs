@@ -220,8 +220,13 @@ async fn cmd_launch(args: &[String]) -> anyhow::Result<()> {
             .cloned()
     };
 
-    let persona: fury_shared::persona::Persona =
+    let mut persona: fury_shared::persona::Persona =
         serde_json::from_str(&std::fs::read_to_string(persona_path)?)?;
+    // As a profile launched from the app would, unless --keep-chip says to
+    // measure the persona's own chip and cores (issue #56).
+    if !args.iter().any(|a| a == "--keep-chip") {
+        crate::personas::fit_to_host(&mut persona, false);
+    }
     let seed: u64 = opt("--seed").map_or(Ok(1), |s| s.parse())?;
 
     // Start the exit first. The timezone a profile reports has to match where it

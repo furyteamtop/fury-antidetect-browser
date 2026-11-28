@@ -729,6 +729,7 @@ const en = {
   "pd.gpu": "Graphics card",
   "pd.gpuHint":
     "Cards of this OS only, each with the WebGL and WebGPU values it was measured or documented with — never a renderer name beside another card's limits.",
+  "pd.gpuHostChip": "On this Mac a page sees this Mac's own chip, {chip}, the way a real Chrome would. A Mac machine that names a different chip is what fingerprint.com flags as tampering.",
   "pd.geo": "Geolocation",
   "pd.geoHint": "Latitude, longitude — for example 52.52, 13.405. Empty follows the proxy exit.",
   "pd.geoBad": "Two numbers separated by a comma: latitude, longitude.",
@@ -2138,6 +2139,7 @@ const ru: Record<Key, string> = {
   "pd.gpu": "Видеокарта",
   "pd.gpuHint":
     "Только карты этой ОС, каждая со своими параметрами WebGL и WebGPU, с которыми её замерили или описали. Имени одной карты с лимитами другой не будет.",
+  "pd.gpuHostChip": "На этом Mac страница видит его собственный чип, {chip}, как и в обычном Chrome. Mac-машину с чужим чипом fingerprint.com считает подделкой.",
   "pd.geo": "Геолокация",
   "pd.geoHint": "Широта, долгота, например 52.52, 13.405. Если пусто, берётся по выходу прокси.",
   "pd.geoBad": "Два числа через запятую: широта, долгота.",
@@ -3491,6 +3493,7 @@ const zh: Record<Key, string> = {
   "pd.memoryHint": "navigator.deviceMemory 报告的值。JS 堆上限随之调整。",
   "pd.gpu": "显卡",
   "pd.gpuHint": "仅列出该系统的显卡，每张都带有实测或有文档依据的 WebGL 和 WebGPU 值——绝不会把一张卡的渲染器名称配上另一张卡的参数。",
+  "pd.gpuHostChip": "在这台 Mac 上，网页看到的是这台 Mac 自己的芯片 {chip}，与真实 Chrome 一致。声称另一款芯片的 Mac 机器会被 fingerprint.com 判定为篡改。",
   "pd.geo": "地理位置",
   "pd.geoHint": "纬度，经度——例如 52.52, 13.405。留空则跟随代理出口。",
   "pd.geoBad": "请填写两个以逗号分隔的数字：纬度，经度。",

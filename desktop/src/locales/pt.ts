@@ -642,6 +642,7 @@ export const pt: Record<Key, string> = {
   "pd.memoryHint": "O que navigator.deviceMemory informa. O limite do heap do JS acompanha esse valor.",
   "pd.gpu": "Placa de vídeo",
   "pd.gpuHint": "Apenas placas deste sistema, cada uma com os valores de WebGL e WebGPU com que foi medida ou documentada, nunca o nome de um renderizador ao lado dos limites de outra placa.",
+  "pd.gpuHostChip": "Neste Mac a página vê o chip do próprio Mac, {chip}, como num Chrome real. Uma máquina Mac que declara outro chip é o que o fingerprint.com aponta como adulteração.",
   "pd.geo": "Geolocalização",
   "pd.geoHint": "Latitude, longitude, por exemplo 52.52, 13.405. Vazio segue a saída do proxy.",
   "pd.geoBad": "Dois números separados por vírgula: latitude, longitude.",

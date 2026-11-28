@@ -15,7 +15,54 @@
 use fury_shared::persona::Persona;
 use serde::Serialize;
 
+/// The chip this Mac calls itself ("Apple M5", "Apple M3 Max"), read once
+/// from `machdep.cpu.brand_string`. On Apple silicon it is also the Metal
+/// device's name, which is what Chrome puts in the WebGL renderer: checked
+/// 28.11.2026 on an M5, real Chrome 158 says "ANGLE Metal Renderer: Apple M5".
+/// None off macOS, and on an Intel Mac, whose brand string is the CPU's.
+pub fn host_chip() -> Option<&'static str> {
+    static CHIP: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    CHIP.get_or_init(|| {
+        if !cfg!(target_os = "macos") {
+            return None;
+        }
+        let out = std::process::Command::new("/usr/sbin/sysctl")
+            .args(["-n", "machdep.cpu.brand_string"])
+            .output()
+            .ok()?;
+        let chip = String::from_utf8(out.stdout).ok()?.trim().to_string();
+        chip.starts_with("Apple ").then_some(chip)
+    })
+    .as_deref()
+}
 
+/// A macOS persona on this Mac names this Mac's chip and reports this Mac's
+/// core count, unless the profile pinned a count of its own. See
+/// `Persona::name_the_host_chip` for the chip (issue #56).
+///
+/// The cores, measured the same day on the M5 (10 cores), playground visits
+/// with the chip already the host's: personas reporting another count were
+/// flagged 6 of 19 (M2's 8 cores: 5 of 15), the ones reporting 10 were 2 of 26.
+/// A page can count cores by timing workers, so the claim has to be the real
+/// one. An odd count (an 11-core M3 Pro) fails `validate` and is left as the
+/// persona has it.
+///
+/// Every place that turns a persona into a core config goes through here, so
+/// the preview shows what the launch will claim.
+pub fn fit_to_host(p: &mut Persona, cores_pinned: bool) {
+    let Some(chip) = host_chip() else { return };
+    if p.os.name != "macOS" {
+        return;
+    }
+    p.name_the_host_chip(chip);
+    if !cores_pinned {
+        if let Some(n) = std::thread::available_parallelism().ok().map(|n| n.get() as u32) {
+            if n % 2 == 0 && n <= 128 {
+                p.cpu.cores = n;
+            }
+        }
+    }
+}
 
 /// What the interface shows in a persona picker.
 #[derive(Debug, Serialize)]
@@ -43,6 +90,10 @@ pub fn catalogue() -> Vec<PersonaSummary> {
     personas.sort_by(|a, b| b.weight.total_cmp(&a.weight));
     personas
         .into_iter()
+        .map(|mut p| {
+            fit_to_host(&mut p, false);
+            p
+        })
         .map(|p| PersonaSummary {
             os: format!("{} {}", p.os.name, p.os.display_version()),
             gpu: p.gpu.webgl_renderer.clone(),
@@ -129,6 +180,31 @@ mod tests {
             assert!(!entry.gpu.trim().is_empty());
             assert!(entry.screen.contains('×'));
             assert!(entry.weight > 0.0);
+        }
+    }
+
+    #[test]
+    fn on_this_mac_a_mac_persona_reports_this_macs_chip_and_cores() {
+        let Some(chip) = host_chip() else {
+            eprintln!("SKIPPED: not an Apple silicon Mac");
+            return;
+        };
+        let cores = std::thread::available_parallelism().unwrap().get() as u32;
+        for mut p in all() {
+            let was = p.clone();
+            fit_to_host(&mut p, false);
+            p.validate().unwrap_or_else(|e| panic!("{}: {e:?}", p.id));
+            if p.os.name == "macOS" {
+                assert!(p.gpu.webgl_renderer.contains(&format!("Metal Renderer: {chip},")), "{}", p.gpu.webgl_renderer);
+                if cores % 2 == 0 {
+                    assert_eq!(p.cpu.cores, cores, "{}", p.id);
+                }
+                let mut pinned = was.clone();
+                fit_to_host(&mut pinned, true);
+                assert_eq!(pinned.cpu.cores, was.cpu.cores, "a pinned count stays");
+            } else {
+                assert_eq!(serde_json::to_value(&p).unwrap(), serde_json::to_value(&was).unwrap(), "{}", p.id);
+            }
         }
     }
 

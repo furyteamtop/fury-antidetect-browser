@@ -642,6 +642,7 @@ export const ja: Record<Key, string> = {
   "pd.memoryHint": "navigator.deviceMemory が報告する値です。JS ヒープの上限もこれに連動します。",
   "pd.gpu": "グラフィックスカード",
   "pd.gpuHint": "この OS のカードのみで、それぞれ実測またはドキュメントに記載された WebGL・WebGPU の値と一緒に表示されます。別のカードの制限値にレンダラー名だけを合わせることはありません。",
+  "pd.gpuHostChip": "この Mac では、ページに見えるのはこの Mac 自身のチップ {chip} で、本物の Chrome と同じです。別のチップを名乗る Mac マシンは fingerprint.com に改ざんと判定されます。",
   "pd.geo": "位置情報",
   "pd.geoHint": "緯度, 経度の順で入力します。例: 52.52, 13.405。空欄の場合はプロキシの出口に合わせます。",
   "pd.geoBad": "カンマで区切った2つの数値（緯度, 経度）を入力してください。",
