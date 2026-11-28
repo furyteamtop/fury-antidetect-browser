@@ -14,6 +14,7 @@ import { NetworkReport } from "./components/NetworkReport";
 import { BookmarksView } from "./components/BookmarksView";
 import { ExtensionsView } from "./components/ExtensionsView";
 import { AssistantsView } from "./components/AssistantsView";
+import { AutomationsView } from "./components/AutomationsView";
 import { WarmDialog } from "./components/WarmDialog";
 import { useAsk } from "./components/Ask";
 import { CommandPalette, type Command } from "./components/CommandPalette";
@@ -163,6 +164,7 @@ export function App() {
   // The stage filter (5.5): "" is every stage, "\u0000none" is no stage.
   const [stage, setStage] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [automationTargetProfiles, setAutomationTargetProfiles] = useState<string[] | undefined>();
   /** `undefined` closed, `null` making new ones, a profile means copying it. */
   const [bulk, setBulk] = useState<Profile | null | undefined>(undefined);
   const [csv, setCsv] = useState(false);
@@ -963,6 +965,8 @@ export function App() {
                 ? t("nav.extensions")
                 : view === "bookmarks"
                 ? t("nav.bookmarks")
+                : view === "automations"
+                ? t("nav.automations")
                 : view === "assistants"
                 ? t("nav.assistants")
                 : view === "users"
@@ -1517,6 +1521,16 @@ export function App() {
                     {t("bar.closeSelected", { n: closable.length })}
                   </button>
                 )}
+                <button
+                  className="ghost"
+                  title="Run automation on selected profiles"
+                  onClick={() => {
+                    setAutomationTargetProfiles(chosen.map((p) => p.id));
+                    setView("automations");
+                  }}
+                >
+                  🤖 {t("nav.automations")} ({chosen.length})
+                </button>
                 {/* Where the selection lives, both sides in one list. A folder
                     on the same side is a move, as before. A team project for
                     profiles from this machine is how the team gets them: they
@@ -1804,6 +1818,7 @@ export function App() {
         )}
         {view === "extensions" && <ExtensionsView profiles={profiles} />}
         {view === "bookmarks" && <BookmarksView profiles={profiles} />}
+        {view === "automations" && <AutomationsView profiles={profiles} initialProfileIds={automationTargetProfiles} />}
         {view === "assistants" && <AssistantsView />}
 
         {view === "users" && (

@@ -427,19 +427,20 @@ impl Persona {
     /// alone. Returns whether the name changed.
     pub fn name_the_host_chip(&mut self, chip: &str) -> bool {
         const AT: &str = "Metal Renderer: ";
-        let plausible = chip.starts_with("Apple ")
-            && chip.len() <= 40
-            && chip.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ');
+        let clean = chip.strip_suffix(" (Virtual)").unwrap_or(chip).trim();
+        let plausible = clean.starts_with("Apple ")
+            && clean.len() <= 40
+            && clean.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ');
         if self.os.name != "macOS" || !plausible {
             return false;
         }
         let r = &self.gpu.webgl_renderer;
         let Some(start) = r.find(AT).map(|i| i + AT.len()) else { return false };
         let end = r[start..].find([',', ')']).map_or(r.len(), |i| start + i);
-        if r[start..end] == *chip {
+        if r[start..end] == *clean {
             return false;
         }
-        self.gpu.webgl_renderer = format!("{}{chip}{}", &r[..start], &r[end..]);
+        self.gpu.webgl_renderer = format!("{}{clean}{}", &r[..start], &r[end..]);
         true
     }
 
@@ -1711,6 +1712,14 @@ mod tests {
             assert_eq!(j(&same), j(&before), "only the renderer name may change");
         }
         assert!(!p.name_the_host_chip("Apple M5"), "already the host's");
+
+        // Virtualized Apple silicon in CI (e.g. GitHub Actions macOS runners) reports "(Virtual)"
+        let mut v = before.clone();
+        assert!(v.name_the_host_chip("Apple M1 (Virtual)"));
+        assert_eq!(
+            v.gpu.webgl_renderer,
+            "ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)"
+        );
 
         // Anything that is not a plausible Apple chip, or not a Mac persona.
         for junk in ["", "Intel(R) Core(TM) i7", "Apple M5, Fake", "Apple M5)"] {

@@ -101,6 +101,7 @@ export const de: Record<Key, string> = {
   "nav.profiles": "Profile",
   "nav.proxies": "Proxys",
   "nav.extensions": "Erweiterungen",
+  "nav.automations": "Automatisierungen",
   "nav.assistants": "KI-Assistenten",
   "ai.what": "Lassen Sie Claude, Cursor oder jeden Assistenten, der MCP spricht, mit Ihren Profilen arbeiten: sie öffnen, Websites aufrufen, Seiten lesen, klicken und tippen, sie aufwärmen und schließen. Fragen Sie in einfachen Worten, zum Beispiel:",
   "ai.example1": "\"Öffne alle Profile mit dem Tag warm, prüfe, ob sie noch auf der Plattform angemeldet sind, und schließe sie wieder\"",

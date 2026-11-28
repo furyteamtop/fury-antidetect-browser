@@ -16,6 +16,7 @@ not a promise that it is maintained, and each says who wrote it.
 | [playwright_example.py](../playwright_example.py) | Starts a profile and takes it over with `connect_over_cdp` | Playwright | Python 3.9+, `playwright` | official |
 | [puppeteer_example.mjs](../puppeteer_example.mjs) | The same from Node with `puppeteer.connect` | Puppeteer | Node 18+, `puppeteer-core` | official |
 | [rotate.py](../rotate.py) | Runs one job across every profile of a project, one at a time, and never leaves a browser open on a failure | Local API + Playwright | Python 3.9+, `playwright` | official |
+| [interactive-warmup](../../automations/interactive-warmup/) | Zero-dependency profile warmup: Bézier curves, dynamic viewport clamping, trusted CDP clicks, cookie collection | Local API + Pure CDP | Python 3.9+ | devrahmanbd |
 
 New entries go in this table, one row each, in the folder layout below.
 

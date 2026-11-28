@@ -101,6 +101,7 @@ export const id: Record<Key, string> = {
   "nav.profiles": "Profil",
   "nav.proxies": "Proxy",
   "nav.extensions": "Ekstensi",
+  "nav.automations": "Otomasi",
   "nav.assistants": "Asisten AI",
   "ai.what": "Biarkan Claude, Cursor, atau asisten apa pun yang mendukung MCP bekerja dengan profil Anda: membukanya, mengunjungi situs, membaca halaman, mengeklik dan mengetik, memanaskannya, menutupnya. Minta dengan kata-kata biasa, misalnya:",
   "ai.example1": "\"Buka semua profil bertag warm, periksa apakah masih login di platform, lalu tutup\"",

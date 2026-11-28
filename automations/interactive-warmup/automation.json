@@ -1,0 +1,15 @@
+{
+  "name": "Interactive Warmup",
+  "summary": "Visits seed targets with human-realistic browsing, B\u00e9zier curves, wheel scrolling, and cookie collection.",
+  "author": "devrahmanbd",
+  "drives": [
+    "local-api",
+    "cdp"
+  ],
+  "requires": [
+    "python>=3.9"
+  ],
+  "entry": "warm_up.py",
+  "licence": "AGPL-3.0-or-later",
+  "fury": ">=0.6.9"
+}

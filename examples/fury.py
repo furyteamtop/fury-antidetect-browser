@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import sys
 import urllib.error
 import urllib.request
 
@@ -26,7 +27,12 @@ DEFAULT_PORT = 35000
 def _home() -> pathlib.Path:
     if "FURY_HOME" in os.environ:
         return pathlib.Path(os.environ["FURY_HOME"])
-    if os.uname().sysname == "Darwin":
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            return pathlib.Path(appdata) / "Fury"
+        return pathlib.Path.home() / "AppData" / "Roaming" / "Fury"
+    if sys.platform == "darwin":
         return pathlib.Path.home() / "Library/Application Support/Fury"
     return pathlib.Path(os.environ.get("XDG_DATA_HOME", pathlib.Path.home() / ".local/share")) / "fury"
 

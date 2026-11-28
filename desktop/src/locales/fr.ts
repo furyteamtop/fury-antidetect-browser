@@ -101,6 +101,7 @@ export const fr: Record<Key, string> = {
   "nav.profiles": "Profils",
   "nav.proxies": "Proxys",
   "nav.extensions": "Extensions",
+  "nav.automations": "Automatisations",
   "nav.assistants": "Assistants IA",
   "ai.what": "Laissez Claude, Cursor ou tout assistant compatible MCP travailler avec vos profils : les ouvrir, aller sur des sites, lire des pages, cliquer et saisir, les préchauffer, les fermer. Demandez-lui en langage courant, par exemple :",
   "ai.example1": "« Ouvre tous les profils étiquetés warm, vérifie qu'ils sont toujours connectés à la plateforme, puis ferme-les »",
