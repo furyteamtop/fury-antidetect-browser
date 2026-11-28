@@ -2739,7 +2739,8 @@ impl Agent {
             // browse.rs. Only a profile this agent opened with the debugging
             // port has one to drive; anything else is refused with a reason
             // the assistant can act on.
-            "page.navigate" | "page.read" | "page.click" | "page.type" | "page.screenshot" => {
+            "page.navigate" | "page.read" | "page.click" | "page.type" | "page.press" | "page.scroll"
+            | "page.upload" | "page.screenshot" => {
                 let id = str_param(&params, "id")?;
                 let ws = {
                     let mut running = self.running.lock().await;
