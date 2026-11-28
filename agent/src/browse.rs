@@ -567,7 +567,11 @@ impl Page {
             r#"(() => {{
   const e = {ELEMENTS}[{n}];
   if (!e) return null;
-  e.scrollIntoView({{ block: 'center', inline: 'center' }});
+  // Instant even where the page asks for smooth scrolling (YouTube Studio's
+  // menu does): a smooth scroll has not moved yet when this returns, so the
+  // point measured below would be where the element was, and the click lands
+  // on whatever slides under it -- in the Studio, the menu item below.
+  e.scrollIntoView({{ block: 'center', inline: 'center', behavior: 'instant' }});
   const r = e.getBoundingClientRect();
   return {{ x: r.left + r.width / 2, y: r.top + r.height / 2 }};
 }})()"#
@@ -1033,6 +1037,7 @@ mod tests {
 <x-radio-group></x-radio-group>
 <div id=panel><div id=spacer>top</div><button id=deep>Acessar recursos</button></div>
 <div id=dialog role=dialog><button>Cancelar</button><button>Salvar</button></div>
+<nav id=nav style="height:200px;overflow:auto;scroll-behavior:smooth;border:1px solid"><div style="height:150px">menu</div><div role=button style="height:40px" onclick="document.body.dataset.opened='settings'">Configurações</div><div role=button style="height:40px" onclick="document.body.dataset.opened='feedback'">Enviar feedback</div><div style="height:300px"></div></nav>
 <x-uploader></x-uploader>
 <script>
 customElements.define('x-radio-group', class extends HTMLElement { connectedCallback() {
@@ -1184,6 +1189,28 @@ document.addEventListener('keydown', e => { document.body.dataset.keys = (docume
             let r = go("page.scroll", json!({ "x": px, "y": py, "dy": 5000 })).await?;
             assert_eq!(r["moved"], false, "at the end");
             let _ = deep;
+
+            // A menu that scrolls smoothly, as YouTube Studio's does: the
+            // click lands on the item that was named, not on the one that
+            // slid under the pointer while the menu was still moving.
+            let mut pg = super::Page::attach(&ws).await?;
+            pg.eval("(() => { const n = document.getElementById('nav'); n.addEventListener('mousedown', () => { document.body.dataset.pressedAt = n.scrollTop; }, true); })()").await?;
+            pg.detach().await;
+            let r = go("page.read", json!({ "filter": "Configurações" })).await?;
+            go("page.click", json!({ "element": r["elements"][0]["n"] })).await?;
+            let mut pg = super::Page::attach(&ws).await?;
+            let (opened, pressed_at, rests_at) = (
+                pg.eval("document.body.dataset.opened || null").await?,
+                pg.eval("Number(document.body.dataset.pressedAt)").await?,
+                pg.eval("document.getElementById('nav').scrollTop").await?,
+            );
+            pg.detach().await;
+            // Measured with the animation left on: the press arrived with the
+            // menu 1.5px into a 70px move. Here that still hit the right item;
+            // on a heavier page it is further along, and it was the next one.
+            assert!(rests_at.as_f64().unwrap() > 0.0, "the menu had to scroll");
+            assert_eq!(pressed_at, rests_at, "the press arrived while the menu was still moving");
+            assert_eq!(opened, "settings");
 
             // A file into a hidden input inside a shadow root.
             let r = go("page.upload", json!({ "path": clip.to_string_lossy() })).await?;
