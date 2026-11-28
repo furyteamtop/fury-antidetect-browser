@@ -8,12 +8,15 @@ import { es } from "./locales/es";
 import { fr } from "./locales/fr";
 import { hi } from "./locales/hi";
 import { id } from "./locales/id";
+import { it } from "./locales/it";
 import { ja } from "./locales/ja";
 import { ko } from "./locales/ko";
+import { pl } from "./locales/pl";
 import { pt } from "./locales/pt";
 import { tr } from "./locales/tr";
 import { uk } from "./locales/uk";
 import { vi } from "./locales/vi";
+import { zhTW } from "./locales/zhTW";
 
 /** Interface language.
  *
@@ -29,7 +32,7 @@ import { vi } from "./locales/vi";
  *  case, and tying the two would leak the operator into the fingerprint.
  */
 export const languages = [
-  "system", "en", "ru", "zh", "es", "pt", "fr", "de", "tr", "ar", "hi", "ja", "ko", "id", "vi", "uk",
+  "system", "en", "ru", "zh", "zh-TW", "es", "pt", "fr", "de", "it", "pl", "tr", "ar", "hi", "ja", "ko", "id", "vi", "uk",
 ] as const;
 export type Language = (typeof languages)[number];
 /** A language the interface can actually be in: the choice with "system" resolved. */
@@ -42,10 +45,13 @@ export const languageNames: Record<Resolved, { name: string; tag: string }> = {
   en: { name: "English", tag: "en-US" },
   ru: { name: "Русский", tag: "ru-RU" },
   zh: { name: "简体中文", tag: "zh-CN" },
+  "zh-TW": { name: "繁體中文", tag: "zh-TW" },
   es: { name: "Español", tag: "es-ES" },
   pt: { name: "Português (Brasil)", tag: "pt-BR" },
   fr: { name: "Français", tag: "fr-FR" },
   de: { name: "Deutsch", tag: "de-DE" },
+  it: { name: "Italiano", tag: "it-IT" },
+  pl: { name: "Polski", tag: "pl-PL" },
   tr: { name: "Türkçe", tag: "tr-TR" },
   ar: { name: "العربية", tag: "ar" },
   hi: { name: "हिन्दी", tag: "hi-IN" },
@@ -4177,14 +4183,18 @@ const zh: Record<Key, string> = {
 const KEY = "fury.language";
 
 const dictionaries: Record<Resolved, Record<Key, string>> = {
-  en, ru, zh, es, pt, fr, de, tr, ar, hi, ja, ko, id, vi, uk,
+  en, ru, zh, "zh-TW": zhTW, es, pt, fr, de, it, pl, tr, ar, hi, ja, ko, id, vi, uk,
 };
 
 function resolve(choice: Language): Resolved {
   if (choice !== "system") return choice;
   // navigator.language of the *shell*, which is the operator's desktop. The
   // profile's own languages are a separate thing entirely.
-  const system = (navigator.language || "en").toLowerCase().split(/[-_]/)[0];
+  const full = (navigator.language || "en").toLowerCase().replace(/_/g, "-");
+  // Chinese is two languages here by script: Taiwan, Hong Kong, Macau and any
+  // explicit Hant tag read Traditional, everything else Simplified.
+  if (/^zh-(tw|hk|mo|hant)/.test(full)) return "zh-TW";
+  const system = full.split("-")[0];
   return system in dictionaries ? (system as Resolved) : "en";
 }
 
