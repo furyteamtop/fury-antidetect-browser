@@ -30,7 +30,13 @@ pub fn host_chip() -> Option<&'static str> {
             .args(["-n", "machdep.cpu.brand_string"])
             .output()
             .ok()?;
-        let chip = String::from_utf8(out.stdout).ok()?.trim().to_string();
+        let raw = String::from_utf8(out.stdout).ok()?;
+        let chip = raw
+            .trim()
+            .strip_suffix(" (Virtual)")
+            .unwrap_or(raw.trim())
+            .trim()
+            .to_string();
         chip.starts_with("Apple ").then_some(chip)
     })
     .as_deref()
