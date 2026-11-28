@@ -40,10 +40,10 @@ index f2f70c1664..08b499533b 100644
    if (profile->GetUserData(kBookmarkFaviconFetcherKey)) {
      return;
 diff --git a/chrome/browser/extensions/BUILD.gn b/chrome/browser/extensions/BUILD.gn
-index 8f5ae8c9a3..cd9dd6fa69 100644
+index aa70420081..ec14028bbb 100644
 --- a/chrome/browser/extensions/BUILD.gn
 +++ b/chrome/browser/extensions/BUILD.gn
-@@ -597,6 +597,7 @@ source_set("extensions") {
+@@ -596,6 +596,7 @@ source_set("extensions") {
      "//components/enterprise/browser/identifiers",
      "//components/enterprise/browser/promotion",
      "//components/favicon/content",
@@ -52,7 +52,7 @@ index 8f5ae8c9a3..cd9dd6fa69 100644
      "//components/guest_view/common",
      "//components/infobars/content",
 diff --git a/chrome/browser/extensions/api/passwords_private/passwords_private_delegate_impl.cc b/chrome/browser/extensions/api/passwords_private/passwords_private_delegate_impl.cc
-index 364b8d87de..0c286183cd 100644
+index c18bba09c2..a134259b11 100644
 --- a/chrome/browser/extensions/api/passwords_private/passwords_private_delegate_impl.cc
 +++ b/chrome/browser/extensions/api/passwords_private/passwords_private_delegate_impl.cc
 @@ -4,6 +4,9 @@
@@ -65,7 +65,7 @@ index 364b8d87de..0c286183cd 100644
  #include <memory>
  #include <optional>
  #include <string>
-@@ -545,6 +548,16 @@ void PasswordsPrivateDelegateImpl::RequestPlaintextPassword(
+@@ -543,6 +546,16 @@ void PasswordsPrivateDelegateImpl::RequestPlaintextPassword(
      int id,
      api::passwords_private::PlaintextReason reason,
      PlaintextPasswordCallback callback) {
@@ -83,7 +83,7 @@ index 364b8d87de..0c286183cd 100644
        kPasswordManagerAuthValidity, GetReauthPurpose(reason),
        base::BindOnce(
 diff --git a/chrome/browser/ui/passwords/settings/BUILD.gn b/chrome/browser/ui/passwords/settings/BUILD.gn
-index f47389d976..14cdd1d5e4 100644
+index 99a2373115..4e7eb1e27e 100644
 --- a/chrome/browser/ui/passwords/settings/BUILD.gn
 +++ b/chrome/browser/ui/passwords/settings/BUILD.gn
 @@ -28,6 +28,7 @@ source_set("impl") {
@@ -92,8 +92,8 @@ index f47389d976..14cdd1d5e4 100644
    deps = [
 +    "//components/fury",
      ":settings",
+     "//chrome/app:branded_strings",
      "//chrome/browser:primitives",
-     "//chrome/browser/profiles:profile",
 diff --git a/chrome/browser/ui/passwords/settings/password_export_controller.cc b/chrome/browser/ui/passwords/settings/password_export_controller.cc
 index db12febfa3..ba5a4b901e 100644
 --- a/chrome/browser/ui/passwords/settings/password_export_controller.cc

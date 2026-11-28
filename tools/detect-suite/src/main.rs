@@ -1039,7 +1039,17 @@ fn cmd_report(args: &[String]) -> Result<()> {
     }
 
     md.push_str(
-        "\n## Taking it again\n\n         This document is a claim about a specific binary, and the hashes above          are what make it checkable rather than believable. With the same          release:\n\n         ```bash\n         shasum -a 256 <the core binary>          # must match `core sha256`\n         tools/detect-suite/capture-chrome.sh mine <the core binary>\n         cargo run -p fury-detect -- report tools/detect-suite/baselines/mine.json \\\n             --core <the core binary>\n         ```\n\n         A different verdict from the same core hash is a bug worth reporting          (SECURITY.md). A different verdict from a different core hash is a          different browser.\n",
+        "\n## Taking it again\n\n\
+This document is a claim about a specific binary, and the hashes above are\n\
+what make it checkable rather than believable. With the same release:\n\n\
+```bash\n\
+shasum -a 256 <the core binary>          # must match `core sha256`\n\
+tools/detect-suite/capture-chrome.sh mine <the core binary>\n\
+cargo run -p fury-detect -- report tools/detect-suite/baselines/mine.json \\\n    --core <the core binary>\n\
+```\n\n\
+A different verdict from the same core hash is a bug worth reporting\n\
+(SECURITY.md). A different verdict from a different core hash is a\n\
+different browser.\n",
     );
 
     match out {

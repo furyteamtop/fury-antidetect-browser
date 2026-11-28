@@ -10,7 +10,7 @@
     "fetched without installing their product, so pretending the page polls",
     "them live would be the one dishonest thing on it.",
     "",
-    "Source: docs/08-competitors.md, the table of cores on 05.11.2026, with the",
+    "Source: docs/08-competitors.md, the table of cores on 26.11.2026, with the",
     "source and the date of every row. Dolphin Anty publishes no changelog, so",
     "its number is the least certain one here, and the page says so.",
     "",
@@ -21,55 +21,55 @@
     "version, which build.py prints without a bar, since Firefox 158 is not",
     "ahead of Chrome 157 in any sense the bar would show."
   ],
-  "measured": "2026-11-05",
+  "measured": "2026-11-26",
   "source": "docs/08-competitors.md",
   "rows": [
     {
       "name": "Fury",
-      "chrome": 157,
+      "chrome": 158,
       "self": true,
       "teams": "yes",
       "open": "core",
       "price": "free"
     },
     {
-      "name": "ShardBrowser",
-      "chrome": 157,
-      "teams": "yes",
-      "open": "launcher",
-      "price": "free"
-    },
-    {
       "name": "Octo Browser",
-      "chrome": 156,
-      "teams": "yes",
-      "open": "no",
-      "price": "paid"
-    },
-    {
-      "name": "AdsPower",
-      "chrome": 156,
-      "teams": "yes",
-      "open": "no",
-      "price": "paid"
-    },
-    {
-      "name": "Multilogin X",
-      "chrome": 156,
+      "chrome": 158,
       "teams": "yes",
       "open": "no",
       "price": "paid"
     },
     {
       "name": "Undetectable",
-      "chrome": 155,
+      "chrome": 158,
+      "teams": "yes",
+      "open": "no",
+      "price": "paid"
+    },
+    {
+      "name": "ShardBrowser",
+      "chrome": 158,
+      "teams": "yes",
+      "open": "launcher",
+      "price": "free"
+    },
+    {
+      "name": "AdsPower",
+      "chrome": 157,
+      "teams": "yes",
+      "open": "no",
+      "price": "paid"
+    },
+    {
+      "name": "Multilogin X",
+      "chrome": 157,
       "teams": "yes",
       "open": "no",
       "price": "paid"
     },
     {
       "name": "GoLogin",
-      "chrome": 154,
+      "chrome": 157,
       "teams": "yes",
       "open": "no",
       "price": "paid"
@@ -90,7 +90,7 @@
     },
     {
       "name": "Camoufox",
-      "chrome": 158,
+      "chrome": 159,
       "engine": "Firefox",
       "teams": "no",
       "open": "yes",

@@ -91,7 +91,9 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "fury_list_personas",
-        description: "The machines a profile can be: id, OS, GPU, screen, and how common each is among real users. \
+        description: "The machines a profile can be: id, OS, GPU, the machine's own screen, and how common each is among \
+                      real users. A desktop profile does not report that screen: unless a size is chosen in the \
+                      profile's settings, sites see the monitor it runs on. A phone reports its own. \
                       Prefer common ones; the OS should usually match the person's own computer.",
         schema: || json!({ "type": "object", "properties": {
             "os": { "type": "string", "description": "Only this OS: windows, macos" },

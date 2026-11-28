@@ -29,6 +29,9 @@
 /// blind to, so each needs a reason.
 pub const NOISE: &[&str] = &[
     "__collectedInMs",                 // wall clock
+    // How the capture went, per vector, with timings. A vector that timed out
+    // or is missing shows up under its own path as well.
+    "__capture",
     "engine.performanceNowPrecision",  // measured by sampling, jitters
     "engine.jsHeapSizeLimit",          // varies with process state
     "engine.totalJSHeapSize",
@@ -170,6 +173,12 @@ mod tests {
     fn canvas_hash_is_a_value_but_its_stability_is_behaviour() {
         assert_eq!(classify("canvas2d.toDataURL"), Kind::Value);
         assert_eq!(classify("canvas2d.stableAcrossCalls"), Kind::Behavioural);
+    }
+
+    #[test]
+    fn how_a_capture_went_is_noise_and_what_it_missed_is_not() {
+        assert_eq!(classify("__capture.vectors.webrtc.ms"), Kind::Noise);
+        assert_eq!(classify("webrtc.__timeout"), Kind::Behavioural);
     }
 
     #[test]

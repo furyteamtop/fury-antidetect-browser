@@ -115,6 +115,32 @@ pub fn tidy() {
     if removed > 0 {
         tracing::info!(removed, "Dock copies of closed profiles removed");
     }
+    unregister_core(&crate::paths::core_dir());
+}
+
+/// Forget the installed core in LaunchServices.
+///
+/// A `.noindex` directory keeps the core out of Spotlight's index, but not out
+/// of LaunchServices: any launch registers the bundle, wherever it is
+/// (measured 26.11.2026 on a copy in a `.noindex` directory), and macOS 26's
+/// application search lists registered applications too -- it showed an iOS
+/// build from inside a `build.noindex` folder. Profiles run from their Dock
+/// copies, which tidy forgets; this is for the core itself, which install-core
+/// and headless runs start directly. Called with the agent and after every
+/// browser closes, 6 ms.
+#[cfg(target_os = "macos")]
+pub fn unregister_core(core_dir: &Path) {
+    let bundles: Vec<PathBuf> = std::fs::read_dir(core_dir)
+        .map(|it| {
+            it.flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|e| e == "app"))
+                .collect()
+        })
+        .unwrap_or_default();
+    if !bundles.is_empty() {
+        unregister(&bundles);
+    }
 }
 
 /// Every `<profile id>/` under `dock_dir` that no path in `running` is inside:
@@ -253,7 +279,7 @@ mod tests {
     fn the_copy_is_named_after_the_profile_and_remade_each_time() {
         let root = std::env::temp_dir().join(format!("fury-dock-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        let core = root.join("core.bundle/Fury.app/Contents/MacOS");
+        let core = root.join("core.noindex/Fury.app/Contents/MacOS");
         std::fs::create_dir_all(&core).unwrap();
         std::fs::write(core.join("Fury"), b"v1").unwrap();
         let dock = root.join("dock.noindex");

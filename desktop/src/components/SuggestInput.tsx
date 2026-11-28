@@ -150,7 +150,7 @@ export function SuggestInput({
             ref={list}
             id={listId}
             role="listbox"
-            className="selectList"
+            className="selectPop selectList"
             style={{
               left: place.left,
               minWidth: place.width,

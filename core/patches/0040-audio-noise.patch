@@ -52,7 +52,7 @@ index 1b7598ba43..64d8ac5d4b 100644
    return std::round(output_position_.hardware_output_latency / factor) * factor;
  }
 diff --git a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
-index 7ae88d3b2d..5d6a732b2e 100644
+index baf8b320c6..921d3ce5ee 100644
 --- a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
 +++ b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
 @@ -27,6 +27,8 @@
@@ -64,8 +64,8 @@ index 7ae88d3b2d..5d6a732b2e 100644
  #include "base/metrics/histogram_functions.h"
  #include "base/metrics/histogram_macros.h"
  #include "base/numerics/safe_conversions.h"
-@@ -583,6 +585,73 @@ void OfflineAudioContext::OnChunkRendered() {
-   Member<AudioBuffer> rendered_buffer = pending_render_targets_.TakeFirst();
+@@ -578,6 +580,73 @@ void OfflineAudioContext::OnChunkRendered() {
+   Member<AudioBuffer> rendered_buffer = pending_render_targets_.front();
  
    CHECK(rendered_buffer);
 +
@@ -135,6 +135,6 @@ index 7ae88d3b2d..5d6a732b2e 100644
 +    }
 +  }
 +
+   // Keep the target queued across `Resolve()` so synchronous thenable getters
+   // can enqueue more chunks without starting a duplicate render.
    resolver->Resolve(rendered_buffer.Get());
- 
-   if (IsRenderComplete()) {

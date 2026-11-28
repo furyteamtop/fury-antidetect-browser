@@ -23,7 +23,8 @@ repo="$(cd "$(dirname "$0")/../.." && pwd)"
 bin="${FURY_E2E_BIN:-$repo/target/debug}"
 
 if [[ -z "${FURY_CORE:-}" ]]; then
-  for c in "$HOME/Library/Application Support/Fury/core.bundle/Fury.app/Contents/MacOS/Fury" \
+  for c in "$HOME/Library/Application Support/Fury/core.noindex/Fury.app/Contents/MacOS/Fury" \
+           "$HOME/Library/Application Support/Fury/core.bundle/Fury.app/Contents/MacOS/Fury" \
            "${LOCALAPPDATA:-/nonexistent}/Fury/core/fury.exe"; do
     [[ -x "$c" ]] && export FURY_CORE="$c" && break
   done

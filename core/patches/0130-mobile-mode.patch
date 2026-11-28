@@ -1,16 +1,16 @@
 diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
-index 09bc575008..12df31869b 100644
+index e8d20573d3..b93df2456f 100644
 --- a/chrome/browser/chrome_content_browser_client.cc
 +++ b/chrome/browser/chrome_content_browser_client.cc
-@@ -247,6 +247,7 @@
+@@ -249,6 +249,7 @@
  #include "chrome/common/webui_url_constants.h"
  #include "chrome/common/webui_url_utils.h"
  #include "chrome/installer/util/google_update_settings.h"
 +#include "components/fury/fury_config.h"
  #include "components/fury/location/fury_location_provider.h"
+ #include "components/actor/core/actor_features.h"
  #include "components/autofill/core/common/autofill_features.h"
- #include "components/autofill/core/common/autofill_switches.h"
-@@ -4712,6 +4713,62 @@ content::TtsPlatform* ChromeContentBrowserClient::GetTtsPlatform() {
+@@ -4746,6 +4747,62 @@ content::TtsPlatform* ChromeContentBrowserClient::GetTtsPlatform() {
  #endif
  }
  
@@ -73,7 +73,7 @@ index 09bc575008..12df31869b 100644
  void ChromeContentBrowserClient::OverrideWebPreferences(
      WebContents* web_contents,
      content::SiteInstance& main_frame_site,
-@@ -5072,6 +5129,59 @@ void ChromeContentBrowserClient::OverrideWebPreferences(
+@@ -5124,6 +5181,59 @@ void ChromeContentBrowserClient::OverrideWebPreferences(
  
    web_prefs->is_xslt_deprecation_banner_suppressed =
        prefs->GetBoolean(prefs::kXSLTDeprecationBannerSuppressed);
@@ -133,8 +133,8 @@ index 09bc575008..12df31869b 100644
  }
  
  bool ChromeContentBrowserClientParts::OverrideWebPreferencesAfterNavigation(
-@@ -5087,6 +5197,14 @@ bool ChromeContentBrowserClient::OverrideWebPreferencesAfterNavigation(
-     WebPreferences* web_prefs) {
+@@ -5140,6 +5250,14 @@ bool ChromeContentBrowserClient::OverrideWebPreferencesAfterNavigation(
+   Profile* profile = GetProfileForWebPreferences(web_contents);
    bool prefs_changed = false;
  
 +  // Patch 0130: a tab going to or from one of the browser's own pages changes
@@ -173,7 +173,7 @@ index 3d31969a7b..1a88c3f5ea 100644
    "+components/services/font/public",
    "+components/tracing",
 diff --git a/content/child/runtime_features.cc b/content/child/runtime_features.cc
-index fcf03ba0b3..619eb01c77 100644
+index 6a3c4650a0..567987667d 100644
 --- a/content/child/runtime_features.cc
 +++ b/content/child/runtime_features.cc
 @@ -20,6 +20,7 @@
@@ -184,7 +184,7 @@ index fcf03ba0b3..619eb01c77 100644
  #include "content/common/content_navigation_policy.h"
  #include "content/common/content_switches_internal.h"
  #include "content/common/features.h"
-@@ -558,6 +559,56 @@ void ResolveInvalidConfigurations() {
+@@ -556,6 +557,56 @@ void ResolveInvalidConfigurations() {
  
  namespace content {
  
@@ -241,7 +241,7 @@ index fcf03ba0b3..619eb01c77 100644
  void SetRuntimeFeaturesDefaultsAndUpdateFromArgs(
      const base::CommandLine& command_line) {
    // Sets experimental features.
-@@ -607,6 +658,8 @@ void SetRuntimeFeaturesDefaultsAndUpdateFromArgs(
+@@ -605,6 +656,8 @@ void SetRuntimeFeaturesDefaultsAndUpdateFromArgs(
      WebRuntimeFeatures::EnableXSLT(value == "true");
    }
  

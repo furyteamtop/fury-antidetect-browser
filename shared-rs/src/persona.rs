@@ -409,6 +409,40 @@ impl Persona {
         self.is_android() && self.mobile.as_ref().is_some_and(|m| m.form_factor == "phone")
     }
 
+    /// A macOS persona run on a Mac names the chip that actually draws, as a
+    /// real Chrome does: "ANGLE Metal Renderer: Apple M3 Max" is the Metal
+    /// device's name, and on Apple silicon that is the chip's.
+    ///
+    /// Issue #56. demo.fingerprint.com flags a Mac persona whose chip is not
+    /// the host's. Measured 28.11.2026 on an M5 host, core 158, five launches
+    /// or more per arm: the M5 persona was flagged 1 of 12, the same persona
+    /// with only the chip renamed to M2 5 of 7, the catalogue's M2 5 of 5 and
+    /// M1 Pro 2 of 2. Cores (8 against the real 10), memory (8, 32) and the
+    /// macOS version moved nothing on their own. The tester's M3 Max has no
+    /// persona of its own, so every machine the catalogue offered him was a
+    /// different chip and every profile read "Browser Tampering".
+    ///
+    /// `chip` is what the host calls itself ("Apple M5"); anything else, a
+    /// non-Mac persona, or a renderer that is not ANGLE's Metal one is left
+    /// alone. Returns whether the name changed.
+    pub fn name_the_host_chip(&mut self, chip: &str) -> bool {
+        const AT: &str = "Metal Renderer: ";
+        let plausible = chip.starts_with("Apple ")
+            && chip.len() <= 40
+            && chip.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ');
+        if self.os.name != "macOS" || !plausible {
+            return false;
+        }
+        let r = &self.gpu.webgl_renderer;
+        let Some(start) = r.find(AT).map(|i| i + AT.len()) else { return false };
+        let end = r[start..].find([',', ')']).map_or(r.len(), |i| start + i);
+        if r[start..end] == *chip {
+            return false;
+        }
+        self.gpu.webgl_renderer = format!("{}{chip}{}", &r[..start], &r[end..]);
+        true
+    }
+
     /// Builds the JSON the patched core reads.
     ///
     /// Key paths match what components/fury reads and what
@@ -1605,6 +1639,11 @@ mod tests {
             chrome_brand_list(155, "155", false),
             ["Google Chrome/155", "Chromium/155", "Not(A:Brand/24"]
         );
+        // Measured: the capture in issue 54, real Chrome 158 on Windows.
+        assert_eq!(
+            chrome_brand_list(158, "158.0.8127.37", true),
+            ["Chromium/158.0.8127.37", "Not.A/Brand/24.0.0.0", "Google Chrome/158.0.8127.37"]
+        );
     }
 
     /// The three checks added when docs/16 asked for a persona that refuses to
@@ -1654,5 +1693,47 @@ mod tests {
         let mut p = load("windows-11-rtx4060-1920x1080");
         p.gpu.webgl_renderer = "ANGLE (Apple, ANGLE Metal Renderer: Apple M3)".into();
         assert!(p.validate().is_err());
+    }
+
+    #[test]
+    fn a_mac_persona_names_the_host_chip_and_nothing_else_moves() {
+        let mut p = load("macos-15-m-series-1728x1117");
+        let before = p.clone();
+        for chip in ["Apple M3 Max", "Apple M5"] {
+            p.name_the_host_chip(chip);
+            assert_eq!(
+                p.gpu.webgl_renderer,
+                format!("ANGLE (Apple, ANGLE Metal Renderer: {chip}, Unspecified Version)")
+            );
+            p.validate().unwrap();
+            let mut same = p.clone();
+            same.gpu.webgl_renderer = before.gpu.webgl_renderer.clone();
+            assert_eq!(j(&same), j(&before), "only the renderer name may change");
+        }
+        assert!(!p.name_the_host_chip("Apple M5"), "already the host's");
+
+        // Anything that is not a plausible Apple chip, or not a Mac persona.
+        for junk in ["", "Intel(R) Core(TM) i7", "Apple M5, Fake", "Apple M5)"] {
+            let mut q = before.clone();
+            assert!(!q.name_the_host_chip(junk), "{junk:?}");
+            assert_eq!(j(&q), j(&before));
+        }
+        let mut w = load("windows-11-rtx4060-1920x1080");
+        let w0 = w.clone();
+        assert!(!w.name_the_host_chip("Apple M5"));
+        assert_eq!(j(&w), j(&w0));
+    }
+
+    fn j(p: &Persona) -> serde_json::Value {
+        serde_json::to_value(p).unwrap()
+    }
+
+    #[test]
+    fn every_catalogue_mac_takes_the_host_chip() {
+        for mut p in crate::catalogue::all().into_iter().filter(|p| p.os.name == "macOS") {
+            p.name_the_host_chip("Apple M3 Max");
+            assert!(p.gpu.webgl_renderer.contains("Metal Renderer: Apple M3 Max,"), "{}: {}", p.id, p.gpu.webgl_renderer);
+            p.validate().unwrap();
+        }
     }
 }

@@ -2189,7 +2189,9 @@ impl Agent {
             // measured persona and showing the result before saving is the
             // difference between choosing a device and inventing one.
             "profile.preview" => {
-                let base = crate::personas::load(&str_param(&params, "persona_id")?)?;
+                let mut base = crate::personas::load(&str_param(&params, "persona_id")?)?;
+                // "As the machine has it" names what this Mac will report.
+                crate::personas::fit_to_host(&mut base, false);
                 let catalogue = crate::personas::all();
                 let mut overrides: fury_shared::overrides::MachineOverrides = params
                     .get("overrides")
@@ -2209,10 +2211,11 @@ impl Agent {
                 // An override that makes an impossible machine is shown, not
                 // hidden: the preview falls back to the persona as it is and
                 // lists the problems, and Save stays disabled on them.
-                let (persona, override_problems) = match overrides.apply(&base, &catalogue) {
+                let (mut persona, override_problems) = match overrides.apply(&base, &catalogue) {
                     Ok(p) => (p, Vec::new()),
                     Err(errs) => (base.clone(), errs),
                 };
+                crate::personas::fit_to_host(&mut persona, overrides.cores.is_some());
                 let seed = params.get("fp_seed").and_then(|v| v.as_i64()).unwrap_or(1);
                 let languages: Vec<String> = params
                     .get("languages")
@@ -2349,6 +2352,10 @@ impl Agent {
                     },
                     "problems": problems,
                     "options": options,
+                    // A Mac persona on a Mac names this Mac's chip whatever is
+                    // picked (issue #56), so the dialog says so instead of
+                    // offering a card the launch would not claim.
+                    "host_chip": (base.os.name == "macOS").then(crate::personas::host_chip).flatten(),
                     "geolocation": get("geolocation"),
                     // The persona's own values, so a picker can say what
                     // "as the machine has it" means.
@@ -3013,7 +3020,7 @@ impl Agent {
         // makes an impossible machine is refused here exactly like a bad
         // catalogue entry, not launched.
         let persona = crate::personas::load(&profile.persona_id)?;
-        let persona = profile
+        let mut persona = profile
             .overrides
             .apply(&persona, &crate::personas::all())
             .map_err(|errs| {
@@ -3022,6 +3029,7 @@ impl Agent {
                     errs.join("\n  ")
                 )
             })?;
+        crate::personas::fit_to_host(&mut persona, profile.overrides.cores.is_some());
         if let Err(errs) = persona.validate() {
             anyhow::bail!(
                 "persona {} is inconsistent and would stand out:\n  {}",
@@ -3685,7 +3693,7 @@ impl Agent {
 /// launch takes from the exit are fixed here, because no site will see them.
 fn quiet_config(profile: &Profile) -> anyhow::Result<(serde_json::Value, String)> {
     let persona = crate::personas::load(&profile.persona_id)?;
-    let persona = profile
+    let mut persona = profile
         .overrides
         .apply(&persona, &crate::personas::all())
         .map_err(|errs| {
@@ -3694,6 +3702,7 @@ fn quiet_config(profile: &Profile) -> anyhow::Result<(serde_json::Value, String)
                 errs.join("\n  ")
             )
         })?;
+    crate::personas::fit_to_host(&mut persona, profile.overrides.cores.is_some());
     let mut ctx = fury_shared::persona::ProfileContext {
         timezone: "UTC".into(),
         languages: vec!["en-US".into(), "en".into()],

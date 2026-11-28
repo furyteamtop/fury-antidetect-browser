@@ -220,8 +220,13 @@ async fn cmd_launch(args: &[String]) -> anyhow::Result<()> {
             .cloned()
     };
 
-    let persona: fury_shared::persona::Persona =
+    let mut persona: fury_shared::persona::Persona =
         serde_json::from_str(&std::fs::read_to_string(persona_path)?)?;
+    // As a profile launched from the app would, unless --keep-chip says to
+    // measure the persona's own chip and cores (issue #56).
+    if !args.iter().any(|a| a == "--keep-chip") {
+        crate::personas::fit_to_host(&mut persona, false);
+    }
     let seed: u64 = opt("--seed").map_or(Ok(1), |s| s.parse())?;
 
     // Start the exit first. The timezone a profile reports has to match where it
@@ -541,7 +546,11 @@ pub fn core_outdated(exe: &std::path::Path) -> Option<String> {
 ///
 /// 0.6.9 rebuilds both: a desktop profile's pointer and hover media queries
 /// follow its touch points instead of the host's input devices (0130, #43).
-pub const CORE_BUILD: &str = "0.6.9";
+///
+/// 0.7.0 moves both to Chrome 158.0.8127.89. Half-transparent canvas pixels are
+/// one colour in getImageData and in the PNG, and the background beside a drawn
+/// shape is left alone (0030, #46). The macOS core wears Fury's icon again.
+pub const CORE_BUILD: &str = "0.7.0";
 
 /// `0.2.10` as (0, 2, 10); None for anything else.
 pub fn parse_release(s: &str) -> Option<(u32, u32, u32)> {
@@ -598,12 +607,12 @@ pub fn core_stale(exe: &std::path::Path) -> Option<Option<String>> {
 #[cfg(target_os = "macos")]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = Some((
     "../Frameworks/Fury Framework.framework/Versions/Current/Fury Framework",
-    "f8fb49c7692bbb612d4ba925063914b0b674e55786d66e15f42c944a594875d1",
+    "d47de7ac726957a84ef153e4b4f1dbf4621e6ce792fa53d8369d6f1b22587cc2",
 ));
 #[cfg(windows)]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = Some((
     "chrome.dll",
-    "1c9938bed399208ddc87df0c7a2b1f12dee1e7c3a7439eb21d4c710bd2360c98",
+    "25f662fa38b8d5fde1640e4f03a8b4f98bd5b7aa7f3eb59ae7a3db27405c2692",
 ));
 #[cfg(not(any(target_os = "macos", windows)))]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = None;
@@ -691,8 +700,8 @@ pub fn core_binary() -> Option<std::path::PathBuf> {
     // did not build the browser: the shell is 12 MB and downloads with the
     // application, the core is 134 MB and arrives separately.
     //
-    // The directory gained a `.bundle` extension so that Spotlight stops
-    // offering the browser as a second application called Fury; anything
+    // The directory was renamed so that Spotlight stops offering the browser
+    // as a second application called Fury (paths::core_dir); anything
     // installed before that has to be brought along, or it silently stops
     // being found.
     crate::install_core::migrate_legacy_dir();
@@ -821,7 +830,7 @@ fn core_leaves() -> &'static [&'static str] {
     {
         // The subdirectory is not decoration and not a mistake: the Windows
         // archive carries a top-level `Fury\` exactly as the macOS one carries
-        // `Fury.app`, so the leaf is relative to core.bundle and includes it.
+        // `Fury.app`, so the leaf is relative to core_dir and includes it.
         //
         // Without the first two entries `install-core` unpacks a perfectly good
         // core, reports "installed 150.0.7871.187", and every launch afterwards
@@ -848,8 +857,8 @@ fn core_leaves() -> &'static [&'static str] {
 
 /// The core this agent expects to drive. Read from core/CHROMIUM_VERSION at
 /// build time would be better; hard-coded until the two are built together.
-pub const CHROME_MAJOR: u32 = 157;
-pub const CHROME_FULL_VERSION: &str = "157.0.8103.39";
+pub const CHROME_MAJOR: u32 = 158;
+pub const CHROME_FULL_VERSION: &str = "158.0.8127.89";
 
 fn cmd_check_fingerprint(args: &[String]) -> anyhow::Result<()> {
     let path = args

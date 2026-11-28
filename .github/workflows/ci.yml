@@ -175,6 +175,8 @@ jobs:
         working-directory: desktop
       - run: npm run build
         working-directory: desktop
+      # The probe on fake browser objects: no API can hold up a capture.
+      - run: node --test tools/detect-suite/probe.test.mjs
 
   series:
     name: the patch series holds together

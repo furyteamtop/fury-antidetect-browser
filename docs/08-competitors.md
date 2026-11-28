@@ -648,6 +648,30 @@ AdsPower (сентябрь): ограничения доступа к «чувс
 с измерения).
 
 
+## Ядра на 26.11.2026
+
+Пересмотр к выходу 0.7.0. Те же источники, что 05.11; журнал Octo переехал на
+docs.octobrowser.net/en/changelog/octium-changelog/ (старый адрес отдаёт 403).
+Chrome stable 158.0.8127.89 с 17.11, 159 ожидается 08.12.
+
+| Продукт | Ядро | Источник |
+|---|---|---|
+| **Fury 0.7.0** | **Chrome 158.0.8127.89** | этот репозиторий, v0.7.0 |
+| Octo Browser | 158 (19.11; 157 с 05.11) | docs.octobrowser.net, Octium changelog |
+| Undetectable | 158 (25.11, 2.54.0; 157 в 2.53.0 от 10.11) | undetectable.io/blog |
+| ShardBrowser | 158 (20.11, v2.1.6) | README ProxyShard/ShardBrowser; номер заявлен ими, в заметках к релизу его нет |
+| AdsPower | 157 (18.11, Windows, macOS и Linux) | adspower.com/release; запись от 24.11 версию не называет |
+| Multilogin (Mimic) | 157 (17.11) | multilogin.com/release-notes |
+| GoLogin Orbita, десктоп | 157 (файл от 24.11) | их CDN: `orbita-browser-latest-157.*` отвечает на HEAD, 158 отдаёт 404; единственный номер, увиденный на файле, а не в тексте |
+| CloakBrowser | 156.0.8078.47 (пересборка 21.11) | GitHub releases |
+| fingerprint-chromium | 150.0.7871.186 (02.10), новее нет | GitHub releases |
+| Dolphin Anty | 144, низкая уверенность: новее поста от 08.08 ничего не нашли | блог dolphin-anty.com |
+| Camoufox | Firefox 159.0-beta.43 (22.11) | GitHub releases |
+
+Год у релизов CloakBrowser, ShardBrowser, fingerprint-chromium и Camoufox на
+страницах не указан и выведен по соседним датам. Fury по ядру вровень с Octo,
+Undetectable и ShardBrowser, не впереди.
+
 ## Ядра на 05.11.2026
 
 Пересмотр к выходу 0.5.0. Смотрели только продукты с лендинга и CloakBrowser,

@@ -221,6 +221,9 @@ textarea {
 
 .foot > * {
   margin-bottom: var(--s-1);
+  /* The foot aligns its rows to the start, so a row is as wide as its content
+     unless capped here: a long machine name pushed the gear past the sidebar. */
+  max-width: 100%;
 }
 
 .main {
@@ -1275,6 +1278,11 @@ input::placeholder {
   display: flex;
   align-items: center;
   gap: var(--s-2);
+  align-self: stretch;
+}
+
+.footRow > .iconBtn {
+  flex: none;
 }
 
 .footRow > .muted {

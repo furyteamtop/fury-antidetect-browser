@@ -53,7 +53,7 @@ index 1da016bb58..c2adba88ab 100644
  
  P2PPortAllocator::~P2PPortAllocator() {}
 diff --git a/third_party/webrtc/p2p/BUILD.gn b/third_party/webrtc/p2p/BUILD.gn
-index a22bf19b22..23113cd774 100644
+index 670bb3c..b157d48 100644
 --- a/third_party/webrtc/p2p/BUILD.gn
 +++ b/third_party/webrtc/p2p/BUILD.gn
 @@ -145,6 +145,7 @@ rtc_library("basic_port_allocator") {
@@ -65,7 +65,7 @@ index a22bf19b22..23113cd774 100644
      "../rtc_base:ip_address",
      "../rtc_base:logging",
 diff --git a/third_party/webrtc/p2p/client/basic_port_allocator.cc b/third_party/webrtc/p2p/client/basic_port_allocator.cc
-index bfa7a13114..e8d3b34758 100644
+index d0a9db5..2227674 100644
 --- a/third_party/webrtc/p2p/client/basic_port_allocator.cc
 +++ b/third_party/webrtc/p2p/client/basic_port_allocator.cc
 @@ -44,6 +44,7 @@
@@ -84,8 +84,8 @@ index bfa7a13114..e8d3b34758 100644
  #include "rtc_base/trace_event.h"
  
  namespace webrtc {
-@@ -1436,8 +1438,205 @@ void AllocationSequence::Process(int epoch) {
-   }
+@@ -1441,8 +1443,212 @@ Port::Callbacks BasicPortAllocatorSession::GetPortCallbacks() {
+   return callbacks;
  }
  
 +namespace {
@@ -127,11 +127,11 @@ index bfa7a13114..e8d3b34758 100644
 +// query outside the proxy.
 +class FurySyntheticPort : public Port {
 + public:
-+  FurySyntheticPort(const PortParametersRef& args,
++  FurySyntheticPort(PortParametersRef args,
 +                    std::string hostname,
 +                    const IPAddress& public_ip,
 +                    std::optional<SocketAddress> stun_server)
-+      : Port(args, IceCandidateType::kHost),
++      : Port(std::move(args), IceCandidateType::kHost),
 +        hostname_(std::move(hostname)),
 +        public_ip_(public_ip),
 +        stun_server_(std::move(stun_server)) {}
@@ -280,9 +280,16 @@ index bfa7a13114..e8d3b34758 100644
 +               .ice_username_fragment = session_->username(),
 +               .ice_password = session_->password(),
 +               .content_name = session_->content_name(),
++               .component = session_->component(),
++               .generation = session_->generation(),
++               .send_retransmit_count_attribute =
++                   IsFlagSet(PORTALLOCATOR_ENABLE_STUN_RETRANSMIT_ATTRIBUTE),
 +               .lna_permission_factory =
 +                   session_->allocator()->lna_permission_factory(),
-+               .ice_tiebreaker = session_->allocator()->ice_tiebreaker()},
++               .ice_tiebreaker = session_->allocator()->ice_tiebreaker(),
++               // Since 158 a port reports through callbacks it is built with.
++               // Without them it gathers and nobody hears.
++               .callbacks = session_->GetPortCallbacks()},
 +              synthetic->hostname, synthetic->public_ip, stun_server),
 +          this);
 +      return;
@@ -291,7 +298,7 @@ index bfa7a13114..e8d3b34758 100644
      return;
    }
 diff --git a/third_party/webrtc/p2p/client/basic_port_allocator.h b/third_party/webrtc/p2p/client/basic_port_allocator.h
-index e35b69147e..66363411d7 100644
+index 7c309c2..633e74c 100644
 --- a/third_party/webrtc/p2p/client/basic_port_allocator.h
 +++ b/third_party/webrtc/p2p/client/basic_port_allocator.h
 @@ -16,6 +16,7 @@

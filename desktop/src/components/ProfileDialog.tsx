@@ -886,7 +886,10 @@ export function ProfileDialog({
                                 setPersonaId(p.id);
                               }}
                             >
-                              <div className="name">
+                              <div
+                                className="name"
+                                title={osOf(p) === "Android" ? undefined : t("pd.ovScreenBase", { size: p.screen })}
+                              >
                                 {p.os} · {p.screen}
                               </div>
                               <div className="muted small sub">
@@ -1104,17 +1107,28 @@ export function ProfileDialog({
                 <div className="field">
                   <label htmlFor="p-gpu">{t("pd.gpu")}</label>
                   <div>
-                    <Select
-                      id="p-gpu"
-                      value={overrides.gpu ?? ""}
-                      onChange={(e) => setOv({ gpu: e.target.value || undefined })}
-                    >
-                      <option value="">{t("pd.asMachine", { v: preview?.base ? gpuName(preview.base.gpu) : "…" })}</option>
-                      {(preview?.options?.gpus ?? []).map((g) => (
-                        <option key={g.id} value={g.id}>{gpuName(g.renderer)}</option>
-                      ))}
-                    </Select>
-                    <p className="hint">{t("pd.gpuHint")}</p>
+                    {preview?.host_chip && !overrides.gpu ? (
+                      <>
+                        <Select id="p-gpu" value="" disabled onChange={() => {}}>
+                          <option value="">{preview.host_chip}</option>
+                        </Select>
+                        <p className="hint">{t("pd.gpuHostChip", { chip: preview.host_chip })}</p>
+                      </>
+                    ) : (
+                      <>
+                        <Select
+                          id="p-gpu"
+                          value={overrides.gpu ?? ""}
+                          onChange={(e) => setOv({ gpu: e.target.value || undefined })}
+                        >
+                          <option value="">{t("pd.asMachine", { v: preview?.base ? gpuName(preview.base.gpu) : "…" })}</option>
+                          {(preview?.options?.gpus ?? []).map((g) => (
+                            <option key={g.id} value={g.id}>{gpuName(g.renderer)}</option>
+                          ))}
+                        </Select>
+                        <p className="hint">{t("pd.gpuHint")}</p>
+                      </>
+                    )}
                   </div>
                 </div>
                 {Object.keys(overrides).length > 0 && (
@@ -1272,6 +1286,13 @@ export function ProfileDialog({
                         ? t("pd.ovScreenDetail", { avail: preview.avail ?? "", dpr: preview.device_pixel_ratio ?? "", depth: preview.color_depth })
                         : t("pd.ovScreenDepth", { depth: preview.color_depth })}
                     </span>
+                    {/* The machine above is named with a screen of its own, and
+                        nothing said that sites do not see it (issues #45, #47). */}
+                    {!preview.screen && preview.base && (
+                      <div className="muted small">
+                        {t("pd.ovScreenBase", { size: `${preview.base.screen[0]}×${preview.base.screen[1]}` })}
+                      </div>
+                    )}
                   </dd>
                   <dt>{t("pd.ovGpu")}</dt>
                   <dd className="small">

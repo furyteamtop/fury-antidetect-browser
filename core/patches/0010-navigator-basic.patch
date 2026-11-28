@@ -1,10 +1,10 @@
 diff --git a/net/BUILD.gn b/net/BUILD.gn
-index 228a325df9..aec7f713f0 100644
+index a7353c1507..4f98fe7e1d 100644
 --- a/net/BUILD.gn
 +++ b/net/BUILD.gn
-@@ -1266,6 +1266,7 @@ component("net") {
-   deps = [
+@@ -1271,6 +1271,7 @@ component("net") {
      ":cronet_buildflags",
+     ":http_chunked_decoder_rust",
      ":net_deps",
 +    "//components/fury",
      "//components/network_time/time_tracker",
@@ -21,7 +21,7 @@ index 76b30ad015..2f842cd3e1 100644
    "+components/unexportable_keys",
    "+crypto",
 diff --git a/net/http/http_util.cc b/net/http/http_util.cc
-index a94f6c6320..fc38a18654 100644
+index 533e82db97..6f4bcd3f4c 100644
 --- a/net/http/http_util.cc
 +++ b/net/http/http_util.cc
 @@ -7,6 +7,9 @@

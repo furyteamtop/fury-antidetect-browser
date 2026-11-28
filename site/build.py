@@ -136,8 +136,12 @@ def table_rows(rows, ours_major, lang):
     for r in rows:
         bar = ""
         if not r.get("engine"):
-            width = round(100 * (r["chrome"] - lo + 1) / (hi - lo), 1)
-            bar = f'<span class="barv" style="width:{width}%"></span>'
+            # A share of the cell minus the room the number takes. It used to
+            # be a percentage of the whole cell capped by max-width in the CSS,
+            # and the cap cut every long bar to one length: on 26.11 157 and
+            # 158 (93% and 100%) were drawn the same.
+            share = round((r["chrome"] - lo + 1) / (hi - lo), 3)
+            bar = f'<span class="barv" style="width:calc((100% - 42px) * {share})"></span>'
         name = r["name"]
         if r.get("engine"):
             name += f' <span class="dim">({r["engine"]})</span>'

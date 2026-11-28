@@ -9,10 +9,17 @@ team. No seats, no per-profile pricing, no telemetry.
 
 **[furybrowser.dev](https://furybrowser.dev)** · *[Русская версия](README.ru.md)*
 
+**If Fury is useful to you, please give it a star** (the ⭐ button at the top
+right of this page). That is how people find a free project in a search full
+of paid ones, and it costs you one click. If you want to help with money, it
+pays for the signing certificate and the machine that rebuilds the core for
+every Chrome release: **USDT (TRC20)** `TNvKC6tXKtsxA4tDrjU86zbmwMGuxfmatq`
+([more about it](#support)).
+
 > **Status: in development, and now on both macOS and Windows.** The core builds
 > and spoofs; the agent launches profiles; the server and desktop shell work.
 > Builds are on the [Releases](https://github.com/furyteamtop/fury-antidetect-browser/releases)
-> page, marked pre-release. **macOS builds are signed and notarised since
+> page. **macOS builds are signed and notarised since
 > 21.09.2026; Windows is not** — see below.
 >
 > **Windows works, as of 16.08.2026.** The Chromium core built (57 528 targets),
@@ -140,7 +147,7 @@ desktop (Tauri)  ──socket──▶  agent (Rust)  ──spawn──▶  core
      └──HTTPS──▶ server (optional: teams)
 ```
 
-- **core** — Chromium 157 fork, [41 patches](core/patches/); spoofing is in C++,
+- **core** — Chromium 158 fork, [48 patches](core/patches/); spoofing is in C++,
   never injected JavaScript
 - **agent** — the only component holding decrypted secrets: proxy relays,
   launching, the local automation API
@@ -320,6 +327,7 @@ row says why the alternative is worse.
 | | |
 |---|---|
 | ~~Offline GeoIP~~ | done 09.10.2026 (0.2.23), contributed by @devrahmanbd: the checker field takes the path of a MaxMind `.mmdb` file. The exit address is still asked through the proxy, and country, city and timezone come from your file, so the only third party left is the one that reports the address. No database is bundled |
+| ~~Chromium 158~~ | done 26.11.2026 (0.7.0): both cores moved to 158.0.8127.89, with the canvas fix for BrowserScan's "Canvas Tampering" (issue 46) |
 | ~~Chromium 157~~ | done 05.11.2026 (0.5.0): both cores moved to 157.0.8103.39 |
 | ~~Chromium 155~~ | done: the Windows core moved from 153 to 155.0.8059.12 on 27.09.2026 (0.2.3), macOS on 30.09.2026 (0.2.10). A copy running an older build of the browser is told so and offered the new one (0.2.16). Both moved to the stable 155.0.8059.39, with its 247 security fixes, on 08.10.2026 (0.2.21) |
 | ~~pixelscan and iphey flagging profiles~~ | done 29.09.2026 (0.2.9), with edge noise that keeps the colour in 0.2.10: what they caught were the fonts a persona reported and the shape of the canvas and WebGL noise |

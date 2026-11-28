@@ -311,6 +311,23 @@
       : 'Провалено критичных проверок: ' + failed;
     summary.querySelector('.val').textContent = 'собрано за ' + d.__collectedInMs + ' мс';
     box.appendChild(summary);
+
+    // What the capture did not get. The file still saves: a partial capture
+    // that says so is worth more than a page that never finishes.
+    const cap = d.__capture;
+    if (cap && cap.status !== 'complete') {
+      const part = document.createElement('div');
+      part.className = 'check fail';
+      part.innerHTML = '<div class="verdict">!</div><div class="what"></div><div class="val"></div><div class="why"></div>';
+      part.querySelector('.what').textContent = 'Снято не всё';
+      part.querySelector('.val').textContent = cap.incomplete
+        .map((k) => k + ': ' + (cap.vectors[k].status === 'timeout'
+          ? 'нет ответа за ' + (cap.vectors[k].ms / 1000).toFixed(1) + ' с'
+          : 'ошибка ' + (cap.vectors[k].error || '')))
+        .join(' · ');
+      part.querySelector('.why').textContent = 'Остальное снято, файл можно сохранить. Для каталога снимите ещё раз.';
+      box.appendChild(part);
+    }
   }
 
   $('run').onclick = async () => {

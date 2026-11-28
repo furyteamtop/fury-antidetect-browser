@@ -1,20 +1,20 @@
 diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
-index b58905ddb3..5270b94ada 100644
+index f0f529901a..0ebab7f3f2 100644
 --- a/chrome/browser/BUILD.gn
 +++ b/chrome/browser/BUILD.gn
-@@ -2379,6 +2379,7 @@ source_set("browser") {
-     "//components/embedder_support:user_agent",
+@@ -2702,6 +2702,7 @@ source_set("browser") {
+     "//components/enterprise/net/content",
      "//components/facilitated_payments/core/features",
      "//components/feature_engagement",
 +    "//components/fury",
      "//components/history/content/browser",
      "//components/history_clusters/core",
-     "//components/keyed_service/content",
+     "//components/input",
 diff --git a/chrome/browser/DEPS b/chrome/browser/DEPS
-index 75ec838316..e945c5570c 100644
+index bc3777062a..b1427a2acc 100644
 --- a/chrome/browser/DEPS
 +++ b/chrome/browser/DEPS
-@@ -254,6 +254,7 @@ include_rules = [
+@@ -255,6 +255,7 @@ include_rules = [
    "+components/optimization_guide/optimization_guide_internals",
    "+components/origin_gating",
    "+components/origin_trials",
@@ -23,7 +23,7 @@ index 75ec838316..e945c5570c 100644
    "+components/ownership",
    "+components/page_image_service",
 diff --git a/chrome/browser/renderer_preferences_util.cc b/chrome/browser/renderer_preferences_util.cc
-index 2b542a4814..5cacb00634 100644
+index 1186e59080..ce5e65c18e 100644
 --- a/chrome/browser/renderer_preferences_util.cc
 +++ b/chrome/browser/renderer_preferences_util.cc
 @@ -16,6 +16,7 @@
@@ -34,7 +34,7 @@ index 2b542a4814..5cacb00634 100644
  #include "content/public/browser/reduce_accept_language_utils.h"
  #if BUILDFLAG(IS_CHROMEOS)
  #include "chrome/browser/ash/login/demo_mode/demo_session.h"
-@@ -204,6 +205,73 @@ void UpdateFromSystemSettings(blink::RendererPreferences* prefs,
+@@ -206,6 +207,73 @@ void UpdateFromSystemSettings(blink::RendererPreferences* prefs,
                   &prefs->webrtc_udp_min_port, &prefs->webrtc_udp_max_port);
    prefs->webrtc_local_ips_allowed_urls = GetLocalIpsAllowedUrls(
        pref_service->GetList(prefs::kWebRtcLocalIpsAllowedUrls));

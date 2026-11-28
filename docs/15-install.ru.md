@@ -2,7 +2,7 @@
 
 > **Релизы есть; для macOS они подписаны, для Windows — нет.** На странице
 > [Releases](https://github.com/furyteamtop/fury-antidetect-browser/releases)
-> сборки лежат с 18.08.2026; текущая — 0.6.9 для Windows x64 и macOS
+> сборки лежат с 18.08.2026; текущая — 0.7.3 для Windows x64 и macOS
 > на Apple Silicon. К каждой приложены `SHA256SUMS` и
 > `REPORT.md` — измерение, которое ядро прошло перед публикацией. С 21.09.2026
 > приложение, ядро и образ диска для macOS подписаны Developer ID и
@@ -70,8 +70,8 @@ macOS-фреймворк, снимает карантинный флаг, кот
 стартует**. Если напечаталась версия, ядро установлено:
 
 ```
-installed Fury 157.0.8103.39
-  /Users/you/Library/Application Support/Fury/core.bundle/Fury.app/Contents/MacOS/Fury
+installed Fury 158.0.8127.89
+  /Users/you/Library/Application Support/Fury/core.noindex/Fury.app/Contents/MacOS/Fury
 ```
 
 Спросить, что установлено, можно в любой момент:
@@ -206,8 +206,9 @@ Rust под Linux по-прежнему компилируется — там р
 ~/Library/Application Support/Fury/
   fury.db          профили, прокси, персоны, проекты
   profiles/        данные браузера по профилям — куки, вкладки, закладки
-  core.bundle/     установленный браузер (пакет, чтобы в поиске
-                   был один Fury, а не два)
+  core.noindex/    установленный браузер (вне Spotlight, чтобы в поиске
+                   был один Fury, а не два; до 0.7.0 лежал в core.bundle
+                   и переезжает при первом запуске новой версии)
   dock.noindex/    macOS: клон браузера на каждый открытый профиль, с его именем
                    для Dock; клоны APFS, реального места не занимают
 ```

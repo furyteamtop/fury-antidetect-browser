@@ -7,6 +7,7 @@ import { RecoveryKey } from "./RecoveryKey";
 import { SecondFactor } from "./SecondFactor";
 import { languageNames, languages, useI18n, type Language } from "../i18n";
 import { type Theme, themes, useTheme } from "../theme";
+import { useWhenStyle, when, whenStyles } from "../when";
 import { Select } from "./Select";
 import { DEFAULT_SERVER } from "../defaults";
 import { Icon, type IconName } from "./Icon";
@@ -55,7 +56,8 @@ export function Settings({
   initialTab?: Tab;
 }) {
   const [theme, setTheme] = useTheme();
-  const { t, language, setLanguage } = useI18n();
+  const { t, language, resolved, setLanguage } = useI18n();
+  const [whenStyle, setWhenStyle] = useWhenStyle();
   const [tab, setTab] = useState<Tab>(initialTab ?? "general");
   // Prefilled with the server this machine used last. The first screen already
   // does this, and somebody working locally never reaches the first screen --
@@ -124,6 +126,20 @@ export function Settings({
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div className="settingsGroup">
+                <h2>{t("col.lastOpened")}</h2>
+                <p>{t("set.whenHint")}</p>
+                {/* Each button is an example of itself, so the labels need no
+                    words of their own in fifteen languages. */}
+                <div className="segmented">
+                  {whenStyles.map((w) => (
+                    <button key={w} aria-pressed={whenStyle === w} onClick={() => setWhenStyle(w)}>
+                      {when(new Date(Date.now() - 4 * 3_600_000).toISOString(), w, resolved).text}
+                    </button>
+                  ))}
+                </div>
               </div>
             </>
           )}

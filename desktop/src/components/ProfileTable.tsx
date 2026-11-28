@@ -10,6 +10,7 @@ import { platformOf } from "../platform";
 import { assess } from "../consistency";
 import { isSuggested, statusHue } from "../status";
 import { sortRows, useSort } from "../sort";
+import { useWhenStyle, when } from "../when";
 import { SortTh } from "./SortTh";
 import { proxyActionKey, proxyExit, type ProxyAction } from "../proxyAction";
 
@@ -126,7 +127,8 @@ export function ProfileTable({
    *  the same value on every row. */
   showProject: boolean;
 }) {
-  const { t } = useI18n();
+  const { t, resolved } = useI18n();
+  const [whenStyle] = useWhenStyle();
   // Marked whenever there IS a server and the row is not on it.
   //
   // The first rule was "only when the list holds both kinds", and it was wrong
@@ -462,7 +464,12 @@ export function ProfileTable({
                 {/* docs/12: the metric that matters to someone running accounts
                     is which profiles have gone stale. A profile untouched for
                     two months behaves differently from a live one. */}
-                {p.last_opened_at ? new Date(p.last_opened_at).toLocaleString() : t("row.never")}
+                {p.last_opened_at
+                  ? (() => {
+                      const w = when(p.last_opened_at, whenStyle, resolved);
+                      return <span title={w.title}>{w.text}</span>;
+                    })()
+                  : t("row.never")}
                 {/* What it weighs where the team keeps it, and on hover what
                     that is. "How big will a profile be, and what goes to the
                     server -- cookies, history?" was a tester's question

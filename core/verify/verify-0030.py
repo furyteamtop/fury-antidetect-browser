@@ -235,6 +235,67 @@ BLOB = """
 """ % {"draw": DRAW}
 
 
+# Half-transparent content, which the scene above has none of, and where every
+# claim above passed while BrowserScan said "Canvas Tampering" (issue 46,
+# 26.11.2026). On core 157 the PNG paths got unpremultiplied pixels and clamped
+# their colours to alpha, and the noise reached the flat background beside a
+# glyph. The first 158 build fixed both and still moved every pixel of a
+# half-transparent fill by one level (its own conversion from premultiplied
+# rounded a tie the other way from Chrome's), and 20 noised pixels of a line of
+# text read back changed from their own PNG.
+#
+# BrowserScan asks all of it: the same drawing through an OffscreenCanvas and an
+# on-screen one, a canvas drawn from its own PNG read back against the original,
+# and the pixels around one letter on a half-transparent fill.
+ALPHA = """
+(async () => {
+  const W = 120, H = 60;
+  const blobUrl = (b) => new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result); f.readAsDataURL(b); });
+  const img = (u) => new Promise(r => { const i = new Image(); i.onload = () => r(i); i.src = u; });
+  const scenes = {
+    text: (x) => {
+      x.fillStyle = '#f60'; x.fillRect(50, 1, 31, 20);
+      x.fillStyle = '#069'; x.font = '11pt serif'; x.fillText('Cwm fjord', 2, 15);
+      x.fillStyle = 'rgba(102, 204, 0, 0.2)'; x.font = '18pt sans-serif'; x.fillText('Cwm', 4, 45);
+    },
+    veil: (x) => {
+      x.fillStyle = 'rgba(102,102,102,0.4)'; x.fillRect(0, 0, W, H);
+      x.font = '18px serif'; x.fillText('H', 40, 30);
+    },
+  };
+  const hex = (d) => Array.from(d).map(v => v.toString(16).padStart(2, '0')).join('');
+  const out = {};
+  for (const [name, draw] of Object.entries(scenes)) {
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const x = c.getContext('2d'); draw(x);
+    const url = c.toDataURL();
+    const direct = x.getImageData(0, 0, W, H).data;
+    const c2 = document.createElement('canvas'); c2.width = W; c2.height = H;
+    const x2 = c2.getContext('2d'); x2.drawImage(await img(url), 0, 0);
+    const back = x2.getImageData(0, 0, W, H).data;
+    const o = new OffscreenCanvas(W, H); draw(o.getContext('2d'));
+    out[name] = {
+      url, direct: hex(direct),
+      blob: await new Promise(r => c.toBlob(b => blobUrl(b).then(r))),
+      offscreen: await blobUrl(await o.convertToBlob()),
+      backWrong: direct.reduce((n, v, i) => n + (v !== back[i]), 0),
+    };
+  }
+  return JSON.stringify(out);
+})()
+"""
+
+
+def one_image(scene):
+    """toBlob's and convertToBlob's pixels, compared decoded. toDataURL is not
+    one of them: an unconfigured build already encodes a half-transparent
+    pixel there one level off from toBlob (premultiplied 41 at alpha 102 is
+    103 in toDataURL and getImageData, 102 in toBlob and convertToBlob, core
+    158 on macOS, 26.11.2026), and the PNG bytes differ even where the pixels
+    do not. What a page can compare is what real Chrome already keeps equal."""
+    return decode_png(scene["blob"])[2] == decode_png(scene["offscreen"])[2]
+
+
 def decode_png(data_url):
     """The pixels out of a canvas PNG: 8-bit RGBA, non-interlaced, always.
 
@@ -351,6 +412,19 @@ def main():
                      "toBlob() on the main thread matches getImageData byte for "
                      "byte — the progressive encoder is noised too")
 
+        alpha_a = json.loads(s.js(ALPHA))
+        for name, scene in alpha_a.items():
+            _, _, px = decode_png(scene["url"])
+            claims.check(px.hex() == scene["direct"],
+                         f"{name}: half-transparent pixels are the same colour "
+                         f"in the PNG as in getImageData")
+            claims.check(one_image(scene),
+                         f"{name}: toBlob and an OffscreenCanvas's "
+                         f"convertToBlob encode one image")
+            claims.check(scene["backWrong"] == 0,
+                         f"{name}: drawn back from its own PNG it reads the "
+                         f"same ({scene['backWrong']} bytes differ)")
+
     with launch(CORE, {"noise": {"canvasSeed": SEED_B}}) as s:
         b = json.loads(s.js(READ))
         print(f"  seed B canvas hash: {hashlib.sha256(b['whole'].encode()).hexdigest()[:16]}")
@@ -361,6 +435,22 @@ def main():
     with launch(CORE, None) as s:
         bare = json.loads(s.js(READ))
         bare_worker = s.js(WORKER)
+        alpha_bare = json.loads(s.js(ALPHA))
+        for name, scene in alpha_bare.items():
+            _, _, px = decode_png(scene["url"])
+            claims.control(px.hex() == scene["direct"] and scene["backWrong"] == 0
+                           and one_image(scene),
+                           f"{name}: an unconfigured build passes the same three")
+        va = bytes.fromhex(alpha_a["veil"]["direct"])
+        vb = bytes.fromhex(alpha_bare["veil"]["direct"])
+        ground = vb[:4]
+        veil_moved = sum(va[i:i + 4] != vb[i:i + 4] for i in range(0, len(va), 4)
+                         if vb[i:i + 4] == ground)
+        claims.check(veil_moved == 0,
+                     f"veil: the background beside a glyph is where nothing was "
+                     f"drawn, and is not touched ({veil_moved} pixels moved)")
+        claims.check(alpha_a["text"]["direct"] != alpha_bare["text"]["direct"],
+                     "text: and the glyphs on it still are")
         ga, gb = bytes.fromhex(a["glyphs"]["hex"]), bytes.fromhex(bare["glyphs"]["hex"])
         # By one step, measured where the step is taken. Coverage moves by one
         # and the colour must stay the fill colour, but getImageData hands back
