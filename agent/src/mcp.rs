@@ -172,34 +172,86 @@ const TOOLS: &[Tool] = &[
     Tool {
         name: "fury_read_page",
         description: "The current page of an open profile: address, title, visible text, and a numbered list of \
-                      links, buttons and fields. Use the numbers with fury_click and fury_type.",
+                      links, buttons, fields, radio buttons, drop-downs and options, with their state (checked, \
+                      selected, expanded, value). Use the numbers with fury_click, fury_type and fury_scroll. \
+                      File inputs come in a list of their own, file_inputs, for fury_upload. To read less, pass \
+                      within (only inside element N, e.g. an open dialog) or filter (only elements whose label \
+                      contains this text); the numbers stay the same either way.",
         schema: || json!({ "type": "object", "properties": {
             "profile": profile_arg(),
             "max_chars": { "type": "integer", "description": "Text to return, default 8000, at most 100000" },
+            "within": { "type": "integer", "description": "Only the text and elements inside element N" },
+            "filter": { "type": "string", "description": "Only elements whose label contains this text (any case)" },
         }, "required": ["profile"] }),
     },
     Tool {
         name: "fury_click",
-        description: "Click element N from the last fury_read_page, as a mouse click at its position.",
+        description: "Click element N from the last fury_read_page, as a mouse click at its position. For something \
+                      the read does not list, click a point instead: x and y are pixels of the picture \
+                      fury_screenshot returns (its width and height say the size).",
         schema: || json!({ "type": "object", "properties": {
             "profile": profile_arg(),
             "element": { "type": "integer", "description": "The number from fury_read_page" },
-        }, "required": ["profile", "element"] }),
+            "x": { "type": "number", "description": "Or a point: pixels from the left of the screenshot" },
+            "y": { "type": "number", "description": "and pixels from its top" },
+        }, "required": ["profile"] }),
     },
     Tool {
         name: "fury_type",
-        description: "Type text into element N (it is clicked first), or into whatever has focus. \
-                      submit presses Enter afterwards.",
+        description: "Type text into element N (it is clicked first), or into whatever has focus. The text goes in \
+                      at the cursor, after what the field already holds; replace: true replaces the field's \
+                      contents instead (with empty text it clears the field). submit presses Enter afterwards.",
         schema: || json!({ "type": "object", "properties": {
             "profile": profile_arg(),
             "text": { "type": "string" },
             "element": { "type": "integer", "description": "The number from fury_read_page" },
+            "replace": { "type": "boolean", "description": "Replace what the field holds instead of adding to it" },
             "submit": { "type": "boolean" },
         }, "required": ["profile", "text"] }),
     },
     Tool {
+        name: "fury_press",
+        description: "Press a key in an open profile, sent to whatever has focus: Enter, Tab, Escape, Backspace, \
+                      Delete, Space, ArrowUp/Down/Left/Right, Home, End, PageUp, PageDown, a letter or a digit, \
+                      with modifiers joined by +, e.g. Shift+Tab or Cmd+A. Returns what has focus afterwards.",
+        schema: || json!({ "type": "object", "properties": {
+            "profile": profile_arg(),
+            "key": { "type": "string", "description": "e.g. Enter, Escape, ArrowDown, Shift+Tab, Cmd+A" },
+            "times": { "type": "integer", "description": "Press it this many times, 1-50 (default 1)" },
+        }, "required": ["profile", "key"] }),
+    },
+    Tool {
+        name: "fury_scroll",
+        description: "Turn the mouse wheel in an open profile: over element N, over a point of the screenshot, or \
+                      over the middle of the page. What is under the pointer scrolls, so a panel with its own \
+                      scroll bar scrolls on its own. Default is most of a screen down. moved says whether \
+                      anything moved (false at the end of the list).",
+        schema: || json!({ "type": "object", "properties": {
+            "profile": profile_arg(),
+            "element": { "type": "integer", "description": "Scroll with the pointer over this element" },
+            "x": { "type": "number", "description": "Or over this point of the screenshot" },
+            "y": { "type": "number" },
+            "dy": { "type": "number", "description": "Pixels down; negative is up" },
+            "dx": { "type": "number", "description": "Pixels right; negative is left" },
+        }, "required": ["profile"] }),
+    },
+    Tool {
+        name: "fury_upload",
+        description: "Give files to a file input on the page, as choosing them in the system's file dialog would, \
+                      with no dialog and no size limit. Open the page's upload dialog first; fury_read_page lists \
+                      the inputs under file_inputs. Only files in the person's home folder can be sent, not in \
+                      hidden or application folders. Ask the person before uploading anything they did not name.",
+        schema: || json!({ "type": "object", "properties": {
+            "profile": profile_arg(),
+            "path": { "type": "string", "description": "Full path of the file" },
+            "paths": { "type": "array", "items": { "type": "string" }, "description": "Or several, for an input that takes several" },
+            "input": { "type": "integer", "description": "Which file input, from file_inputs; not needed when there is one" },
+        }, "required": ["profile"] }),
+    },
+    Tool {
         name: "fury_screenshot",
-        description: "A picture of what an open profile's tab shows now.",
+        description: "A picture of what an open profile's tab shows now, at the page's own size: width and height \
+                      are the picture's, and a point in it is what fury_click and fury_scroll take as x and y.",
         schema: || json!({ "type": "object", "properties": { "profile": profile_arg() }, "required": ["profile"] }),
     },
     Tool {
@@ -472,15 +524,33 @@ async fn call_tool(backend: &Backend, name: &str, args: &Value) -> anyhow::Resul
         "fury_read_page" => {
             let (id, _) = resolve(backend, args).await?;
             let mut p = json!({ "id": id });
-            if let Some(n) = args.get("max_chars").and_then(Value::as_u64) {
-                p["max_chars"] = json!(n);
+            for key in ["max_chars", "within"] {
+                if let Some(n) = args.get(key).and_then(Value::as_u64) {
+                    p[key] = json!(n);
+                }
+            }
+            if let Some(f) = s(args, "filter") {
+                p["filter"] = json!(f);
             }
             Ok(text(&backend("page.read", p).await?))
         }
         "fury_click" => {
             let (id, _) = resolve(backend, args).await?;
-            let n = args.get("element").and_then(Value::as_u64).ok_or_else(|| anyhow::anyhow!("element is required"))?;
-            Ok(text(&backend("page.click", json!({ "id": id, "element": n })).await?))
+            let mut p = json!({ "id": id });
+            match (
+                args.get("element").and_then(Value::as_u64),
+                args.get("x").and_then(Value::as_f64),
+                args.get("y").and_then(Value::as_f64),
+            ) {
+                (Some(n), None, None) => p["element"] = json!(n),
+                (None, Some(x), Some(y)) => {
+                    p["x"] = json!(x);
+                    p["y"] = json!(y);
+                }
+                (Some(_), _, _) => anyhow::bail!("give an element number or x and y, not both"),
+                _ => anyhow::bail!("element, or x and y from fury_screenshot, is required"),
+            }
+            Ok(text(&backend("page.click", p).await?))
         }
         "fury_type" => {
             let (id, _) = resolve(backend, args).await?;
@@ -488,11 +558,48 @@ async fn call_tool(backend: &Backend, name: &str, args: &Value) -> anyhow::Resul
                 "id": id,
                 "text": args.get("text").and_then(Value::as_str).unwrap_or_default(),
                 "submit": args.get("submit").and_then(Value::as_bool).unwrap_or(false),
+                "replace": args.get("replace").and_then(Value::as_bool).unwrap_or(false),
             });
             if let Some(n) = args.get("element").and_then(Value::as_u64) {
                 p["element"] = json!(n);
             }
             Ok(text(&backend("page.type", p).await?))
+        }
+        "fury_press" => {
+            let (id, _) = resolve(backend, args).await?;
+            let key = s(args, "key").ok_or_else(|| anyhow::anyhow!("key is required, e.g. Enter or Shift+Tab"))?;
+            let mut p = json!({ "id": id, "key": key });
+            if let Some(n) = args.get("times").and_then(Value::as_u64) {
+                p["times"] = json!(n);
+            }
+            Ok(text(&backend("page.press", p).await?))
+        }
+        "fury_scroll" => {
+            let (id, _) = resolve(backend, args).await?;
+            let mut p = json!({ "id": id });
+            for key in ["element", "x", "y", "dx", "dy"] {
+                if let Some(v) = args.get(key).filter(|v| v.is_number()) {
+                    p[key] = v.clone();
+                }
+            }
+            Ok(text(&backend("page.scroll", p).await?))
+        }
+        "fury_upload" => {
+            let (id, _) = resolve(backend, args).await?;
+            let mut p = json!({ "id": id });
+            if let Some(path) = s(args, "path") {
+                p["path"] = json!(path);
+            }
+            if let Some(list) = args.get("paths").and_then(Value::as_array) {
+                p["paths"] = json!(list);
+            }
+            if p.get("path").is_none() && p.get("paths").is_none() {
+                anyhow::bail!("path is required: the full path of the file");
+            }
+            if let Some(n) = args.get("input").and_then(Value::as_u64) {
+                p["input"] = json!(n);
+            }
+            Ok(text(&backend("page.upload", p).await?))
         }
         "fury_screenshot" => {
             let (id, _) = resolve(backend, args).await?;
@@ -939,5 +1046,68 @@ mod tests {
         let r = handle(&*b, json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call",
                                     "params": { "name": "profiles.delete", "arguments": {} } })).await.unwrap();
         assert_eq!(r["error"]["code"], -32602);
+    }
+
+    /// What each page tool hands the agent, through a backend that records it.
+    fn recorder() -> (Box<Backend>, std::sync::Arc<std::sync::Mutex<Vec<(String, Value)>>>) {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = seen.clone();
+        let b: Box<Backend> = Box::new(move |method, params| {
+            let log = log.clone();
+            Box::pin(async move {
+                Ok(match method {
+                    "profiles.list" => json!([{ "id": "p1", "name": "Studio", "tags": [], "running": true }]),
+                    _ => {
+                        log.lock().unwrap().push((method.to_string(), params));
+                        json!({ "url": "https://a" })
+                    }
+                })
+            })
+        });
+        (b, seen)
+    }
+
+    #[tokio::test]
+    async fn a_click_takes_an_element_or_a_point_but_not_both() {
+        let (b, seen) = recorder();
+        assert_eq!(call(&*b, "fury_click", json!({ "profile": "p1", "x": 120, "y": 48.5 })).await["isError"], false);
+        assert_eq!(call(&*b, "fury_click", json!({ "profile": "p1", "element": 4 })).await["isError"], false);
+        assert_eq!(call(&*b, "fury_click", json!({ "profile": "p1", "element": 4, "x": 1, "y": 2 })).await["isError"], true);
+        assert_eq!(call(&*b, "fury_click", json!({ "profile": "p1", "x": 1 })).await["isError"], true);
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2, "refused calls reach nothing: {seen:?}");
+        assert_eq!((seen[0].1["x"].as_f64(), seen[0].1["y"].as_f64()), (Some(120.0), Some(48.5)));
+        assert!(seen[0].1.get("element").is_none());
+        assert_eq!(seen[1].1["element"], 4);
+    }
+
+    #[tokio::test]
+    async fn type_replaces_only_when_asked() {
+        let (b, seen) = recorder();
+        call(&*b, "fury_type", json!({ "profile": "p1", "text": "Not Again, Ray", "element": 2, "replace": true })).await;
+        call(&*b, "fury_type", json!({ "profile": "p1", "text": "more" })).await;
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen[0].1["replace"], true);
+        assert_eq!(seen[1].1["replace"], false, "appending stays the default: {seen:?}");
+    }
+
+    #[tokio::test]
+    async fn keys_scrolls_reads_and_uploads_reach_the_agent_as_given() {
+        let (b, seen) = recorder();
+        call(&*b, "fury_press", json!({ "profile": "p1", "key": "Shift+Tab", "times": 3 })).await;
+        call(&*b, "fury_scroll", json!({ "profile": "p1", "element": 9, "dy": -300, "x": "junk" })).await;
+        call(&*b, "fury_read_page", json!({ "profile": "p1", "within": 12, "filter": " Brasil ", "max_chars": 500 })).await;
+        call(&*b, "fury_upload", json!({ "profile": "p1", "path": "/Users/me/Movies/ep1.mp4", "input": 1 })).await;
+        assert_eq!(call(&*b, "fury_upload", json!({ "profile": "p1" })).await["isError"], true);
+        assert_eq!(call(&*b, "fury_press", json!({ "profile": "p1" })).await["isError"], true);
+        let seen = seen.lock().unwrap();
+        let methods: Vec<&str> = seen.iter().map(|(m, _)| m.as_str()).collect();
+        assert_eq!(methods, ["page.press", "page.scroll", "page.read", "page.upload"]);
+        assert_eq!((seen[0].1["key"].as_str(), seen[0].1["times"].as_u64()), (Some("Shift+Tab"), Some(3)));
+        assert_eq!(seen[1].1["dy"], -300);
+        assert!(seen[1].1.get("x").is_none(), "a non-number is not passed on: {:?}", seen[1].1);
+        assert_eq!((seen[2].1["within"].as_u64(), seen[2].1["filter"].as_str()), (Some(12), Some("Brasil")));
+        assert_eq!(seen[3].1["path"], "/Users/me/Movies/ep1.mp4");
+        assert_eq!(seen[3].1["input"], 1);
     }
 }
